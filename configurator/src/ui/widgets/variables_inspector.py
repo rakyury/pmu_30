@@ -73,17 +73,46 @@ class VariablesInspector(QWidget):
         self.pmu_section = QTreeWidgetItem(self.tree, ["PMU", "", ""])
         self.pmu_section.setExpanded(True)
 
-        pmu_vars = [
+        # PMU System Status subsection
+        self.pmu_system = QTreeWidgetItem(self.pmu_section, ["System Status", "", ""])
+        self.pmu_system.setExpanded(True)
+
+        pmu_system_vars = [
             ("Board temperature 1", "?", "°C"),
-            ("Battery voltage", "?", "V"),
             ("Board temperature 2", "?", "°C"),
+            ("Battery voltage", "?", "V"),
             ("5V output", "?", "V"),
             ("Board 3V3", "?", "V"),
             ("Flash temperature", "?", "°C"),
+            ("Total current", "?", "A"),
         ]
 
-        for name, value, unit in pmu_vars:
-            item = QTreeWidgetItem(self.pmu_section, [name, value, unit])
+        for name, value, unit in pmu_system_vars:
+            item = QTreeWidgetItem(self.pmu_system, [name, value, unit])
+
+        # PMU Status Flags subsection
+        self.pmu_flags = QTreeWidgetItem(self.pmu_section, ["Status Flags", "", ""])
+        self.pmu_flags.setExpanded(True)
+
+        pmu_flag_vars = [
+            ("Reset detector", "?", ""),
+            ("Status", "?", ""),
+            ("User error", "?", ""),
+            ("Is turning off", "?", ""),
+            ("HW OUT active mask", "?", ""),
+        ]
+
+        for name, value, unit in pmu_flag_vars:
+            item = QTreeWidgetItem(self.pmu_flags, [name, value, unit])
+
+        # PMU Outputs subsection
+        self.pmu_outputs = QTreeWidgetItem(self.pmu_section, ["Outputs Status", "", ""])
+        self.pmu_outputs.setExpanded(False)
+
+        # Create 30 output indicators (.o1 through .o30)
+        for i in range(1, 31):
+            output_name = f".o{i}"
+            item = QTreeWidgetItem(self.pmu_outputs, [output_name, "?", ""])
 
     def _update_values(self):
         """Update real-time values (when connected to device)."""

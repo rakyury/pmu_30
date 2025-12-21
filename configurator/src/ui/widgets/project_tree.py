@@ -35,17 +35,17 @@ class ProjectTree(QWidget):
 
         style = app.style()
         icon_map = {
-            "outputs": QStyle.StandardPixmap.SP_MediaPlay,
-            "inputs": QStyle.StandardPixmap.SP_ArrowRight,
-            "logic": QStyle.StandardPixmap.SP_FileIcon,
-            "switches": QStyle.StandardPixmap.SP_DialogYesButton,
-            "can": QStyle.StandardPixmap.SP_DriveNetIcon,
-            "timers": QStyle.StandardPixmap.SP_BrowserReload,
-            "tables": QStyle.StandardPixmap.SP_FileDialogListView,
-            "numbers": QStyle.StandardPixmap.SP_DialogOkButton,
-            "hbridge": QStyle.StandardPixmap.SP_ComputerIcon,
-            "pid": QStyle.StandardPixmap.SP_FileDialogDetailedView,
-            "lua": QStyle.StandardPixmap.SP_FileDialogContentsView,
+            "outputs": QStyle.StandardPixmap.SP_ArrowForward,  # Output arrow
+            "inputs": QStyle.StandardPixmap.SP_ArrowBack,  # Input arrow
+            "logic": QStyle.StandardPixmap.SP_CommandLink,  # Logic/command
+            "switches": QStyle.StandardPixmap.SP_DialogApplyButton,  # Switch/toggle
+            "can": QStyle.StandardPixmap.SP_DriveNetIcon,  # Network/CAN bus
+            "timers": QStyle.StandardPixmap.SP_BrowserReload,  # Timer/reload
+            "tables": QStyle.StandardPixmap.SP_FileDialogDetailedView,  # Table grid
+            "numbers": QStyle.StandardPixmap.SP_FileDialogInfoView,  # Numeric info
+            "hbridge": QStyle.StandardPixmap.SP_DriveHDIcon,  # H-Bridge/motor
+            "pid": QStyle.StandardPixmap.SP_DesktopIcon,  # PID controller
+            "lua": QStyle.StandardPixmap.SP_FileDialogContentsView,  # Script/code
         }
 
         pixmap_type = icon_map.get(category, QStyle.StandardPixmap.SP_DirIcon)

@@ -257,7 +257,7 @@ class SettingsTab(QWidget):
             "© 2025 R2 m-sport. All rights reserved.<br>"
             "<br>"
             "<b>Device Specifications:</b><br>"
-            "• 30 PROFET High-Side Outputs<br>"
+            "• 30 High-Side Outputs<br>"
             "• 4 Dual H-Bridge Motor Drivers<br>"
             "• 20 Analog/Digital Inputs<br>"
             "• CAN FD Interface<br>"

@@ -38,6 +38,7 @@
 #include "pmu_lua.h"
 #include "pmu_protocol.h"
 #include "pmu_config_json.h"
+#include "pmu_channel.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -115,6 +116,7 @@ int main(void)
     PMU_CAN_Init();
     PMU_ADC_Init();
     PMU_Protection_Init();
+    PMU_Channel_Init();      /* Initialize universal channel abstraction */
     PMU_Logic_Init();
     PMU_Logging_Init();
     PMU_UI_Init();
@@ -198,6 +200,9 @@ static void vControlTask(void *pvParameters)
 
         /* Read all analog inputs */
         PMU_ADC_Update();
+
+        /* Update channel abstraction layer */
+        PMU_Channel_Update();
 
         /* Execute logic engine (500Hz, every 2nd cycle) */
         if (++logic_counter >= 2) {

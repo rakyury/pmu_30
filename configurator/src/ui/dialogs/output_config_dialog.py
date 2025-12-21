@@ -1,6 +1,6 @@
 """
 Output Channel Configuration Dialog
-Configures one of 30 PROFET 2 high-side switch outputs
+Configures one of 30 high-side switch outputs
 """
 
 from PyQt6.QtWidgets import (
@@ -13,16 +13,17 @@ from typing import Dict, Any, Optional
 
 
 class OutputConfigDialog(QDialog):
-    """Dialog for configuring a single PROFET 2 output channel."""
+    """Dialog for configuring a single high-side output channel."""
 
-    def __init__(self, parent=None, output_config: Optional[Dict[str, Any]] = None, used_channels=None):
+    def __init__(self, parent=None, output_config: Optional[Dict[str, Any]] = None, used_channels=None, available_channels=None):
         super().__init__(parent)
         self.output_config = output_config
         self.used_channels = used_channels or []
+        self.available_channels = available_channels or []  # List of all available channels/functions
 
         self.setWindowTitle("Output Channel Configuration")
         self.setModal(True)
-        self.resize(500, 550)
+        self.resize(500, 650)
 
         self._init_ui()
 
@@ -47,15 +48,29 @@ class OutputConfigDialog(QDialog):
         self.name_edit.setPlaceholderText("e.g., Fuel Pump, Starter, Headlights")
         basic_layout.addRow("Name:", self.name_edit)
 
+        # Control mode selection
+        self.control_mode_combo = QComboBox()
+        self.control_mode_combo.addItems(["Manual (Checkbox)", "Controlled by Function"])
+        self.control_mode_combo.currentTextChanged.connect(self._on_control_mode_changed)
+        basic_layout.addRow("Control Mode:", self.control_mode_combo)
+
+        # Manual enable checkbox
         self.enabled_check = QCheckBox("Output Enabled")
         self.enabled_check.setChecked(True)
         basic_layout.addRow("", self.enabled_check)
+
+        # Function control
+        self.control_function_combo = QComboBox()
+        self.control_function_combo.setEditable(True)
+        self.control_function_combo.addItems(self.available_channels)
+        self.control_function_combo.setPlaceholderText("Select function/channel...")
+        basic_layout.addRow("Control Function:", self.control_function_combo)
 
         basic_group.setLayout(basic_layout)
         layout.addWidget(basic_group)
 
         # Current protection group
-        protection_group = QGroupBox("Current Protection (PROFET 2)")
+        protection_group = QGroupBox("Current Protection")
         protection_layout = QFormLayout()
 
         self.current_limit_spin = QDoubleSpinBox()

@@ -1,5 +1,5 @@
 """
-Outputs Tab - CRUD interface for 30 PROFET 2 output channels
+Outputs Tab - CRUD interface for 30 high-side output channels
 """
 
 from .base_tab import BaseTab
@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 
 
 class OutputsTab(BaseTab):
-    """Tab for configuring 30 PROFET 2 output channels."""
+    """Tab for configuring 30 high-side output channels."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -25,7 +25,7 @@ class OutputsTab(BaseTab):
         layout = QVBoxLayout(self)
 
         # Header
-        header = QLabel("<b>30 PROFET 2 High-Side Switch Outputs</b>")
+        header = QLabel("<b>30 High-Side Switch Outputs</b>")
         header.setStyleSheet("font-size: 14px; padding: 5px;")
         layout.addWidget(header)
 

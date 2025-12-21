@@ -23,6 +23,7 @@ from .dialogs.switch_dialog import SwitchDialog
 from .dialogs.table_dialog import TableDialog
 from .dialogs.timer_dialog import TimerDialog
 from .dialogs.can_message_dialog import CANMessageDialog
+from .dialogs.connection_dialog import ConnectionDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
@@ -47,13 +48,22 @@ class MainWindowECUMaster(QMainWindow):
         # Settings for saving/restoring layout
         self.settings = QSettings("R2msport", "PMU30Configurator")
 
+        # Desktop management
+        self.desktops = {}  # name -> {geometry, state}
+        self.current_desktop = "Default"
+        self._load_desktops()
+
         self._init_ui()
         self._setup_menubar()
+        self._update_desktop_menu()  # Update desktop menu after it's created
         self._setup_statusbar()
         self._setup_connections()
 
-        # Apply dark theme by default
+        # Apply light theme by default
         self.apply_theme()
+
+        # Apply Fusion style by default
+        self.change_style("Fusion")
 
         # Restore window geometry and state
         self._restore_layout()
@@ -75,6 +85,13 @@ class MainWindowECUMaster(QMainWindow):
         x = (screen_geometry.width() - width) // 2
         y = (screen_geometry.height() - height) // 2
         self.setGeometry(x, y, width, height)
+
+        # Enable animated docks for magnetic snapping
+        self.setDockOptions(
+            QMainWindow.DockOption.AnimatedDocks |
+            QMainWindow.DockOption.AllowNestedDocks |
+            QMainWindow.DockOption.AllowTabbedDocks
+        )
 
         # Create empty central widget
         central = QWidget()
@@ -293,7 +310,6 @@ class MainWindowECUMaster(QMainWindow):
 
         fluent_action = QAction("Fluent Design (Custom)", self)
         fluent_action.setCheckable(True)
-        fluent_action.setChecked(True)
         fluent_action.triggered.connect(lambda: self.change_style("Fluent"))
         self.style_group.addAction(fluent_action)
         style_menu.addAction(fluent_action)
@@ -303,11 +319,14 @@ class MainWindowECUMaster(QMainWindow):
         for style_name in available_styles:
             action = QAction(style_name, self)
             action.setCheckable(True)
+            # Set Fusion as default
+            if style_name == "Fusion":
+                action.setChecked(True)
             action.triggered.connect(lambda checked, s=style_name: self.change_style(s))
             self.style_group.addAction(action)
             style_menu.addAction(action)
 
-        self.current_style = "Fluent"
+        self.current_style = "Fusion"
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -675,8 +694,24 @@ class MainWindowECUMaster(QMainWindow):
 
     def connect_device(self):
         """Connect to device."""
-        self.status_message.setText("Connecting...")
-        # TODO: Show connection dialog
+        dialog = ConnectionDialog(self)
+        if dialog.exec() == ConnectionDialog.DialogCode.Accepted:
+            config = dialog.get_connection_config()
+            self.status_message.setText(f"Connecting to {config.get('type')}...")
+
+            # Attempt connection using device controller
+            success = self.device_controller.connect(config)
+
+            if success:
+                self.status_message.setText(f"Connected via {config.get('type')}")
+                self.device_status_label.setText("ONLINE")
+                self.device_status_label.setStyleSheet("color: #10b981;")
+                QMessageBox.information(self, "Connected", "Successfully connected to PMU-30 device.")
+            else:
+                self.status_message.setText("Connection failed")
+                QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.\nPlease check connection settings and try again.")
+        else:
+            self.status_message.setText("Connection cancelled")
 
     def disconnect_device(self):
         """Disconnect from device."""
@@ -780,6 +815,157 @@ class MainWindowECUMaster(QMainWindow):
             app.setStyleSheet("")
 
         self.update()
+
+    # Desktop management methods
+    def _load_desktops(self):
+        """Load saved desktops from settings."""
+        desktop_count = self.settings.value("desktops/count", 1, type=int)
+        for i in range(desktop_count):
+            name = self.settings.value(f"desktops/{i}/name", f"Desktop {i+1}")
+            geometry = self.settings.value(f"desktops/{i}/geometry")
+            state = self.settings.value(f"desktops/{i}/state")
+            if geometry and state:
+                self.desktops[name] = {"geometry": geometry, "state": state}
+
+        # Always have at least a default desktop
+        if "Default" not in self.desktops:
+            self.desktops["Default"] = {}
+
+        self._update_desktop_menu()
+
+    def _update_desktop_menu(self):
+        """Update switch desktop submenu."""
+        # Check if menu exists (it's created in _setup_menubar)
+        if not hasattr(self, 'switch_desktop_menu'):
+            return
+
+        self.switch_desktop_menu.clear()
+        for name in sorted(self.desktops.keys()):
+            action = QAction(name, self)
+            action.triggered.connect(lambda checked, n=name: self._switch_to_desktop(n))
+            if name == self.current_desktop:
+                action.setCheckable(True)
+                action.setChecked(True)
+            self.switch_desktop_menu.addAction(action)
+
+    def _restore_desktops(self):
+        """Restore all saved desktops."""
+        self._load_desktops()
+        QMessageBox.information(self, "Desktops", "Desktops restored successfully.")
+
+    def _store_desktops(self):
+        """Store current layout as a desktop."""
+        from PyQt6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "Store Desktop", "Desktop name:")
+        if ok and name:
+            self.desktops[name] = {
+                "geometry": self.saveGeometry(),
+                "state": self.saveState()
+            }
+            self._save_desktops()
+            self._update_desktop_menu()
+            QMessageBox.information(self, "Desktop Saved", f"Desktop '{name}' saved successfully.")
+
+    def _save_desktops(self):
+        """Save all desktops to settings."""
+        self.settings.setValue("desktops/count", len(self.desktops))
+        for i, (name, data) in enumerate(self.desktops.items()):
+            self.settings.setValue(f"desktops/{i}/name", name)
+            if "geometry" in data:
+                self.settings.setValue(f"desktops/{i}/geometry", data["geometry"])
+            if "state" in data:
+                self.settings.setValue(f"desktops/{i}/state", data["state"])
+
+    def _open_desktop_template(self):
+        """Open desktop template from file."""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Open Desktop Template", "",
+            "Desktop Files (*.desktop);;All Files (*.*)"
+        )
+        if filename:
+            import json
+            try:
+                with open(filename, 'r') as f:
+                    data = json.load(f)
+                for name, layout in data.items():
+                    if "geometry" in layout and "state" in layout:
+                        from PyQt6.QtCore import QByteArray
+                        self.desktops[name] = {
+                            "geometry": QByteArray.fromBase64(layout["geometry"].encode()),
+                            "state": QByteArray.fromBase64(layout["state"].encode())
+                        }
+                self._update_desktop_menu()
+                QMessageBox.information(self, "Success", "Desktop template loaded successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load template: {str(e)}")
+
+    def _save_desktop_template(self):
+        """Save desktops as template file."""
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Desktop Template", "",
+            "Desktop Files (*.desktop);;All Files (*.*)"
+        )
+        if filename:
+            import json
+            data = {}
+            for name, layout in self.desktops.items():
+                if "geometry" in layout and "state" in layout:
+                    data[name] = {
+                        "geometry": bytes(layout["geometry"].toBase64()).decode(),
+                        "state": bytes(layout["state"].toBase64()).decode()
+                    }
+            try:
+                with open(filename, 'w') as f:
+                    json.dump(data, f, indent=2)
+                QMessageBox.information(self, "Success", "Desktop template saved successfully.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save template: {str(e)}")
+
+    def _add_new_pane(self):
+        """Add new dock widget pane."""
+        from PyQt6.QtWidgets import QInputDialog
+        items = ["Project Tree", "Output Monitor", "Analog Monitor", "Variables Inspector"]
+        item, ok = QInputDialog.getItem(self, "Add Pane", "Select pane to add:", items, 0, False)
+        if ok and item:
+            if item == "Project Tree":
+                self.project_tree_dock.show()
+            elif item == "Output Monitor":
+                self.output_dock.show()
+            elif item == "Analog Monitor":
+                self.analog_dock.show()
+            elif item == "Variables Inspector":
+                self.variables_dock.show()
+
+    def _replace_pane(self):
+        """Replace current pane with another."""
+        QMessageBox.information(self, "Replace Pane", "Close the pane you want to replace, then use 'Add new pane' to add the desired pane.")
+
+    def _switch_to_desktop(self, name: str):
+        """Switch to specified desktop."""
+        if name in self.desktops:
+            layout = self.desktops[name]
+            if "geometry" in layout:
+                self.restoreGeometry(layout["geometry"])
+            if "state" in layout:
+                self.restoreState(layout["state"])
+            self.current_desktop = name
+            self._update_desktop_menu()
+
+    def _previous_desktop(self):
+        """Switch to previous desktop."""
+        names = sorted(self.desktops.keys())
+        if len(names) > 1:
+            current_idx = names.index(self.current_desktop) if self.current_desktop in names else 0
+            prev_idx = (current_idx - 1) % len(names)
+            self._switch_to_desktop(names[prev_idx])
+
+    def _next_desktop(self):
+        """Switch to next desktop."""
+        names = sorted(self.desktops.keys())
+        if len(names) > 1:
+            current_idx = names.index(self.current_desktop) if self.current_desktop in names else 0
+            next_idx = (current_idx + 1) % len(names)
+            self._switch_to_desktop(names[next_idx])
 
     def closeEvent(self, event):
         """Handle window close."""
