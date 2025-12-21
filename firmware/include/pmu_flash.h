@@ -76,11 +76,11 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 
 /* Flash memory organization */
-#define FLASH_SIZE                (64 * 1024 * 1024)  /**< 64 MB total */
-#define FLASH_PAGE_SIZE           256                 /**< 256 bytes per page */
-#define FLASH_SECTOR_SIZE         (4 * 1024)          /**< 4 KB per sector */
-#define FLASH_BLOCK_SIZE_32K      (32 * 1024)         /**< 32 KB block */
-#define FLASH_BLOCK_SIZE_64K      (64 * 1024)         /**< 64 KB block */
+#define W25Q_FLASH_SIZE           (64 * 1024 * 1024)  /**< 64 MB total */
+#define W25Q_PAGE_SIZE            256                 /**< 256 bytes per page */
+#define W25Q_SECTOR_SIZE          (4 * 1024)          /**< 4 KB per sector */
+#define W25Q_BLOCK_SIZE_32K       (32 * 1024)         /**< 32 KB block */
+#define W25Q_BLOCK_SIZE_64K       (64 * 1024)         /**< 64 KB block */
 
 /* W25Q512JV Command set */
 #define W25Q_CMD_WRITE_ENABLE     0x06  /**< Write Enable */

@@ -49,14 +49,9 @@ class LogicFunctionDialog(QDialog):
         basic_group = QGroupBox("Basic Settings")
         basic_layout = QFormLayout()
 
-        self.virtual_channel_spin = QSpinBox()
-        self.virtual_channel_spin.setRange(0, 255)
-        self.virtual_channel_spin.setToolTip("Virtual channel to write result (0-255)")
-        basic_layout.addRow("Output Channel:", self.virtual_channel_spin)
-
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Brake Light Logic, Engine Start")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.operation_combo = QComboBox()
         self.operation_combo.addItems(self.OPERATION_TYPES)
@@ -125,7 +120,7 @@ class LogicFunctionDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -138,6 +133,17 @@ class LogicFunctionDialog(QDialog):
 
         # Initialize state
         self._on_operation_changed(self.operation_combo.currentText())
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _on_operation_changed(self, operation: str):
         """Handle operation type change."""
@@ -189,7 +195,6 @@ class LogicFunctionDialog(QDialog):
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.virtual_channel_spin.setValue(config.get("virtual_channel", 0))
         self.name_edit.setText(config.get("name", ""))
 
         operation = config.get("operation", "AND")
@@ -225,8 +230,7 @@ class LogicFunctionDialog(QDialog):
                 })
 
         config = {
-            "virtual_channel": self.virtual_channel_spin.value(),
-            "name": self.name_edit.text(),
+            "name": self.name_edit.text().strip(),
             "operation": self.operation_combo.currentText(),
             "inputs": inputs,
             "parameters": {

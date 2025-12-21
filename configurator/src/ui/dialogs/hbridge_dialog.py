@@ -59,7 +59,7 @@ class HBridgeDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText(f"e.g., Cooling Fan, Wiper Motor")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.enabled_check = QCheckBox("H-Bridge Enabled")
         self.enabled_check.setChecked(True)
@@ -201,7 +201,7 @@ class HBridgeDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -214,6 +214,18 @@ class HBridgeDialog(QDialog):
 
         # Initialize state
         self._on_mode_changed(self.mode_combo.currentText())
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _on_enabled_changed(self, enabled: bool):
         """Handle enabled state change."""

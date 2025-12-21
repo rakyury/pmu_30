@@ -43,7 +43,7 @@ class SwitchDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Enter switch name...")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.enabled_check = QCheckBox()
         self.enabled_check.setChecked(True)
@@ -104,9 +104,21 @@ class SwitchDialog(QDialog):
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
         )
-        buttons.accepted.connect(self.accept)
+        buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _on_hysteresis_changed(self, state):
         """Handle hysteresis enable/disable."""

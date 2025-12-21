@@ -418,7 +418,8 @@ class MainWindowECUMaster(QMainWindow):
         item_data = data.get("data", {})
 
         if category == "outputs":
-            dialog = OutputConfigDialog(self, item_data, [])
+            available_channels = self._get_available_channels()
+            dialog = OutputConfigDialog(self, item_data, [], available_channels)
             if dialog.exec():
                 # Get updated config from dialog
                 updated_config = dialog.get_config()
@@ -460,9 +461,55 @@ class MainWindowECUMaster(QMainWindow):
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
+    def _get_available_channels(self) -> dict:
+        """Get all available channels for selection."""
+        channels = {
+            "inputs_physical": [f"in.{i}" for i in range(20)],
+            "outputs_physical": [f"out.{i}" for i in range(30)],
+            "functions": [],
+            "tables": [],
+            "numbers": [],
+            "switches": [],
+            "timers": [],
+            "pid_controllers": [],
+            "hbridge": [],
+            "can_signals": []
+        }
+
+        # Add logic functions
+        for func in self.project_tree.get_all_logic_functions():
+            channels["functions"].append(func.get("name", ""))
+
+        # Add tables
+        for table in self.project_tree.get_all_tables():
+            channels["tables"].append(table.get("name", ""))
+
+        # Add numbers
+        for num in self.project_tree.get_all_numbers():
+            channels["numbers"].append(num.get("name", ""))
+
+        # Add switches
+        for switch in self.project_tree.get_all_switches():
+            channels["switches"].append(switch.get("name", ""))
+
+        # Add timers
+        for timer in self.project_tree.get_all_timers():
+            channels["timers"].append(timer.get("name", ""))
+
+        # Add PID controllers
+        for pid in self.project_tree.get_all_pid_controllers():
+            channels["pid_controllers"].append(pid.get("name", ""))
+
+        # Add H-Bridges
+        for hb in self.project_tree.get_all_hbridges():
+            channels["hbridge"].append(hb.get("name", ""))
+
+        return channels
+
     def _add_output(self):
         """Add new output."""
-        dialog = OutputConfigDialog(self, None, [])
+        available_channels = self._get_available_channels()
+        dialog = OutputConfigDialog(self, None, [], available_channels)
         if dialog.exec():
             config = dialog.get_config()
             self.project_tree.add_output(config)

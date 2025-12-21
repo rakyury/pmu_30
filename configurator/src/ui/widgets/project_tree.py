@@ -529,6 +529,46 @@ class ProjectTree(QWidget):
                 scripts.append(data.get("data", {}))
         return scripts
 
+    def get_all_tables(self) -> List[Dict[str, Any]]:
+        """Get all table configurations."""
+        tables = []
+        for i in range(self.tables_folder.childCount()):
+            child = self.tables_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "table":
+                tables.append(data.get("data", {}))
+        return tables
+
+    def get_all_numbers(self) -> List[Dict[str, Any]]:
+        """Get all number configurations."""
+        numbers = []
+        for i in range(self.numbers_folder.childCount()):
+            child = self.numbers_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "number":
+                numbers.append(data.get("data", {}))
+        return numbers
+
+    def get_all_switches(self) -> List[Dict[str, Any]]:
+        """Get all switch configurations."""
+        switches = []
+        for i in range(self.switches_folder.childCount()):
+            child = self.switches_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "switch":
+                switches.append(data.get("data", {}))
+        return switches
+
+    def get_all_timers(self) -> List[Dict[str, Any]]:
+        """Get all timer configurations."""
+        timers = []
+        for i in range(self.timers_folder.childCount()):
+            child = self.timers_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "timer":
+                timers.append(data.get("data", {}))
+        return timers
+
     def clear_all(self):
         """Clear all items from tree (keep folder structure)."""
         for folder in [self.out_folder, self.in_folder, self.functions_folder,

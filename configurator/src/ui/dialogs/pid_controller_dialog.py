@@ -40,7 +40,7 @@ class PIDControllerDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Temperature Control, Speed Regulation")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.enabled_check = QCheckBox("Controller Enabled")
         self.enabled_check.setChecked(True)
@@ -173,7 +173,7 @@ class PIDControllerDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -183,6 +183,18 @@ class PIDControllerDialog(QDialog):
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""

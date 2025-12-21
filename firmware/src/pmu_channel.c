@@ -440,7 +440,7 @@ static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel)
         case PMU_CHANNEL_INPUT_ROTARY:
         case PMU_CHANNEL_INPUT_FREQUENCY:
             /* Read from ADC module */
-            return PMU_ADC_GetValue(channel->physical_index);
+            return PMU_ADC_GetRawValue(channel->physical_index);
 
         default:
             return 0;
@@ -467,7 +467,7 @@ static int32_t Channel_ReadVirtualInput(const PMU_Channel_t* channel)
 
         case PMU_CHANNEL_INPUT_CALCULATED:
             /* Read from logic module */
-            return PMU_Logic_GetVirtualChannel(channel->physical_index);
+            return PMU_Logic_GetVChannel(channel->physical_index);
 
         case PMU_CHANNEL_INPUT_SYSTEM:
             /* System values handled in PMU_Channel_Update() */
@@ -496,7 +496,8 @@ static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channe
         case PMU_CHANNEL_OUTPUT_PWM:
             /* Write to PROFET module */
             if (value > 0) {
-                PMU_PROFET_SetChannel(channel->physical_index, 1, (uint16_t)value);
+                PMU_PROFET_SetState(channel->physical_index, 1);
+                PMU_PROFET_SetPWM(channel->physical_index, (uint16_t)value);
             } else {
                 PMU_PROFET_SetState(channel->physical_index, 0);
             }
@@ -549,7 +550,7 @@ static HAL_StatusTypeDef Channel_WriteVirtualOutput(const PMU_Channel_t* channel
         case PMU_CHANNEL_OUTPUT_ENUM:
         case PMU_CHANNEL_OUTPUT_NUMBER:
             /* Write to logic module */
-            PMU_Logic_SetVirtualChannel(channel->physical_index, value);
+            PMU_Logic_SetVChannel(channel->physical_index, value);
             return HAL_OK;
 
         case PMU_CHANNEL_OUTPUT_CAN:

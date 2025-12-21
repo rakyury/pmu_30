@@ -1,0 +1,12 @@
+{
+  "name": "cJSON",
+  "version": "1.7.18",
+  "description": "Ultralightweight JSON parser in ANSI C.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baracodadailyhealthtech/platformio_cJSON"
+  },
+  "license": "MIT",
+  "platforms": "*",
+  "frameworks": "*"
+}

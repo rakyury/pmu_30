@@ -56,7 +56,7 @@ class CANMessageDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Engine Data, Speed Info")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.period_spin = QSpinBox()
         self.period_spin.setRange(0, 10000)
@@ -114,7 +114,7 @@ class CANMessageDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -124,6 +124,18 @@ class CANMessageDialog(QDialog):
         layout.addLayout(button_layout)
 
         self.setLayout(layout)
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _on_extended_toggled(self, extended: bool):
         """Handle extended ID checkbox toggle."""

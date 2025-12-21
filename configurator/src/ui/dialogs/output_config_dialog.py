@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional
+from .channel_selector_dialog import ChannelSelectorDialog
 
 
 class OutputConfigDialog(QDialog):
@@ -19,7 +20,7 @@ class OutputConfigDialog(QDialog):
         super().__init__(parent)
         self.output_config = output_config
         self.used_channels = used_channels or []
-        self.available_channels = available_channels or []  # List of all available channels/functions
+        self.available_channels = available_channels or {}  # Dict of all available channels/functions
 
         self.setWindowTitle("Output Channel Configuration")
         self.setModal(True)
@@ -46,25 +47,26 @@ class OutputConfigDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Fuel Pump, Starter, Headlights")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
-        # Control mode selection
-        self.control_mode_combo = QComboBox()
-        self.control_mode_combo.addItems(["Manual (Checkbox)", "Controlled by Function"])
-        self.control_mode_combo.currentTextChanged.connect(self._on_control_mode_changed)
-        basic_layout.addRow("Control Mode:", self.control_mode_combo)
-
-        # Manual enable checkbox
-        self.enabled_check = QCheckBox("Output Enabled")
+        # On/Off enable checkbox
+        self.enabled_check = QCheckBox("On/Off")
         self.enabled_check.setChecked(True)
         basic_layout.addRow("", self.enabled_check)
 
-        # Function control
-        self.control_function_combo = QComboBox()
-        self.control_function_combo.setEditable(True)
-        self.control_function_combo.addItems(self.available_channels)
-        self.control_function_combo.setPlaceholderText("Select function/channel...")
-        basic_layout.addRow("Control Function:", self.control_function_combo)
+        # Function control (always visible)
+        control_function_layout = QHBoxLayout()
+        self.control_function_edit = QLineEdit()
+        self.control_function_edit.setPlaceholderText("Select function/channel...")
+        self.control_function_edit.setReadOnly(True)
+        self.control_function_edit.textChanged.connect(self._on_control_function_changed)
+        control_function_layout.addWidget(self.control_function_edit, stretch=1)
+
+        self.control_function_btn = QPushButton("Browse...")
+        self.control_function_btn.clicked.connect(self._browse_control_function)
+        control_function_layout.addWidget(self.control_function_btn)
+
+        basic_layout.addRow("Control Function:", control_function_layout)
 
         basic_group.setLayout(basic_layout)
         layout.addWidget(basic_group)
@@ -129,14 +131,40 @@ class OutputConfigDialog(QDialog):
         self.pwm_freq_spin.setToolTip("PWM frequency (100-20000 Hz)")
         pwm_layout.addRow("PWM Frequency:", self.pwm_freq_spin)
 
+        # Fixed duty value (always visible)
         self.pwm_duty_spin = QDoubleSpinBox()
         self.pwm_duty_spin.setRange(0.0, 100.0)
         self.pwm_duty_spin.setValue(50.0)
         self.pwm_duty_spin.setSuffix(" %")
         self.pwm_duty_spin.setDecimals(1)
         self.pwm_duty_spin.setSingleStep(5.0)
-        self.pwm_duty_spin.setToolTip("Default PWM duty cycle (0-100%)")
-        pwm_layout.addRow("Default Duty:", self.pwm_duty_spin)
+        self.pwm_duty_spin.setToolTip("Fixed PWM duty cycle (0-100%)")
+        pwm_layout.addRow("Duty Value:", self.pwm_duty_spin)
+
+        # Duty function/channel (always visible)
+        duty_function_layout = QHBoxLayout()
+        self.duty_function_edit = QLineEdit()
+        self.duty_function_edit.setPlaceholderText("Select channel/function for duty...")
+        self.duty_function_edit.setReadOnly(True)
+        duty_function_layout.addWidget(self.duty_function_edit, stretch=1)
+
+        self.duty_function_btn = QPushButton("Browse...")
+        self.duty_function_btn.clicked.connect(self._browse_duty_function)
+        duty_function_layout.addWidget(self.duty_function_btn)
+
+        pwm_layout.addRow("Duty Function:", duty_function_layout)
+
+        # Soft start
+        self.soft_start_check = QCheckBox("Enable Soft Start")
+        pwm_layout.addRow("", self.soft_start_check)
+        self.soft_start_check.toggled.connect(self._on_soft_start_toggled)
+
+        self.soft_start_duration_spin = QSpinBox()
+        self.soft_start_duration_spin.setRange(10, 10000)
+        self.soft_start_duration_spin.setValue(1000)
+        self.soft_start_duration_spin.setSuffix(" ms")
+        self.soft_start_duration_spin.setToolTip("Soft start ramp duration")
+        pwm_layout.addRow("Soft Start Duration:", self.soft_start_duration_spin)
 
         pwm_group.setLayout(pwm_layout)
         layout.addWidget(pwm_group)
@@ -163,7 +191,7 @@ class OutputConfigDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -174,8 +202,21 @@ class OutputConfigDialog(QDialog):
 
         self.setLayout(layout)
 
-        # Initialize PWM controls state
+        # Initialize controls state
         self._on_pwm_toggled(False)
+        self._on_soft_start_toggled(False)
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _populate_available_channels(self):
         """Populate channel dropdown with available channels."""
@@ -195,10 +236,39 @@ class OutputConfigDialog(QDialog):
         if self.channel_combo.count() == 0:
             self.channel_combo.addItem("No channels available", -1)
 
+    def _on_control_function_changed(self, text: str):
+        """Handle control function change - disable checkbox if function is set."""
+        has_function = bool(text.strip())
+        self.enabled_check.setEnabled(not has_function)
+        if has_function:
+            self.enabled_check.setChecked(False)
+
+    def _on_soft_start_toggled(self, enabled: bool):
+        """Handle soft start enable/disable."""
+        self.soft_start_duration_spin.setEnabled(enabled)
+
     def _on_pwm_toggled(self, enabled: bool):
         """Handle PWM enable/disable."""
         self.pwm_freq_spin.setEnabled(enabled)
         self.pwm_duty_spin.setEnabled(enabled)
+        self.duty_function_edit.setEnabled(enabled)
+        self.duty_function_btn.setEnabled(enabled)
+        self.soft_start_check.setEnabled(enabled)
+        self.soft_start_duration_spin.setEnabled(enabled and self.soft_start_check.isChecked())
+
+    def _browse_control_function(self):
+        """Browse and select control function channel."""
+        current = self.control_function_edit.text()
+        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if channel:
+            self.control_function_edit.setText(channel)
+
+    def _browse_duty_function(self):
+        """Browse and select duty function channel."""
+        current = self.duty_function_edit.text()
+        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if channel:
+            self.duty_function_edit.setText(channel)
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
@@ -208,6 +278,9 @@ class OutputConfigDialog(QDialog):
         if index >= 0:
             self.channel_combo.setCurrentIndex(index)
         self.name_edit.setText(config.get("name", ""))
+
+        # Control settings
+        self.control_function_edit.setText(config.get("control_function", ""))
         self.enabled_check.setChecked(config.get("enabled", True))
 
         # Protection settings
@@ -222,7 +295,14 @@ class OutputConfigDialog(QDialog):
         pwm = config.get("pwm", {})
         self.pwm_enabled_check.setChecked(pwm.get("enabled", False))
         self.pwm_freq_spin.setValue(pwm.get("frequency", 1000))
-        self.pwm_duty_spin.setValue(pwm.get("default_duty", 50.0))
+
+        # Duty settings (both value and function are always available)
+        self.pwm_duty_spin.setValue(pwm.get("duty_value", 50.0))
+        self.duty_function_edit.setText(pwm.get("duty_function", ""))
+
+        # Soft start
+        self.soft_start_check.setChecked(pwm.get("soft_start_enabled", False))
+        self.soft_start_duration_spin.setValue(pwm.get("soft_start_duration_ms", 1000))
 
         # Advanced settings
         advanced = config.get("advanced", {})
@@ -235,6 +315,7 @@ class OutputConfigDialog(QDialog):
             "channel": self.channel_combo.currentData(),
             "name": self.name_edit.text(),
             "enabled": self.enabled_check.isChecked(),
+            "control_function": self.control_function_edit.text(),
             "protection": {
                 "current_limit": self.current_limit_spin.value(),
                 "inrush_current": self.inrush_current_spin.value(),
@@ -245,7 +326,10 @@ class OutputConfigDialog(QDialog):
             "pwm": {
                 "enabled": self.pwm_enabled_check.isChecked(),
                 "frequency": self.pwm_freq_spin.value(),
-                "default_duty": self.pwm_duty_spin.value()
+                "duty_value": self.pwm_duty_spin.value(),
+                "duty_function": self.duty_function_edit.text(),
+                "soft_start_enabled": self.soft_start_check.isChecked(),
+                "soft_start_duration_ms": self.soft_start_duration_spin.value()
             },
             "advanced": {
                 "diagnostics": self.diagnostic_check.isChecked(),

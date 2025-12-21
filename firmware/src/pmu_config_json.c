@@ -17,6 +17,7 @@
 #include "pmu_logic.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #ifndef UNIT_TEST
 #include "cJSON.h"
@@ -468,49 +469,21 @@ static bool JSON_ParseOutputs(cJSON* outputs_array)
         cJSON* enabled = cJSON_GetObjectItem(output, "enabled");
         bool is_enabled = (enabled && cJSON_IsTrue(enabled));
 
-        /* Get name */
-        cJSON* name = cJSON_GetObjectItem(output, "name");
-        const char* name_str = (name && cJSON_IsString(name)) ? name->valuestring : "";
+        /* Enable/disable output based on configuration */
+        if (is_enabled) {
+            PMU_PROFET_SetState(ch, 1);
+        } else {
+            PMU_PROFET_SetState(ch, 0);
+        }
 
-        /* Get configuration */
-        PMU_OutputConfig_t* config = PMU_Config_GetOutputConfig(ch);
-        if (config) {
-            config->enabled = is_enabled;
-            strncpy(config->name, name_str, sizeof(config->name) - 1);
-
-            /* Parse protection settings */
-            cJSON* protection = cJSON_GetObjectItem(output, "protection");
-            if (protection && cJSON_IsObject(protection)) {
-                cJSON* current_limit = cJSON_GetObjectItem(protection, "current_limit_ma");
-                if (current_limit && cJSON_IsNumber(current_limit)) {
-                    config->current_limit_mA = (uint16_t)current_limit->valueint;
-                }
-
-                cJSON* inrush_current = cJSON_GetObjectItem(protection, "inrush_current_ma");
-                if (inrush_current && cJSON_IsNumber(inrush_current)) {
-                    config->inrush_current_mA = (uint16_t)inrush_current->valueint;
-                }
-
-                cJSON* soft_start = cJSON_GetObjectItem(protection, "soft_start_ms");
-                if (soft_start && cJSON_IsNumber(soft_start)) {
-                    config->soft_start_ms = (uint16_t)soft_start->valueint;
-                }
+        /* Parse PWM settings */
+        cJSON* pwm = cJSON_GetObjectItem(output, "pwm");
+        if (pwm && cJSON_IsObject(pwm)) {
+            cJSON* default_duty = cJSON_GetObjectItem(pwm, "default_duty");
+            if (default_duty && cJSON_IsNumber(default_duty)) {
+                uint16_t duty = (uint16_t)default_duty->valueint;
+                PMU_PROFET_SetPWM(ch, duty);
             }
-
-            /* Parse PWM settings */
-            cJSON* pwm = cJSON_GetObjectItem(output, "pwm");
-            if (pwm && cJSON_IsObject(pwm)) {
-                cJSON* pwm_enabled = cJSON_GetObjectItem(pwm, "enabled");
-                config->pwm_enabled = (pwm_enabled && cJSON_IsTrue(pwm_enabled));
-
-                cJSON* default_duty = cJSON_GetObjectItem(pwm, "default_duty");
-                if (default_duty && cJSON_IsNumber(default_duty)) {
-                    config->default_pwm_duty = (uint16_t)default_duty->valueint;
-                }
-            }
-
-            /* Apply configuration */
-            PMU_PROFET_SetConfig(ch, config);
         }
     }
 #else

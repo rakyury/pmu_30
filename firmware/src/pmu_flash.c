@@ -55,7 +55,7 @@ PMU_Flash_Status_t PMU_Flash_Init(void)
     flash_info.manufacturer_id = W25Q512_MANUFACTURER_ID;
     flash_info.memory_type = W25Q512_MEMORY_TYPE;
     flash_info.capacity = W25Q512_CAPACITY;
-    flash_info.total_size = FLASH_SIZE;
+    flash_info.total_size = W25Q_FLASH_SIZE;
     return PMU_FLASH_OK;
 #else
 
@@ -106,7 +106,7 @@ PMU_Flash_Status_t PMU_Flash_Init(void)
         return PMU_FLASH_ERROR_ID;
     }
 
-    flash_info.total_size = FLASH_SIZE;
+    flash_info.total_size = W25Q_FLASH_SIZE;
     flash_initialized = true;
 
     /* Clear statistics */
@@ -189,7 +189,7 @@ PMU_Flash_Status_t PMU_Flash_GetInfo(PMU_Flash_Info_t* info)
  */
 PMU_Flash_Status_t PMU_Flash_Read(uint32_t address, uint8_t* data, uint32_t length)
 {
-    if (!data || length == 0 || address + length > FLASH_SIZE) {
+    if (!data || length == 0 || address + length > W25Q_FLASH_SIZE) {
         return PMU_FLASH_ERROR;
     }
 
@@ -243,7 +243,7 @@ PMU_Flash_Status_t PMU_Flash_Read(uint32_t address, uint8_t* data, uint32_t leng
  */
 PMU_Flash_Status_t PMU_Flash_Write(uint32_t address, const uint8_t* data, uint32_t length)
 {
-    if (!data || length == 0 || address + length > FLASH_SIZE) {
+    if (!data || length == 0 || address + length > W25Q_FLASH_SIZE) {
         return PMU_FLASH_ERROR;
     }
 
@@ -258,8 +258,8 @@ PMU_Flash_Status_t PMU_Flash_Write(uint32_t address, const uint8_t* data, uint32
     while (bytes_written < length) {
         /* Calculate bytes to write in this page (max 256, page-aligned) */
         uint32_t current_addr = address + bytes_written;
-        uint32_t page_offset = current_addr % FLASH_PAGE_SIZE;
-        uint32_t bytes_to_write = FLASH_PAGE_SIZE - page_offset;
+        uint32_t page_offset = current_addr % W25Q_PAGE_SIZE;
+        uint32_t bytes_to_write = W25Q_PAGE_SIZE - page_offset;
 
         if (bytes_to_write > (length - bytes_written)) {
             bytes_to_write = length - bytes_written;
@@ -321,12 +321,12 @@ PMU_Flash_Status_t PMU_Flash_Write(uint32_t address, const uint8_t* data, uint32
  */
 PMU_Flash_Status_t PMU_Flash_EraseSector(uint32_t address)
 {
-    if (address >= FLASH_SIZE) {
+    if (address >= W25Q_FLASH_SIZE) {
         return PMU_FLASH_ERROR;
     }
 
     /* Align to sector boundary */
-    address &= ~(FLASH_SECTOR_SIZE - 1);
+    address &= ~(W25Q_SECTOR_SIZE - 1);
 
 #ifdef UNIT_TEST
     flash_stats.erase_count++;
@@ -365,12 +365,12 @@ PMU_Flash_Status_t PMU_Flash_EraseSector(uint32_t address)
  */
 PMU_Flash_Status_t PMU_Flash_EraseBlock64K(uint32_t address)
 {
-    if (address >= FLASH_SIZE) {
+    if (address >= W25Q_FLASH_SIZE) {
         return PMU_FLASH_ERROR;
     }
 
     /* Align to block boundary */
-    address &= ~(FLASH_BLOCK_SIZE_64K - 1);
+    address &= ~(W25Q_BLOCK_SIZE_64K - 1);
 
 #ifdef UNIT_TEST
     flash_stats.erase_count++;

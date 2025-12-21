@@ -9,8 +9,65 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QSpinBox
 )
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
 from typing import Dict, Any, Optional
+import re
+
+
+class LuaSyntaxHighlighter(QSyntaxHighlighter):
+    """Syntax highlighter for Lua language."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        # Define highlighting rules
+        self.highlighting_rules = []
+
+        # Keywords
+        keyword_format = QTextCharFormat()
+        keyword_format.setForeground(QColor("#569CD6"))  # Blue
+        keyword_format.setFontWeight(QFont.Weight.Bold)
+        keywords = [
+            "and", "break", "do", "else", "elseif", "end", "false", "for",
+            "function", "if", "in", "local", "nil", "not", "or", "repeat",
+            "return", "then", "true", "until", "while", "goto"
+        ]
+        for word in keywords:
+            pattern = f"\\b{word}\\b"
+            self.highlighting_rules.append((re.compile(pattern), keyword_format))
+
+        # String literals (single and double quotes)
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor("#CE9178"))  # Orange
+        self.highlighting_rules.append((re.compile(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format))
+        self.highlighting_rules.append((re.compile(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format))
+
+        # Numbers
+        number_format = QTextCharFormat()
+        number_format.setForeground(QColor("#B5CEA8"))  # Light green
+        self.highlighting_rules.append((re.compile(r'\b\d+\.?\d*\b'), number_format))
+
+        # Comments
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor("#6A9955"))  # Green
+        comment_format.setFontItalic(True)
+        self.highlighting_rules.append((re.compile(r'--[^\n]*'), comment_format))
+
+        # Built-in functions
+        builtin_format = QTextCharFormat()
+        builtin_format.setForeground(QColor("#DCDCAA"))  # Yellow
+        builtins = ["pmu\.getInput", "pmu\.setOutput", "pmu\.getVirtual",
+                   "pmu\.setVirtual", "pmu\.canSend", "pmu\.log"]
+        for builtin in builtins:
+            self.highlighting_rules.append((re.compile(builtin), builtin_format))
+
+    def highlightBlock(self, text):
+        """Apply syntax highlighting to a block of text."""
+        for pattern, format_style in self.highlighting_rules:
+            for match in pattern.finditer(text):
+                start = match.start()
+                length = match.end() - start
+                self.setFormat(start, length, format_style)
 
 
 class LuaScriptDialog(QDialog):
@@ -30,7 +87,7 @@ class LuaScriptDialog(QDialog):
 
         self.setWindowTitle("LUA Script Configuration")
         self.setModal(True)
-        self.resize(750, 600)
+        self.resize(650, 500)
 
         self._init_ui()
 
@@ -47,7 +104,7 @@ class LuaScriptDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Custom Control Logic, Data Processing")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.enabled_check = QCheckBox("Script Enabled")
         self.enabled_check.setChecked(True)
@@ -60,59 +117,34 @@ class LuaScriptDialog(QDialog):
         basic_group.setLayout(basic_layout)
         layout.addWidget(basic_group)
 
-        # Trigger configuration
-        trigger_group = QGroupBox("Trigger Configuration")
-        trigger_layout = QFormLayout()
+        # Trigger configuration - simplified
+        trigger_layout = QHBoxLayout()
+        trigger_layout.addWidget(QLabel("Trigger:"))
 
         self.trigger_type_combo = QComboBox()
         self.trigger_type_combo.addItems(self.TRIGGER_TYPES)
-        self.trigger_type_combo.currentTextChanged.connect(self._on_trigger_type_changed)
-        trigger_layout.addRow("Trigger Type:", self.trigger_type_combo)
+        trigger_layout.addWidget(self.trigger_type_combo, 1)
 
-        # Periodic settings
+        trigger_layout.addWidget(QLabel("Period:"))
         self.period_spin = QSpinBox()
         self.period_spin.setRange(1, 60000)
         self.period_spin.setValue(100)
         self.period_spin.setSuffix(" ms")
-        self.period_spin.setToolTip("Script execution period")
-        trigger_layout.addRow("Period:", self.period_spin)
+        trigger_layout.addWidget(self.period_spin)
 
-        # Input/Channel settings
-        self.trigger_channel_spin = QSpinBox()
-        self.trigger_channel_spin.setRange(0, 255)
-        self.trigger_channel_spin.setToolTip("Input or virtual channel to monitor")
-        trigger_layout.addRow("Monitor Channel:", self.trigger_channel_spin)
-
-        trigger_group.setLayout(trigger_layout)
-        layout.addWidget(trigger_group)
+        layout.addLayout(trigger_layout)
 
         # Script editor
         editor_group = QGroupBox("LUA 5.4 Script")
         editor_layout = QVBoxLayout()
 
-        # Info label
-        info_label = QLabel(
-            "Available APIs:\n"
-            "• pmu.getInput(ch) - Read physical input 0-19\n"
-            "• pmu.setOutput(ch, value) - Set physical output 0-29\n"
-            "• pmu.getVirtual(ch) - Read virtual channel 0-255\n"
-            "• pmu.setVirtual(ch, value) - Write virtual channel 0-255\n"
-            "• pmu.canSend(id, data) - Send CAN message\n"
-            "• pmu.log(level, message) - Write to system log"
-        )
-        info_label.setWordWrap(True)
-        info_label.setStyleSheet("QLabel { color: #888888; font-size: 11px; }")
-        editor_layout.addWidget(info_label)
-
         # Script text editor
         self.script_editor = QPlainTextEdit()
         self.script_editor.setPlaceholderText(
-            "-- LUA 5.4 Script\n"
-            "-- Example:\n"
+            "-- LUA 5.4 Script Example:\n"
             "local input_val = pmu.getInput(0)\n"
             "if input_val > 50 then\n"
             "    pmu.setOutput(0, 100)\n"
-            "    pmu.setVirtual(0, input_val * 2)\n"
             "else\n"
             "    pmu.setOutput(0, 0)\n"
             "end"
@@ -124,38 +156,15 @@ class LuaScriptDialog(QDialog):
             font = QFont("Courier New", 10)
         self.script_editor.setFont(font)
         self.script_editor.setTabStopDistance(40)  # 4 spaces
-        self.script_editor.setMinimumHeight(200)
+        self.script_editor.setMinimumHeight(250)
+
+        # Apply syntax highlighting
+        self.highlighter = LuaSyntaxHighlighter(self.script_editor.document())
 
         editor_layout.addWidget(self.script_editor)
 
         editor_group.setLayout(editor_layout)
         layout.addWidget(editor_group)
-
-        # Script settings
-        settings_group = QGroupBox("Script Settings")
-        settings_layout = QFormLayout()
-
-        self.max_execution_time_spin = QSpinBox()
-        self.max_execution_time_spin.setRange(1, 1000)
-        self.max_execution_time_spin.setValue(50)
-        self.max_execution_time_spin.setSuffix(" ms")
-        self.max_execution_time_spin.setToolTip("Maximum execution time before script is terminated")
-        settings_layout.addRow("Max Execution Time:", self.max_execution_time_spin)
-
-        self.priority_combo = QComboBox()
-        self.priority_combo.addItems(["Low", "Normal", "High"])
-        self.priority_combo.setCurrentIndex(1)
-        self.priority_combo.setToolTip("Execution priority relative to other scripts")
-        settings_layout.addRow("Priority:", self.priority_combo)
-
-        self.error_action_combo = QComboBox()
-        self.error_action_combo.addItems(["Disable Script", "Log and Continue", "Ignore Errors"])
-        self.error_action_combo.setCurrentIndex(0)
-        self.error_action_combo.setToolTip("Action to take when script encounters an error")
-        settings_layout.addRow("On Error:", self.error_action_combo)
-
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -166,7 +175,7 @@ class LuaScriptDialog(QDialog):
         button_layout.addWidget(self.validate_btn)
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -177,20 +186,17 @@ class LuaScriptDialog(QDialog):
 
         self.setLayout(layout)
 
-        # Initialize trigger fields visibility
-        self._on_trigger_type_changed(self.trigger_type_combo.currentText())
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
 
-    def _on_trigger_type_changed(self, trigger_type: str):
-        """Update UI based on trigger type selection."""
-        is_periodic = "Periodic" in trigger_type
-        is_input = "Input Change" in trigger_type
-        is_virtual = "Virtual Channel" in trigger_type
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
 
-        # Show/hide period field
-        self.period_spin.setEnabled(is_periodic)
-
-        # Show/hide channel field
-        self.trigger_channel_spin.setEnabled(is_input or is_virtual)
+        self.accept()
 
     def _validate_syntax(self):
         """Validate LUA script syntax."""
@@ -202,13 +208,67 @@ class LuaScriptDialog(QDialog):
             QMessageBox.warning(self, "Empty Script", "Please enter a script to validate.")
             return
 
-        # TODO: Implement actual LUA syntax validation using lupa or similar
-        QMessageBox.information(
-            self, "Syntax Validation",
-            "LUA syntax validation will be implemented.\n\n"
-            "This feature requires the 'lupa' library for LUA integration.\n\n"
-            "The script will be validated when uploaded to the device."
-        )
+        # Basic syntax validation
+        errors = []
+
+        # Check for balanced keywords
+        lines = script.split('\n')
+        block_stack = []
+
+        for line_num, line in enumerate(lines, 1):
+            line_stripped = line.strip()
+
+            # Skip comments
+            if line_stripped.startswith('--'):
+                continue
+
+            # Check for block openings
+            if re.search(r'\b(function|if|for|while|repeat)\b', line_stripped):
+                block_stack.append((line_num, line_stripped))
+
+            # Check for block closings
+            if 'end' in line_stripped:
+                if not block_stack:
+                    errors.append(f"Line {line_num}: 'end' without matching block opening")
+                else:
+                    block_stack.pop()
+
+            if 'until' in line_stripped:
+                if not block_stack:
+                    errors.append(f"Line {line_num}: 'until' without matching 'repeat'")
+                else:
+                    block_stack.pop()
+
+        # Check for unclosed blocks
+        if block_stack:
+            for line_num, line in block_stack:
+                errors.append(f"Line {line_num}: Unclosed block - '{line[:30]}...'")
+
+        # Check for common syntax errors
+        for line_num, line in enumerate(lines, 1):
+            # Check for Python-style comparisons
+            if '==' in line and not line.strip().startswith('--'):
+                pass  # == is valid in Lua
+            if re.search(r'\b(elif|elif:|else:)\b', line):
+                errors.append(f"Line {line_num}: Use 'elseif' instead of 'elif'")
+            if re.search(r'\b(True|False|None)\b', line):
+                errors.append(f"Line {line_num}: Use 'true', 'false', 'nil' (lowercase)")
+
+        # Display results
+        if errors:
+            error_text = "\n".join(errors[:10])  # Show first 10 errors
+            if len(errors) > 10:
+                error_text += f"\n\n... and {len(errors) - 10} more errors"
+            QMessageBox.warning(
+                self, "Syntax Errors Found",
+                f"Found {len(errors)} potential syntax error(s):\n\n{error_text}"
+            )
+        else:
+            QMessageBox.information(
+                self, "Syntax Check Passed",
+                "No obvious syntax errors detected.\n\n"
+                "Note: This is a basic check. Full validation occurs on device."
+            )
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
@@ -224,24 +284,9 @@ class LuaScriptDialog(QDialog):
             self.trigger_type_combo.setCurrentIndex(index)
 
         self.period_spin.setValue(trigger.get("period_ms", 100))
-        self.trigger_channel_spin.setValue(trigger.get("channel", 0))
 
         # Script content
         self.script_editor.setPlainText(config.get("script", ""))
-
-        # Settings
-        settings = config.get("settings", {})
-        self.max_execution_time_spin.setValue(settings.get("max_execution_ms", 50))
-
-        priority = settings.get("priority", "Normal")
-        priority_index = self.priority_combo.findText(priority)
-        if priority_index >= 0:
-            self.priority_combo.setCurrentIndex(priority_index)
-
-        error_action = settings.get("error_action", "Disable Script")
-        error_index = self.error_action_combo.findText(error_action)
-        if error_index >= 0:
-            self.error_action_combo.setCurrentIndex(error_index)
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
@@ -251,15 +296,9 @@ class LuaScriptDialog(QDialog):
             "description": self.description_edit.text(),
             "trigger": {
                 "type": self.trigger_type_combo.currentText(),
-                "period_ms": self.period_spin.value(),
-                "channel": self.trigger_channel_spin.value()
+                "period_ms": self.period_spin.value()
             },
-            "script": self.script_editor.toPlainText(),
-            "settings": {
-                "max_execution_ms": self.max_execution_time_spin.value(),
-                "priority": self.priority_combo.currentText(),
-                "error_action": self.error_action_combo.currentText()
-            }
+            "script": self.script_editor.toPlainText()
         }
 
         return config

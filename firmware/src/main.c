@@ -39,6 +39,7 @@
 #include "pmu_protocol.h"
 #include "pmu_config_json.h"
 #include "pmu_channel.h"
+#include "pmu_logic_functions.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -117,6 +118,7 @@ int main(void)
     PMU_ADC_Init();
     PMU_Protection_Init();
     PMU_Channel_Init();      /* Initialize universal channel abstraction */
+    PMU_LogicFunctions_Init(); /* Initialize logic functions */
     PMU_Logic_Init();
     PMU_Logging_Init();
     PMU_UI_Init();
@@ -208,6 +210,7 @@ static void vControlTask(void *pvParameters)
         if (++logic_counter >= 2) {
             logic_counter = 0;
             PMU_Logic_Execute();
+            PMU_LogicFunctions_Update();  /* Update logic functions at 500Hz */
             PMU_Lua_Update();  /* Update Lua scripts at 500Hz */
         }
 

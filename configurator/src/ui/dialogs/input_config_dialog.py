@@ -54,7 +54,7 @@ class InputConfigDialog(QDialog):
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Brake Pressure")
-        basic_layout.addRow("Name:", self.name_edit)
+        basic_layout.addRow("Name: *", self.name_edit)
 
         self.type_combo = QComboBox()
         self.type_combo.addItems(self.INPUT_TYPES)
@@ -94,7 +94,7 @@ class InputConfigDialog(QDialog):
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.clicked.connect(self._on_accept)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -208,6 +208,18 @@ class InputConfigDialog(QDialog):
             self.timeout_spin.setSuffix(" ms")
             self.timeout_spin.setToolTip("Timeout for signal loss detection")
             self.type_layout.addRow("Timeout:", self.timeout_spin)
+
+    def _on_accept(self):
+        """Validate and accept dialog."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Validate name (required field)
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Validation Error", "Name is required!")
+            self.name_edit.setFocus()
+            return
+
+        self.accept()
 
     def _populate_available_channels(self):
         """Populate channel dropdown with available channels."""

@@ -60,6 +60,7 @@ static void CAN_ParseSignals(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg);
 static float CAN_ExtractSignal(uint8_t* data, PMU_CAN_SignalMap_t* signal);
 static void CAN_CheckTimeouts(PMU_CAN_Bus_t bus);
 static uint8_t CAN_BytesToDLC(uint8_t bytes);
+static uint8_t CAN_DLCToBytes(uint8_t dlc);
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -121,8 +122,15 @@ static HAL_StatusTypeDef CAN_InitBus(PMU_CAN_Bus_t bus)
     FDCAN_HandleTypeDef* hfdcan = can_buses[bus].hfdcan;
 
     /* Assign FDCAN instance */
-    hfdcan->Instance = (bus == PMU_CAN_BUS_1) ? FDCAN1 :
-                       (bus == PMU_CAN_BUS_2) ? FDCAN2 : FDCAN3;
+    /* STM32H743 only has FDCAN1 and FDCAN2 */
+    if (bus == PMU_CAN_BUS_1) {
+        hfdcan->Instance = FDCAN1;
+    } else if (bus == PMU_CAN_BUS_2) {
+        hfdcan->Instance = FDCAN2;
+    } else {
+        /* FDCAN3 not available on STM32H743 */
+        return HAL_ERROR;
+    }
 
     /* Basic FDCAN configuration */
     hfdcan->Init.FrameFormat = can_buses[bus].config.enable_fd ?
@@ -211,7 +219,8 @@ static HAL_StatusTypeDef CAN_InitBus(PMU_CAN_Bus_t bus)
 
     can_buses[bus].stats.tx_count = 0;
     can_buses[bus].stats.rx_count = 0;
-    can_buses[bus].stats.error_count = 0;
+    can_buses[bus].stats.tx_errors = 0;
+    can_buses[bus].stats.rx_errors = 0;
 
     return HAL_OK;
 #endif
@@ -247,15 +256,16 @@ void PMU_CAN_Update(void)
                 /* Process received message */
                 PMU_CAN_Message_t msg;
                 msg.id = rx_header.Identifier;
-                msg.length = CAN_DLCToBytes(rx_header.DataLength);
-                msg.is_extended = (rx_header.IdType == FDCAN_EXTENDED_ID);
-                msg.is_fd = (rx_header.FDFormat == FDCAN_FD_CAN);
-                memcpy(msg.data, rx_data, msg.length);
+                msg.dlc = CAN_DLCToBytes(rx_header.DataLength);
+                msg.id_type = (rx_header.IdType == FDCAN_EXTENDED_ID) ? PMU_CAN_ID_EXTENDED : PMU_CAN_ID_STANDARD;
+                msg.frame_type = (rx_header.FDFormat == FDCAN_FD_CAN) ? PMU_CAN_FRAME_FD : PMU_CAN_FRAME_CLASSIC;
+                msg.rtr = 0;
+                memcpy(msg.data, rx_data, msg.dlc);
 
                 can_buses[bus].stats.rx_count++;
 
                 /* Process signal mapping for this message */
-                CAN_ProcessReceivedMessage(bus, &msg);
+                CAN_ProcessRxMessage(bus, &msg);
             }
         }
 #endif
@@ -322,18 +332,18 @@ HAL_StatusTypeDef PMU_CAN_SendMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
 
     /* Configure TX header */
     tx_header.Identifier = msg->id;
-    tx_header.IdType = msg->is_extended ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
+    tx_header.IdType = (msg->id_type == PMU_CAN_ID_EXTENDED) ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
     tx_header.TxFrameType = FDCAN_DATA_FRAME;  /* Always data frame for now */
-    tx_header.DataLength = CAN_BytesToDLC(msg->length) << 16;
+    tx_header.DataLength = CAN_BytesToDLC(msg->dlc) << 16;
     tx_header.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-    tx_header.BitRateSwitch = msg->is_fd ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
-    tx_header.FDFormat = msg->is_fd ? FDCAN_FD_CAN : FDCAN_CLASSIC_CAN;
+    tx_header.BitRateSwitch = (msg->frame_type == PMU_CAN_FRAME_FD) ? FDCAN_BRS_ON : FDCAN_BRS_OFF;
+    tx_header.FDFormat = (msg->frame_type == PMU_CAN_FRAME_FD) ? FDCAN_FD_CAN : FDCAN_CLASSIC_CAN;
     tx_header.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
     tx_header.MessageMarker = 0;
 
     /* Add message to TX FIFO */
     if (HAL_FDCAN_AddMessageToTxFifoQ(can_buses[bus].hfdcan, &tx_header, msg->data) != HAL_OK) {
-        can_buses[bus].stats.error_count++;
+        can_buses[bus].stats.tx_errors++;
         return HAL_ERROR;
     }
 
@@ -400,7 +410,7 @@ static void CAN_ParseSignals(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
             float value = CAN_ExtractSignal(msg->data, signal);
 
             /* Update virtual channel */
-            PMU_Logic_SetVirtualChannel(signal->virtual_channel, (int32_t)value);
+            PMU_Logic_SetVChannel(signal->virtual_channel, (int32_t)value);
 
             /* Update timestamp */
             signal->last_update_ms = system_tick_ms;

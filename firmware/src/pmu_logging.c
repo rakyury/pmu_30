@@ -244,7 +244,7 @@ static uint16_t Logging_GetChannelValue(PMU_LogChannel_t* channel)
 {
     switch (channel->channel_type) {
         case 0:  /* Physical Input (ADC) */
-            return PMU_ADC_GetValue(channel->channel_id);
+            return PMU_ADC_GetRawValue(channel->channel_id);
 
         case 1:  /* Physical Output */
             {
@@ -253,7 +253,7 @@ static uint16_t Logging_GetChannelValue(PMU_LogChannel_t* channel)
             }
 
         case 2:  /* Virtual Channel */
-            return (uint16_t)PMU_Logic_GetVirtualChannel(channel->channel_id);
+            return (uint16_t)PMU_Logic_GetVChannel(channel->channel_id);
 
         case 3:  /* System values */
             /* Could log voltage, temperature, etc. */
@@ -283,7 +283,7 @@ static void Logging_WriteBuffer(void)
     uint16_t offset = 0;
 
     while (bytes_to_write > 0) {
-        uint16_t chunk = (bytes_to_write > FLASH_PAGE_SIZE) ? FLASH_PAGE_SIZE : bytes_to_write;
+        uint16_t chunk = (bytes_to_write > W25Q_PAGE_SIZE) ? W25Q_PAGE_SIZE : bytes_to_write;
 
         Logging_FlashWritePage(log_state.flash_write_address,
                                &log_state.buffer[offset],

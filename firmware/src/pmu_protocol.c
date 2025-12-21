@@ -246,7 +246,7 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
     /* Add inputs data */
     if (telemetry_config.inputs_enabled && index < TELEMETRY_BUFFER_SIZE - 40) {
         /* Pack 20 input values (2 bytes each = 40 bytes) */
-        for (uint8_t i = 0; i < 20 && index < TELEMETRY_BUFFER_SIZE - 1) {
+        for (uint8_t i = 0; i < 20 && index < TELEMETRY_BUFFER_SIZE - 1; i++) {
             uint16_t val = PMU_ADC_GetRawValue(i);
             telemetry_data[index++] = (uint8_t)(val & 0xFF);
             telemetry_data[index++] = (uint8_t)(val >> 8);
@@ -511,14 +511,15 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
         /* Send via CAN (chunked if needed) */
         PMU_CAN_Message_t can_msg;
         can_msg.id = PMU_PROTOCOL_CAN_ID_BASE;
-        can_msg.is_extended = false;
-        can_msg.is_fd = true;
+        can_msg.id_type = PMU_CAN_ID_STANDARD;
+        can_msg.frame_type = PMU_CAN_FRAME_FD;
+        can_msg.rtr = 0;
 
         uint16_t offset = 0;
         while (offset < total_len) {
             uint8_t chunk_len = (total_len - offset > 8) ? 8 : (total_len - offset);
             memcpy(can_msg.data, (uint8_t*)packet + offset, chunk_len);
-            can_msg.length = chunk_len;
+            can_msg.dlc = chunk_len;
 
             PMU_CAN_SendMessage(PMU_CAN_BUS_1, &can_msg);
 
@@ -632,7 +633,8 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet)
         uint16_t duty = packet->data[1] | (packet->data[2] << 8);
 
         if (channel < 30) {
-            PMU_PROFET_SetChannel(channel, 1, duty);
+            PMU_PROFET_SetState(channel, 1);
+            PMU_PROFET_SetPWM(channel, duty);
             Protocol_SendACK(PMU_CMD_SET_PWM);
         } else {
             Protocol_SendNACK(PMU_CMD_SET_PWM, "Invalid channel");
