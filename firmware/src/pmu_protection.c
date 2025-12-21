@@ -63,6 +63,7 @@ static void Protection_HandleLoadShedding(void);
 static uint16_t Protection_ReadVbatADC(void);
 static int16_t Protection_ReadMCUTemp(void);
 static int16_t Protection_ReadBoardTemp(void);
+static inline int16_t Protection_GetMaxTemp(void);
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -171,11 +172,8 @@ static void Protection_UpdateTemperature(void)
     /* Read board temperature sensor */
     protection_state.temperature.board_temp_C = Protection_ReadBoardTemp();
 
-    /* Check for overtemperature */
-    int16_t max_temp = (protection_state.temperature.mcu_temp_C >
-                        protection_state.temperature.board_temp_C) ?
-                        protection_state.temperature.mcu_temp_C :
-                        protection_state.temperature.board_temp_C;
+    /* Check for overtemperature using max of both sensors */
+    int16_t max_temp = Protection_GetMaxTemp();
 
     if (max_temp >= protection_state.temperature.temp_critical_C) {
         protection_state.temperature.overtemp_count++;
@@ -191,11 +189,15 @@ static void Protection_UpdatePower(void)
 {
     uint32_t total_current = 0;
 
-    /* Sum current from all PROFET channels */
+    /* Sum current from all PROFET channels - optimized with direct access */
     for (uint8_t i = 0; i < 30; i++) {
         PMU_PROFET_Channel_t* ch = PMU_PROFET_GetChannelData(i);
         if (ch != NULL) {
             total_current += ch->current_mA;
+            /* Early exit if over limit to save CPU cycles */
+            if (total_current > protection_state.power.max_current_mA) {
+                break;
+            }
         }
     }
 
@@ -203,7 +205,7 @@ static void Protection_UpdatePower(void)
 
     protection_state.power.total_current_mA = total_current;
 
-    /* Calculate total power: P = V × I */
+    /* Calculate total power: P = V × I (mV × mA / 1000000 = W) */
     protection_state.power.total_power_W =
         ((uint64_t)protection_state.voltage.voltage_mV * total_current) / 1000000;
 }
@@ -229,9 +231,13 @@ static void Protection_CheckFaults(void)
         new_faults |= PMU_PROT_FAULT_BROWNOUT;
     }
 
+    /* High voltage warning - could indicate alternator overvoltage */
     if (protection_state.voltage.voltage_mV > protection_state.voltage.voltage_warn_high_mV) {
-        /* High voltage warning - could indicate alternator overvoltage */
+        new_faults |= PMU_PROT_FAULT_BROWNOUT;  /* Reuse brownout flag for high voltage */
     }
+
+    /* Get max temperature once for efficiency */
+    int16_t max_temp = Protection_GetMaxTemp();
 
     /* Check temperature faults */
     if (protection_state.temperature.overtemp_count >= PMU_FAULT_THRESHOLD) {
@@ -239,11 +245,6 @@ static void Protection_CheckFaults(void)
         /* Enable load shedding to reduce heat */
         protection_state.load_shedding_active = 1;
     }
-
-    int16_t max_temp = (protection_state.temperature.mcu_temp_C >
-                        protection_state.temperature.board_temp_C) ?
-                        protection_state.temperature.mcu_temp_C :
-                        protection_state.temperature.board_temp_C;
 
     if (max_temp >= protection_state.temperature.temp_warn_C) {
         new_faults |= PMU_PROT_FAULT_OVERTEMP_WARNING;
@@ -372,6 +373,18 @@ static int16_t Protection_ReadBoardTemp(void)
     /* TODO: Implement external temperature sensor (e.g., NTC or digital sensor) */
     /* For now, return nominal temperature */
     return 25;
+}
+
+/**
+ * @brief Get maximum temperature from MCU and board sensors
+ * @retval Maximum temperature in °C
+ */
+static inline int16_t Protection_GetMaxTemp(void)
+{
+    return (protection_state.temperature.mcu_temp_C >
+            protection_state.temperature.board_temp_C) ?
+            protection_state.temperature.mcu_temp_C :
+            protection_state.temperature.board_temp_C;
 }
 
 /**

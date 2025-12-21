@@ -22,6 +22,7 @@ from .tabs.hbridge_tab import HBridgeTab
 from .tabs.lua_tab import LuaTab
 from .tabs.monitoring_tab import MonitoringTab
 from .tabs.settings_tab import SettingsTab
+from .tabs.pid_tab import PIDTab
 
 from .dialogs.connection_dialog import ConnectionDialog
 
@@ -70,12 +71,12 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("PMU-30 Configurator - R2 m-sport")
 
-        # Set window size to 40% of screen size
+        # Set window size to 70% of screen size
         from PyQt6.QtWidgets import QApplication
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
-        width = int(screen_geometry.width() * 0.4)
-        height = int(screen_geometry.height() * 0.4)
+        width = int(screen_geometry.width() * 0.7)
+        height = int(screen_geometry.height() * 0.7)
 
         # Center window on screen
         x = (screen_geometry.width() - width) // 2
@@ -104,7 +105,7 @@ class MainWindow(QMainWindow):
         self.can_tab = CANTab()
         self.logic_tab = LogicTab()
         self.hbridge_tab = HBridgeTab()
-        self.pid_tab = SettingsTab()  # Placeholder for PID tab
+        self.pid_tab = PIDTab()
         self.wiper_tab = SettingsTab()  # Placeholder for wiper tab
         self.turn_signal_tab = SettingsTab()  # Placeholder for turn signal tab
         self.lua_tab = LuaTab()
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.inputs_tab, "Inputs (20)")
         self.tab_widget.addTab(self.can_tab, "CAN Bus")
         self.tab_widget.addTab(self.logic_tab, "Logic Engine")
+        self.tab_widget.addTab(self.pid_tab, "PID Controllers")
         self.tab_widget.addTab(self.lua_tab, "Lua Scripts")
         self.tab_widget.addTab(self.settings_tab, "Settings")
 
@@ -170,6 +172,9 @@ class MainWindow(QMainWindow):
         self.can_tab.configuration_changed.connect(self.on_configuration_changed)
         self.logic_tab.configuration_changed.connect(self.on_configuration_changed)
         self.hbridge_tab.configuration_changed.connect(self.on_configuration_changed)
+        self.pid_tab.configuration_changed.connect(self.on_configuration_changed)
+        self.lua_tab.configuration_changed.connect(self.on_configuration_changed)
+        self.settings_tab.configuration_changed.connect(self.on_configuration_changed)
 
     def setup_toolbar(self):
         """Toolbar removed - all functions moved to menu."""
@@ -274,6 +279,40 @@ class MainWindow(QMainWindow):
         self.dark_mode_action.triggered.connect(self.toggle_theme)
         view_menu.addAction(self.dark_mode_action)
 
+        view_menu.addSeparator()
+
+        # Style submenu
+        style_menu = view_menu.addMenu("Application Style")
+
+        # Get available styles
+        from PyQt6.QtWidgets import QStyleFactory
+        available_styles = QStyleFactory.keys()
+
+        # Create action group for exclusive selection
+        from PyQt6.QtGui import QActionGroup
+        self.style_group = QActionGroup(self)
+        self.style_group.setExclusive(True)
+
+        # Add "Fluent Design" (our custom theme) option
+        fluent_action = QAction("Fluent Design (Custom)", self)
+        fluent_action.setCheckable(True)
+        fluent_action.setChecked(True)  # Default
+        fluent_action.triggered.connect(lambda: self.change_style("Fluent"))
+        self.style_group.addAction(fluent_action)
+        style_menu.addAction(fluent_action)
+
+        style_menu.addSeparator()
+
+        # Add Qt built-in styles
+        for style_name in available_styles:
+            action = QAction(style_name, self)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked, s=style_name: self.change_style(s))
+            self.style_group.addAction(action)
+            style_menu.addAction(action)
+
+        self.current_style = "Fluent"
+
         # Help menu
         help_menu = menubar.addMenu("Help")
 
@@ -286,11 +325,104 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def setup_statusbar(self):
-        """Setup status bar."""
-
+        """Setup status bar with detailed system information."""
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
-        self.statusbar.showMessage("Ready")
+
+        # Main status message (left)
+        self.status_message = QLabel("Ready")
+        self.statusbar.addWidget(self.status_message)
+
+        # Separator
+        separator1 = QLabel(" | ")
+        self.statusbar.addWidget(separator1)
+
+        # CAN Bus Status
+        self.can_status_label = QLabel("CAN: Idle")
+        self.can_status_label.setToolTip("CAN Bus Status: Bitrate, TX/RX counters, errors")
+        self.statusbar.addWidget(self.can_status_label)
+
+        separator2 = QLabel(" | ")
+        self.statusbar.addWidget(separator2)
+
+        # Channel Status
+        self.channels_label = QLabel("Outputs: 0/30 | Inputs: 0/20")
+        self.channels_label.setToolTip("Active channels status")
+        self.statusbar.addWidget(self.channels_label)
+
+        separator3 = QLabel(" | ")
+        self.statusbar.addWidget(separator3)
+
+        # H-Bridge Status
+        self.hbridge_label = QLabel("H-Bridge: 0/4")
+        self.hbridge_label.setToolTip("Active H-Bridge channels")
+        self.statusbar.addWidget(self.hbridge_label)
+
+        separator4 = QLabel(" | ")
+        self.statusbar.addWidget(separator4)
+
+        # Voltage Status
+        self.voltage_label = QLabel("Voltage: N/A")
+        self.voltage_label.setToolTip("System voltage")
+        self.statusbar.addWidget(self.voltage_label)
+
+        separator5 = QLabel(" | ")
+        self.statusbar.addWidget(separator5)
+
+        # Temperature Status
+        self.temp_label = QLabel("Temp: N/A")
+        self.temp_label.setToolTip("Device temperature")
+        self.statusbar.addWidget(self.temp_label)
+
+        separator6 = QLabel(" | ")
+        self.statusbar.addWidget(separator6)
+
+        # Current Total
+        self.current_label = QLabel("Current: 0.0A")
+        self.current_label.setToolTip("Total current draw")
+        self.statusbar.addWidget(self.current_label)
+
+        # Stretch to push remaining items to right
+        self.statusbar.addPermanentWidget(QLabel(""))
+
+        # Configuration status (right side)
+        self.config_status_label = QLabel("Not Modified")
+        self.statusbar.addPermanentWidget(self.config_status_label)
+
+        # Start status update timer
+        self.status_timer = QTimer(self)
+        self.status_timer.timeout.connect(self._update_statusbar)
+        self.status_timer.start(500)  # Update every 500ms
+
+    def _update_statusbar(self):
+        """Update status bar with current system state."""
+        # Update channel counts from tabs
+        try:
+            # Outputs
+            output_count = sum(1 for out in self.outputs_tab.outputs if out.get("enabled", False))
+            # Inputs
+            input_count = sum(1 for inp in self.inputs_tab.inputs if inp.get("enabled", False))
+            self.channels_label.setText(f"Outputs: {output_count}/30 | Inputs: {input_count}/20")
+
+            # H-Bridge
+            hbridge_count = sum(1 for hb in self.hbridge_tab.hbridge_channels if hb.get("enabled", False))
+            self.hbridge_label.setText(f"H-Bridge: {hbridge_count}/4")
+
+            # Configuration status
+            if self.config_manager.is_modified():
+                self.config_status_label.setText("Modified *")
+                self.config_status_label.setStyleSheet("color: #f59e0b;")
+            else:
+                self.config_status_label.setText("Saved")
+                self.config_status_label.setStyleSheet("color: #10b981;")
+
+            # CAN status (will be updated when device is connected)
+            # For now, show configured bitrate
+            can_bitrate = self.settings_tab.can_bitrate_combo.currentText()
+            self.can_status_label.setText(f"CAN: {can_bitrate}")
+
+        except Exception as e:
+            logger.error(f"Error updating status bar: {e}")
 
     def _on_config_changed(self):
         """Handle configuration changes from tabs."""
@@ -342,6 +474,31 @@ class MainWindow(QMainWindow):
         self.apply_theme()
         logger.info(f"Theme changed to: {'dark' if self.dark_mode else 'light'}")
 
+    def change_style(self, style_name: str):
+        """Change application style."""
+        from PyQt6.QtWidgets import QApplication, QStyleFactory
+
+        app = QApplication.instance()
+        if not app:
+            return
+
+        self.current_style = style_name
+
+        if style_name == "Fluent":
+            # Apply our custom Fluent Design theme
+            app.setStyle("Fusion")  # Use Fusion as base
+            ThemeManager.toggle_theme(app, self.dark_mode)
+            logger.info("Applied Fluent Design custom theme")
+        else:
+            # Apply Qt built-in style
+            app.setStyle(QStyleFactory.create(style_name))
+            # Clear custom stylesheet when using built-in styles
+            app.setStyleSheet("")
+            logger.info(f"Applied Qt style: {style_name}")
+
+        # Update UI
+        self.update()
+
     def toggle_connection(self):
         """Toggle device connection."""
 
@@ -365,7 +522,7 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Disconnect")
         self.connect_btn.clicked.disconnect()
         self.connect_btn.clicked.connect(self.disconnect_device)
-        self.statusbar.showMessage("Device connected successfully")
+        self.status_message.setText("Device connected successfully")
 
         logger.info("Device connected")
 
@@ -377,7 +534,7 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Connect to Device...")
         self.connect_btn.clicked.disconnect()
         self.connect_btn.clicked.connect(self.show_connection_dialog)
-        self.statusbar.showMessage("Device disconnected")
+        self.status_message.setText("Device disconnected")
 
         logger.info("Device disconnected")
 
@@ -412,7 +569,7 @@ class MainWindow(QMainWindow):
         self.config_manager.new_config()
         self.load_config_to_ui()
         self.setWindowTitle("PMU-30 Configurator - R2 m-sport")
-        self.statusbar.showMessage("Created new configuration")
+        self.status_message.setText("Created new configuration")
         logger.info("Created new configuration")
 
     def open_configuration(self):
@@ -443,7 +600,7 @@ class MainWindow(QMainWindow):
             if success:
                 self.load_config_to_ui()
                 self.setWindowTitle(f"PMU-30 Configurator - {filename}")
-                self.statusbar.showMessage(f"Loaded configuration from {filename}")
+                self.status_message.setText(f"Loaded configuration from {filename}")
                 logger.info(f"Opened configuration: {filename}")
             else:
                 QMessageBox.critical(
@@ -459,7 +616,7 @@ class MainWindow(QMainWindow):
             self.save_config_from_ui()
             if self.config_manager.save_to_file():
                 self.setWindowTitle(f"PMU-30 Configurator - {current_file}")
-                self.statusbar.showMessage(f"Saved configuration to {current_file}")
+                self.status_message.setText(f"Saved configuration to {current_file}")
                 logger.info(f"Saved configuration to {current_file}")
                 return True
             else:
@@ -484,7 +641,7 @@ class MainWindow(QMainWindow):
             self.save_config_from_ui()
             if self.config_manager.save_to_file(filename):
                 self.setWindowTitle(f"PMU-30 Configurator - {filename}")
-                self.statusbar.showMessage(f"Saved configuration to {filename}")
+                self.status_message.setText(f"Saved configuration to {filename}")
                 logger.info(f"Saved configuration to {filename}")
                 return True
             else:
@@ -540,7 +697,9 @@ class MainWindow(QMainWindow):
         self.hbridge_tab.load_configuration(config)
         self.logic_tab.load_configuration(config)
         self.pid_tab.load_configuration(config)
+        self.lua_tab.load_configuration(config)
         self.can_tab.load_configuration(config)
+        self.settings_tab.load_configuration(config)
         self.wiper_tab.load_configuration(config)
         self.turn_signal_tab.load_configuration(config)
 
@@ -554,7 +713,9 @@ class MainWindow(QMainWindow):
         self.config_manager.config.update(self.hbridge_tab.get_configuration())
         self.config_manager.config.update(self.logic_tab.get_configuration())
         self.config_manager.config.update(self.pid_tab.get_configuration())
+        self.config_manager.config.update(self.lua_tab.get_configuration())
         self.config_manager.config.update(self.can_tab.get_configuration())
+        self.config_manager.config.update(self.settings_tab.get_configuration())
         self.config_manager.config.update(self.wiper_tab.get_configuration())
         self.config_manager.config.update(self.turn_signal_tab.get_configuration())
 

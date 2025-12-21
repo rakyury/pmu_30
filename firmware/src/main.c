@@ -34,6 +34,8 @@
 #include "pmu_protection.h"
 #include "pmu_logic.h"
 #include "pmu_logging.h"
+#include "pmu_ui.h"
+#include "pmu_lua.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -109,6 +111,8 @@ int main(void)
     PMU_Protection_Init();
     PMU_Logic_Init();
     PMU_Logging_Init();
+    PMU_UI_Init();
+    PMU_Lua_Init();  /* Initialize Lua scripting engine */
 
     /* Create FreeRTOS tasks */
 
@@ -171,6 +175,10 @@ static void vControlTask(void *pvParameters)
 {
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(1);  /* 1ms = 1kHz */
+    uint8_t logic_counter = 0;  /* Counter for 500Hz logic engine */
+
+    /* Prevent unused parameter warning */
+    (void)pvParameters;
 
     /* Initialize the xLastWakeTime variable with the current time */
     xLastWakeTime = xTaskGetTickCount();
@@ -184,10 +192,10 @@ static void vControlTask(void *pvParameters)
         PMU_ADC_Update();
 
         /* Execute logic engine (500Hz, every 2nd cycle) */
-        static uint8_t logic_counter = 0;
         if (++logic_counter >= 2) {
             logic_counter = 0;
             PMU_Logic_Execute();
+            PMU_Lua_Update();  /* Update Lua scripts at 500Hz */
         }
 
         /* Update output channels */
@@ -210,6 +218,7 @@ static void vProtectionTask(void *pvParameters)
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(1);  /* 1ms */
 
+    (void)pvParameters;
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
@@ -228,6 +237,8 @@ static void vProtectionTask(void *pvParameters)
  */
 static void vCANTask(void *pvParameters)
 {
+    (void)pvParameters;
+
     for (;;)
     {
         /* Process CAN messages and transmit periodic data */
@@ -248,6 +259,7 @@ static void vLoggingTask(void *pvParameters)
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(2);  /* 2ms = 500Hz */
 
+    (void)pvParameters;
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
@@ -269,6 +281,7 @@ static void vUITask(void *pvParameters)
     TickType_t xLastWakeTime;
     const TickType_t xFrequency = pdMS_TO_TICKS(50);  /* 50ms = 20Hz */
 
+    (void)pvParameters;
     xLastWakeTime = xTaskGetTickCount();
 
     for (;;)
