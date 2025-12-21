@@ -38,7 +38,6 @@ class MainWindowECUMaster(QMainWindow):
         # Initialize managers
         self.config_manager = ConfigManager()
         self.device_controller = DeviceController()
-        self.dark_mode = True
 
         # Settings for saving/restoring layout
         self.settings = QSettings("R2msport", "PMU30Configurator")
@@ -61,7 +60,7 @@ class MainWindowECUMaster(QMainWindow):
         self.setWindowTitle("PMU-30 Configurator - R2 m-sport")
 
         # Set window size to 70% of screen
-        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtWidgets import QApplication, QWidget
         screen = QApplication.primaryScreen()
         screen_geometry = screen.geometry()
         width = int(screen_geometry.width() * 0.7)
@@ -72,15 +71,25 @@ class MainWindowECUMaster(QMainWindow):
         y = (screen_geometry.height() - height) // 2
         self.setGeometry(x, y, width, height)
 
-        # Create central widget - Project Tree
-        self.project_tree = ProjectTree()
-        self.setCentralWidget(self.project_tree)
+        # Create empty central widget
+        central = QWidget()
+        self.setCentralWidget(central)
 
-        # Create dock widgets
+        # Create dock widgets (including Project Tree)
         self._create_dock_widgets()
 
     def _create_dock_widgets(self):
         """Create dock widgets for monitoring."""
+
+        # Project Tree Dock
+        self.project_tree_dock = QDockWidget("Project Tree", self)
+        self.project_tree_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea |
+            Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.project_tree = ProjectTree()
+        self.project_tree_dock.setWidget(self.project_tree)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
 
         # Output Monitor Dock
         self.output_dock = QDockWidget("Output Monitor", self)
@@ -205,6 +214,12 @@ class MainWindowECUMaster(QMainWindow):
         # Windows menu (for dock widgets)
         windows_menu = menubar.addMenu("Windows")
 
+        project_tree_action = self.project_tree_dock.toggleViewAction()
+        project_tree_action.setText("Project Tree")
+        windows_menu.addAction(project_tree_action)
+
+        windows_menu.addSeparator()
+
         output_monitor_action = self.output_dock.toggleViewAction()
         output_monitor_action.setText("Output Monitor")
         windows_menu.addAction(output_monitor_action)
@@ -219,14 +234,6 @@ class MainWindowECUMaster(QMainWindow):
 
         # View menu
         view_menu = menubar.addMenu("View")
-
-        self.dark_mode_action = QAction("Dark Mode", self)
-        self.dark_mode_action.setCheckable(True)
-        self.dark_mode_action.setChecked(True)
-        self.dark_mode_action.triggered.connect(self.toggle_theme)
-        view_menu.addAction(self.dark_mode_action)
-
-        view_menu.addSeparator()
 
         # Style submenu
         style_menu = view_menu.addMenu("Application Style")
@@ -651,16 +658,12 @@ class MainWindowECUMaster(QMainWindow):
             self.restoreState(state)
 
     def apply_theme(self):
-        """Apply current theme."""
+        """Apply light theme by default."""
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
-            ThemeManager.toggle_theme(app, self.dark_mode)
-
-    def toggle_theme(self):
-        """Toggle theme."""
-        self.dark_mode = not self.dark_mode
-        self.apply_theme()
+            # Always apply light theme (dark_mode = False)
+            ThemeManager.toggle_theme(app, False)
 
     def change_style(self, style_name: str):
         """Change application style."""
@@ -674,7 +677,8 @@ class MainWindowECUMaster(QMainWindow):
 
         if style_name == "Fluent":
             app.setStyle("Fusion")
-            ThemeManager.toggle_theme(app, self.dark_mode)
+            # Always use light theme
+            ThemeManager.toggle_theme(app, False)
         else:
             app.setStyle(QStyleFactory.create(style_name))
             app.setStyleSheet("")

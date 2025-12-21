@@ -36,6 +36,8 @@
 #include "pmu_logging.h"
 #include "pmu_ui.h"
 #include "pmu_lua.h"
+#include "pmu_protocol.h"
+#include "pmu_config_json.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -116,7 +118,9 @@ int main(void)
     PMU_Logic_Init();
     PMU_Logging_Init();
     PMU_UI_Init();
-    PMU_Lua_Init();  /* Initialize Lua scripting engine */
+    PMU_Lua_Init();          /* Initialize Lua scripting engine */
+    PMU_JSON_Init();         /* Initialize JSON configuration loader */
+    PMU_Protocol_Init(PMU_TRANSPORT_WIFI);  /* Initialize protocol (WiFi via ESP32-C3) */
 
     /* Create FreeRTOS tasks */
 
@@ -205,6 +209,9 @@ static void vControlTask(void *pvParameters)
         /* Update output channels */
         PMU_PROFET_Update();
         PMU_HBridge_Update();
+
+        /* Update protocol handler (handles commands and streaming) */
+        PMU_Protocol_Update();
 
         /* Watchdog refresh - kick the watchdog every 1ms
          * Watchdog configured for ~1 second timeout
