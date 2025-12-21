@@ -37,13 +37,13 @@
 #define HBRIDGE_PID_UPDATE_MS       10      /* PID update rate (100Hz) */
 
 /* Private macro -------------------------------------------------------------*/
-#define IS_VALID_BRIDGE(b)      ((b) < PMU_NUM_HBRIDGES)
+#define IS_VALID_BRIDGE(b)      ((b) < PMU30_NUM_HBRIDGES)
 #define CLAMP(x, min, max)      (((x) < (min)) ? (min) : (((x) > (max)) ? (max) : (x)))
 
 /* Private variables ---------------------------------------------------------*/
-static PMU_HBridge_Channel_t bridges[PMU_NUM_HBRIDGES];
-static PMU_HBridgeConfig_t* bridge_configs[PMU_NUM_HBRIDGES];
-static PMU_PID_Controller_t pid_controllers[PMU_NUM_HBRIDGES];
+static PMU_HBridge_Channel_t bridges[PMU30_NUM_HBRIDGES];
+static PMU_HBridgeConfig_t* bridge_configs[PMU30_NUM_HBRIDGES];
+static PMU_PID_Controller_t pid_controllers[PMU30_NUM_HBRIDGES];
 static TIM_HandleTypeDef* htim_pwm_hbridge;
 static ADC_HandleTypeDef* hadc_hbridge;
 
@@ -57,7 +57,7 @@ typedef struct {
     uint32_t tim_channel_2;
 } HBridge_GPIO_Map_t;
 
-static const HBridge_GPIO_Map_t hbridge_gpio[PMU_NUM_HBRIDGES] = {
+static const HBridge_GPIO_Map_t hbridge_gpio[PMU30_NUM_HBRIDGES] = {
     /* Bridge 0 */
     {GPIOG, GPIO_PIN_0, GPIOG, GPIO_PIN_1, TIM_CHANNEL_1, TIM_CHANNEL_2},
     /* Bridge 1 */
@@ -94,7 +94,7 @@ HAL_StatusTypeDef PMU_HBridge_Init(void)
     memset(pid_controllers, 0, sizeof(pid_controllers));
 
     /* Initialize all bridges to COAST */
-    for (uint8_t i = 0; i < PMU_NUM_HBRIDGES; i++) {
+    for (uint8_t i = 0; i < PMU30_NUM_HBRIDGES; i++) {
         bridges[i].state = PMU_HBRIDGE_STATE_IDLE;
         bridges[i].mode = PMU_HBRIDGE_MODE_COAST;
         bridges[i].fault_flags = PMU_HBRIDGE_FAULT_NONE;
@@ -126,7 +126,7 @@ void PMU_HBridge_Update(void)
     static uint32_t tick_1khz = 0;
     tick_1khz++;
 
-    for (uint8_t i = 0; i < PMU_NUM_HBRIDGES; i++) {
+    for (uint8_t i = 0; i < PMU30_NUM_HBRIDGES; i++) {
         /* Update runtime counter */
         if (bridges[i].state == PMU_HBRIDGE_STATE_RUNNING) {
             bridges[i].run_time_ms++;
@@ -149,8 +149,8 @@ void PMU_HBridge_Update(void)
 
         /* Check stall detection */
         if (bridges[i].duty_cycle > 500 &&
-            bridges[i].current_mA > HBRIDGE_STALL_CURRENT_MA &&
-            bridges[i].run_time_ms > HBRIDGE_STALL_TIME_MS) {
+            bridges[i].current_mA > PMU_HBRIDGE_STALL_CURRENT_MA &&
+            bridges[i].run_time_ms > PMU_HBRIDGE_STALL_TIME_MS) {
             HBridge_HandleFault(i, PMU_HBRIDGE_FAULT_STALL);
         }
 

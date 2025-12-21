@@ -137,6 +137,8 @@ typedef struct {
 
 #define PMU_HBRIDGE_DEFAULT_CURRENT_MA      30000   /* 30A */
 #define PMU_HBRIDGE_DEFAULT_PWM_FREQ_HZ     20000   /* 20 kHz */
+#define PMU_HBRIDGE_STALL_CURRENT_MA        25000   /* 25A stall threshold */
+#define PMU_HBRIDGE_STALL_TIME_MS           500     /* 500ms stall detection time */
 
 /* Input thresholds */
 #define PMU_INPUT_THRESHOLD_HIGH_MV         3500    /* 3.5V */

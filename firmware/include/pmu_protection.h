@@ -6,6 +6,5 @@
 #define __PMU_PROTECTION_H
 #include "main.h"
 HAL_StatusTypeDef PMU_Protection_Init(void);
-void PMU_Protection_Check(void);
-void PMU_Protection_HandleFaults(void);
+void PMU_Protection_Update(void);
 #endif

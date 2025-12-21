@@ -8,7 +8,14 @@
       "Bash(python -c:*)",
       "Bash(pip install:*)",
       "Bash(python -m pip install:*)",
-      "Bash(python main.py:*)"
+      "Bash(python main.py:*)",
+      "Bash(pio:*)",
+      "Bash(python -m platformio run:*)",
+      "Bash(python src/main.py:*)",
+      "Bash(timeout 5 python:*)",
+      "Bash(echo:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m unittest:*)"
     ]
   }
 }

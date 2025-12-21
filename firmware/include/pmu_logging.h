@@ -6,5 +6,5 @@
 #define __PMU_LOGGING_H
 #include "main.h"
 HAL_StatusTypeDef PMU_Logging_Init(void);
-void PMU_Logging_LogData(void);
+void PMU_Logging_Update(void);
 #endif

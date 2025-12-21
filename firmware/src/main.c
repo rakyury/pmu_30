@@ -59,12 +59,14 @@ static TaskHandle_t xCANTaskHandle = NULL;
 static TaskHandle_t xLoggingTaskHandle = NULL;
 static TaskHandle_t xUITaskHandle = NULL;
 
+/* Peripheral handles */
+IWDG_HandleTypeDef hiwdg;
+
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void MPU_Config(void);
 static void CPU_CACHE_Enable(void);
 static void GPIO_Init(void);
-static void Error_Handler(void);
 
 /* FreeRTOS task functions */
 static void vControlTask(void *pvParameters);
@@ -193,7 +195,8 @@ static void vControlTask(void *pvParameters)
         PMU_HBridge_Update();
 
         /* Watchdog refresh */
-        HAL_IWDG_Refresh(&hiwdg);
+        /* TODO: Initialize watchdog before enabling */
+        /* HAL_IWDG_Refresh(&hiwdg); */
     }
 }
 
@@ -213,11 +216,8 @@ static void vProtectionTask(void *pvParameters)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-        /* Check all protection systems */
-        PMU_Protection_Check();
-
-        /* Handle any faults */
-        PMU_Protection_HandleFaults();
+        /* Check all protection systems and handle faults */
+        PMU_Protection_Update();
     }
 }
 
@@ -230,11 +230,11 @@ static void vCANTask(void *pvParameters)
 {
     for (;;)
     {
-        /* Process CAN messages (blocking with timeout) */
-        PMU_CAN_ProcessMessages(10);  /* 10ms timeout */
+        /* Process CAN messages and transmit periodic data */
+        PMU_CAN_Update();
 
-        /* Transmit periodic messages */
-        PMU_CAN_TransmitPeriodic();
+        /* Delay to prevent task from hogging CPU */
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -255,7 +255,7 @@ static void vLoggingTask(void *pvParameters)
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
         /* Log data at 500Hz */
-        PMU_Logging_LogData();
+        PMU_Logging_Update();
     }
 }
 
@@ -275,11 +275,8 @@ static void vUITask(void *pvParameters)
     {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
-        /* Update status LEDs */
-        PMU_UI_UpdateLEDs();
-
-        /* Handle button inputs (if any) */
-        PMU_UI_ProcessInputs();
+        /* Update UI (LEDs, buzzer, inputs) */
+        PMU_UI_Update();
     }
 }
 
@@ -426,7 +423,7 @@ static void GPIO_Init(void)
  * @brief  This function is executed in case of error occurrence.
  * @retval None
  */
-static void Error_Handler(void)
+void Error_Handler(void)
 {
     /* User can add his own implementation to report the HAL error return state */
     __disable_irq();

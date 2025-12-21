@@ -43,11 +43,11 @@
 #define PROFET_OVERTEMP_THRESHOLD_C 145     /* Temperature warning */
 
 /* Private macro -------------------------------------------------------------*/
-#define IS_VALID_CHANNEL(ch)    ((ch) < PMU_NUM_OUTPUTS)
+#define IS_VALID_CHANNEL(ch)    ((ch) < PMU30_NUM_OUTPUTS)
 
 /* Private variables ---------------------------------------------------------*/
-static PMU_PROFET_Channel_t channels[PMU_NUM_OUTPUTS];
-static PMU_OutputConfig_t* channel_configs[PMU_NUM_OUTPUTS];
+static PMU_PROFET_Channel_t channels[PMU30_NUM_OUTPUTS];
+static PMU_OutputConfig_t* channel_configs[PMU30_NUM_OUTPUTS];
 static TIM_HandleTypeDef* htim_pwm;
 static ADC_HandleTypeDef* hadc_current;
 static ADC_HandleTypeDef* hadc_status;
@@ -59,7 +59,7 @@ typedef struct {
     uint32_t tim_channel;
 } PROFET_GPIO_Map_t;
 
-static const PROFET_GPIO_Map_t profet_gpio[PMU_NUM_OUTPUTS] = {
+static const PROFET_GPIO_Map_t profet_gpio[PMU30_NUM_OUTPUTS] = {
     /* OUT0-7: TIM1 channels on GPIOA */
     {GPIOA, GPIO_PIN_8,  TIM_CHANNEL_1},
     {GPIOA, GPIO_PIN_9,  TIM_CHANNEL_2},
@@ -121,7 +121,7 @@ HAL_StatusTypeDef PMU_PROFET_Init(void)
     memset(channel_configs, 0, sizeof(channel_configs));
 
     /* Initialize all channels to OFF state */
-    for (uint8_t i = 0; i < PMU_NUM_OUTPUTS; i++) {
+    for (uint8_t i = 0; i < PMU30_NUM_OUTPUTS; i++) {
         channels[i].state = PMU_PROFET_STATE_OFF;
         channels[i].fault_flags = PMU_PROFET_FAULT_NONE;
 
@@ -145,7 +145,7 @@ void PMU_PROFET_Update(void)
     static uint32_t tick_1khz = 0;
     tick_1khz++;
 
-    for (uint8_t ch = 0; ch < PMU_NUM_OUTPUTS; ch++) {
+    for (uint8_t ch = 0; ch < PMU30_NUM_OUTPUTS; ch++) {
         /* Update on-time counter */
         if (channels[ch].state == PMU_PROFET_STATE_ON ||
             channels[ch].state == PMU_PROFET_STATE_PWM) {
@@ -169,9 +169,9 @@ void PMU_PROFET_Update(void)
                 PROFET_HandleFault(ch, PMU_PROFET_FAULT_OVERCURRENT);
             }
 
-            /* Check inrush duration */
-            if (cfg->inrush_duration_ms > 0 &&
-                channels[ch].on_time_ms < cfg->inrush_duration_ms) {
+            /* Check inrush duration (soft-start period) */
+            if (cfg->soft_start_ms > 0 &&
+                channels[ch].on_time_ms < cfg->soft_start_ms) {
                 /* Allow higher current during inrush */
                 if (channels[ch].current_mA > cfg->inrush_current_mA) {
                     PROFET_HandleFault(ch, PMU_PROFET_FAULT_OVERCURRENT);

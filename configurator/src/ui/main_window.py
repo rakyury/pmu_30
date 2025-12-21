@@ -9,7 +9,7 @@ import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QMenuBar, QToolBar, QStatusBar,
-    QPushButton, QLabel, QComboBox, QMessageBox
+    QPushButton, QLabel, QComboBox, QMessageBox, QFileDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon
@@ -23,7 +23,11 @@ from .tabs.lua_tab import LuaTab
 from .tabs.monitoring_tab import MonitoringTab
 from .tabs.settings_tab import SettingsTab
 
+from .dialogs.connection_dialog import ConnectionDialog
+
 from controllers.device_controller import DeviceController
+from models.config_manager import ConfigManager
+from utils.theme import ThemeManager
 
 
 logger = logging.getLogger(__name__)
@@ -40,14 +44,24 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        # Initialize configuration manager
+        self.config_manager = ConfigManager()
+
+        # Initialize device controller
         self.device_controller = DeviceController()
         self.config_modified = False
+
+        # Dark mode state
+        self.dark_mode = True
 
         self.init_ui()
         self.setup_connections()
         self.setup_toolbar()
         self.setup_menubar()
         self.setup_statusbar()
+
+        # Apply dark theme by default
+        self.apply_theme()
 
         logger.info("Main window initialized")
 
@@ -79,9 +93,16 @@ class MainWindow(QMainWindow):
         self.can_tab = CANTab()
         self.logic_tab = LogicTab()
         self.hbridge_tab = HBridgeTab()
+        self.pid_tab = SettingsTab()  # Placeholder for PID tab
+        self.wiper_tab = SettingsTab()  # Placeholder for wiper tab
+        self.turn_signal_tab = SettingsTab()  # Placeholder for turn signal tab
         self.lua_tab = LuaTab()
         self.monitoring_tab = MonitoringTab()
         self.settings_tab = SettingsTab()
+
+        # Connect configuration changed signals
+        self.inputs_tab.configuration_changed.connect(self._on_config_changed)
+        self.outputs_tab.configuration_changed.connect(self._on_config_changed)
 
         # Add tabs
         self.tab_widget.addTab(self.monitoring_tab, "Monitor")
@@ -99,73 +120,15 @@ class MainWindow(QMainWindow):
         """Create device connection panel."""
 
         panel = QWidget()
-        panel.setStyleSheet("""
-            QWidget {
-                background-color: #2b2b2b;
-                border-bottom: 1px solid #3a3a3a;
-            }
-            QLabel {
-                color: #ffffff;
-                font-weight: bold;
-            }
-            QPushButton {
-                background-color: #0d7377;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #14b8a6;
-            }
-            QPushButton:pressed {
-                background-color: #0a5d61;
-            }
-            QPushButton:disabled {
-                background-color: #4a4a4a;
-                color: #888888;
-            }
-            QComboBox {
-                background-color: #3a3a3a;
-                color: white;
-                border: 1px solid #4a4a4a;
-                padding: 6px;
-                border-radius: 4px;
-            }
-        """)
-
         layout = QHBoxLayout(panel)
-        layout.setContentsMargins(16, 8, 16, 8)
+        layout.setContentsMargins(8, 4, 8, 4)
 
         # PMU-30 Logo/Title
-        title_label = QLabel("PMU-30 Configurator")
-        title_label.setStyleSheet("font-size: 18px; color: #14b8a6;")
+        title_label = QLabel("<b>PMU-30 Configurator</b>")
+        title_label.setStyleSheet("font-size: 16px; padding: 4px;")
         layout.addWidget(title_label)
 
         layout.addStretch()
-
-        # Connection type
-        self.connection_type_combo = QComboBox()
-        self.connection_type_combo.addItems(["USB", "WiFi", "Bluetooth"])
-        layout.addWidget(QLabel("Connection:"))
-        layout.addWidget(self.connection_type_combo)
-
-        # Port/Address selection
-        self.port_combo = QComboBox()
-        self.port_combo.setMinimumWidth(200)
-        layout.addWidget(QLabel("Port/Address:"))
-        layout.addWidget(self.port_combo)
-
-        # Refresh ports button
-        self.refresh_btn = QPushButton("🔄 Refresh")
-        self.refresh_btn.clicked.connect(self.refresh_ports)
-        layout.addWidget(self.refresh_btn)
-
-        # Connect button
-        self.connect_btn = QPushButton("Connect")
-        self.connect_btn.clicked.connect(self.toggle_connection)
-        layout.addWidget(self.connect_btn)
 
         # Status indicator
         self.status_indicator = QLabel("●")
@@ -174,6 +137,11 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel("Disconnected")
         layout.addWidget(self.status_label)
+
+        # Connect button - opens dialog
+        self.connect_btn = QPushButton("Connect to Device...")
+        self.connect_btn.clicked.connect(self.show_connection_dialog)
+        layout.addWidget(self.connect_btn)
 
         return panel
 
@@ -191,9 +159,6 @@ class MainWindow(QMainWindow):
         self.can_tab.configuration_changed.connect(self.on_configuration_changed)
         self.logic_tab.configuration_changed.connect(self.on_configuration_changed)
         self.hbridge_tab.configuration_changed.connect(self.on_configuration_changed)
-
-        # Refresh ports on startup
-        QTimer.singleShot(100, self.refresh_ports)
 
     def setup_toolbar(self):
         """Setup main toolbar."""
@@ -284,9 +249,14 @@ class MainWindow(QMainWindow):
         # Device menu
         device_menu = menubar.addMenu("Device")
 
-        connect_action = QAction("Connect", self)
-        connect_action.triggered.connect(self.toggle_connection)
+        connect_action = QAction("Connect...", self)
+        connect_action.setShortcut("Ctrl+D")
+        connect_action.triggered.connect(self.show_connection_dialog)
         device_menu.addAction(connect_action)
+
+        disconnect_action = QAction("Disconnect", self)
+        disconnect_action.triggered.connect(self.disconnect_device)
+        device_menu.addAction(disconnect_action)
 
         read_action = QAction("Read Configuration", self)
         read_action.triggered.connect(self.read_from_device)
@@ -321,6 +291,15 @@ class MainWindow(QMainWindow):
         live_tuning_action.triggered.connect(self.open_live_tuning)
         tools_menu.addAction(live_tuning_action)
 
+        # View menu
+        view_menu = menubar.addMenu("View")
+
+        self.dark_mode_action = QAction("Dark Mode", self)
+        self.dark_mode_action.setCheckable(True)
+        self.dark_mode_action.setChecked(True)
+        self.dark_mode_action.triggered.connect(self.toggle_theme)
+        view_menu.addAction(self.dark_mode_action)
+
         # Help menu
         help_menu = menubar.addMenu("Help")
 
@@ -339,20 +318,55 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("Ready")
 
-    def refresh_ports(self):
-        """Refresh available ports/devices."""
+    def _on_config_changed(self):
+        """Handle configuration changes from tabs."""
+        self.config_manager.modified = True
 
-        connection_type = self.connection_type_combo.currentText()
-        self.port_combo.clear()
+    def show_connection_dialog(self):
+        """Show connection dialog."""
+        dialog = ConnectionDialog(self)
 
-        if connection_type == "USB":
-            ports = self.device_controller.get_available_serial_ports()
-            self.port_combo.addItems(ports)
-        elif connection_type == "WiFi":
-            self.port_combo.addItem("PMU30-XXXXXX (192.168.4.1)")
-        elif connection_type == "Bluetooth":
-            devices = self.device_controller.get_available_bluetooth_devices()
-            self.port_combo.addItems(devices)
+        if dialog.exec():
+            config = dialog.get_connection_config()
+            logger.info(f"Connection config: {config}")
+
+            # Connect to device
+            connection_type = config.get("type", "USB Serial")
+
+            if connection_type == "USB Serial":
+                port = config.get("port", "")
+                baudrate = config.get("baudrate", 115200)
+                if port:
+                    self.device_controller.connect(connection_type, port)
+            elif connection_type == "WiFi":
+                ip = config.get("ip", "192.168.4.1")
+                port = config.get("port", 8080)
+                self.device_controller.connect(connection_type, f"{ip}:{port}")
+            elif connection_type == "Bluetooth":
+                device = config.get("device", "")
+                if device:
+                    self.device_controller.connect(connection_type, device)
+            elif connection_type == "CAN Bus":
+                interface = config.get("interface", "can0")
+                self.device_controller.connect(connection_type, interface)
+
+    def disconnect_device(self):
+        """Disconnect from device."""
+        if self.device_controller.is_connected():
+            self.device_controller.disconnect()
+
+    def apply_theme(self):
+        """Apply current theme."""
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            ThemeManager.toggle_theme(app, self.dark_mode)
+
+    def toggle_theme(self):
+        """Toggle between dark and light theme."""
+        self.dark_mode = not self.dark_mode
+        self.apply_theme()
+        logger.info(f"Theme changed to: {'dark' if self.dark_mode else 'light'}")
 
     def toggle_connection(self):
         """Toggle device connection."""
@@ -375,6 +389,8 @@ class MainWindow(QMainWindow):
         self.status_indicator.setStyleSheet("color: #10b981; font-size: 16px;")
         self.status_label.setText("Connected")
         self.connect_btn.setText("Disconnect")
+        self.connect_btn.clicked.disconnect()
+        self.connect_btn.clicked.connect(self.disconnect_device)
         self.statusbar.showMessage("Device connected successfully")
 
         logger.info("Device connected")
@@ -384,7 +400,9 @@ class MainWindow(QMainWindow):
 
         self.status_indicator.setStyleSheet("color: #ef4444; font-size: 16px;")
         self.status_label.setText("Disconnected")
-        self.connect_btn.setText("Connect")
+        self.connect_btn.setText("Connect to Device...")
+        self.connect_btn.clicked.disconnect()
+        self.connect_btn.clicked.connect(self.show_connection_dialog)
         self.statusbar.showMessage("Device disconnected")
 
         logger.info("Device disconnected")
@@ -404,33 +422,167 @@ class MainWindow(QMainWindow):
     # File operations
     def new_configuration(self):
         """Create new configuration."""
-        logger.info("New configuration")
-        # TODO: Implement
+        if self.config_manager.is_modified():
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "Current configuration has unsaved changes. Do you want to save?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
+
+            if reply == QMessageBox.StandardButton.Yes:
+                if not self.save_configuration():
+                    return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+
+        self.config_manager.new_config()
+        self.load_config_to_ui()
+        self.setWindowTitle("PMU-30 Configurator - R2 m-sport")
+        self.statusbar.showMessage("Created new configuration")
+        logger.info("Created new configuration")
 
     def open_configuration(self):
         """Open configuration file."""
-        logger.info("Open configuration")
-        # TODO: Implement
+        if self.config_manager.is_modified():
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "Current configuration has unsaved changes. Do you want to save?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
+            )
 
-    def save_configuration(self):
+            if reply == QMessageBox.StandardButton.Yes:
+                if not self.save_configuration():
+                    return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Configuration",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+
+        if filename:
+            success, error_msg = self.config_manager.load_from_file(filename)
+
+            if success:
+                self.load_config_to_ui()
+                self.setWindowTitle(f"PMU-30 Configurator - {filename}")
+                self.statusbar.showMessage(f"Loaded configuration from {filename}")
+                logger.info(f"Opened configuration: {filename}")
+            else:
+                QMessageBox.critical(
+                    self, "Configuration Load Error",
+                    error_msg or f"Failed to load configuration from {filename}"
+                )
+
+    def save_configuration(self) -> bool:
         """Save configuration."""
-        logger.info("Save configuration")
-        # TODO: Implement
+        current_file = self.config_manager.get_current_file()
 
-    def save_configuration_as(self):
+        if current_file:
+            self.save_config_from_ui()
+            if self.config_manager.save_to_file():
+                self.setWindowTitle(f"PMU-30 Configurator - {current_file}")
+                self.statusbar.showMessage(f"Saved configuration to {current_file}")
+                logger.info(f"Saved configuration to {current_file}")
+                return True
+            else:
+                QMessageBox.critical(
+                    self, "Error",
+                    "Failed to save configuration"
+                )
+                return False
+        else:
+            return self.save_configuration_as()
+
+    def save_configuration_as(self) -> bool:
         """Save configuration as new file."""
-        logger.info("Save configuration as")
-        # TODO: Implement
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Configuration As",
+            "",
+            "JSON Files (*.json);;All Files (*.*)"
+        )
+
+        if filename:
+            self.save_config_from_ui()
+            if self.config_manager.save_to_file(filename):
+                self.setWindowTitle(f"PMU-30 Configurator - {filename}")
+                self.statusbar.showMessage(f"Saved configuration to {filename}")
+                logger.info(f"Saved configuration to {filename}")
+                return True
+            else:
+                QMessageBox.critical(
+                    self, "Error",
+                    f"Failed to save configuration to {filename}"
+                )
+                return False
+        return False
 
     def import_dbc(self):
         """Import DBC file."""
-        logger.info("Import DBC")
-        # TODO: Implement
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import DBC File",
+            "",
+            "DBC Files (*.dbc);;All Files (*.*)"
+        )
+
+        if filename:
+            # TODO: Implement DBC import
+            logger.info(f"Import DBC: {filename}")
+            QMessageBox.information(
+                self, "Import DBC",
+                f"DBC import from {filename} will be implemented"
+            )
 
     def export_dbc(self):
         """Export DBC file."""
-        logger.info("Export DBC")
-        # TODO: Implement
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export DBC File",
+            "",
+            "DBC Files (*.dbc);;All Files (*.*)"
+        )
+
+        if filename:
+            # TODO: Implement DBC export
+            logger.info(f"Export DBC: {filename}")
+            QMessageBox.information(
+                self, "Export DBC",
+                f"DBC export to {filename} will be implemented"
+            )
+
+    def load_config_to_ui(self):
+        """Load configuration from manager to UI tabs."""
+        logger.info("Loading configuration to UI")
+        config = self.config_manager.get_config()
+
+        # Load each tab
+        self.inputs_tab.load_configuration(config)
+        self.outputs_tab.load_configuration(config)
+        self.hbridge_tab.load_configuration(config)
+        self.logic_tab.load_configuration(config)
+        self.pid_tab.load_configuration(config)
+        self.can_tab.load_configuration(config)
+        self.wiper_tab.load_configuration(config)
+        self.turn_signal_tab.load_configuration(config)
+
+    def save_config_from_ui(self):
+        """Save configuration from UI tabs to manager."""
+        logger.info("Saving configuration from UI")
+
+        # Get configuration from each tab and update manager
+        self.config_manager.config.update(self.inputs_tab.get_configuration())
+        self.config_manager.config.update(self.outputs_tab.get_configuration())
+        self.config_manager.config.update(self.hbridge_tab.get_configuration())
+        self.config_manager.config.update(self.logic_tab.get_configuration())
+        self.config_manager.config.update(self.pid_tab.get_configuration())
+        self.config_manager.config.update(self.can_tab.get_configuration())
+        self.config_manager.config.update(self.wiper_tab.get_configuration())
+        self.config_manager.config.update(self.turn_signal_tab.get_configuration())
 
     # Device operations
     def read_from_device(self):
