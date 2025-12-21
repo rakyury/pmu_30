@@ -461,6 +461,13 @@ class MainWindowECUMaster(QMainWindow):
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
+        elif category == "switches":
+            available_channels = self._get_available_channels()
+            dialog = SwitchDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
     def _get_available_channels(self) -> dict:
         """Get all available channels for selection."""
         channels = {
@@ -569,7 +576,8 @@ class MainWindowECUMaster(QMainWindow):
 
     def _add_switch(self):
         """Add new switch."""
-        dialog = SwitchDialog(self, None, [])
+        available_channels = self._get_available_channels()
+        dialog = SwitchDialog(self, None, available_channels)
         if dialog.exec():
             config = dialog.get_config()
             self.project_tree.add_switch(config)

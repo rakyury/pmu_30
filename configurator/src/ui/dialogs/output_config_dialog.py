@@ -4,7 +4,7 @@ Configures one of 30 high-side switch outputs
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
     QCheckBox, QLabel
 )
@@ -24,7 +24,7 @@ class OutputConfigDialog(QDialog):
 
         self.setWindowTitle("Output Channel Configuration")
         self.setModal(True)
-        self.resize(500, 650)
+        self.resize(600, 480)
 
         self._init_ui()
 
@@ -91,10 +91,12 @@ class OutputConfigDialog(QDialog):
         basic_group.setLayout(basic_layout)
         layout.addWidget(basic_group)
 
-        # Current protection group
+        # Current protection group - organized in 2 columns
         protection_group = QGroupBox("Current Protection")
-        protection_layout = QFormLayout()
+        protection_layout = QGridLayout()
 
+        # Row 0: Current Limit | Inrush Current
+        protection_layout.addWidget(QLabel("Current Limit:"), 0, 0)
         self.current_limit_spin = QDoubleSpinBox()
         self.current_limit_spin.setRange(0.1, 50.0)
         self.current_limit_spin.setValue(10.0)
@@ -102,8 +104,9 @@ class OutputConfigDialog(QDialog):
         self.current_limit_spin.setDecimals(1)
         self.current_limit_spin.setSingleStep(0.5)
         self.current_limit_spin.setToolTip("Overcurrent shutdown threshold (0.1-50A)")
-        protection_layout.addRow("Current Limit:", self.current_limit_spin)
+        protection_layout.addWidget(self.current_limit_spin, 0, 1)
 
+        protection_layout.addWidget(QLabel("Inrush Current:"), 0, 2)
         self.inrush_current_spin = QDoubleSpinBox()
         self.inrush_current_spin.setRange(0.1, 100.0)
         self.inrush_current_spin.setValue(20.0)
@@ -111,51 +114,59 @@ class OutputConfigDialog(QDialog):
         self.inrush_current_spin.setDecimals(1)
         self.inrush_current_spin.setSingleStep(1.0)
         self.inrush_current_spin.setToolTip("Peak current allowed during startup")
-        protection_layout.addRow("Inrush Current:", self.inrush_current_spin)
+        protection_layout.addWidget(self.inrush_current_spin, 0, 3)
 
+        # Row 1: Inrush Time | Retry Count
+        protection_layout.addWidget(QLabel("Inrush Time:"), 1, 0)
         self.inrush_time_spin = QSpinBox()
         self.inrush_time_spin.setRange(10, 5000)
         self.inrush_time_spin.setValue(500)
         self.inrush_time_spin.setSuffix(" ms")
         self.inrush_time_spin.setToolTip("Time to allow inrush current")
-        protection_layout.addRow("Inrush Time:", self.inrush_time_spin)
+        protection_layout.addWidget(self.inrush_time_spin, 1, 1)
 
+        protection_layout.addWidget(QLabel("Retry Count:"), 1, 2)
         self.retry_count_spin = QSpinBox()
         self.retry_count_spin.setRange(0, 10)
         self.retry_count_spin.setValue(3)
         self.retry_count_spin.setToolTip("Auto-retry attempts after fault (0 = disabled)")
-        protection_layout.addRow("Retry Count:", self.retry_count_spin)
+        protection_layout.addWidget(self.retry_count_spin, 1, 3)
 
+        # Row 2: Retry forever | Retry Delay
         self.retry_forever_check = QCheckBox("Retry forever")
         self.retry_forever_check.toggled.connect(self._on_retry_forever_toggled)
-        protection_layout.addRow("", self.retry_forever_check)
+        protection_layout.addWidget(self.retry_forever_check, 2, 0, 1, 2)
 
+        protection_layout.addWidget(QLabel("Retry Delay:"), 2, 2)
         self.retry_delay_spin = QSpinBox()
         self.retry_delay_spin.setRange(100, 10000)
         self.retry_delay_spin.setValue(1000)
         self.retry_delay_spin.setSuffix(" ms")
         self.retry_delay_spin.setToolTip("Delay between retry attempts")
-        protection_layout.addRow("Retry Delay:", self.retry_delay_spin)
+        protection_layout.addWidget(self.retry_delay_spin, 2, 3)
 
         protection_group.setLayout(protection_layout)
         layout.addWidget(protection_group)
 
-        # PWM settings group
+        # PWM settings group - organized in 2 columns
         pwm_group = QGroupBox("PWM Settings")
-        pwm_layout = QFormLayout()
+        pwm_layout = QGridLayout()
 
+        # Row 0: Enable PWM checkbox (full width)
         self.pwm_enabled_check = QCheckBox("Enable PWM Control")
-        pwm_layout.addRow("", self.pwm_enabled_check)
         self.pwm_enabled_check.toggled.connect(self._on_pwm_toggled)
+        pwm_layout.addWidget(self.pwm_enabled_check, 0, 0, 1, 4)
 
+        # Row 1: PWM Frequency | Duty Value
+        pwm_layout.addWidget(QLabel("PWM Frequency:"), 1, 0)
         self.pwm_freq_spin = QSpinBox()
         self.pwm_freq_spin.setRange(100, 20000)
         self.pwm_freq_spin.setValue(1000)
         self.pwm_freq_spin.setSuffix(" Hz")
         self.pwm_freq_spin.setToolTip("PWM frequency (100-20000 Hz)")
-        pwm_layout.addRow("PWM Frequency:", self.pwm_freq_spin)
+        pwm_layout.addWidget(self.pwm_freq_spin, 1, 1)
 
-        # Fixed duty value (always visible)
+        pwm_layout.addWidget(QLabel("Duty Value:"), 1, 2)
         self.pwm_duty_spin = QDoubleSpinBox()
         self.pwm_duty_spin.setRange(0.0, 100.0)
         self.pwm_duty_spin.setValue(50.0)
@@ -163,9 +174,10 @@ class OutputConfigDialog(QDialog):
         self.pwm_duty_spin.setDecimals(1)
         self.pwm_duty_spin.setSingleStep(5.0)
         self.pwm_duty_spin.setToolTip("Fixed PWM duty cycle (0-100%)")
-        pwm_layout.addRow("Duty Value:", self.pwm_duty_spin)
+        pwm_layout.addWidget(self.pwm_duty_spin, 1, 3)
 
-        # Duty function/channel (always visible)
+        # Row 2: Duty Function (full width)
+        pwm_layout.addWidget(QLabel("Duty Function:"), 2, 0)
         duty_function_layout = QHBoxLayout()
         self.duty_function_edit = QLineEdit()
         self.duty_function_edit.setPlaceholderText("Select channel/function for duty...")
@@ -175,20 +187,20 @@ class OutputConfigDialog(QDialog):
         self.duty_function_btn = QPushButton("Browse...")
         self.duty_function_btn.clicked.connect(self._browse_duty_function)
         duty_function_layout.addWidget(self.duty_function_btn)
+        pwm_layout.addLayout(duty_function_layout, 2, 1, 1, 3)
 
-        pwm_layout.addRow("Duty Function:", duty_function_layout)
-
-        # Soft start
+        # Row 3: Enable Soft Start | Soft Start Duration
         self.soft_start_check = QCheckBox("Enable Soft Start")
-        pwm_layout.addRow("", self.soft_start_check)
         self.soft_start_check.toggled.connect(self._on_soft_start_toggled)
+        pwm_layout.addWidget(self.soft_start_check, 3, 0, 1, 2)
 
+        pwm_layout.addWidget(QLabel("Soft Start Duration:"), 3, 2)
         self.soft_start_duration_spin = QSpinBox()
         self.soft_start_duration_spin.setRange(10, 10000)
         self.soft_start_duration_spin.setValue(1000)
         self.soft_start_duration_spin.setSuffix(" ms")
         self.soft_start_duration_spin.setToolTip("Soft start ramp duration")
-        pwm_layout.addRow("Soft Start Duration:", self.soft_start_duration_spin)
+        pwm_layout.addWidget(self.soft_start_duration_spin, 3, 3)
 
         pwm_group.setLayout(pwm_layout)
         layout.addWidget(pwm_group)
