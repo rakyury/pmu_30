@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QComboBox, QMessageBox, QFileDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction, QIcon, QScreen
 
 from .tabs.outputs_tab import OutputsTab
 from .tabs.inputs_tab import InputsTab
@@ -69,7 +69,18 @@ class MainWindow(QMainWindow):
         """Initialize user interface."""
 
         self.setWindowTitle("PMU-30 Configurator - R2 m-sport")
-        self.setGeometry(100, 100, 1400, 900)
+
+        # Set window size to 40% of screen size
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.geometry()
+        width = int(screen_geometry.width() * 0.4)
+        height = int(screen_geometry.height() * 0.4)
+
+        # Center window on screen
+        x = (screen_geometry.width() - width) // 2
+        y = (screen_geometry.height() - height) // 2
+        self.setGeometry(x, y, width, height)
 
         # Central widget
         central_widget = QWidget()
@@ -161,45 +172,8 @@ class MainWindow(QMainWindow):
         self.hbridge_tab.configuration_changed.connect(self.on_configuration_changed)
 
     def setup_toolbar(self):
-        """Setup main toolbar."""
-
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
-        # File operations
-        new_action = QAction("New Config", self)
-        new_action.setShortcut("Ctrl+N")
-        new_action.triggered.connect(self.new_configuration)
-        toolbar.addAction(new_action)
-
-        open_action = QAction("Open Config", self)
-        open_action.setShortcut("Ctrl+O")
-        open_action.triggered.connect(self.open_configuration)
-        toolbar.addAction(open_action)
-
-        save_action = QAction("Save Config", self)
-        save_action.setShortcut("Ctrl+S")
-        save_action.triggered.connect(self.save_configuration)
-        toolbar.addAction(save_action)
-
-        toolbar.addSeparator()
-
-        # Device operations
-        read_action = QAction("Read from Device", self)
-        read_action.triggered.connect(self.read_from_device)
-        toolbar.addAction(read_action)
-
-        write_action = QAction("Write to Device", self)
-        write_action.triggered.connect(self.write_to_device)
-        toolbar.addAction(write_action)
-
-        toolbar.addSeparator()
-
-        # Firmware update
-        firmware_action = QAction("Update Firmware", self)
-        firmware_action.triggered.connect(self.update_firmware)
-        toolbar.addAction(firmware_action)
+        """Toolbar removed - all functions moved to menu."""
+        pass
 
     def setup_menubar(self):
         """Setup menu bar."""

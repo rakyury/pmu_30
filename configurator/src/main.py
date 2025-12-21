@@ -43,9 +43,6 @@ def main():
     app.setOrganizationName("R2 m-sport")
     app.setApplicationVersion("1.0.0")
 
-    # Set application style
-    app.setStyle("Fusion")
-
     # Create and show main window
     window = MainWindow()
     window.show()
