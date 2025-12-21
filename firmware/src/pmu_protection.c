@@ -94,10 +94,25 @@ HAL_StatusTypeDef PMU_Protection_Init(void)
     protection_state.status = PMU_PROT_STATUS_OK;
     protection_state.fault_flags = PMU_PROT_FAULT_NONE;
 
-    /* TODO: Initialize ADC for battery voltage monitoring */
-    /* For now, use stub ADC handles */
-    /* hadc_vbat = &hadc1; */
-    /* hadc_temp = &hadc3; */
+    /* Initialize ADC for battery voltage monitoring
+     * Battery voltage is typically connected to a dedicated ADC channel
+     * with voltage divider (6.67:1 for 22V max -> 3.3V ADC)
+     *
+     * Internal temp sensor is on ADC3_INP18 for STM32H7
+     */
+
+#ifndef UNIT_TEST
+    /* Assign ADC handles - adjust based on actual pinout
+     * Example:
+     * - ADC1_IN18: Battery voltage (through voltage divider)
+     * - ADC3_INP18: Internal temperature sensor
+     */
+    extern ADC_HandleTypeDef hadc1;  /* For battery voltage */
+    extern ADC_HandleTypeDef hadc3;  /* For internal temp sensor */
+
+    hadc_vbat = &hadc1;
+    hadc_temp = &hadc3;
+#endif
 
     /* Read initial values */
     Protection_UpdateVoltage();
@@ -312,25 +327,33 @@ static void Protection_HandleLoadShedding(void)
  */
 static uint16_t Protection_ReadVbatADC(void)
 {
-    /* TODO: Implement actual ADC read */
-    /* For now, return nominal voltage */
-
-    #if 0
+#ifdef UNIT_TEST
+    /* For unit tests, return nominal voltage */
+    return PMU_VOLTAGE_NOMINAL;
+#else
     if (hadc_vbat == NULL) {
         return PMU_VOLTAGE_NOMINAL;
     }
 
-    /* Read ADC value */
-    uint16_t adc_value = HAL_ADC_GetValue(hadc_vbat);
+    /* With DMA in continuous mode, the ADC value is automatically updated
+     * Use polling read for single-shot measurements or read from DMA buffer
+     */
+    uint16_t adc_value = 0;
+
+    /* Start conversion if not already running */
+    HAL_ADC_Start(hadc_vbat);
+
+    /* Wait for conversion to complete (should be quick with continuous mode) */
+    if (HAL_ADC_PollForConversion(hadc_vbat, 10) == HAL_OK) {
+        adc_value = HAL_ADC_GetValue(hadc_vbat);
+    }
 
     /* Convert to voltage: Vbat = (ADC / 4096) × 3.3V × divider_ratio */
     uint32_t voltage_mV = ((uint32_t)adc_value * ADC_VREF_MV * VOLTAGE_DIVIDER_RATIO) /
                           (ADC_RESOLUTION * VOLTAGE_DIVIDER_DIV);
 
     return (uint16_t)voltage_mV;
-    #endif
-
-    return PMU_VOLTAGE_NOMINAL;
+#endif
 }
 
 /**
@@ -339,29 +362,41 @@ static uint16_t Protection_ReadVbatADC(void)
  */
 static int16_t Protection_ReadMCUTemp(void)
 {
-    /* TODO: Implement STM32H7 internal temp sensor read */
-    /* For now, return nominal temperature */
-
-    #if 0
+#ifdef UNIT_TEST
+    /* For unit tests, return nominal temperature */
+    return 25;
+#else
     if (hadc_temp == NULL) {
         return 25;
     }
 
-    /* Read ADC value from internal temp sensor */
-    uint16_t adc_value = HAL_ADC_GetValue(hadc_temp);
+    /* Read ADC value from internal temp sensor (ADC3_INP18 on STM32H7)
+     * The internal temperature sensor must be enabled in ADC configuration
+     */
+    uint16_t adc_value = 0;
 
-    /* Convert to voltage (mV) */
+    /* Start conversion if not already running */
+    HAL_ADC_Start(hadc_temp);
+
+    /* Wait for conversion */
+    if (HAL_ADC_PollForConversion(hadc_temp, 10) == HAL_OK) {
+        adc_value = HAL_ADC_GetValue(hadc_temp);
+    }
+
+    /* Convert to voltage (µV) */
     uint32_t voltage_uV = ((uint32_t)adc_value * ADC_VREF_MV * 1000) / ADC_RESOLUTION;
 
     /* Calculate temperature using STM32H7 formula:
-     * Temp(°C) = (V25 - Vsense) / Avg_Slope + 25 */
+     * Temp(°C) = (V25 - Vsense) / Avg_Slope + 25
+     * where:
+     * - V25 = 760 mV typical voltage at 25°C
+     * - Avg_Slope = 2.5 mV/°C
+     */
     int32_t temp_C = ((int32_t)TEMP_SENSOR_V25 - (int32_t)voltage_uV) /
                      TEMP_SENSOR_AVG_SLOPE + 25;
 
     return (int16_t)temp_C;
-    #endif
-
-    return 25;  /* Nominal 25°C */
+#endif
 }
 
 /**
@@ -370,9 +405,41 @@ static int16_t Protection_ReadMCUTemp(void)
  */
 static int16_t Protection_ReadBoardTemp(void)
 {
-    /* TODO: Implement external temperature sensor (e.g., NTC or digital sensor) */
-    /* For now, return nominal temperature */
+#ifdef UNIT_TEST
+    /* For unit tests, return nominal temperature */
     return 25;
+#else
+    /* External board temperature sensor implementation
+     *
+     * Option 1: NTC Thermistor with voltage divider
+     * - Connect to ADC channel (e.g., ADC2_IN5)
+     * - Use Steinhart-Hart equation for conversion
+     *
+     * Option 2: Digital sensor (I2C/SPI)
+     * - TMP102, LM75, DS18B20, etc.
+     * - Read via I2C interface
+     *
+     * For now, returning nominal until sensor is specified
+     */
+
+    /* Example NTC implementation (10kΩ @ 25°C):
+     *
+     * uint16_t adc_value = ADC_ReadBoardTempChannel();
+     * float voltage = (adc_value * 3.3f) / 4096.0f;
+     * float resistance = (10000.0f * voltage) / (3.3f - voltage);
+     *
+     * // Steinhart-Hart equation coefficients for 10k NTC
+     * float steinhart = log(resistance / 10000.0f);
+     * steinhart /= 3950.0f;  // B coefficient
+     * steinhart += 1.0f / (25.0f + 273.15f);
+     * steinhart = 1.0f / steinhart;
+     * steinhart -= 273.15f;  // Convert to Celsius
+     *
+     * return (int16_t)steinhart;
+     */
+
+    return 25;  /* Nominal 25°C until sensor is configured */
+#endif
 }
 
 /**

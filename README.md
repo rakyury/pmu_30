@@ -85,9 +85,85 @@ pmu_30/
 │   └── lib/
 └── configurator/                  # Python+Qt configuration software
     ├── requirements.txt
+    ├── launch.py                 # UI launcher
     ├── src/
-    └── ui/
+    │   ├── main.py              # Classic UI entry point
+    │   ├── main_ecumaster.py    # ECUMaster UI entry point
+    │   └── ui/
+    └── docs/
 ```
+
+## Configurator Software
+
+### Quick Start
+
+**Option 1: Use Launcher (Recommended)**
+```bash
+cd configurator
+python launch.py
+```
+
+Select your preferred interface:
+1. **ECUMaster Style** - Modern dock-based layout ⭐
+2. **Classic Style** - Traditional tab-based interface
+
+**Option 2: Direct Launch**
+
+ECUMaster Style:
+```bash
+cd configurator
+python src/main_ecumaster.py
+```
+
+Classic Style:
+```bash
+cd configurator
+python src/main.py
+```
+
+### UI Styles Comparison
+
+| Feature | ECUMaster Style | Classic Style |
+|---------|-----------------|---------------|
+| Layout | Dock widgets | Tabs |
+| Monitoring | Always visible | Separate tab |
+| Project tree | Hierarchical | By category |
+| Grouping | Yes (folders) | No |
+| Drag & Drop | Yes | No |
+| Real-time panels | 3 (dockable) | 1 (fixed) |
+| Screen space | Efficient | Standard |
+| Learning curve | Medium | Easy |
+
+### Key Features
+
+**Both Styles:**
+- 30 output channels configuration
+- 20 input channels with multiple types
+- 4 H-Bridge motor control
+- Logic Engine (256 virtual channels, 16 operations)
+- PID Controllers with anti-windup
+- LUA 5.4 scripting engine
+- CAN Bus configuration with DBC import/export
+- Settings: CAN, Power, Safety, System
+- Dark/Light themes
+- Multiple Qt styles (Fluent, Windows11, Fusion, etc.)
+- Configuration save/load (JSON)
+- 28 unit tests ✅
+
+**ECUMaster Style Only:**
+- Project tree with hierarchy
+- Output Monitor (real-time)
+- Analog Monitor (real-time)
+- Variables Inspector (CAN + PMU status)
+- Drag & drop panel layout
+- Save/restore custom layouts
+
+### Documentation
+
+- [README_ECUMASTER.md](configurator/README_ECUMASTER.md) - Detailed ECUMaster UI guide
+- [UI_IMPROVEMENTS.md](configurator/docs/UI_IMPROVEMENTS.md) - UI development history
+- [ECUMASTER_UI_DESIGN.md](configurator/docs/ECUMASTER_UI_DESIGN.md) - Architecture
+- [QT_STYLES.md](configurator/docs/QT_STYLES.md) - Available Qt styles
 
 ## Development Status
 

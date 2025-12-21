@@ -69,6 +69,7 @@ static void SystemClock_Config(void);
 static void MPU_Config(void);
 static void CPU_CACHE_Enable(void);
 static void GPIO_Init(void);
+static void IWDG_Init(void);
 
 /* FreeRTOS task functions */
 static void vControlTask(void *pvParameters);
@@ -101,6 +102,9 @@ int main(void)
 
     /* Initialize all configured peripherals */
     GPIO_Init();
+
+    /* Initialize Independent Watchdog (IWDG) */
+    IWDG_Init();
 
     /* Initialize PMU subsystems */
     PMU_Config_Init();
@@ -202,9 +206,13 @@ static void vControlTask(void *pvParameters)
         PMU_PROFET_Update();
         PMU_HBridge_Update();
 
-        /* Watchdog refresh */
-        /* TODO: Initialize watchdog before enabling */
-        /* HAL_IWDG_Refresh(&hiwdg); */
+        /* Watchdog refresh - kick the watchdog every 1ms
+         * Watchdog configured for ~1 second timeout
+         * Must be refreshed at least once per second to prevent reset
+         */
+#ifndef UNIT_TEST
+        HAL_IWDG_Refresh(&hiwdg);
+#endif
     }
 }
 
@@ -430,6 +438,47 @@ static void GPIO_Init(void)
     __HAL_RCC_GPIOF_CLK_ENABLE();
     __HAL_RCC_GPIOG_CLK_ENABLE();
     __HAL_RCC_GPIOH_CLK_ENABLE();
+}
+
+/**
+ * @brief IWDG (Independent Watchdog) Initialization Function
+ * @param None
+ * @retval None
+ */
+static void IWDG_Init(void)
+{
+#ifndef UNIT_TEST
+    /* Initialize the Independent Watchdog (IWDG)
+     * Purpose: Reset the system if software hangs or enters an infinite loop
+     *
+     * STM32H7 IWDG characteristics:
+     * - Clock source: LSI (32 kHz typical, 17-47 kHz range)
+     * - Timeout calculation: T = (Prescaler / LSI_Freq) × Reload
+     * - Prescaler: 4, 8, 16, 32, 64, 128, 256 (divider)
+     * - Reload: 0-4095 (12-bit counter)
+     *
+     * Target timeout: ~1 second
+     * Using LSI = 32 kHz:
+     * - Prescaler = 32 → LSI/32 = 1 kHz
+     * - Reload = 1000 → Timeout = 1000 / 1000 = 1.0 second
+     */
+
+    hiwdg.Instance = IWDG1;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_32;  /* LSI/32 ≈ 1 kHz */
+    hiwdg.Init.Reload = 1000;                   /* 1000 ms timeout */
+    hiwdg.Init.Window = IWDG_WINDOW_DISABLE;    /* No window mode */
+
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+    {
+        /* Initialization Error - continue anyway as watchdog is safety feature */
+        /* In production, could log this error */
+    }
+
+    /* Note: After initialization, IWDG starts automatically
+     * Must call HAL_IWDG_Refresh() regularly (< 1 second) to prevent reset
+     * Refresh is done in vControlTask() at 1 kHz
+     */
+#endif
 }
 
 /**

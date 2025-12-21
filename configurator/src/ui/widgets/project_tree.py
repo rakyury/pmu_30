@@ -437,6 +437,112 @@ class ProjectTree(QWidget):
             "data": lua_data
         })
 
+    def update_current_item(self, new_data: Dict[str, Any]):
+        """Update currently selected item with new data."""
+        items = self.tree.selectedItems()
+        if not items:
+            return False
+
+        item = items[0]
+        old_data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not old_data or old_data.get("type") == "folder":
+            return False
+
+        category = old_data.get("category", "")
+
+        # Update the item based on category
+        if category == "outputs":
+            item.setText(0, f"o_{new_data.get('name', 'Unnamed')}")
+            item.setText(1, f"Ch{new_data.get('channel', 0)}")
+        elif category == "inputs":
+            item.setText(0, f"in.{new_data.get('name', 'Unnamed')}")
+            item.setText(1, new_data.get('type', ''))
+        elif category == "logic":
+            item.setText(0, new_data.get('name', 'Unnamed'))
+            operation = new_data.get('operation', 'AND')
+            item.setText(1, f"{operation}")
+        elif category == "hbridge":
+            item.setText(0, new_data.get('name', 'Unnamed'))
+            item.setText(1, new_data.get('mode', 'Bidirectional'))
+        elif category == "pid":
+            item.setText(0, new_data.get('name', 'Unnamed'))
+            params = new_data.get('parameters', {})
+            item.setText(1, f"Kp={params.get('kp', 0)}, Ki={params.get('ki', 0)}, Kd={params.get('kd', 0)}")
+        elif category == "lua":
+            item.setText(0, new_data.get('name', 'Unnamed'))
+            trigger = new_data.get('trigger', {})
+            item.setText(1, trigger.get('type', 'Manual'))
+
+        # Update stored data
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": old_data.get("type"),
+            "category": category,
+            "data": new_data
+        })
+
+        self.configuration_changed.emit()
+        return True
+
+    def get_all_outputs(self) -> List[Dict[str, Any]]:
+        """Get all output configurations."""
+        outputs = []
+        for i in range(self.out_folder.childCount()):
+            child = self.out_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "output":
+                outputs.append(data.get("data", {}))
+        return outputs
+
+    def get_all_inputs(self) -> List[Dict[str, Any]]:
+        """Get all input configurations."""
+        inputs = []
+        for i in range(self.in_folder.childCount()):
+            child = self.in_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "input":
+                inputs.append(data.get("data", {}))
+        return inputs
+
+    def get_all_logic_functions(self) -> List[Dict[str, Any]]:
+        """Get all logic function configurations."""
+        functions = []
+        for i in range(self.functions_folder.childCount()):
+            child = self.functions_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "logic":
+                functions.append(data.get("data", {}))
+        return functions
+
+    def get_all_hbridges(self) -> List[Dict[str, Any]]:
+        """Get all H-Bridge configurations."""
+        hbridges = []
+        for i in range(self.hbridge_folder.childCount()):
+            child = self.hbridge_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "hbridge":
+                hbridges.append(data.get("data", {}))
+        return hbridges
+
+    def get_all_pid_controllers(self) -> List[Dict[str, Any]]:
+        """Get all PID controller configurations."""
+        controllers = []
+        for i in range(self.pid_folder.childCount()):
+            child = self.pid_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "pid":
+                controllers.append(data.get("data", {}))
+        return controllers
+
+    def get_all_lua_scripts(self) -> List[Dict[str, Any]]:
+        """Get all LUA script configurations."""
+        scripts = []
+        for i in range(self.lua_folder.childCount()):
+            child = self.lua_folder.child(i)
+            data = child.data(0, Qt.ItemDataRole.UserRole)
+            if data and data.get("type") == "lua":
+                scripts.append(data.get("data", {}))
+        return scripts
+
     def clear_all(self):
         """Clear all items from tree (keep folder structure)."""
         for folder in [self.out_folder, self.in_folder, self.functions_folder,

@@ -111,8 +111,88 @@ HAL_StatusTypeDef PMU_HBridge_Init(void)
         pid_controllers[i].output_max = 1000.0f;
     }
 
-    /* TODO: Initialize timers for PWM (TIM5-6 @ 1kHz) */
-    /* TODO: Initialize ADC for current sensing */
+    /* Initialize timers for H-Bridge PWM (TIM5-6 @ 1kHz)
+     * 4 H-Bridges require 8 PWM outputs (2 per bridge: IN1, IN2)
+     * For proper H-Bridge control, complementary PWM with dead-time is recommended
+     *
+     * Timer Distribution:
+     * - TIM15: CH1/CH1N for H-Bridge 0 (IN1/IN2 complementary)
+     * - TIM16: CH1 for H-Bridge 1 IN1
+     * - TIM17: CH1 for H-Bridge 1 IN2
+     * - Or use TIM5 with 4 channels for simple (non-complementary) PWM
+     *
+     * PWM Configuration:
+     * - Frequency: 1 kHz for low-frequency motors, 20kHz for high-speed
+     * - Resolution: 1000 steps @ 1kHz
+     * - Dead-time: 1-2µs to prevent shoot-through
+     */
+
+#ifndef UNIT_TEST
+    extern TIM_HandleTypeDef htim15, htim16;
+
+    /* TIM15: Advanced timer with complementary outputs
+     * Can be used for H-Bridge 0 with complementary PWM and dead-time
+     */
+    htim15.Instance = TIM15;
+    htim15.Init.Prescaler = 199;  /* 200MHz / 200 = 1MHz */
+    htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim15.Init.Period = 999;  /* 1MHz / 1000 = 1kHz PWM */
+    htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim15.Init.RepetitionCounter = 0;
+    htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+
+    if (HAL_TIM_PWM_Init(&htim15) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* Configure complementary PWM with dead-time
+     * Dead-time prevents both transistors from being on simultaneously
+     */
+    TIM_OC_InitTypeDef sConfigOC = {0};
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 0;  /* Initial duty = 0% */
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;  /* Complementary output */
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+    sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+
+    if (HAL_TIM_PWM_ConfigChannel(&htim15, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* Configure dead-time (1µs = 200 ticks @ 200MHz with DTS divider)
+     * DTG[7:0] for dead-time generation
+     */
+    TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+    sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+    sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+    sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+    sBreakDeadTimeConfig.DeadTime = 20;  /* ~1µs dead-time */
+    sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+    sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+
+    if (HAL_TIMEx_ConfigBreakDeadTime(&htim15, &sBreakDeadTimeConfig) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* Start complementary PWM */
+    HAL_TIM_PWM_Start(&htim15, TIM_CHANNEL_1);
+    HAL_TIMEx_PWMN_Start(&htim15, TIM_CHANNEL_1);  /* Start complementary output */
+
+    /* TIM16/17 for remaining H-Bridges (simplified non-complementary)
+     * Full implementation would configure all 4 H-Bridges
+     * TODO: Configure TIM16, TIM17 for H-Bridges 1-3
+     */
+
+    /* Initialize ADC for current sensing
+     * H-Bridge current sense would use shunt resistors or integrated current sense
+     * Connected to dedicated ADC channels (e.g., ADC1_IN14-17 for 4 bridges)
+     *
+     * ADC configuration handled in PMU_ADC_Init() or dedicated ADC module
+     * DMA buffer: hbridge_current_adc_buffer[4]
+     */
+#endif /* UNIT_TEST */
 
     return status;
 }
@@ -501,7 +581,10 @@ static void HBridge_HandleFault(uint8_t bridge, PMU_HBridge_Fault_t fault)
  */
 static void HBridge_SetOutputs(uint8_t bridge, uint8_t in1, uint8_t in2, uint16_t pwm1, uint16_t pwm2)
 {
-    /* Simple GPIO control for now (not PWM) */
+#ifdef UNIT_TEST
+    /* For unit tests, use simple GPIO control */
+    (void)pwm1;
+    (void)pwm2;
     HAL_GPIO_WritePin(hbridge_gpio[bridge].in1_port,
                       hbridge_gpio[bridge].in1_pin,
                       in1 ? GPIO_PIN_SET : GPIO_PIN_RESET);
@@ -509,14 +592,52 @@ static void HBridge_SetOutputs(uint8_t bridge, uint8_t in1, uint8_t in2, uint16_
     HAL_GPIO_WritePin(hbridge_gpio[bridge].in2_port,
                       hbridge_gpio[bridge].in2_pin,
                       in2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+#else
+    /* PWM control for H-Bridge
+     * For proper motor control, use PWM on IN1 and IN2
+     * Common strategies:
+     * 1. Sign-magnitude: One side PWM, other side direction (0 or 1)
+     * 2. Locked anti-phase: Both sides PWM with inverse duty cycles
+     *
+     * Using sign-magnitude for simplicity:
+     * - Forward: IN1=PWM, IN2=0
+     * - Reverse: IN1=0, IN2=PWM
+     * - Brake: IN1=1, IN2=1
+     * - Coast: IN1=0, IN2=0
+     */
 
-    /* TODO: Implement PWM using timers */
-    /* if (pwm1 > 0 && pwm1 < 1000) {
-        TIM_OC_InitTypeDef sConfigOC;
-        sConfigOC.Pulse = (pwm1 * TIM_ARR) / 1000;
-        HAL_TIM_PWM_ConfigChannel(htim_pwm_hbridge, &sConfigOC, hbridge_gpio[bridge].tim_channel_1);
-        HAL_TIM_PWM_Start(htim_pwm_hbridge, hbridge_gpio[bridge].tim_channel_1);
-    } */
+    extern TIM_HandleTypeDef htim15, htim16;
+
+    /* Map bridge to timer
+     * Bridge 0: TIM15_CH1 (IN1), TIM15_CH2 (IN2)
+     * Bridge 1-3: Would use TIM16, TIM17, etc.
+     */
+
+    if (bridge == 0) {
+        /* Use TIM15 for Bridge 0 */
+        if (pwm1 > 0 && pwm1 <= 1000 && in1) {
+            /* Enable PWM on IN1 */
+            __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, pwm1);
+        } else {
+            /* Disable PWM, use GPIO */
+            __HAL_TIM_SET_COMPARE(&htim15, TIM_CHANNEL_1, in1 ? 1000 : 0);
+        }
+
+        /* IN2 control - typically complementary or separate */
+        HAL_GPIO_WritePin(hbridge_gpio[bridge].in2_port,
+                          hbridge_gpio[bridge].in2_pin,
+                          in2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    } else {
+        /* For other bridges, use GPIO until additional timers configured */
+        HAL_GPIO_WritePin(hbridge_gpio[bridge].in1_port,
+                          hbridge_gpio[bridge].in1_pin,
+                          in1 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        HAL_GPIO_WritePin(hbridge_gpio[bridge].in2_port,
+                          hbridge_gpio[bridge].in2_pin,
+                          in2 ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    }
+#endif
 }
 
 /**
@@ -565,8 +686,31 @@ static float PID_Compute(PMU_PID_Controller_t* pid, float setpoint, float measur
  */
 static uint16_t HBridge_ReadCurrentADC(uint8_t bridge)
 {
-    /* TODO: Implement ADC reading */
+#ifdef UNIT_TEST
+    /* For unit tests, return zero current */
     return 0;
+#else
+    /* Read H-Bridge current from ADC
+     * Current sensing methods:
+     * 1. Shunt resistor (e.g., 0.01Ω) in series with motor
+     * 2. Integrated current sense amplifier (e.g., INA219)
+     * 3. Motor driver with built-in current sense
+     *
+     * ADC channels: 4 channels for 4 H-Bridges
+     * Example: ADC1_IN14-17 for bridges 0-3
+     *
+     * Conversion: I(A) = V_sense / (R_shunt × Gain)
+     * For 0.01Ω shunt with 50x gain: I(A) = V_sense / 0.5
+     */
+
+    extern uint16_t hbridge_current_adc_buffer[4];  /* DMA buffer for current sense */
+
+    if (bridge < 4) {
+        return hbridge_current_adc_buffer[bridge];
+    }
+
+    return 0;
+#endif
 }
 
 /**
@@ -576,8 +720,31 @@ static uint16_t HBridge_ReadCurrentADC(uint8_t bridge)
  */
 static uint16_t HBridge_ReadPositionADC(uint8_t bridge)
 {
-    /* TODO: Implement position ADC reading */
-    return 2047; /* Return mid-position for now */
+#ifdef UNIT_TEST
+    /* For unit tests, return mid-position */
+    return 2047;
+#else
+    /* Read position feedback from ADC
+     * Position feedback can be:
+     * 1. Potentiometer (wiper position, valve position, etc.)
+     * 2. Hall effect sensor (linear position)
+     * 3. Encoder (digital, not ADC)
+     *
+     * ADC channels: 4 channels for 4 H-Bridges
+     * Example: ADC1_IN10-13 for bridges 0-3
+     *
+     * Value: 0-4095 maps to full travel range
+     * Calibration needed for specific application
+     */
+
+    extern uint16_t hbridge_position_adc_buffer[4];  /* DMA buffer for position feedback */
+
+    if (bridge < 4) {
+        return hbridge_position_adc_buffer[bridge];
+    }
+
+    return 2047;  /* Default mid-position */
+#endif
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
