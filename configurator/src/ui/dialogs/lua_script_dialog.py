@@ -56,8 +56,8 @@ class LuaSyntaxHighlighter(QSyntaxHighlighter):
         # Built-in functions
         builtin_format = QTextCharFormat()
         builtin_format.setForeground(QColor("#DCDCAA"))  # Yellow
-        builtins = ["pmu\.getInput", "pmu\.setOutput", "pmu\.getVirtual",
-                   "pmu\.setVirtual", "pmu\.canSend", "pmu\.log"]
+        builtins = [r"pmu\.getInput", r"pmu\.setOutput", r"pmu\.getVirtual",
+                   r"pmu\.setVirtual", r"pmu\.canSend", r"pmu\.log"]
         for builtin in builtins:
             self.highlighting_rules.append((re.compile(builtin), builtin_format))
 

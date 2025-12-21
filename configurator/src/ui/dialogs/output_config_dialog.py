@@ -39,15 +39,35 @@ class OutputConfigDialog(QDialog):
         basic_group = QGroupBox("Basic Settings")
         basic_layout = QFormLayout()
 
-        # Channel selection - dropdown with available channels only
-        self.channel_combo = QComboBox()
-        self.channel_combo.setToolTip("Physical output channel (0-29)")
-        self._populate_available_channels()
-        basic_layout.addRow("Channel:", self.channel_combo)
-
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Fuel Pump, Starter, Headlights")
         basic_layout.addRow("Name: *", self.name_edit)
+
+        # Pin selection - up to 3 pins for increased current capacity
+        pin_selection_layout = QVBoxLayout()
+        pin_selection_layout.addWidget(QLabel("Pins (select 1-3 for higher current):"))
+
+        pins_layout = QHBoxLayout()
+        self.pin1_combo = QComboBox()
+        self.pin1_combo.setToolTip("Primary output pin (O1-O30)")
+        self._populate_available_pins(self.pin1_combo)
+        pins_layout.addWidget(QLabel("Pin 1:"))
+        pins_layout.addWidget(self.pin1_combo)
+
+        self.pin2_combo = QComboBox()
+        self.pin2_combo.setToolTip("Optional second pin for higher current")
+        self._populate_available_pins(self.pin2_combo, include_none=True)
+        pins_layout.addWidget(QLabel("Pin 2:"))
+        pins_layout.addWidget(self.pin2_combo)
+
+        self.pin3_combo = QComboBox()
+        self.pin3_combo.setToolTip("Optional third pin for maximum current")
+        self._populate_available_pins(self.pin3_combo, include_none=True)
+        pins_layout.addWidget(QLabel("Pin 3:"))
+        pins_layout.addWidget(self.pin3_combo)
+
+        pin_selection_layout.addLayout(pins_layout)
+        basic_layout.addRow("", pin_selection_layout)
 
         # On/Off enable checkbox
         self.enabled_check = QCheckBox("On/Off")
@@ -105,6 +125,10 @@ class OutputConfigDialog(QDialog):
         self.retry_count_spin.setValue(3)
         self.retry_count_spin.setToolTip("Auto-retry attempts after fault (0 = disabled)")
         protection_layout.addRow("Retry Count:", self.retry_count_spin)
+
+        self.retry_forever_check = QCheckBox("Retry forever")
+        self.retry_forever_check.toggled.connect(self._on_retry_forever_toggled)
+        protection_layout.addRow("", self.retry_forever_check)
 
         self.retry_delay_spin = QSpinBox()
         self.retry_delay_spin.setRange(100, 10000)
@@ -169,23 +193,6 @@ class OutputConfigDialog(QDialog):
         pwm_group.setLayout(pwm_layout)
         layout.addWidget(pwm_group)
 
-        # Advanced settings group
-        advanced_group = QGroupBox("Advanced Settings")
-        advanced_layout = QFormLayout()
-
-        self.diagnostic_check = QCheckBox("Enable Diagnostics")
-        self.diagnostic_check.setChecked(True)
-        self.diagnostic_check.setToolTip("Monitor current, faults, and open load")
-        advanced_layout.addRow("", self.diagnostic_check)
-
-        self.open_load_check = QCheckBox("Detect Open Load")
-        self.open_load_check.setChecked(True)
-        self.open_load_check.setToolTip("Detect disconnected or missing load")
-        advanced_layout.addRow("", self.open_load_check)
-
-        advanced_group.setLayout(advanced_layout)
-        layout.addWidget(advanced_group)
-
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -205,6 +212,7 @@ class OutputConfigDialog(QDialog):
         # Initialize controls state
         self._on_pwm_toggled(False)
         self._on_soft_start_toggled(False)
+        self._on_retry_forever_toggled(False)
 
     def _on_accept(self):
         """Validate and accept dialog."""
@@ -216,25 +224,56 @@ class OutputConfigDialog(QDialog):
             self.name_edit.setFocus()
             return
 
+        # Validate that at least one pin is selected
+        pin1 = self.pin1_combo.currentData()
+        if pin1 is None or pin1 < 0:
+            QMessageBox.warning(self, "Validation Error", "At least Pin 1 must be selected!")
+            self.pin1_combo.setFocus()
+            return
+
+        # Validate no duplicate pins
+        pins = []
+        if pin1 is not None and pin1 >= 0:
+            pins.append(pin1)
+
+        pin2 = self.pin2_combo.currentData()
+        if pin2 is not None and pin2 >= 0:
+            if pin2 in pins:
+                QMessageBox.warning(self, "Validation Error", "Pin 2 cannot be the same as Pin 1!")
+                self.pin2_combo.setFocus()
+                return
+            pins.append(pin2)
+
+        pin3 = self.pin3_combo.currentData()
+        if pin3 is not None and pin3 >= 0:
+            if pin3 in pins:
+                QMessageBox.warning(self, "Validation Error", "Pin 3 cannot be the same as Pin 1 or Pin 2!")
+                self.pin3_combo.setFocus()
+                return
+
         self.accept()
 
-    def _populate_available_channels(self):
-        """Populate channel dropdown with available channels."""
-        self.channel_combo.clear()
+    def _populate_available_pins(self, combo: QComboBox, include_none: bool = False):
+        """Populate pin dropdown with available pins."""
+        combo.clear()
 
-        # Get current channel if editing
-        current_channel = None
+        # Add "None" option for optional pins
+        if include_none:
+            combo.addItem("None", -1)
+
+        # Get currently used pins if editing
+        current_pins = []
         if self.output_config:
-            current_channel = self.output_config.get("channel")
+            current_pins = self.output_config.get("pins", [])
 
-        # Add available channels (0-29)
-        for ch in range(30):
-            if ch not in self.used_channels or ch == current_channel:
-                self.channel_combo.addItem(f"Channel {ch}", ch)
+        # Add available pins (O1-O30)
+        for pin in range(30):
+            if pin not in self.used_channels or pin in current_pins:
+                combo.addItem(f"O{pin + 1}", pin)
 
-        # If no channels available, add a placeholder
-        if self.channel_combo.count() == 0:
-            self.channel_combo.addItem("No channels available", -1)
+        # If no pins available and not optional, add a placeholder
+        if combo.count() == 0 and not include_none:
+            combo.addItem("No pins available", -1)
 
     def _on_control_function_changed(self, text: str):
         """Handle control function change - disable checkbox if function is set."""
@@ -242,6 +281,10 @@ class OutputConfigDialog(QDialog):
         self.enabled_check.setEnabled(not has_function)
         if has_function:
             self.enabled_check.setChecked(False)
+
+    def _on_retry_forever_toggled(self, enabled: bool):
+        """Handle retry forever enable/disable."""
+        self.retry_count_spin.setEnabled(not enabled)
 
     def _on_soft_start_toggled(self, enabled: bool):
         """Handle soft start enable/disable."""
@@ -272,12 +315,22 @@ class OutputConfigDialog(QDialog):
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        # Find and select the channel in combo box
-        channel = config.get("channel", 0)
-        index = self.channel_combo.findData(channel)
-        if index >= 0:
-            self.channel_combo.setCurrentIndex(index)
         self.name_edit.setText(config.get("name", ""))
+
+        # Load pins (up to 3)
+        pins = config.get("pins", [])
+        if len(pins) > 0:
+            index = self.pin1_combo.findData(pins[0])
+            if index >= 0:
+                self.pin1_combo.setCurrentIndex(index)
+        if len(pins) > 1:
+            index = self.pin2_combo.findData(pins[1])
+            if index >= 0:
+                self.pin2_combo.setCurrentIndex(index)
+        if len(pins) > 2:
+            index = self.pin3_combo.findData(pins[2])
+            if index >= 0:
+                self.pin3_combo.setCurrentIndex(index)
 
         # Control settings
         self.control_function_edit.setText(config.get("control_function", ""))
@@ -289,6 +342,7 @@ class OutputConfigDialog(QDialog):
         self.inrush_current_spin.setValue(protection.get("inrush_current", 20.0))
         self.inrush_time_spin.setValue(protection.get("inrush_time_ms", 500))
         self.retry_count_spin.setValue(protection.get("retry_count", 3))
+        self.retry_forever_check.setChecked(protection.get("retry_forever", False))
         self.retry_delay_spin.setValue(protection.get("retry_delay_ms", 1000))
 
         # PWM settings
@@ -304,15 +358,24 @@ class OutputConfigDialog(QDialog):
         self.soft_start_check.setChecked(pwm.get("soft_start_enabled", False))
         self.soft_start_duration_spin.setValue(pwm.get("soft_start_duration_ms", 1000))
 
-        # Advanced settings
-        advanced = config.get("advanced", {})
-        self.diagnostic_check.setChecked(advanced.get("diagnostics", True))
-        self.open_load_check.setChecked(advanced.get("open_load_detection", True))
-
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
+        # Collect selected pins (1-3)
+        pins = []
+        pin1 = self.pin1_combo.currentData()
+        if pin1 is not None and pin1 >= 0:
+            pins.append(pin1)
+
+        pin2 = self.pin2_combo.currentData()
+        if pin2 is not None and pin2 >= 0:
+            pins.append(pin2)
+
+        pin3 = self.pin3_combo.currentData()
+        if pin3 is not None and pin3 >= 0:
+            pins.append(pin3)
+
         config = {
-            "channel": self.channel_combo.currentData(),
+            "pins": pins,
             "name": self.name_edit.text(),
             "enabled": self.enabled_check.isChecked(),
             "control_function": self.control_function_edit.text(),
@@ -321,6 +384,7 @@ class OutputConfigDialog(QDialog):
                 "inrush_current": self.inrush_current_spin.value(),
                 "inrush_time_ms": self.inrush_time_spin.value(),
                 "retry_count": self.retry_count_spin.value(),
+                "retry_forever": self.retry_forever_check.isChecked(),
                 "retry_delay_ms": self.retry_delay_spin.value()
             },
             "pwm": {
@@ -330,10 +394,6 @@ class OutputConfigDialog(QDialog):
                 "duty_function": self.duty_function_edit.text(),
                 "soft_start_enabled": self.soft_start_check.isChecked(),
                 "soft_start_duration_ms": self.soft_start_duration_spin.value()
-            },
-            "advanced": {
-                "diagnostics": self.diagnostic_check.isChecked(),
-                "open_load_detection": self.open_load_check.isChecked()
             }
         }
 

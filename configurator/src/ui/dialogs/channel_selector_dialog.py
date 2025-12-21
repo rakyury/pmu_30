@@ -70,60 +70,68 @@ class ChannelSelectorDialog(QDialog):
         """Populate channel list with all available channels."""
         self.all_channels = []
 
-        # Physical Inputs
+        # Physical Inputs - префикс in.
         if "inputs_physical" in self.channels_data:
             for ch in self.channels_data["inputs_physical"]:
+                # ch уже содержит префикс "in." из main_window
                 self.all_channels.append(("Input (Physical)", ch))
 
-        # Virtual Inputs
+        # Virtual Inputs - префикс in.
         if "inputs_virtual" in self.channels_data:
             for ch in self.channels_data["inputs_virtual"]:
                 self.all_channels.append(("Input (Virtual)", ch))
 
-        # Physical Outputs
+        # Physical Outputs - префикс out.
         if "outputs_physical" in self.channels_data:
             for ch in self.channels_data["outputs_physical"]:
+                # ch уже содержит префикс "out." из main_window
                 self.all_channels.append(("Output (Physical)", ch))
 
-        # Virtual Outputs
+        # Virtual Outputs - префикс out.
         if "outputs_virtual" in self.channels_data:
             for ch in self.channels_data["outputs_virtual"]:
                 self.all_channels.append(("Output (Virtual)", ch))
 
-        # Functions
+        # Functions - префикс f_
         if "functions" in self.channels_data:
             for ch in self.channels_data["functions"]:
-                self.all_channels.append(("Function", ch))
+                channel_name = f"f_{ch}" if not ch.startswith("f_") else ch
+                self.all_channels.append(("Function", channel_name))
 
-        # Tables
+        # Tables - префикс t_
         if "tables" in self.channels_data:
             for ch in self.channels_data["tables"]:
-                self.all_channels.append(("Table", ch))
+                channel_name = f"t_{ch}" if not ch.startswith("t_") else ch
+                self.all_channels.append(("Table", channel_name))
 
-        # Numbers/Constants
+        # Numbers/Constants - префикс n_
         if "numbers" in self.channels_data:
             for ch in self.channels_data["numbers"]:
-                self.all_channels.append(("Number", ch))
+                channel_name = f"n_{ch}" if not ch.startswith("n_") else ch
+                self.all_channels.append(("Number", channel_name))
 
-        # Switches
+        # Switches - префикс sw_
         if "switches" in self.channels_data:
             for ch in self.channels_data["switches"]:
-                self.all_channels.append(("Switch", ch))
+                channel_name = f"sw_{ch}" if not ch.startswith("sw_") else ch
+                self.all_channels.append(("Switch", channel_name))
 
-        # Timers
+        # Timers - префикс tm_
         if "timers" in self.channels_data:
             for ch in self.channels_data["timers"]:
-                self.all_channels.append(("Timer", ch))
+                channel_name = f"tm_{ch}" if not ch.startswith("tm_") else ch
+                self.all_channels.append(("Timer", channel_name))
 
         # Enums
         if "enums" in self.channels_data:
             for ch in self.channels_data["enums"]:
                 self.all_channels.append(("Enum", ch))
 
-        # CAN Signals
+        # CAN Signals - префикс c_
         if "can_signals" in self.channels_data:
             for ch in self.channels_data["can_signals"]:
-                self.all_channels.append(("CAN", ch))
+                channel_name = f"c_{ch}" if not ch.startswith("c_") else ch
+                self.all_channels.append(("CAN", channel_name))
 
         # PID Controllers
         if "pid_controllers" in self.channels_data:

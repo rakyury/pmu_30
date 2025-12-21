@@ -15,9 +15,12 @@
 #include "pmu_hbridge.h"
 #include "pmu_can.h"
 #include "pmu_logic.h"
+#include "pmu_logic_functions.h"
+#include "pmu_channel.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdio.h>
 
 #ifndef UNIT_TEST
 #include "cJSON.h"
@@ -44,6 +47,8 @@ static bool JSON_ParsePIDControllers(cJSON* pid_array);
 static bool JSON_ParseCANBuses(cJSON* can_array);
 static bool JSON_ParseSystem(cJSON* system_obj);
 static PMU_InputType_t JSON_ParseInputType(const char* type_str);
+static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
+static uint16_t JSON_ResolveChannel(cJSON* channel_obj);
 static void JSON_SetError(const char* format, ...);
 
 /* Exported functions --------------------------------------------------------*/
@@ -389,49 +394,12 @@ static bool JSON_ParseInputs(cJSON* inputs_array)
         cJSON* name = cJSON_GetObjectItem(input, "name");
         const char* name_str = (name && cJSON_IsString(name)) ? name->valuestring : "";
 
-        /* Create input configuration */
-        PMU_InputConfig_t* config = PMU_Config_GetInputConfig(ch);
-        if (config) {
-            config->type = input_type;
-            strncpy(config->name, name_str, sizeof(config->name) - 1);
-
-            /* Parse parameters */
-            cJSON* params = cJSON_GetObjectItem(input, "parameters");
-            if (params && cJSON_IsObject(params)) {
-                cJSON* threshold_low = cJSON_GetObjectItem(params, "threshold_low");
-                if (threshold_low && cJSON_IsNumber(threshold_low)) {
-                    config->threshold_low_mv = (uint16_t)threshold_low->valueint;
-                }
-
-                cJSON* threshold_high = cJSON_GetObjectItem(params, "threshold_high");
-                if (threshold_high && cJSON_IsNumber(threshold_high)) {
-                    config->threshold_high_mv = (uint16_t)threshold_high->valueint;
-                }
-
-                cJSON* multiplier = cJSON_GetObjectItem(params, "multiplier");
-                if (multiplier && cJSON_IsNumber(multiplier)) {
-                    config->multiplier = (float)multiplier->valuedouble;
-                }
-
-                cJSON* offset = cJSON_GetObjectItem(params, "offset");
-                if (offset && cJSON_IsNumber(offset)) {
-                    config->offset = (float)offset->valuedouble;
-                }
-
-                cJSON* filter_samples = cJSON_GetObjectItem(params, "filter_samples");
-                if (filter_samples && cJSON_IsNumber(filter_samples)) {
-                    config->filter_samples = (uint8_t)filter_samples->valueint;
-                }
-
-                cJSON* debounce_ms = cJSON_GetObjectItem(params, "debounce_ms");
-                if (debounce_ms && cJSON_IsNumber(debounce_ms)) {
-                    config->debounce_ms = (uint8_t)debounce_ms->valueint;
-                }
-            }
-
-            /* Apply configuration to ADC module */
-            PMU_ADC_SetConfig(ch, config);
-        }
+        /* TODO: Create input configuration
+         * PMU_Config_GetInputConfig() doesn't exist yet
+         * Need to implement proper config API
+         */
+        (void)input_type;
+        (void)name_str;
     }
 #else
     (void)inputs_array;
@@ -504,12 +472,246 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
 }
 
 /**
- * @brief Parse logic functions from JSON (simplified implementation)
+ * @brief Parse logic functions from JSON
  */
 static bool JSON_ParseLogicFunctions(cJSON* logic_array)
 {
-    /* TODO: Implement logic function parsing */
+#ifndef UNIT_TEST
+    int count = cJSON_GetArraySize(logic_array);
+
+    for (int i = 0; i < count && i < PMU_MAX_LOGIC_FUNCTIONS; i++) {
+        cJSON* func_obj = cJSON_GetArrayItem(logic_array, i);
+        if (!func_obj || !cJSON_IsObject(func_obj)) {
+            continue;
+        }
+
+        /* Get function type */
+        cJSON* type = cJSON_GetObjectItem(func_obj, "type");
+        if (!type || !cJSON_IsString(type)) {
+            JSON_SetError("Logic function %d: missing or invalid type", i);
+            continue;
+        }
+
+        PMU_FunctionType_t func_type = JSON_ParseFunctionType(type->valuestring);
+
+        /* Get output channel */
+        cJSON* output = cJSON_GetObjectItem(func_obj, "output");
+        if (!output) {
+            JSON_SetError("Logic function %d: missing output channel", i);
+            continue;
+        }
+        uint16_t output_ch = JSON_ResolveChannel(output);
+
+        /* Get input channels */
+        cJSON* inputs = cJSON_GetObjectItem(func_obj, "inputs");
+        uint16_t input_channels[8] = {0};
+        uint8_t input_count = 0;
+
+        if (inputs && cJSON_IsArray(inputs)) {
+            int inp_count = cJSON_GetArraySize(inputs);
+            for (int j = 0; j < inp_count && j < 8; j++) {
+                cJSON* input = cJSON_GetArrayItem(inputs, j);
+                input_channels[j] = JSON_ResolveChannel(input);
+                input_count++;
+            }
+        }
+
+        /* Get parameters */
+        cJSON* params = cJSON_GetObjectItem(func_obj, "parameters");
+
+        /* Create function based on type */
+        uint16_t func_id = 0;
+
+        /* Mathematical operations */
+        if (func_type >= PMU_FUNC_ADD && func_type <= PMU_FUNC_CLAMP) {
+            if (func_type == PMU_FUNC_SCALE && params) {
+                /* Scale function: (input * multiplier) + offset */
+                float multiplier = 1.0f;
+                float offset = 0.0f;
+
+                cJSON* mult = cJSON_GetObjectItem(params, "multiplier");
+                if (mult && cJSON_IsNumber(mult)) {
+                    multiplier = (float)mult->valuedouble;
+                }
+
+                cJSON* off = cJSON_GetObjectItem(params, "offset");
+                if (off && cJSON_IsNumber(off)) {
+                    offset = (float)off->valuedouble;
+                }
+
+                /* Create scale function manually */
+                PMU_LogicFunction_t func = {0};
+                func.type = PMU_FUNC_SCALE;
+                func.output_channel = output_ch;
+                func.input_channels[0] = input_channels[0];
+                func.input_count = 1;
+                func.enabled = 1;
+                func.params.scale.scale = (int32_t)(multiplier * 1000);  /* Convert to fixed-point */
+                func.params.scale.offset = (int32_t)offset;
+
+                PMU_LogicFunctions_Register(&func);
+                func_id = func.function_id;
+
+            } else if (func_type == PMU_FUNC_CLAMP && params) {
+                /* Clamp function: limit to min/max */
+                int32_t min_val = -1000000;
+                int32_t max_val = 1000000;
+
+                cJSON* min_obj = cJSON_GetObjectItem(params, "min");
+                if (min_obj && cJSON_IsNumber(min_obj)) {
+                    min_val = (int32_t)min_obj->valueint;
+                }
+
+                cJSON* max_obj = cJSON_GetObjectItem(params, "max");
+                if (max_obj && cJSON_IsNumber(max_obj)) {
+                    max_val = (int32_t)max_obj->valueint;
+                }
+
+                /* Create clamp function manually */
+                PMU_LogicFunction_t func = {0};
+                func.type = PMU_FUNC_CLAMP;
+                func.output_channel = output_ch;
+                func.input_channels[0] = input_channels[0];
+                func.input_count = 1;
+                func.enabled = 1;
+                func.params.clamp.min = min_val;
+                func.params.clamp.max = max_val;
+
+                PMU_LogicFunctions_Register(&func);
+                func_id = func.function_id;
+
+            } else {
+                /* Simple math functions (add, subtract, multiply, divide, min, max, average, abs) */
+                func_id = PMU_LogicFunctions_CreateMath(func_type, output_ch,
+                                                         input_channels[0], input_channels[1]);
+            }
+        }
+        /* Comparison operations */
+        else if (func_type >= PMU_FUNC_GREATER && func_type <= PMU_FUNC_IN_RANGE) {
+            func_id = PMU_LogicFunctions_CreateComparison(func_type, output_ch,
+                                                           input_channels[0], input_channels[1]);
+        }
+        /* Logic operations */
+        else if (func_type >= PMU_FUNC_AND && func_type <= PMU_FUNC_NOR) {
+            /* Create logic function manually to support N inputs */
+            PMU_LogicFunction_t func = {0};
+            func.type = func_type;
+            func.output_channel = output_ch;
+            memcpy(func.input_channels, input_channels, sizeof(input_channels));
+            func.input_count = input_count;
+            func.enabled = 1;
+
+            PMU_LogicFunctions_Register(&func);
+            func_id = func.function_id;
+        }
+        /* PID Controller */
+        else if (func_type == PMU_FUNC_PID) {
+            if (!params) {
+                JSON_SetError("Logic function %d: PID requires parameters", i);
+                continue;
+            }
+
+            float setpoint = 0.0f;
+            float kp = 1.0f;
+            float ki = 0.0f;
+            float kd = 0.0f;
+
+            cJSON* sp = cJSON_GetObjectItem(params, "setpoint");
+            if (sp && cJSON_IsNumber(sp)) {
+                setpoint = (float)sp->valuedouble;
+            }
+
+            cJSON* kp_obj = cJSON_GetObjectItem(params, "kp");
+            if (kp_obj && cJSON_IsNumber(kp_obj)) {
+                kp = (float)kp_obj->valuedouble;
+            }
+
+            cJSON* ki_obj = cJSON_GetObjectItem(params, "ki");
+            if (ki_obj && cJSON_IsNumber(ki_obj)) {
+                ki = (float)ki_obj->valuedouble;
+            }
+
+            cJSON* kd_obj = cJSON_GetObjectItem(params, "kd");
+            if (kd_obj && cJSON_IsNumber(kd_obj)) {
+                kd = (float)kd_obj->valuedouble;
+            }
+
+            func_id = PMU_LogicFunctions_CreatePID(output_ch, input_channels[0],
+                                                    setpoint, kp, ki, kd);
+        }
+        /* Hysteresis */
+        else if (func_type == PMU_FUNC_HYSTERESIS) {
+            if (!params) {
+                JSON_SetError("Logic function %d: Hysteresis requires parameters", i);
+                continue;
+            }
+
+            int32_t threshold_on = 100;
+            int32_t threshold_off = 50;
+
+            cJSON* on = cJSON_GetObjectItem(params, "threshold_on");
+            if (on && cJSON_IsNumber(on)) {
+                threshold_on = (int32_t)on->valueint;
+            }
+
+            cJSON* off = cJSON_GetObjectItem(params, "threshold_off");
+            if (off && cJSON_IsNumber(off)) {
+                threshold_off = (int32_t)off->valueint;
+            }
+
+            func_id = PMU_LogicFunctions_CreateHysteresis(output_ch, input_channels[0],
+                                                           threshold_on, threshold_off);
+        }
+        /* Filters */
+        else if (func_type >= PMU_FUNC_MOVING_AVG && func_type <= PMU_FUNC_LOW_PASS) {
+            uint16_t window_size = 10;
+            float time_constant = 0.1f;
+
+            if (params) {
+                cJSON* win = cJSON_GetObjectItem(params, "window_size");
+                if (win && cJSON_IsNumber(win)) {
+                    window_size = (uint16_t)win->valueint;
+                }
+
+                cJSON* tc = cJSON_GetObjectItem(params, "time_constant");
+                if (tc && cJSON_IsNumber(tc)) {
+                    time_constant = (float)tc->valuedouble;
+                }
+            }
+
+            /* Create filter function manually */
+            PMU_LogicFunction_t func = {0};
+            func.type = func_type;
+            func.output_channel = output_ch;
+            func.input_channels[0] = input_channels[0];
+            func.input_count = 1;
+            func.enabled = 1;
+
+            if (func_type == PMU_FUNC_MOVING_AVG) {
+                func.params.moving_avg.window_size = window_size;
+            }
+            /* TODO: low_pass filter params not yet in union */
+            (void)time_constant;
+
+            PMU_LogicFunctions_Register(&func);
+            func_id = func.function_id;
+        }
+
+        /* Get enabled state */
+        cJSON* enabled = cJSON_GetObjectItem(func_obj, "enabled");
+        bool is_enabled = true;
+        if (enabled && cJSON_IsBool(enabled)) {
+            is_enabled = cJSON_IsTrue(enabled);
+        }
+
+        if (func_id > 0) {
+            PMU_LogicFunctions_SetEnabled(func_id, is_enabled);
+        }
+    }
+#else
     (void)logic_array;
+#endif
+
     return true;
 }
 
@@ -573,6 +775,92 @@ static PMU_InputType_t JSON_ParseInputType(const char* type_str)
     }
 
     return PMU_INPUT_LINEAR_ANALOG;  /* Default */
+}
+
+/**
+ * @brief Parse function type string to enum
+ */
+static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str)
+{
+    /* Mathematical operations */
+    if (strcmp(type_str, "add") == 0) return PMU_FUNC_ADD;
+    if (strcmp(type_str, "subtract") == 0) return PMU_FUNC_SUBTRACT;
+    if (strcmp(type_str, "multiply") == 0) return PMU_FUNC_MULTIPLY;
+    if (strcmp(type_str, "divide") == 0) return PMU_FUNC_DIVIDE;
+    if (strcmp(type_str, "min") == 0) return PMU_FUNC_MIN;
+    if (strcmp(type_str, "max") == 0) return PMU_FUNC_MAX;
+    if (strcmp(type_str, "average") == 0) return PMU_FUNC_AVERAGE;
+    if (strcmp(type_str, "abs") == 0) return PMU_FUNC_ABS;
+    if (strcmp(type_str, "scale") == 0) return PMU_FUNC_SCALE;
+    if (strcmp(type_str, "clamp") == 0) return PMU_FUNC_CLAMP;
+
+    /* Comparison operations */
+    if (strcmp(type_str, "greater") == 0 || strcmp(type_str, ">") == 0) return PMU_FUNC_GREATER;
+    if (strcmp(type_str, "less") == 0 || strcmp(type_str, "<") == 0) return PMU_FUNC_LESS;
+    if (strcmp(type_str, "equal") == 0 || strcmp(type_str, "==") == 0) return PMU_FUNC_EQUAL;
+    if (strcmp(type_str, "not_equal") == 0 || strcmp(type_str, "!=") == 0) return PMU_FUNC_NOT_EQUAL;
+    if (strcmp(type_str, "greater_equal") == 0 || strcmp(type_str, ">=") == 0) return PMU_FUNC_GREATER_EQUAL;
+    if (strcmp(type_str, "less_equal") == 0 || strcmp(type_str, "<=") == 0) return PMU_FUNC_LESS_EQUAL;
+    if (strcmp(type_str, "in_range") == 0) return PMU_FUNC_IN_RANGE;
+
+    /* Logic operations */
+    if (strcmp(type_str, "and") == 0 || strcmp(type_str, "AND") == 0) return PMU_FUNC_AND;
+    if (strcmp(type_str, "or") == 0 || strcmp(type_str, "OR") == 0) return PMU_FUNC_OR;
+    if (strcmp(type_str, "not") == 0 || strcmp(type_str, "NOT") == 0) return PMU_FUNC_NOT;
+    if (strcmp(type_str, "xor") == 0 || strcmp(type_str, "XOR") == 0) return PMU_FUNC_XOR;
+    if (strcmp(type_str, "nand") == 0 || strcmp(type_str, "NAND") == 0) return PMU_FUNC_NAND;
+    if (strcmp(type_str, "nor") == 0 || strcmp(type_str, "NOR") == 0) return PMU_FUNC_NOR;
+
+    /* Tables */
+    if (strcmp(type_str, "table_1d") == 0) return PMU_FUNC_TABLE_1D;
+    if (strcmp(type_str, "table_2d") == 0) return PMU_FUNC_TABLE_2D;
+
+    /* Filters */
+    if (strcmp(type_str, "moving_avg") == 0) return PMU_FUNC_MOVING_AVG;
+    if (strcmp(type_str, "min_window") == 0) return PMU_FUNC_MIN_WINDOW;
+    if (strcmp(type_str, "max_window") == 0) return PMU_FUNC_MAX_WINDOW;
+    if (strcmp(type_str, "median") == 0) return PMU_FUNC_MEDIAN;
+    if (strcmp(type_str, "low_pass") == 0) return PMU_FUNC_LOW_PASS;
+
+    /* Control */
+    if (strcmp(type_str, "pid") == 0 || strcmp(type_str, "PID") == 0) return PMU_FUNC_PID;
+    if (strcmp(type_str, "hysteresis") == 0) return PMU_FUNC_HYSTERESIS;
+    if (strcmp(type_str, "rate_limit") == 0) return PMU_FUNC_RATE_LIMIT;
+    if (strcmp(type_str, "debounce") == 0) return PMU_FUNC_DEBOUNCE;
+
+    /* Special */
+    if (strcmp(type_str, "mux") == 0) return PMU_FUNC_MUX;
+    if (strcmp(type_str, "demux") == 0) return PMU_FUNC_DEMUX;
+    if (strcmp(type_str, "conditional") == 0) return PMU_FUNC_CONDITIONAL;
+
+    /* Default */
+    return PMU_FUNC_ADD;
+}
+
+/**
+ * @brief Resolve channel from JSON (supports number or name lookup)
+ */
+static uint16_t JSON_ResolveChannel(cJSON* channel_obj)
+{
+    if (!channel_obj) {
+        return 0;
+    }
+
+    /* If it's a number, use it directly as channel ID */
+    if (cJSON_IsNumber(channel_obj)) {
+        return (uint16_t)channel_obj->valueint;
+    }
+
+    /* If it's a string, look up channel by name */
+    if (cJSON_IsString(channel_obj)) {
+        const PMU_Channel_t* ch = PMU_Channel_GetByName(channel_obj->valuestring);
+        if (ch != NULL) {
+            return ch->channel_id;
+        }
+    }
+
+    /* Default */
+    return 0;
 }
 
 /**

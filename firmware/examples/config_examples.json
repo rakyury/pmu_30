@@ -1,0 +1,330 @@
+{
+  "version": "1.0",
+  "device": {
+    "name": "PMU-30 Racing Controller",
+    "serial_number": "PMU30-001",
+    "firmware_version": "1.0.0"
+  },
+
+  "inputs": [
+    {
+      "channel": 0,
+      "type": "Linear Analog",
+      "name": "Throttle_Position",
+      "parameters": {
+        "multiplier": 1.0,
+        "offset": 0.0,
+        "filter_samples": 5
+      }
+    },
+    {
+      "channel": 1,
+      "type": "Linear Analog",
+      "name": "Brake_Pressure",
+      "parameters": {
+        "multiplier": 10.0,
+        "offset": 0.0,
+        "filter_samples": 5
+      }
+    },
+    {
+      "channel": 2,
+      "type": "Switch Active High",
+      "name": "Launch_Button",
+      "parameters": {
+        "debounce_ms": 50
+      }
+    },
+    {
+      "channel": 3,
+      "type": "Linear Analog",
+      "name": "Engine_Temp",
+      "parameters": {
+        "multiplier": 1.0,
+        "offset": -40.0,
+        "filter_samples": 10
+      }
+    },
+    {
+      "channel": 4,
+      "type": "Frequency Input",
+      "name": "Engine_RPM",
+      "parameters": {
+        "multiplier": 1.0,
+        "offset": 0.0
+      }
+    }
+  ],
+
+  "outputs": [
+    {
+      "channel": 0,
+      "name": "Fuel_Pump",
+      "enabled": true,
+      "pwm": {
+        "default_duty": 0
+      }
+    },
+    {
+      "channel": 1,
+      "name": "Ignition_Cut",
+      "enabled": true,
+      "pwm": {
+        "default_duty": 0
+      }
+    },
+    {
+      "channel": 2,
+      "name": "Fan_Control",
+      "enabled": true,
+      "pwm": {
+        "default_duty": 500
+      }
+    },
+    {
+      "channel": 3,
+      "name": "Wastegate_PWM",
+      "enabled": true,
+      "pwm": {
+        "default_duty": 0
+      }
+    }
+  ],
+
+  "logic_functions": [
+    {
+      "type": "add",
+      "name": "Throttle_Plus_Brake",
+      "enabled": true,
+      "output": "Virtual_Sum",
+      "inputs": ["Throttle_Position", "Brake_Pressure"]
+    },
+
+    {
+      "type": "greater",
+      "name": "RPM_Limiter",
+      "enabled": true,
+      "output": "RPM_Limit_Active",
+      "inputs": ["Engine_RPM", 7500]
+    },
+
+    {
+      "type": "and",
+      "name": "Launch_Control_Active",
+      "enabled": true,
+      "output": "LC_Active",
+      "inputs": ["Launch_Button", "RPM_Limit_Active"]
+    },
+
+    {
+      "type": "pid",
+      "name": "Boost_Controller",
+      "enabled": true,
+      "output": "Wastegate_PWM",
+      "inputs": ["Boost_Pressure"],
+      "parameters": {
+        "setpoint": 1500,
+        "kp": 2.0,
+        "ki": 0.5,
+        "kd": 0.1
+      }
+    },
+
+    {
+      "type": "hysteresis",
+      "name": "Fan_Control_Logic",
+      "enabled": true,
+      "output": "Fan_Control",
+      "inputs": ["Engine_Temp"],
+      "parameters": {
+        "threshold_on": 90,
+        "threshold_off": 80
+      }
+    },
+
+    {
+      "type": "scale",
+      "name": "Throttle_Percentage",
+      "enabled": true,
+      "output": "Throttle_Percent",
+      "inputs": ["Throttle_Position"],
+      "parameters": {
+        "multiplier": 0.1,
+        "offset": 0.0
+      }
+    },
+
+    {
+      "type": "clamp",
+      "name": "Throttle_Limiter",
+      "enabled": true,
+      "output": "Throttle_Limited",
+      "inputs": ["Throttle_Position"],
+      "parameters": {
+        "min": 0,
+        "max": 800
+      }
+    },
+
+    {
+      "type": "moving_avg",
+      "name": "Smoothed_Throttle",
+      "enabled": true,
+      "output": "Throttle_Smooth",
+      "inputs": ["Throttle_Position"],
+      "parameters": {
+        "window_size": 10
+      }
+    },
+
+    {
+      "type": "low_pass",
+      "name": "Filtered_Brake",
+      "enabled": true,
+      "output": "Brake_Filtered",
+      "inputs": ["Brake_Pressure"],
+      "parameters": {
+        "time_constant": 0.05
+      }
+    },
+
+    {
+      "type": "multiply",
+      "name": "Power_Calculation",
+      "enabled": true,
+      "output": "Power_Estimate",
+      "inputs": ["Engine_RPM", "Throttle_Position"]
+    },
+
+    {
+      "type": "max",
+      "name": "Max_Temperature",
+      "enabled": true,
+      "output": "Max_Temp_Value",
+      "inputs": ["Engine_Temp", "Coolant_Temp", "Oil_Temp"]
+    },
+
+    {
+      "type": "or",
+      "name": "Any_Warning_Active",
+      "enabled": true,
+      "output": "Warning_Light",
+      "inputs": ["Overheat_Warning", "Overpressure_Warning", "Low_Oil_Warning"]
+    },
+
+    {
+      "type": "in_range",
+      "name": "Operating_Zone",
+      "enabled": true,
+      "output": "In_Safe_Zone",
+      "inputs": ["Engine_Temp"],
+      "parameters": {
+        "min": 70,
+        "max": 110
+      }
+    }
+  ],
+
+  "virtual_channels": [
+    {
+      "id": 1000,
+      "name": "Virtual_Sum",
+      "initial_value": 0
+    },
+    {
+      "id": 1001,
+      "name": "RPM_Limit_Active",
+      "initial_value": 0
+    },
+    {
+      "id": 1002,
+      "name": "LC_Active",
+      "initial_value": 0
+    },
+    {
+      "id": 1003,
+      "name": "Throttle_Percent",
+      "initial_value": 0
+    },
+    {
+      "id": 1004,
+      "name": "Throttle_Limited",
+      "initial_value": 0
+    },
+    {
+      "id": 1005,
+      "name": "Throttle_Smooth",
+      "initial_value": 0
+    },
+    {
+      "id": 1006,
+      "name": "Brake_Filtered",
+      "initial_value": 0
+    },
+    {
+      "id": 1007,
+      "name": "Power_Estimate",
+      "initial_value": 0
+    },
+    {
+      "id": 1008,
+      "name": "Max_Temp_Value",
+      "initial_value": 0
+    },
+    {
+      "id": 1009,
+      "name": "Warning_Light",
+      "initial_value": 0
+    },
+    {
+      "id": 1010,
+      "name": "In_Safe_Zone",
+      "initial_value": 1
+    },
+    {
+      "id": 1011,
+      "name": "Boost_Pressure",
+      "initial_value": 1000
+    },
+    {
+      "id": 1012,
+      "name": "Coolant_Temp",
+      "initial_value": 80
+    },
+    {
+      "id": 1013,
+      "name": "Oil_Temp",
+      "initial_value": 85
+    },
+    {
+      "id": 1014,
+      "name": "Overheat_Warning",
+      "initial_value": 0
+    },
+    {
+      "id": 1015,
+      "name": "Overpressure_Warning",
+      "initial_value": 0
+    },
+    {
+      "id": 1016,
+      "name": "Low_Oil_Warning",
+      "initial_value": 0
+    }
+  ],
+
+  "can_buses": [
+    {
+      "bus": 0,
+      "enabled": true,
+      "bitrate": 500000,
+      "fd_enabled": false
+    }
+  ],
+
+  "system": {
+    "update_rate_hz": 1000,
+    "watchdog_timeout_ms": 100,
+    "debug_enabled": true
+  }
+}
