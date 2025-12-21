@@ -5,7 +5,7 @@ Hierarchical tree view of all configuration items (like ECUMaster PMU Client)
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QMenu, QMessageBox
+    QPushButton, QMenu, QMessageBox, QStyle, QApplication
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction
@@ -26,6 +26,30 @@ class ProjectTree(QWidget):
         super().__init__(parent)
         self._init_ui()
         self._create_default_structure()
+
+    def _get_icon(self, category: str) -> QIcon:
+        """Get icon for category."""
+        app = QApplication.instance()
+        if not app:
+            return QIcon()
+
+        style = app.style()
+        icon_map = {
+            "outputs": QStyle.StandardPixmap.SP_MediaPlay,
+            "inputs": QStyle.StandardPixmap.SP_ArrowRight,
+            "logic": QStyle.StandardPixmap.SP_FileIcon,
+            "switches": QStyle.StandardPixmap.SP_DialogYesButton,
+            "can": QStyle.StandardPixmap.SP_DriveNetIcon,
+            "timers": QStyle.StandardPixmap.SP_BrowserReload,
+            "tables": QStyle.StandardPixmap.SP_FileDialogListView,
+            "numbers": QStyle.StandardPixmap.SP_DialogOkButton,
+            "hbridge": QStyle.StandardPixmap.SP_ComputerIcon,
+            "pid": QStyle.StandardPixmap.SP_FileDialogDetailedView,
+            "lua": QStyle.StandardPixmap.SP_FileDialogContentsView,
+        }
+
+        pixmap_type = icon_map.get(category, QStyle.StandardPixmap.SP_DirIcon)
+        return style.standardIcon(pixmap_type)
 
     def _init_ui(self):
         """Initialize UI components."""
@@ -64,26 +88,6 @@ class ProjectTree(QWidget):
         self.edit_btn.clicked.connect(self._edit_item)
         button_layout.addWidget(self.edit_btn)
 
-        button_layout.addSpacing(10)
-
-        self.move_up_btn = QPushButton("Move up")
-        self.move_up_btn.clicked.connect(self._move_up)
-        button_layout.addWidget(self.move_up_btn)
-
-        self.move_down_btn = QPushButton("Move down")
-        self.move_down_btn.clicked.connect(self._move_down)
-        button_layout.addWidget(self.move_down_btn)
-
-        button_layout.addSpacing(10)
-
-        self.group_btn = QPushButton("Group")
-        self.group_btn.clicked.connect(self._create_group)
-        button_layout.addWidget(self.group_btn)
-
-        self.ungroup_btn = QPushButton("Ungroup")
-        self.ungroup_btn.clicked.connect(self._ungroup)
-        button_layout.addWidget(self.ungroup_btn)
-
         button_layout.addStretch()
 
         # Main horizontal layout
@@ -98,49 +102,60 @@ class ProjectTree(QWidget):
         # OUT folder
         self.out_folder = QTreeWidgetItem(self.tree, ["OUT", ""])
         self.out_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "outputs"})
+        self.out_folder.setIcon(0, self._get_icon("outputs"))
         self.out_folder.setExpanded(True)
 
         # IN folder
         self.in_folder = QTreeWidgetItem(self.tree, ["IN", ""])
         self.in_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "inputs"})
+        self.in_folder.setIcon(0, self._get_icon("inputs"))
         self.in_folder.setExpanded(True)
 
         # Functions folder
         self.functions_folder = QTreeWidgetItem(self.tree, ["Functions", ""])
         self.functions_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "logic"})
+        self.functions_folder.setIcon(0, self._get_icon("logic"))
         self.functions_folder.setExpanded(True)
 
         # Switches folder
         self.switches_folder = QTreeWidgetItem(self.tree, ["Switches", ""])
         self.switches_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "switches"})
+        self.switches_folder.setIcon(0, self._get_icon("switches"))
 
         # CAN folder
         self.can_folder = QTreeWidgetItem(self.tree, ["CAN", ""])
         self.can_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "can"})
+        self.can_folder.setIcon(0, self._get_icon("can"))
 
         # Timers folder
         self.timers_folder = QTreeWidgetItem(self.tree, ["Timers", ""])
         self.timers_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "timers"})
+        self.timers_folder.setIcon(0, self._get_icon("timers"))
 
         # Tables folder
         self.tables_folder = QTreeWidgetItem(self.tree, ["Tables", ""])
         self.tables_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "tables"})
+        self.tables_folder.setIcon(0, self._get_icon("tables"))
 
         # Numbers folder
         self.numbers_folder = QTreeWidgetItem(self.tree, ["Numbers", ""])
         self.numbers_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "numbers"})
+        self.numbers_folder.setIcon(0, self._get_icon("numbers"))
 
         # H-Bridge folder
         self.hbridge_folder = QTreeWidgetItem(self.tree, ["H-Bridge", ""])
         self.hbridge_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "hbridge"})
+        self.hbridge_folder.setIcon(0, self._get_icon("hbridge"))
 
         # PID folder
         self.pid_folder = QTreeWidgetItem(self.tree, ["PID Controllers", ""])
         self.pid_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "pid"})
+        self.pid_folder.setIcon(0, self._get_icon("pid"))
 
         # LUA folder
         self.lua_folder = QTreeWidgetItem(self.tree, ["Lua Scripts", ""])
         self.lua_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "lua"})
+        self.lua_folder.setIcon(0, self._get_icon("lua"))
 
     def _on_selection_changed(self):
         """Handle selection change."""
@@ -173,11 +188,6 @@ class ProjectTree(QWidget):
         if data.get("type") == "folder":
             add_action = menu.addAction("Add Item")
             add_action.triggered.connect(self._add_item)
-
-            menu.addSeparator()
-
-            add_folder_action = menu.addAction("Add Subfolder")
-            add_folder_action.triggered.connect(self._create_group)
         else:
             edit_action = menu.addAction("Edit")
             edit_action.triggered.connect(self._edit_item)
@@ -276,95 +286,6 @@ class ProjectTree(QWidget):
             category = data.get("category", "")
             self.item_edited.emit(category, data)
 
-    def _move_up(self):
-        """Move item up in tree."""
-        items = self.tree.selectedItems()
-        if not items:
-            return
-
-        item = items[0]
-        parent = item.parent()
-        if not parent:
-            return
-
-        index = parent.indexOfChild(item)
-        if index > 0:
-            parent.takeChild(index)
-            parent.insertChild(index - 1, item)
-            self.tree.setCurrentItem(item)
-            self.configuration_changed.emit()
-
-    def _move_down(self):
-        """Move item down in tree."""
-        items = self.tree.selectedItems()
-        if not items:
-            return
-
-        item = items[0]
-        parent = item.parent()
-        if not parent:
-            return
-
-        index = parent.indexOfChild(item)
-        if index < parent.childCount() - 1:
-            parent.takeChild(index)
-            parent.insertChild(index + 1, item)
-            self.tree.setCurrentItem(item)
-            self.configuration_changed.emit()
-
-    def _create_group(self):
-        """Create new group/folder."""
-        items = self.tree.selectedItems()
-        if not items:
-            return
-
-        item = items[0]
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-
-        # Create subfolder
-        if data.get("type") == "folder":
-            parent = item
-            category = data.get("category", "")
-        else:
-            parent = item.parent()
-            if parent:
-                parent_data = parent.data(0, Qt.ItemDataRole.UserRole)
-                category = parent_data.get("category", "")
-            else:
-                return
-
-        # Create new folder
-        new_folder = QTreeWidgetItem(parent, ["New Group", ""])
-        new_folder.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "folder",
-            "category": category
-        })
-        new_folder.setExpanded(True)
-        self.configuration_changed.emit()
-
-    def _ungroup(self):
-        """Remove group and move items to parent."""
-        items = self.tree.selectedItems()
-        if not items:
-            return
-
-        item = items[0]
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-
-        if data and data.get("type") == "folder":
-            parent = item.parent()
-            if not parent:
-                return
-
-            # Move all children to parent
-            while item.childCount() > 0:
-                child = item.takeChild(0)
-                parent.addChild(child)
-
-            # Remove empty folder
-            parent.removeChild(item)
-            self.configuration_changed.emit()
-
     def add_output(self, output_data: Dict[str, Any]):
         """Add output to tree."""
         item = QTreeWidgetItem(self.out_folder)
@@ -435,6 +356,71 @@ class ProjectTree(QWidget):
             "type": "lua",
             "category": "lua",
             "data": lua_data
+        })
+
+    def add_number(self, number_data: Dict[str, Any]):
+        """Add number constant to tree."""
+        item = QTreeWidgetItem(self.numbers_folder)
+        item.setText(0, number_data.get('name', 'Unnamed'))
+        value = number_data.get('value', 0.0)
+        unit = number_data.get('unit', '')
+        item.setText(1, f"{value} {unit}".strip())
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "number",
+            "category": "numbers",
+            "data": number_data
+        })
+
+    def add_switch(self, switch_data: Dict[str, Any]):
+        """Add switch to tree."""
+        item = QTreeWidgetItem(self.switches_folder)
+        item.setText(0, switch_data.get('name', 'Unnamed'))
+        condition = switch_data.get('condition', {})
+        comparison = condition.get('comparison', '>')
+        threshold = condition.get('threshold', 0)
+        item.setText(1, f"{comparison} {threshold}")
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "switch",
+            "category": "switches",
+            "data": switch_data
+        })
+
+    def add_table(self, table_data: Dict[str, Any]):
+        """Add lookup table to tree."""
+        item = QTreeWidgetItem(self.tables_folder)
+        item.setText(0, table_data.get('name', 'Unnamed'))
+        table_points = table_data.get('table_data', [])
+        item.setText(1, f"{len(table_points)} points")
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "table",
+            "category": "tables",
+            "data": table_data
+        })
+
+    def add_timer(self, timer_data: Dict[str, Any]):
+        """Add timer to tree."""
+        item = QTreeWidgetItem(self.timers_folder)
+        item.setText(0, timer_data.get('name', 'Unnamed'))
+        mode = timer_data.get('mode', 'On Delay')
+        timing = timer_data.get('timing', {})
+        delay = timing.get('delay_ms', 0)
+        item.setText(1, f"{mode} ({delay}ms)")
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "timer",
+            "category": "timers",
+            "data": timer_data
+        })
+
+    def add_can_message(self, can_data: Dict[str, Any]):
+        """Add CAN message to tree."""
+        item = QTreeWidgetItem(self.can_folder)
+        item.setText(0, can_data.get('name', 'Unnamed'))
+        msg_id = can_data.get('id', 0)
+        item.setText(1, f"ID: 0x{msg_id:X}")
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "can",
+            "category": "can",
+            "data": can_data
         })
 
     def update_current_item(self, new_data: Dict[str, Any]):

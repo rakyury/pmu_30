@@ -18,6 +18,11 @@ from .dialogs.logic_function_dialog import LogicFunctionDialog
 from .dialogs.hbridge_dialog import HBridgeDialog
 from .dialogs.pid_controller_dialog import PIDControllerDialog
 from .dialogs.lua_script_dialog import LuaScriptDialog
+from .dialogs.number_dialog import NumberDialog
+from .dialogs.switch_dialog import SwitchDialog
+from .dialogs.table_dialog import TableDialog
+from .dialogs.timer_dialog import TimerDialog
+from .dialogs.can_message_dialog import CANMessageDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
@@ -172,13 +177,50 @@ class MainWindowECUMaster(QMainWindow):
         # Desktops menu (for layouts)
         desktops_menu = menubar.addMenu("Desktops")
 
-        save_layout_action = QAction("Save Layout", self)
-        save_layout_action.triggered.connect(self.save_layout)
-        desktops_menu.addAction(save_layout_action)
+        restore_desktops_action = QAction("Restore desktops", self)
+        restore_desktops_action.triggered.connect(self._restore_desktops)
+        desktops_menu.addAction(restore_desktops_action)
 
-        restore_layout_action = QAction("Restore Default Layout", self)
-        restore_layout_action.triggered.connect(self.restore_default_layout)
-        desktops_menu.addAction(restore_layout_action)
+        store_desktops_action = QAction("Store desktops", self)
+        store_desktops_action.triggered.connect(self._store_desktops)
+        desktops_menu.addAction(store_desktops_action)
+
+        desktops_menu.addSeparator()
+
+        open_template_action = QAction("Open desktops template...", self)
+        open_template_action.triggered.connect(self._open_desktop_template)
+        desktops_menu.addAction(open_template_action)
+
+        save_template_action = QAction("Save desktops template...", self)
+        save_template_action.triggered.connect(self._save_desktop_template)
+        desktops_menu.addAction(save_template_action)
+
+        desktops_menu.addSeparator()
+
+        add_pane_action = QAction("Add new pane", self)
+        add_pane_action.setShortcut("F9")
+        add_pane_action.triggered.connect(self._add_new_pane)
+        desktops_menu.addAction(add_pane_action)
+
+        replace_pane_action = QAction("Replace pane", self)
+        replace_pane_action.setShortcut("Shift+F9")
+        replace_pane_action.triggered.connect(self._replace_pane)
+        desktops_menu.addAction(replace_pane_action)
+
+        desktops_menu.addSeparator()
+
+        # Switch desktop submenu
+        self.switch_desktop_menu = desktops_menu.addMenu("Switch desktop to...")
+
+        prev_desktop_action = QAction("Previous desktop", self)
+        prev_desktop_action.setShortcut("Ctrl+PgUp")
+        prev_desktop_action.triggered.connect(self._previous_desktop)
+        desktops_menu.addAction(prev_desktop_action)
+
+        next_desktop_action = QAction("Next desktop", self)
+        next_desktop_action.setShortcut("Ctrl+PgDown")
+        next_desktop_action.triggered.connect(self._next_desktop)
+        desktops_menu.addAction(next_desktop_action)
 
         # Devices menu
         devices_menu = menubar.addMenu("Devices")
@@ -216,20 +258,24 @@ class MainWindowECUMaster(QMainWindow):
 
         project_tree_action = self.project_tree_dock.toggleViewAction()
         project_tree_action.setText("Project Tree")
+        project_tree_action.setShortcut("Shift+F7")
         windows_menu.addAction(project_tree_action)
 
         windows_menu.addSeparator()
 
         output_monitor_action = self.output_dock.toggleViewAction()
         output_monitor_action.setText("Output Monitor")
+        output_monitor_action.setShortcut("Shift+F8")
         windows_menu.addAction(output_monitor_action)
 
         analog_monitor_action = self.analog_dock.toggleViewAction()
         analog_monitor_action.setText("Analog Monitor")
+        analog_monitor_action.setShortcut("Shift+F10")
         windows_menu.addAction(analog_monitor_action)
 
         variables_action = self.variables_dock.toggleViewAction()
         variables_action.setText("Variables Inspector")
+        variables_action.setShortcut("Shift+F11")
         windows_menu.addAction(variables_action)
 
         # View menu
@@ -337,6 +383,16 @@ class MainWindowECUMaster(QMainWindow):
             self._add_pid_controller()
         elif category == "lua":
             self._add_lua_script()
+        elif category == "numbers":
+            self._add_number()
+        elif category == "switches":
+            self._add_switch()
+        elif category == "tables":
+            self._add_table()
+        elif category == "timers":
+            self._add_timer()
+        elif category == "can":
+            self._add_can_message()
 
     def _on_item_edit_requested(self, category: str, data: dict):
         """Handle request to edit item."""
@@ -435,6 +491,46 @@ class MainWindowECUMaster(QMainWindow):
         if dialog.exec():
             config = dialog.get_config()
             self.project_tree.add_lua_script(config)
+            self.configuration_changed.emit()
+
+    def _add_number(self):
+        """Add new number constant."""
+        dialog = NumberDialog(self, None)
+        if dialog.exec():
+            config = dialog.get_config()
+            self.project_tree.add_number(config)
+            self.configuration_changed.emit()
+
+    def _add_switch(self):
+        """Add new switch."""
+        dialog = SwitchDialog(self, None, [])
+        if dialog.exec():
+            config = dialog.get_config()
+            self.project_tree.add_switch(config)
+            self.configuration_changed.emit()
+
+    def _add_table(self):
+        """Add new lookup table."""
+        dialog = TableDialog(self, None, [])
+        if dialog.exec():
+            config = dialog.get_config()
+            self.project_tree.add_table(config)
+            self.configuration_changed.emit()
+
+    def _add_timer(self):
+        """Add new timer."""
+        dialog = TimerDialog(self, None, [])
+        if dialog.exec():
+            config = dialog.get_config()
+            self.project_tree.add_timer(config)
+            self.configuration_changed.emit()
+
+    def _add_can_message(self):
+        """Add new CAN message."""
+        dialog = CANMessageDialog(self, None)
+        if dialog.exec():
+            config = dialog.get_config()
+            self.project_tree.add_can_message(config)
             self.configuration_changed.emit()
 
     def _on_config_changed(self):

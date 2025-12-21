@@ -289,6 +289,95 @@ Upload large configuration in chunks (256 bytes per chunk).
 
 ---
 
+### Logging Commands (0x80-0x9F)
+
+#### 0x80 - START_LOGGING
+**Request**:
+```
+[0xAA][0x80][0x00][0x00][CRC]
+```
+
+**Response**:
+```
+[0xAA][0xE0][0x01][0x80][CRC]  // ACK
+```
+
+Start data logging session. Logging uses configured channels and sample rate.
+
+---
+
+#### 0x81 - STOP_LOGGING
+**Request**:
+```
+[0xAA][0x81][0x00][0x00][CRC]
+```
+
+**Response**:
+```
+[0xAA][0xE0][0x01][0x81][CRC]  // ACK
+```
+
+Stop current logging session and flush data to flash.
+
+---
+
+#### 0x82 - GET_LOG_INFO
+**Request**:
+```
+[0xAA][0x82][0x00][0x00][CRC]
+```
+
+**Response**:
+```
+[0xAA][0x82][N][SESSION_COUNT_2B][...session data...][CRC]
+
+For each session (21 bytes):
+  Session ID (4 bytes, little-endian)
+  Start time (4 bytes, seconds since boot)
+  Duration (4 bytes, milliseconds)
+  Bytes used (4 bytes)
+  Sample count (4 bytes)
+  Status (1 byte)
+```
+
+Get list of all logging sessions stored in flash.
+
+---
+
+#### 0x83 - DOWNLOAD_LOG
+**Request**:
+```
+[0xAA][0x83][0x0C][SESSION_ID_4B][OFFSET_4B][LENGTH_4B][CRC]
+
+  SESSION_ID: Session to download
+  OFFSET: Byte offset in session data
+  LENGTH: Bytes to download (max 244)
+```
+
+**Response**:
+```
+[0xAA][0x83][N][SESSION_ID_4B][OFFSET_4B][BYTES_READ_4B][...data...][CRC]
+```
+
+Download session data in chunks. Call multiple times with increasing offset to download complete session.
+
+---
+
+#### 0x84 - ERASE_LOGS
+**Request**:
+```
+[0xAA][0x84][0x00][0x00][CRC]
+```
+
+**Response**:
+```
+[0xAA][0xE0][0x01][0x84][CRC]  // ACK
+```
+
+Erase all logging data from flash. WARNING: This operation is irreversible.
+
+---
+
 ### Response Codes (0xE0-0xFF)
 
 #### 0xE0 - ACK
@@ -422,6 +511,72 @@ with open('pmu30_config.json', 'r') as f:
 # Send to device
 response = send_command(0x60, config_json.encode('utf-8'))
 print(response.decode('utf-8'))
+```
+
+---
+
+### Data Logging Example
+
+```python
+# Start logging
+send_command(0x80)  # START_LOGGING
+print("Logging started")
+
+# ... drive the vehicle, collect data ...
+
+# Stop logging
+send_command(0x81)  # STOP_LOGGING
+print("Logging stopped")
+
+# Get list of sessions
+response = send_command(0x82)  # GET_LOG_INFO
+if response and len(response) >= 2:
+    session_count = struct.unpack('<H', response[0:2])[0]
+    print(f"Found {session_count} logging sessions")
+
+    # Parse each session
+    offset = 2
+    for i in range(session_count):
+        if offset + 21 <= len(response):
+            session_id, start_time, duration, bytes_used, sample_count, status = \
+                struct.unpack('<IIIIIB', response[offset:offset+21])
+            print(f"Session {session_id}: {bytes_used} bytes, {sample_count} samples")
+            offset += 21
+
+# Download session data
+session_id = 1
+offset = 0
+chunk_size = 244
+
+# Download in chunks
+session_data = bytearray()
+while True:
+    # Request chunk: session_id (4B), offset (4B), length (4B)
+    request = struct.pack('<III', session_id, offset, chunk_size)
+    response = send_command(0x83, request)  # DOWNLOAD_LOG
+
+    if not response or len(response) < 12:
+        break
+
+    # Parse response: session_id (4B), offset (4B), bytes_read (4B), data
+    resp_session, resp_offset, bytes_read = struct.unpack('<III', response[0:12])
+    chunk_data = response[12:12+bytes_read]
+
+    session_data.extend(chunk_data)
+    print(f"Downloaded {len(session_data)} bytes...")
+
+    if bytes_read < chunk_size:
+        break  # Last chunk
+
+    offset += bytes_read
+
+# Save to file
+with open(f'session_{session_id}.bin', 'wb') as f:
+    f.write(session_data)
+print(f"Downloaded session {session_id}: {len(session_data)} bytes")
+
+# Erase all logs (use with caution!)
+# send_command(0x84)  # ERASE_LOGS
 ```
 
 ---

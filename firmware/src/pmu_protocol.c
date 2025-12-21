@@ -71,6 +71,11 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet);
 static bool Protocol_ValidatePacket(const PMU_Protocol_Packet_t* packet);
 
 /* Exported functions --------------------------------------------------------*/
@@ -459,6 +464,26 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
             Protocol_HandleLoadConfig(packet);
             break;
 
+        case PMU_CMD_START_LOGGING:
+            Protocol_HandleStartLogging(packet);
+            break;
+
+        case PMU_CMD_STOP_LOGGING:
+            Protocol_HandleStopLogging(packet);
+            break;
+
+        case PMU_CMD_GET_LOG_INFO:
+            Protocol_HandleGetLogInfo(packet);
+            break;
+
+        case PMU_CMD_DOWNLOAD_LOG:
+            Protocol_HandleDownloadLog(packet);
+            break;
+
+        case PMU_CMD_ERASE_LOGS:
+            Protocol_HandleEraseLogs(packet);
+            break;
+
         default:
             Protocol_SendNACK(packet->command, "Unknown command");
             break;
@@ -665,6 +690,150 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
         Protocol_SendData(PMU_CMD_LOAD_CONFIG, response, strlen((char*)response));
     } else {
         Protocol_SendNACK(PMU_CMD_LOAD_CONFIG, PMU_JSON_GetLastError());
+    }
+}
+
+/**
+ * @brief Handle start logging command
+ */
+static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Start logging session */
+    if (PMU_Logging_Start() == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_START_LOGGING);
+    } else {
+        Protocol_SendNACK(PMU_CMD_START_LOGGING, "Failed to start logging");
+    }
+}
+
+/**
+ * @brief Handle stop logging command
+ */
+static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Stop logging session */
+    if (PMU_Logging_Stop() == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_STOP_LOGGING);
+    } else {
+        Protocol_SendNACK(PMU_CMD_STOP_LOGGING, "Failed to stop logging");
+    }
+}
+
+/**
+ * @brief Handle get log info command
+ */
+static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Get session list */
+    PMU_LogSession_t sessions[10];
+    uint16_t session_count = PMU_Logging_GetSessionList(sessions, 10);
+
+    /* Pack session info into response */
+    uint8_t response[256];
+    uint16_t index = 0;
+
+    /* Pack session count */
+    response[index++] = session_count & 0xFF;
+    response[index++] = (session_count >> 8) & 0xFF;
+
+    /* Pack each session */
+    for (uint16_t i = 0; i < session_count && index < sizeof(response) - 20; i++) {
+        /* Session ID (4 bytes) */
+        memcpy(&response[index], &sessions[i].session_id, 4);
+        index += 4;
+
+        /* Start time (4 bytes) */
+        memcpy(&response[index], &sessions[i].start_time, 4);
+        index += 4;
+
+        /* Duration (4 bytes) */
+        memcpy(&response[index], &sessions[i].duration_ms, 4);
+        index += 4;
+
+        /* Bytes used (4 bytes) */
+        memcpy(&response[index], &sessions[i].bytes_used, 4);
+        index += 4;
+
+        /* Sample count (4 bytes) */
+        memcpy(&response[index], &sessions[i].sample_count, 4);
+        index += 4;
+
+        /* Status (1 byte) */
+        response[index++] = sessions[i].status;
+    }
+
+    Protocol_SendData(PMU_CMD_GET_LOG_INFO, response, index);
+}
+
+/**
+ * @brief Handle download log command
+ */
+static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length < 12) {
+        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, "Invalid request");
+        return;
+    }
+
+    /* Parse request: session_id (4B), offset (4B), length (4B) */
+    uint32_t session_id;
+    uint32_t offset;
+    uint32_t length;
+
+    memcpy(&session_id, &packet->data[0], 4);
+    memcpy(&offset, &packet->data[4], 4);
+    memcpy(&length, &packet->data[8], 4);
+
+    /* Limit length to max payload size */
+    if (length > PMU_PROTOCOL_MAX_PAYLOAD - 12) {
+        length = PMU_PROTOCOL_MAX_PAYLOAD - 12;
+    }
+
+    /* Download session data */
+    uint8_t response[PMU_PROTOCOL_MAX_PAYLOAD];
+    uint16_t index = 0;
+
+    /* Pack request parameters in response header */
+    memcpy(&response[index], &session_id, 4);
+    index += 4;
+    memcpy(&response[index], &offset, 4);
+    index += 4;
+
+    /* Download data */
+    uint32_t bytes_read = PMU_Logging_DownloadSession(session_id,
+                                                       &response[index],
+                                                       offset,
+                                                       length);
+
+    /* Pack bytes read */
+    memcpy(&response[8], &bytes_read, 4);
+    index += bytes_read;
+
+    if (bytes_read > 0) {
+        Protocol_SendData(PMU_CMD_DOWNLOAD_LOG, response, index);
+    } else {
+        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, "Session not found or invalid offset");
+    }
+}
+
+/**
+ * @brief Handle erase logs command
+ */
+static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Erase all logs */
+    if (PMU_Logging_EraseAll() == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_ERASE_LOGS);
+    } else {
+        Protocol_SendNACK(PMU_CMD_ERASE_LOGS, "Failed to erase logs");
     }
 }
 
