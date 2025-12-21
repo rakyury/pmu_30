@@ -251,7 +251,7 @@ class SettingsTab(QWidget):
         about_layout = QVBoxLayout()
 
         about_text = QLabel(
-            "<b>PMU-30 Power Distribution Module Configurator</b><br>"
+            "<b>PMU-30 Power Management Unit Configurator</b><br>"
             "<br>"
             "Version: 1.0.0<br>"
             "© 2025 R2 m-sport. All rights reserved.<br>"

@@ -1,431 +1,438 @@
 """
 Number (Math Channel) Configuration Dialog
-Math channels with operation-specific UI for each function type
+Math operations with operation-specific UI
+Based on ECUMaster ADU Number implementation
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
-    QDoubleSpinBox, QDialogButtonBox, QGroupBox, QComboBox,
-    QPushButton, QLabel, QWidget, QStackedWidget
+    QFormLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
+    QLabel, QStackedWidget, QWidget, QGridLayout
 )
 from PyQt6.QtCore import Qt
-from typing import Dict, Any, Optional
-from .channel_selector_dialog import ChannelSelectorDialog
+from typing import Dict, Any, Optional, List
+
+from .base_gpio_dialog import BaseGPIODialog
+from models.gpio import GPIOType, MathOperation, ChannelMultiplier
 
 
-class NumberDialog(QDialog):
-    """Dialog for configuring math channels with operation-specific UI."""
+class NumberDialog(BaseGPIODialog):
+    """Dialog for configuring math/number channels with operation-specific UI."""
 
-    # Mathematical operations
-    MATH_OPERATIONS = [
-        "constant",
-        "add",
-        "subtract",
-        "multiply",
-        "divide",
-        "min",
-        "max",
-        "average",
-        "abs",
-        "scale",
-        "clamp",
-        "conditional"  # if-then-else
+    # Operation display names
+    OPERATION_NAMES = {
+        MathOperation.CONSTANT: "Constant",
+        MathOperation.CHANNEL: "Channel or constant",
+        MathOperation.ADD: "Addition",
+        MathOperation.SUBTRACT: "Subtraction",
+        MathOperation.MULTIPLY: "Multiply",
+        MathOperation.DIVIDE: "Divide",
+        MathOperation.MODULO: "Modulo",
+        MathOperation.MIN: "Min",
+        MathOperation.MAX: "Max",
+        MathOperation.CLAMP: "Clamp",
+        MathOperation.LOOKUP2: "Lookup2",
+        MathOperation.LOOKUP3: "Lookup3",
+        MathOperation.LOOKUP4: "Lookup4",
+        MathOperation.LOOKUP5: "Lookup5",
+    }
+
+    # Multiplier options
+    MULTIPLIER_OPTIONS = [
+        ("*1", ChannelMultiplier.MUL_1.value),
+        ("*10", ChannelMultiplier.MUL_10.value),
+        ("*100", ChannelMultiplier.MUL_100.value),
+        ("*1000", ChannelMultiplier.MUL_1000.value),
+        ("raw", ChannelMultiplier.RAW.value),
     ]
 
-    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None, available_channels: Optional[Dict] = None):
-        super().__init__(parent)
-        self.config = config or {}
-        self.available_channels = available_channels or {}
-        self._init_ui()
-        self._load_config()
+    def __init__(self, parent=None,
+                 config: Optional[Dict[str, Any]] = None,
+                 available_channels: Optional[Dict[str, List[str]]] = None):
+        super().__init__(parent, config, available_channels, GPIOType.NUMBER)
 
-    def _init_ui(self):
-        """Initialize UI."""
-        self.setWindowTitle("Number (Math Channel) Configuration")
-        self.setMinimumWidth(550)
+        self._create_operation_group()
+        self._create_params_group()
 
-        layout = QVBoxLayout(self)
-
-        # Basic settings group
-        basic_group = QGroupBox("Basic Settings")
-        basic_layout = QFormLayout()
-
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., n_total_current, n_boost_pressure")
-        basic_layout.addRow("Name: *", self.name_edit)
-
-        # Operation type
-        self.operation_combo = QComboBox()
-        self.operation_combo.addItems(self.MATH_OPERATIONS)
+        # Connect operation change
         self.operation_combo.currentIndexChanged.connect(self._on_operation_changed)
-        basic_layout.addRow("Operation:", self.operation_combo)
 
-        basic_group.setLayout(basic_layout)
-        layout.addWidget(basic_group)
+        # Load config if editing
+        if config:
+            self._load_specific_config(config)
 
-        # Stacked widget for operation-specific parameters
-        self.params_group = QGroupBox("Operation Parameters")
-        params_layout = QVBoxLayout()
+        # Initialize view
+        self._on_operation_changed()
+
+    def _create_operation_group(self):
+        """Create operation selection group"""
+        op_group = QGroupBox("Operation Type")
+        layout = QGridLayout()
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
+
+        # Operation and Decimal places in same row
+        layout.addWidget(QLabel("Operation:"), 0, 0)
+        self.operation_combo = QComboBox()
+        for op in MathOperation:
+            self.operation_combo.addItem(self.OPERATION_NAMES[op], op.value)
+        layout.addWidget(self.operation_combo, 0, 1)
+
+        layout.addWidget(QLabel("Decimal places:"), 0, 2)
+        self.decimal_spin = QSpinBox()
+        self.decimal_spin.setRange(0, 6)
+        self.decimal_spin.setValue(2)
+        layout.addWidget(self.decimal_spin, 0, 3)
+
+        # Operation description
+        self.op_description = QLabel("")
+        self.op_description.setStyleSheet("color: #666; font-style: italic;")
+        self.op_description.setWordWrap(True)
+        layout.addWidget(self.op_description, 1, 0, 1, 4)
+
+        op_group.setLayout(layout)
+        self.content_layout.addWidget(op_group)
+
+    def _create_params_group(self):
+        """Create operation parameters group with stacked widget"""
+        self.params_group = QGroupBox("Parameters")
+        params_layout = QFormLayout()
 
         self.stacked_widget = QStackedWidget()
-        params_layout.addWidget(self.stacked_widget)
+        params_layout.addRow(self.stacked_widget)
 
         self.params_group.setLayout(params_layout)
-        layout.addWidget(self.params_group)
+        self.content_layout.addWidget(self.params_group)
 
-        # Create pages for all operations
-        self._create_operation_pages()
+        # Create pages for each operation type
+        self._create_constant_page()      # 0 - CONSTANT
+        self._create_channel_page()       # 1 - CHANNEL
+        self._create_binary_page("add")   # 2 - ADD
+        self._create_binary_page("subtract")  # 3 - SUBTRACT
+        self._create_binary_page("multiply")  # 4 - MULTIPLY
+        self._create_binary_page("divide")    # 5 - DIVIDE
+        self._create_binary_page("modulo")    # 6 - MODULO
+        self._create_binary_page("min")       # 7 - MIN
+        self._create_binary_page("max")       # 8 - MAX
+        self._create_clamp_page()         # 9 - CLAMP
+        self._create_lookup_page(2)       # 10 - LOOKUP2
+        self._create_lookup_page(3)       # 11 - LOOKUP3
+        self._create_lookup_page(4)       # 12 - LOOKUP4
+        self._create_lookup_page(5)       # 13 - LOOKUP5
 
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+    def _create_multiplier_combo(self) -> QComboBox:
+        """Create channel multiplier combobox"""
+        combo = QComboBox()
+        for label, value in self.MULTIPLIER_OPTIONS:
+            combo.addItem(label, value)
+        combo.setMaximumWidth(80)
+        return combo
 
-        # Initialize state
-        self._on_operation_changed(0)
-
-    def _create_channel_selector(self, placeholder: str = "Select channel..."):
-        """Helper to create a channel selector layout."""
+    def _create_channel_with_multiplier(self, placeholder: str) -> tuple:
+        """Create channel selector with multiplier dropdown"""
         container = QWidget()
-        layout = QHBoxLayout(container)
+        layout = QGridLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setColumnStretch(0, 1)
 
-        edit = QLineEdit()
-        edit.setPlaceholderText(placeholder)
-        edit.setReadOnly(True)
-        layout.addWidget(edit, stretch=1)
+        widget, edit = self._create_channel_selector(placeholder)
+        layout.addWidget(widget, 0, 0)
 
-        btn = QPushButton("Browse...")
-        btn.clicked.connect(lambda: self._browse_channel(edit))
-        layout.addWidget(btn)
+        multiplier = self._create_multiplier_combo()
+        layout.addWidget(multiplier, 0, 1)
 
-        return container, edit
+        return container, edit, multiplier
 
-    def _create_operation_pages(self):
-        """Create all operation-specific pages."""
+    def _create_constant_page(self):
+        """Create constant value page"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setColumnStretch(1, 1)
 
-        # Page 0: Constant
-        page_constant = QWidget()
-        layout_constant = QFormLayout(page_constant)
-
+        layout.addWidget(QLabel("Value:"), 0, 0)
         self.constant_value_spin = QDoubleSpinBox()
         self.constant_value_spin.setRange(-1000000, 1000000)
         self.constant_value_spin.setDecimals(4)
-        self.constant_value_spin.setSingleStep(0.1)
-        layout_constant.addRow("Value:", self.constant_value_spin)
+        layout.addWidget(self.constant_value_spin, 0, 1)
 
-        self.constant_unit_edit = QLineEdit()
-        self.constant_unit_edit.setPlaceholderText("e.g., °C, bar, rpm...")
-        layout_constant.addRow("Unit:", self.constant_unit_edit)
+        self.stacked_widget.addWidget(page)
 
-        self.stacked_widget.addWidget(page_constant)
+    def _create_channel_page(self):
+        """Create channel or constant page"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setColumnStretch(1, 1)
 
-        # Page 1-4: Binary operations (add, subtract, multiply, divide)
-        for op_name in ["add", "subtract", "multiply", "divide"]:
-            page = QWidget()
-            layout_form = QFormLayout(page)
+        # Channel with multiplier
+        layout.addWidget(QLabel("Channel:"), 0, 0)
+        self.channel_container, self.channel_edit, self.channel_multiplier = \
+            self._create_channel_with_multiplier("Select channel...")
+        layout.addWidget(self.channel_container, 0, 1)
 
-            widget1, edit1 = self._create_channel_selector()
-            setattr(self, f"{op_name}_value1_widget", widget1)
-            setattr(self, f"{op_name}_value1_edit", edit1)
-            layout_form.addRow("Value 1:", widget1)
+        self.stacked_widget.addWidget(page)
 
-            widget2, edit2 = self._create_channel_selector()
-            setattr(self, f"{op_name}_value2_widget", widget2)
-            setattr(self, f"{op_name}_value2_edit", edit2)
-            layout_form.addRow("Value 2:", widget2)
+    def _create_binary_page(self, op_name: str):
+        """Create page for binary operations"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setColumnStretch(1, 1)
 
-            self.stacked_widget.addWidget(page)
+        # Input 1 with multiplier
+        layout.addWidget(QLabel("Input 1: *"), 0, 0)
+        container1, edit1, mult1 = self._create_channel_with_multiplier("Select first value...")
+        setattr(self, f"{op_name}_input1_container", container1)
+        setattr(self, f"{op_name}_input1_edit", edit1)
+        setattr(self, f"{op_name}_input1_mult", mult1)
+        layout.addWidget(container1, 0, 1)
 
-        # Page 5-7: Multi-value operations (min, max, average)
-        for op_name in ["min", "max", "average"]:
-            page = QWidget()
-            layout_form = QFormLayout(page)
+        # Input 2 with multiplier
+        layout.addWidget(QLabel("Input 2: *"), 1, 0)
+        container2, edit2, mult2 = self._create_channel_with_multiplier("Select second value...")
+        setattr(self, f"{op_name}_input2_container", container2)
+        setattr(self, f"{op_name}_input2_edit", edit2)
+        setattr(self, f"{op_name}_input2_mult", mult2)
+        layout.addWidget(container2, 1, 1)
 
-            widget1, edit1 = self._create_channel_selector()
-            setattr(self, f"{op_name}_value1_widget", widget1)
-            setattr(self, f"{op_name}_value1_edit", edit1)
-            layout_form.addRow("Value 1:", widget1)
+        self.stacked_widget.addWidget(page)
 
-            widget2, edit2 = self._create_channel_selector()
-            setattr(self, f"{op_name}_value2_widget", widget2)
-            setattr(self, f"{op_name}_value2_edit", edit2)
-            layout_form.addRow("Value 2:", widget2)
+    def _create_clamp_page(self):
+        """Create clamp page"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
 
-            widget3, edit3 = self._create_channel_selector("Select channel (optional)...")
-            setattr(self, f"{op_name}_value3_widget", widget3)
-            setattr(self, f"{op_name}_value3_edit", edit3)
-            layout_form.addRow("Value 3 (optional):", widget3)
+        # Input with multiplier
+        layout.addWidget(QLabel("Input: *"), 0, 0)
+        self.clamp_container, self.clamp_edit, self.clamp_mult = \
+            self._create_channel_with_multiplier("Select input channel...")
+        layout.addWidget(self.clamp_container, 0, 1, 1, 3)
 
-            self.stacked_widget.addWidget(page)
-
-        # Page 8: Abs
-        page_abs = QWidget()
-        layout_abs = QFormLayout(page_abs)
-
-        self.abs_channel_widget, self.abs_channel_edit = self._create_channel_selector()
-        layout_abs.addRow("Channel:", self.abs_channel_widget)
-
-        self.stacked_widget.addWidget(page_abs)
-
-        # Page 9: Scale
-        page_scale = QWidget()
-        layout_scale = QFormLayout(page_scale)
-
-        self.scale_channel_widget, self.scale_channel_edit = self._create_channel_selector()
-        layout_scale.addRow("Channel:", self.scale_channel_widget)
-
-        self.scale_multiplier_spin = QDoubleSpinBox()
-        self.scale_multiplier_spin.setRange(-1000, 1000)
-        self.scale_multiplier_spin.setDecimals(4)
-        self.scale_multiplier_spin.setValue(1.0)
-        self.scale_multiplier_spin.setToolTip("Output = Input × Multiplier + Offset")
-        layout_scale.addRow("Multiplier:", self.scale_multiplier_spin)
-
-        self.scale_offset_spin = QDoubleSpinBox()
-        self.scale_offset_spin.setRange(-1000000, 1000000)
-        self.scale_offset_spin.setDecimals(2)
-        self.scale_offset_spin.setValue(0.0)
-        layout_scale.addRow("Offset:", self.scale_offset_spin)
-
-        self.stacked_widget.addWidget(page_scale)
-
-        # Page 10: Clamp
-        page_clamp = QWidget()
-        layout_clamp = QFormLayout(page_clamp)
-
-        self.clamp_channel_widget, self.clamp_channel_edit = self._create_channel_selector()
-        layout_clamp.addRow("Channel:", self.clamp_channel_widget)
-
+        # Min and Max in same row
+        layout.addWidget(QLabel("Minimum:"), 1, 0)
         self.clamp_min_spin = QDoubleSpinBox()
         self.clamp_min_spin.setRange(-1000000, 1000000)
         self.clamp_min_spin.setDecimals(2)
         self.clamp_min_spin.setValue(0.0)
-        self.clamp_min_spin.setToolTip("Minimum output value")
-        layout_clamp.addRow("Minimum:", self.clamp_min_spin)
+        layout.addWidget(self.clamp_min_spin, 1, 1)
 
+        layout.addWidget(QLabel("Maximum:"), 1, 2)
         self.clamp_max_spin = QDoubleSpinBox()
         self.clamp_max_spin.setRange(-1000000, 1000000)
         self.clamp_max_spin.setDecimals(2)
         self.clamp_max_spin.setValue(100.0)
-        self.clamp_max_spin.setToolTip("Maximum output value")
-        layout_clamp.addRow("Maximum:", self.clamp_max_spin)
+        layout.addWidget(self.clamp_max_spin, 1, 3)
 
-        self.stacked_widget.addWidget(page_clamp)
+        self.stacked_widget.addWidget(page)
 
-        # Page 11: Conditional
-        page_cond = QWidget()
-        layout_cond = QFormLayout(page_cond)
+    def _create_lookup_page(self, count: int):
+        """Create lookup page with N values"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
 
-        self.cond_condition_widget, self.cond_condition_edit = self._create_channel_selector("Select condition channel...")
-        layout_cond.addRow("Condition channel:", self.cond_condition_widget)
+        # Channel with multiplier
+        layout.addWidget(QLabel("Channel: *"), 0, 0)
+        container, edit, mult = self._create_channel_with_multiplier("Select input channel...")
+        setattr(self, f"lookup{count}_container", container)
+        setattr(self, f"lookup{count}_edit", edit)
+        setattr(self, f"lookup{count}_mult", mult)
+        layout.addWidget(container, 0, 1, 1, 3)
 
-        self.cond_true_widget, self.cond_true_edit = self._create_channel_selector("Select channel for true...")
-        layout_cond.addRow("Result if true:", self.cond_true_widget)
+        # Value spinboxes
+        row = 1
+        for i in range(count):
+            col = (i % 2) * 2
+            if i % 2 == 0 and i > 0:
+                row += 1
 
-        self.cond_false_widget, self.cond_false_edit = self._create_channel_selector("Select channel for false...")
-        layout_cond.addRow("Result if false:", self.cond_false_widget)
+            layout.addWidget(QLabel(f"Value [{i}]:"), row, col)
+            spin = QDoubleSpinBox()
+            spin.setRange(-1000000, 1000000)
+            spin.setDecimals(2)
+            spin.setValue(0.0)
+            setattr(self, f"lookup{count}_value{i}", spin)
+            layout.addWidget(spin, row, col + 1)
 
-        self.stacked_widget.addWidget(page_cond)
+        if count % 2 == 1:
+            row += 1
 
-    def _on_operation_changed(self, index: int):
-        """Handle operation type change - switch to appropriate page."""
-        # Map operation index to page index
+        self.stacked_widget.addWidget(page)
+
+    def _on_operation_changed(self):
+        """Handle operation type change"""
+        index = self.operation_combo.currentIndex()
+        operation = self.operation_combo.currentData()
+
+        # Switch to corresponding page
         self.stacked_widget.setCurrentIndex(index)
 
-    def _browse_channel(self, target_edit: QLineEdit):
-        """Browse and select channel for target field."""
-        current = target_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            target_edit.setText(channel)
+        # Update description
+        descriptions = {
+            "constant": "Returns a fixed constant value",
+            "channel": "Returns channel value with optional multiplier",
+            "add": "Output = Input1 + Input2",
+            "subtract": "Output = Input1 - Input2",
+            "multiply": "Output = Input1 × Input2",
+            "divide": "Output = Input1 ÷ Input2",
+            "modulo": "Output = Input1 mod Input2",
+            "min": "Output = min(Input1, Input2)",
+            "max": "Output = max(Input1, Input2)",
+            "clamp": "Output = value limited to min/max range",
+            "lookup2": "2-point lookup table",
+            "lookup3": "3-point lookup table",
+            "lookup4": "4-point lookup table",
+            "lookup5": "5-point lookup table",
+        }
+        self.op_description.setText(descriptions.get(operation, ""))
 
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
+    def _get_multiplier_value(self, combo: QComboBox) -> str:
+        """Get multiplier combo current value"""
+        return combo.currentData() or ChannelMultiplier.MUL_1.value
 
-        # Validate name (required field)
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
-
-        operation = self.operation_combo.currentText()
-
-        # Validate operation-specific fields
-        if operation in ["add", "subtract", "multiply", "divide"]:
-            edit1 = getattr(self, f"{operation}_value1_edit")
-            edit2 = getattr(self, f"{operation}_value2_edit")
-            if not edit1.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Value 1 is required!")
-                return
-            if not edit2.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Value 2 is required!")
-                return
-
-        elif operation in ["min", "max", "average"]:
-            edit1 = getattr(self, f"{operation}_value1_edit")
-            edit2 = getattr(self, f"{operation}_value2_edit")
-            if not edit1.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Value 1 is required!")
-                return
-            if not edit2.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Value 2 is required!")
+    def _set_multiplier_value(self, combo: QComboBox, value: str):
+        """Set multiplier combo by value"""
+        for i in range(combo.count()):
+            if combo.itemData(i) == value:
+                combo.setCurrentIndex(i)
                 return
 
-        elif operation == "abs":
-            if not self.abs_channel_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Channel is required!")
-                return
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load type-specific configuration"""
+        operation = config.get("operation", "constant")
+        for i in range(self.operation_combo.count()):
+            if self.operation_combo.itemData(i) == operation:
+                self.operation_combo.setCurrentIndex(i)
+                break
 
-        elif operation == "scale":
-            if not self.scale_channel_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Channel is required!")
-                return
+        self.decimal_spin.setValue(config.get("decimal_places", 2))
+
+        inputs = config.get("inputs", [])
+        multipliers = config.get("input_multipliers", [])
+
+        if operation == "constant":
+            self.constant_value_spin.setValue(config.get("constant_value", 0.0))
+
+        elif operation == "channel":
+            if inputs:
+                self.channel_edit.setText(inputs[0])
+            if multipliers:
+                self._set_multiplier_value(self.channel_multiplier, multipliers[0])
+
+        elif operation in ["add", "subtract", "multiply", "divide", "modulo", "min", "max"]:
+            edit1 = getattr(self, f"{operation}_input1_edit")
+            edit2 = getattr(self, f"{operation}_input2_edit")
+            mult1 = getattr(self, f"{operation}_input1_mult")
+            mult2 = getattr(self, f"{operation}_input2_mult")
+            if len(inputs) >= 1:
+                edit1.setText(inputs[0])
+            if len(inputs) >= 2:
+                edit2.setText(inputs[1])
+            if len(multipliers) >= 1:
+                self._set_multiplier_value(mult1, multipliers[0])
+            if len(multipliers) >= 2:
+                self._set_multiplier_value(mult2, multipliers[1])
 
         elif operation == "clamp":
-            if not self.clamp_channel_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Channel is required!")
-                return
+            if inputs:
+                self.clamp_edit.setText(inputs[0])
+            if multipliers:
+                self._set_multiplier_value(self.clamp_mult, multipliers[0])
+            self.clamp_min_spin.setValue(config.get("clamp_min", 0.0))
+            self.clamp_max_spin.setValue(config.get("clamp_max", 100.0))
+
+        elif operation.startswith("lookup"):
+            count = int(operation[-1])
+            edit = getattr(self, f"lookup{count}_edit")
+            mult = getattr(self, f"lookup{count}_mult")
+            if inputs:
+                edit.setText(inputs[0])
+            if multipliers:
+                self._set_multiplier_value(mult, multipliers[0])
+            lookup_values = config.get("lookup_values", [])
+            for i in range(count):
+                spin = getattr(self, f"lookup{count}_value{i}")
+                if i < len(lookup_values):
+                    spin.setValue(lookup_values[i])
+
+    def _validate_specific(self) -> List[str]:
+        """Validate type-specific fields"""
+        errors = []
+        operation = self.operation_combo.currentData()
+
+        if operation == "channel":
+            if not self.channel_edit.text().strip():
+                errors.append("Channel is required")
+
+        elif operation in ["add", "subtract", "multiply", "divide", "modulo", "min", "max"]:
+            edit1 = getattr(self, f"{operation}_input1_edit")
+            edit2 = getattr(self, f"{operation}_input2_edit")
+            if not edit1.text().strip():
+                errors.append("Input 1 is required")
+            if not edit2.text().strip():
+                errors.append("Input 2 is required")
+
+        elif operation == "clamp":
+            if not self.clamp_edit.text().strip():
+                errors.append("Input is required")
             if self.clamp_min_spin.value() >= self.clamp_max_spin.value():
-                QMessageBox.warning(self, "Validation Error", "Minimum value must be less than maximum value!")
-                return
+                errors.append("Minimum must be less than maximum")
 
-        elif operation == "conditional":
-            if not self.cond_condition_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Condition channel is required!")
-                return
-            if not self.cond_true_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Result if true is required!")
-                return
-            if not self.cond_false_edit.text().strip():
-                QMessageBox.warning(self, "Validation Error", "Result if false is required!")
-                return
+        elif operation.startswith("lookup"):
+            count = int(operation[-1])
+            edit = getattr(self, f"lookup{count}_edit")
+            if not edit.text().strip():
+                errors.append("Channel is required")
 
-        self.accept()
-
-    def _load_config(self):
-        """Load configuration into UI."""
-        if not self.config:
-            return
-
-        self.name_edit.setText(self.config.get("name", ""))
-
-        # Load operation type
-        operation = self.config.get("operation", "constant")
-        idx = self.operation_combo.findText(operation)
-        if idx >= 0:
-            self.operation_combo.setCurrentIndex(idx)
-
-        # Load operation-specific data
-        if operation == "constant":
-            self.constant_value_spin.setValue(self.config.get("value", 0.0))
-            self.constant_unit_edit.setText(self.config.get("unit", ""))
-
-        else:
-            inputs = self.config.get("inputs", [])
-            params = self.config.get("parameters", {})
-
-            if operation in ["add", "subtract", "multiply", "divide"]:
-                edit1 = getattr(self, f"{operation}_value1_edit")
-                edit2 = getattr(self, f"{operation}_value2_edit")
-                if len(inputs) >= 1:
-                    edit1.setText(inputs[0])
-                if len(inputs) >= 2:
-                    edit2.setText(inputs[1])
-
-            elif operation in ["min", "max", "average"]:
-                edit1 = getattr(self, f"{operation}_value1_edit")
-                edit2 = getattr(self, f"{operation}_value2_edit")
-                edit3 = getattr(self, f"{operation}_value3_edit")
-                if len(inputs) >= 1:
-                    edit1.setText(inputs[0])
-                if len(inputs) >= 2:
-                    edit2.setText(inputs[1])
-                if len(inputs) >= 3:
-                    edit3.setText(inputs[2])
-
-            elif operation == "abs":
-                if len(inputs) >= 1:
-                    self.abs_channel_edit.setText(inputs[0])
-
-            elif operation == "scale":
-                if len(inputs) >= 1:
-                    self.scale_channel_edit.setText(inputs[0])
-                self.scale_multiplier_spin.setValue(params.get("multiplier", 1.0))
-                self.scale_offset_spin.setValue(params.get("offset", 0.0))
-
-            elif operation == "clamp":
-                if len(inputs) >= 1:
-                    self.clamp_channel_edit.setText(inputs[0])
-                self.clamp_min_spin.setValue(params.get("min", 0.0))
-                self.clamp_max_spin.setValue(params.get("max", 100.0))
-
-            elif operation == "conditional":
-                if len(inputs) >= 1:
-                    self.cond_condition_edit.setText(inputs[0])
-                if len(inputs) >= 2:
-                    self.cond_true_edit.setText(inputs[1])
-                if len(inputs) >= 3:
-                    self.cond_false_edit.setText(inputs[2])
+        return errors
 
     def get_config(self) -> Dict[str, Any]:
-        """Get configuration from UI."""
-        operation = self.operation_combo.currentText()
+        """Get full configuration"""
+        config = self.get_base_config()
+        operation = self.operation_combo.currentData()
 
-        config = {
-            "name": self.name_edit.text(),
-            "operation": operation,
-            "value": 0.0,
-            "unit": "",
-            "inputs": [],
-            "parameters": {}
-        }
+        config["operation"] = operation
+        config["inputs"] = []
+        config["input_multipliers"] = []
+        config["constant_value"] = 0.0
+        config["clamp_min"] = 0.0
+        config["clamp_max"] = 100.0
+        config["lookup_values"] = []
+        config["decimal_places"] = self.decimal_spin.value()
 
         if operation == "constant":
-            config["value"] = self.constant_value_spin.value()
-            config["unit"] = self.constant_unit_edit.text()
+            config["constant_value"] = self.constant_value_spin.value()
 
-        elif operation in ["add", "subtract", "multiply", "divide"]:
-            edit1 = getattr(self, f"{operation}_value1_edit")
-            edit2 = getattr(self, f"{operation}_value2_edit")
-            config["inputs"] = [edit1.text(), edit2.text()]
+        elif operation == "channel":
+            config["inputs"] = [self.channel_edit.text().strip()]
+            config["input_multipliers"] = [self._get_multiplier_value(self.channel_multiplier)]
 
-        elif operation in ["min", "max", "average"]:
-            edit1 = getattr(self, f"{operation}_value1_edit")
-            edit2 = getattr(self, f"{operation}_value2_edit")
-            edit3 = getattr(self, f"{operation}_value3_edit")
-            inputs = [edit1.text(), edit2.text()]
-            if edit3.text().strip():
-                inputs.append(edit3.text())
-            config["inputs"] = inputs
-
-        elif operation == "abs":
-            config["inputs"] = [self.abs_channel_edit.text()]
-
-        elif operation == "scale":
-            config["inputs"] = [self.scale_channel_edit.text()]
-            config["parameters"] = {
-                "multiplier": self.scale_multiplier_spin.value(),
-                "offset": self.scale_offset_spin.value()
-            }
+        elif operation in ["add", "subtract", "multiply", "divide", "modulo", "min", "max"]:
+            edit1 = getattr(self, f"{operation}_input1_edit")
+            edit2 = getattr(self, f"{operation}_input2_edit")
+            mult1 = getattr(self, f"{operation}_input1_mult")
+            mult2 = getattr(self, f"{operation}_input2_mult")
+            config["inputs"] = [edit1.text().strip(), edit2.text().strip()]
+            config["input_multipliers"] = [
+                self._get_multiplier_value(mult1),
+                self._get_multiplier_value(mult2)
+            ]
 
         elif operation == "clamp":
-            config["inputs"] = [self.clamp_channel_edit.text()]
-            config["parameters"] = {
-                "min": self.clamp_min_spin.value(),
-                "max": self.clamp_max_spin.value()
-            }
+            config["inputs"] = [self.clamp_edit.text().strip()]
+            config["input_multipliers"] = [self._get_multiplier_value(self.clamp_mult)]
+            config["clamp_min"] = self.clamp_min_spin.value()
+            config["clamp_max"] = self.clamp_max_spin.value()
 
-        elif operation == "conditional":
-            config["inputs"] = [
-                self.cond_condition_edit.text(),
-                self.cond_true_edit.text(),
-                self.cond_false_edit.text()
-            ]
+        elif operation.startswith("lookup"):
+            count = int(operation[-1])
+            edit = getattr(self, f"lookup{count}_edit")
+            mult = getattr(self, f"lookup{count}_mult")
+            config["inputs"] = [edit.text().strip()]
+            config["input_multipliers"] = [self._get_multiplier_value(mult)]
+            config["lookup_values"] = []
+            for i in range(count):
+                spin = getattr(self, f"lookup{count}_value{i}")
+                config["lookup_values"].append(spin.value())
 
         return config

@@ -1,324 +1,476 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "device": {
     "name": "PMU-30 Racing Controller",
     "serial_number": "PMU30-001",
-    "firmware_version": "1.0.0"
+    "firmware_version": "2.0.0"
   },
 
-  "inputs": [
+  "channels": [
     {
-      "channel": 0,
-      "type": "Linear Analog",
-      "name": "Throttle_Position",
-      "parameters": {
-        "multiplier": 1.0,
-        "offset": 0.0,
-        "filter_samples": 5
-      }
+      "id": "di_ignition",
+      "gpio_type": "digital_input",
+      "subtype": "switch_active_low",
+      "input_pin": 0,
+      "enable_pullup": true,
+      "threshold_voltage": 2.5,
+      "debounce_ms": 50
     },
     {
-      "channel": 1,
-      "type": "Linear Analog",
-      "name": "Brake_Pressure",
-      "parameters": {
-        "multiplier": 10.0,
-        "offset": 0.0,
-        "filter_samples": 5
-      }
+      "id": "di_launch_btn",
+      "gpio_type": "digital_input",
+      "subtype": "switch_active_high",
+      "input_pin": 1,
+      "enable_pullup": false,
+      "threshold_voltage": 2.5,
+      "debounce_ms": 50
     },
     {
-      "channel": 2,
-      "type": "Switch Active High",
-      "name": "Launch_Button",
-      "parameters": {
-        "debounce_ms": 50
-      }
+      "id": "di_engine_rpm",
+      "gpio_type": "digital_input",
+      "subtype": "rpm",
+      "input_pin": 2,
+      "enable_pullup": false,
+      "threshold_voltage": 2.5,
+      "trigger_edge": "rising",
+      "number_of_teeth": 58,
+      "multiplier": 1.0,
+      "divider": 1.0,
+      "timeout_ms": 1000
     },
     {
-      "channel": 3,
-      "type": "Linear Analog",
-      "name": "Engine_Temp",
-      "parameters": {
-        "multiplier": 1.0,
-        "offset": -40.0,
-        "filter_samples": 10
-      }
+      "id": "di_wheel_speed",
+      "gpio_type": "digital_input",
+      "subtype": "frequency",
+      "input_pin": 3,
+      "enable_pullup": true,
+      "threshold_voltage": 2.5,
+      "trigger_edge": "rising",
+      "multiplier": 0.1,
+      "divider": 1.0,
+      "timeout_ms": 500
     },
     {
-      "channel": 4,
-      "type": "Frequency Input",
-      "name": "Engine_RPM",
-      "parameters": {
-        "multiplier": 1.0,
-        "offset": 0.0
-      }
-    }
-  ],
-
-  "outputs": [
-    {
-      "channel": 0,
-      "name": "Fuel_Pump",
-      "enabled": true,
-      "pwm": {
-        "default_duty": 0
-      }
+      "id": "ai_throttle",
+      "gpio_type": "analog_input",
+      "subtype": "linear",
+      "input_pin": 0,
+      "pullup_option": "1m_down",
+      "decimal_places": 1,
+      "min_voltage": 0.5,
+      "max_voltage": 4.5,
+      "min_value": 0.0,
+      "max_value": 100.0
     },
     {
-      "channel": 1,
-      "name": "Ignition_Cut",
-      "enabled": true,
-      "pwm": {
-        "default_duty": 0
-      }
+      "id": "ai_brake_pressure",
+      "gpio_type": "analog_input",
+      "subtype": "linear",
+      "input_pin": 1,
+      "pullup_option": "1m_down",
+      "decimal_places": 0,
+      "min_voltage": 0.5,
+      "max_voltage": 4.5,
+      "min_value": 0,
+      "max_value": 200
     },
     {
-      "channel": 2,
-      "name": "Fan_Control",
-      "enabled": true,
-      "pwm": {
-        "default_duty": 500
-      }
+      "id": "ai_coolant_temp",
+      "gpio_type": "analog_input",
+      "subtype": "calibrated",
+      "input_pin": 2,
+      "pullup_option": "10k_up",
+      "decimal_places": 1,
+      "calibration_points": [
+        {"voltage": 0.5, "value": -40},
+        {"voltage": 1.0, "value": 0},
+        {"voltage": 2.0, "value": 40},
+        {"voltage": 3.0, "value": 80},
+        {"voltage": 4.0, "value": 100},
+        {"voltage": 4.5, "value": 120}
+      ]
     },
     {
-      "channel": 3,
-      "name": "Wastegate_PWM",
-      "enabled": true,
-      "pwm": {
-        "default_duty": 0
-      }
-    }
-  ],
-
-  "logic_functions": [
-    {
-      "type": "add",
-      "name": "Throttle_Plus_Brake",
-      "enabled": true,
-      "output": "Virtual_Sum",
-      "inputs": ["Throttle_Position", "Brake_Pressure"]
+      "id": "ai_oil_temp",
+      "gpio_type": "analog_input",
+      "subtype": "calibrated",
+      "input_pin": 3,
+      "pullup_option": "10k_up",
+      "decimal_places": 1,
+      "calibration_points": [
+        {"voltage": 0.5, "value": -40},
+        {"voltage": 1.0, "value": 0},
+        {"voltage": 2.0, "value": 50},
+        {"voltage": 3.0, "value": 100},
+        {"voltage": 4.5, "value": 150}
+      ]
     },
-
     {
-      "type": "greater",
-      "name": "RPM_Limiter",
-      "enabled": true,
-      "output": "RPM_Limit_Active",
-      "inputs": ["Engine_RPM", 7500]
+      "id": "ai_oil_pressure",
+      "gpio_type": "analog_input",
+      "subtype": "linear",
+      "input_pin": 4,
+      "pullup_option": "1m_down",
+      "decimal_places": 1,
+      "min_voltage": 0.5,
+      "max_voltage": 4.5,
+      "min_value": 0,
+      "max_value": 10
     },
-
     {
-      "type": "and",
-      "name": "Launch_Control_Active",
-      "enabled": true,
-      "output": "LC_Active",
-      "inputs": ["Launch_Button", "RPM_Limit_Active"]
+      "id": "ai_map_selector",
+      "gpio_type": "analog_input",
+      "subtype": "rotary_switch",
+      "input_pin": 5,
+      "pullup_option": "10k_down",
+      "positions": 6,
+      "debounce_ms": 100
     },
-
     {
-      "type": "pid",
-      "name": "Boost_Controller",
-      "enabled": true,
-      "output": "Wastegate_PWM",
-      "inputs": ["Boost_Pressure"],
-      "parameters": {
-        "setpoint": 1500,
-        "kp": 2.0,
-        "ki": 0.5,
-        "kd": 0.1
-      }
-    },
-
-    {
-      "type": "hysteresis",
-      "name": "Fan_Control_Logic",
-      "enabled": true,
-      "output": "Fan_Control",
-      "inputs": ["Engine_Temp"],
-      "parameters": {
-        "threshold_on": 90,
-        "threshold_off": 80
-      }
+      "id": "ai_rain_sensor",
+      "gpio_type": "analog_input",
+      "subtype": "switch_active_high",
+      "input_pin": 6,
+      "pullup_option": "1m_down",
+      "threshold_high": 3.0,
+      "threshold_high_time_ms": 100,
+      "threshold_low": 1.5,
+      "threshold_low_time_ms": 200
     },
 
     {
-      "type": "scale",
-      "name": "Throttle_Percentage",
-      "enabled": true,
-      "output": "Throttle_Percent",
-      "inputs": ["Throttle_Position"],
-      "parameters": {
-        "multiplier": 0.1,
-        "offset": 0.0
-      }
+      "id": "l_engine_running",
+      "gpio_type": "logic",
+      "operation": "greater",
+      "channel": "di_engine_rpm",
+      "constant": 500,
+      "true_delay_s": 0.5,
+      "false_delay_s": 2.0
+    },
+    {
+      "id": "l_launch_armed",
+      "gpio_type": "logic",
+      "operation": "and",
+      "channel": "di_ignition",
+      "channel_2": "di_launch_btn",
+      "true_delay_s": 0.0,
+      "false_delay_s": 0.0
+    },
+    {
+      "id": "l_rpm_limit_active",
+      "gpio_type": "logic",
+      "operation": "greater",
+      "channel": "di_engine_rpm",
+      "constant": 7500,
+      "true_delay_s": 0.0,
+      "false_delay_s": 0.0
+    },
+    {
+      "id": "l_overheat_warning",
+      "gpio_type": "logic",
+      "operation": "hysteresis",
+      "channel": "ai_coolant_temp",
+      "polarity": "normal",
+      "upper_value": 105,
+      "lower_value": 95
+    },
+    {
+      "id": "l_low_oil_pressure",
+      "gpio_type": "logic",
+      "operation": "hysteresis",
+      "channel": "ai_oil_pressure",
+      "polarity": "inverted",
+      "upper_value": 2.0,
+      "lower_value": 1.0
+    },
+    {
+      "id": "l_fan_control",
+      "gpio_type": "logic",
+      "operation": "hysteresis",
+      "channel": "ai_coolant_temp",
+      "polarity": "normal",
+      "upper_value": 90,
+      "lower_value": 80
+    },
+    {
+      "id": "l_any_warning",
+      "gpio_type": "logic",
+      "operation": "or",
+      "channel": "l_overheat_warning",
+      "channel_2": "l_low_oil_pressure"
+    },
+    {
+      "id": "l_warning_flash",
+      "gpio_type": "logic",
+      "operation": "flash",
+      "channel": "l_any_warning",
+      "time_on_s": 0.3,
+      "time_off_s": 0.3
+    },
+    {
+      "id": "l_fuel_pump_latch",
+      "gpio_type": "logic",
+      "operation": "set_reset_latch",
+      "set_channel": "di_ignition",
+      "reset_channel": "l_engine_running",
+      "default_state": "off"
     },
 
     {
-      "type": "clamp",
-      "name": "Throttle_Limiter",
-      "enabled": true,
-      "output": "Throttle_Limited",
-      "inputs": ["Throttle_Position"],
-      "parameters": {
-        "min": 0,
-        "max": 800
-      }
+      "id": "n_max_temp",
+      "gpio_type": "number",
+      "operation": "max",
+      "inputs": ["ai_coolant_temp", "ai_oil_temp"],
+      "input_multipliers": ["*1", "*1"],
+      "decimal_places": 1
+    },
+    {
+      "id": "n_throttle_clamped",
+      "gpio_type": "number",
+      "operation": "clamp",
+      "inputs": ["ai_throttle"],
+      "input_multipliers": ["*1"],
+      "clamp_min": 0,
+      "clamp_max": 90,
+      "decimal_places": 1
+    },
+    {
+      "id": "n_boost_target",
+      "gpio_type": "number",
+      "operation": "lookup3",
+      "inputs": ["ai_map_selector"],
+      "input_multipliers": ["*1"],
+      "lookup_values": [100, 120, 140],
+      "decimal_places": 0
     },
 
     {
-      "type": "moving_avg",
-      "name": "Smoothed_Throttle",
-      "enabled": true,
-      "output": "Throttle_Smooth",
-      "inputs": ["Throttle_Position"],
-      "parameters": {
-        "window_size": 10
-      }
+      "id": "flt_throttle_smooth",
+      "gpio_type": "filter",
+      "filter_type": "moving_avg",
+      "input_channel": "ai_throttle",
+      "window_size": 10
+    },
+    {
+      "id": "flt_brake_filtered",
+      "gpio_type": "filter",
+      "filter_type": "low_pass",
+      "input_channel": "ai_brake_pressure",
+      "time_constant": 0.05
     },
 
     {
-      "type": "low_pass",
-      "name": "Filtered_Brake",
-      "enabled": true,
-      "output": "Brake_Filtered",
-      "inputs": ["Brake_Pressure"],
-      "parameters": {
-        "time_constant": 0.05
-      }
+      "id": "tm_engine_run_time",
+      "gpio_type": "timer",
+      "start_channel": "l_engine_running",
+      "start_edge": "rising",
+      "stop_channel": "",
+      "stop_edge": "rising",
+      "mode": "count_up",
+      "limit_hours": 999,
+      "limit_minutes": 59,
+      "limit_seconds": 59
     },
 
     {
-      "type": "multiply",
-      "name": "Power_Calculation",
-      "enabled": true,
-      "output": "Power_Estimate",
-      "inputs": ["Engine_RPM", "Throttle_Position"]
+      "id": "t2d_fan_pwm",
+      "gpio_type": "table_2d",
+      "x_axis_channel": "ai_coolant_temp",
+      "x_min": 70,
+      "x_max": 110,
+      "x_step": 10,
+      "x_values": [70, 80, 90, 100, 110],
+      "output_values": [0, 0, 50, 80, 100],
+      "decimal_places": 0
+    },
+    {
+      "id": "t2d_fuel_pressure_target",
+      "gpio_type": "table_2d",
+      "x_axis_channel": "ai_throttle",
+      "x_min": 0,
+      "x_max": 100,
+      "x_step": 25,
+      "x_values": [0, 25, 50, 75, 100],
+      "output_values": [30, 35, 40, 42, 45],
+      "decimal_places": 1
     },
 
     {
-      "type": "max",
-      "name": "Max_Temperature",
-      "enabled": true,
-      "output": "Max_Temp_Value",
-      "inputs": ["Engine_Temp", "Coolant_Temp", "Oil_Temp"]
+      "id": "sw_driving_mode",
+      "gpio_type": "switch",
+      "switch_type": "latching",
+      "input_up_channel": "di_launch_btn",
+      "input_up_edge": "rising",
+      "input_down_channel": "",
+      "input_down_edge": "rising",
+      "state_first": 0,
+      "state_last": 3,
+      "state_default": 0
     },
 
     {
-      "type": "or",
-      "name": "Any_Warning_Active",
-      "enabled": true,
-      "output": "Warning_Light",
-      "inputs": ["Overheat_Warning", "Overpressure_Warning", "Low_Oil_Warning"]
+      "id": "e_gear",
+      "gpio_type": "enum",
+      "is_bitfield": false,
+      "items": [
+        {"value": 0, "text": "N", "color": "#FFFFFF"},
+        {"value": 1, "text": "1", "color": "#00FF00"},
+        {"value": 2, "text": "2", "color": "#00FF00"},
+        {"value": 3, "text": "3", "color": "#00FF00"},
+        {"value": 4, "text": "4", "color": "#00FF00"},
+        {"value": 5, "text": "5", "color": "#00FF00"},
+        {"value": 6, "text": "6", "color": "#00FF00"},
+        {"value": -1, "text": "R", "color": "#FF0000"}
+      ]
+    },
+    {
+      "id": "e_driving_mode",
+      "gpio_type": "enum",
+      "is_bitfield": false,
+      "items": [
+        {"value": 0, "text": "Normal", "color": "#00FF00"},
+        {"value": 1, "text": "Sport", "color": "#FFFF00"},
+        {"value": 2, "text": "Track", "color": "#FF8000"},
+        {"value": 3, "text": "Wet", "color": "#0080FF"}
+      ]
     },
 
     {
-      "type": "in_range",
-      "name": "Operating_Zone",
-      "enabled": true,
-      "output": "In_Safe_Zone",
-      "inputs": ["Engine_Temp"],
-      "parameters": {
-        "min": 70,
-        "max": 110
-      }
-    }
-  ],
+      "id": "crx_ecu_rpm",
+      "gpio_type": "can_rx",
+      "can_bus": 1,
+      "message_id": 256,
+      "is_extended": false,
+      "start_bit": 0,
+      "length": 16,
+      "byte_order": "little_endian",
+      "value_type": "unsigned",
+      "factor": 1.0,
+      "offset": 0.0,
+      "timeout_ms": 500
+    },
+    {
+      "id": "crx_ecu_tps",
+      "gpio_type": "can_rx",
+      "can_bus": 1,
+      "message_id": 256,
+      "is_extended": false,
+      "start_bit": 16,
+      "length": 8,
+      "byte_order": "little_endian",
+      "value_type": "unsigned",
+      "factor": 0.5,
+      "offset": 0.0,
+      "timeout_ms": 500
+    },
 
-  "virtual_channels": [
     {
-      "id": 1000,
-      "name": "Virtual_Sum",
-      "initial_value": 0
+      "id": "ctx_pmu_status",
+      "gpio_type": "can_tx",
+      "can_bus": 1,
+      "message_id": 768,
+      "is_extended": false,
+      "cycle_time_ms": 100,
+      "signals": [
+        {
+          "source_channel": "ai_throttle",
+          "start_bit": 0,
+          "length": 8,
+          "byte_order": "little_endian",
+          "factor": 1.0,
+          "offset": 0.0
+        },
+        {
+          "source_channel": "ai_brake_pressure",
+          "start_bit": 8,
+          "length": 8,
+          "byte_order": "little_endian",
+          "factor": 1.0,
+          "offset": 0.0
+        },
+        {
+          "source_channel": "ai_coolant_temp",
+          "start_bit": 16,
+          "length": 8,
+          "byte_order": "little_endian",
+          "factor": 1.0,
+          "offset": 40.0
+        },
+        {
+          "source_channel": "l_any_warning",
+          "start_bit": 24,
+          "length": 1,
+          "byte_order": "little_endian",
+          "factor": 1.0,
+          "offset": 0.0
+        }
+      ]
+    },
+
+    {
+      "id": "out_fuel_pump",
+      "gpio_type": "power_output",
+      "output_pins": [0],
+      "source_channel": "l_fuel_pump_latch",
+      "pwm_enabled": false,
+      "current_limit_a": 15.0,
+      "inrush_current_a": 30.0,
+      "inrush_time_ms": 200,
+      "retry_count": 3,
+      "retry_forever": false
     },
     {
-      "id": 1001,
-      "name": "RPM_Limit_Active",
-      "initial_value": 0
+      "id": "out_ignition_cut",
+      "gpio_type": "power_output",
+      "output_pins": [1],
+      "source_channel": "l_rpm_limit_active",
+      "pwm_enabled": false,
+      "current_limit_a": 5.0
     },
     {
-      "id": 1002,
-      "name": "LC_Active",
-      "initial_value": 0
+      "id": "out_fan",
+      "gpio_type": "power_output",
+      "output_pins": [2],
+      "source_channel": "l_fan_control",
+      "pwm_enabled": true,
+      "pwm_frequency_hz": 100,
+      "duty_channel": "t2d_fan_pwm",
+      "soft_start_ms": 500,
+      "current_limit_a": 20.0
     },
     {
-      "id": 1003,
-      "name": "Throttle_Percent",
-      "initial_value": 0
+      "id": "out_warning_light",
+      "gpio_type": "power_output",
+      "output_pins": [3],
+      "source_channel": "l_warning_flash",
+      "pwm_enabled": false,
+      "current_limit_a": 2.0
     },
     {
-      "id": 1004,
-      "name": "Throttle_Limited",
-      "initial_value": 0
-    },
-    {
-      "id": 1005,
-      "name": "Throttle_Smooth",
-      "initial_value": 0
-    },
-    {
-      "id": 1006,
-      "name": "Brake_Filtered",
-      "initial_value": 0
-    },
-    {
-      "id": 1007,
-      "name": "Power_Estimate",
-      "initial_value": 0
-    },
-    {
-      "id": 1008,
-      "name": "Max_Temp_Value",
-      "initial_value": 0
-    },
-    {
-      "id": 1009,
-      "name": "Warning_Light",
-      "initial_value": 0
-    },
-    {
-      "id": 1010,
-      "name": "In_Safe_Zone",
-      "initial_value": 1
-    },
-    {
-      "id": 1011,
-      "name": "Boost_Pressure",
-      "initial_value": 1000
-    },
-    {
-      "id": 1012,
-      "name": "Coolant_Temp",
-      "initial_value": 80
-    },
-    {
-      "id": 1013,
-      "name": "Oil_Temp",
-      "initial_value": 85
-    },
-    {
-      "id": 1014,
-      "name": "Overheat_Warning",
-      "initial_value": 0
-    },
-    {
-      "id": 1015,
-      "name": "Overpressure_Warning",
-      "initial_value": 0
-    },
-    {
-      "id": 1016,
-      "name": "Low_Oil_Warning",
-      "initial_value": 0
+      "id": "out_headlights",
+      "gpio_type": "power_output",
+      "output_pins": [4, 5],
+      "source_channel": "di_ignition",
+      "pwm_enabled": true,
+      "pwm_frequency_hz": 1000,
+      "duty_fixed": 100.0,
+      "soft_start_ms": 100,
+      "current_limit_a": 10.0
     }
   ],
 
   "can_buses": [
     {
-      "bus": 0,
+      "bus": 1,
       "enabled": true,
       "bitrate": 500000,
       "fd_enabled": false
+    },
+    {
+      "bus": 2,
+      "enabled": true,
+      "bitrate": 1000000,
+      "fd_enabled": true
     }
   ],
 

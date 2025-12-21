@@ -13,19 +13,28 @@
  * This module loads JSON configuration files matching the format used by
  * the PMU-30 Configurator application.
  *
- * JSON Structure:
+ * JSON Structure v2.0 (unified channels):
  * {
- *   "version": "1.0",
+ *   "version": "2.0",
  *   "device": { ... },
- *   "inputs": [ ... ],
- *   "outputs": [ ... ],
- *   "hbridges": [ ... ],
- *   "logic_functions": [ ... ],
- *   "virtual_channels": [ ... ],
- *   "pid_controllers": [ ... ],
+ *   "channels": [
+ *     { "id": "...", "gpio_type": "digital_input", ... },
+ *     { "id": "...", "gpio_type": "analog_input", ... },
+ *     { "id": "...", "gpio_type": "logic", ... },
+ *     ...
+ *   ],
  *   "can_buses": [ ... ],
  *   "system": { ... }
  * }
+ *
+ * Supported gpio_type values:
+ * - digital_input, analog_input, power_output
+ * - can_rx, can_tx
+ * - logic, number, filter
+ * - table_2d, table_3d
+ * - switch, timer, enum
+ *
+ * Legacy v1.0 format is also supported for backwards compatibility.
  *
  ******************************************************************************
  */
@@ -57,23 +66,39 @@ typedef enum {
 } PMU_JSON_Status_t;
 
 /**
- * @brief Configuration load statistics
+ * @brief Configuration load statistics (v2.0)
  */
 typedef struct {
-    uint32_t inputs_loaded;       /**< Number of inputs loaded */
-    uint32_t outputs_loaded;      /**< Number of outputs loaded */
-    uint32_t hbridges_loaded;     /**< Number of H-bridges loaded */
-    uint32_t logic_functions_loaded;  /**< Number of logic functions loaded */
-    uint32_t virtual_channels_loaded; /**< Number of virtual channels loaded */
-    uint32_t pid_controllers_loaded;  /**< Number of PID controllers loaded */
+    uint32_t total_channels;      /**< Total channels loaded (v2.0) */
+    uint32_t digital_inputs;      /**< Number of digital inputs */
+    uint32_t analog_inputs;       /**< Number of analog inputs */
+    uint32_t power_outputs;       /**< Number of power outputs */
+    uint32_t logic_functions;     /**< Number of logic functions */
+    uint32_t numbers;             /**< Number of math/number channels */
+    uint32_t filters;             /**< Number of filters */
+    uint32_t timers;              /**< Number of timers */
+    uint32_t tables_2d;           /**< Number of 2D tables */
+    uint32_t tables_3d;           /**< Number of 3D tables */
+    uint32_t switches;            /**< Number of switches */
+    uint32_t enums;               /**< Number of enumerations */
+    uint32_t can_rx;              /**< Number of CAN RX channels */
+    uint32_t can_tx;              /**< Number of CAN TX channels */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
+    /* Legacy v1.0 fields (for backwards compatibility) */
+    uint32_t inputs_loaded;       /**< Number of inputs loaded (v1.0) */
+    uint32_t outputs_loaded;      /**< Number of outputs loaded (v1.0) */
+    uint32_t hbridges_loaded;     /**< Number of H-bridges loaded (v1.0) */
+    uint32_t logic_functions_loaded;  /**< Number of logic functions loaded (v1.0) */
+    uint32_t virtual_channels_loaded; /**< Number of virtual channels loaded (v1.0) */
+    uint32_t pid_controllers_loaded;  /**< Number of PID controllers loaded (v1.0) */
 } PMU_JSON_LoadStats_t;
 
 /* Exported constants --------------------------------------------------------*/
 
 #define PMU_JSON_MAX_ERROR_LEN    256   /**< Maximum error message length */
-#define PMU_JSON_VERSION_1_0      "1.0" /**< Supported configuration version */
+#define PMU_JSON_VERSION_1_0      "1.0" /**< Legacy configuration version */
+#define PMU_JSON_VERSION_2_0      "2.0" /**< Current configuration version */
 
 /* Exported functions --------------------------------------------------------*/
 

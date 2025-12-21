@@ -1,27 +1,110 @@
 """
 Channel Selector Dialog
-Universal dialog for selecting any channel/signal in the system
+Universal dialog for selecting any GPIO channel in the system
+Supports all GPIO types with categorization
 """
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
-    QPushButton, QListWidget, QListWidgetItem, QLabel
+    QPushButton, QListWidget, QListWidgetItem, QLabel,
+    QTreeWidget, QTreeWidgetItem, QSplitter, QWidget,
+    QComboBox
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 from typing import List, Dict, Any, Optional
+
+from models.gpio import GPIOType, GPIO_TYPE_PREFIXES
 
 
 class ChannelSelectorDialog(QDialog):
-    """Dialog for selecting a channel from all available sources."""
+    """Dialog for selecting a channel from all available GPIO sources."""
 
-    def __init__(self, parent=None, current_channel: str = "", channels_data: Optional[Dict[str, List[str]]] = None):
+    # Category definitions with display names and GPIO types
+    CATEGORIES = {
+        "Inputs": {
+            "icon_color": "#10b981",  # Green
+            "types": [
+                (GPIOType.DIGITAL_INPUT, "Digital Inputs"),
+                (GPIOType.ANALOG_INPUT, "Analog Inputs"),
+                (GPIOType.CAN_RX, "CAN RX"),
+            ]
+        },
+        "Outputs": {
+            "icon_color": "#ef4444",  # Red
+            "types": [
+                (GPIOType.POWER_OUTPUT, "Power Outputs"),
+                (GPIOType.CAN_TX, "CAN TX"),
+            ]
+        },
+        "Functions": {
+            "icon_color": "#3b82f6",  # Blue
+            "types": [
+                (GPIOType.LOGIC, "Logic Functions"),
+                (GPIOType.NUMBER, "Math Channels"),
+                (GPIOType.FILTER, "Filters"),
+            ]
+        },
+        "Tables": {
+            "icon_color": "#8b5cf6",  # Purple
+            "types": [
+                (GPIOType.TABLE_2D, "2D Tables"),
+                (GPIOType.TABLE_3D, "3D Tables"),
+            ]
+        },
+        "State": {
+            "icon_color": "#f59e0b",  # Orange
+            "types": [
+                (GPIOType.SWITCH, "Switches"),
+                (GPIOType.TIMER, "Timers"),
+            ]
+        },
+        "Data": {
+            "icon_color": "#06b6d4",  # Cyan
+            "types": [
+                (GPIOType.ENUM, "Enumerations"),
+            ]
+        }
+    }
+
+    # GPIO type to category key mapping
+    GPIO_TYPE_CATEGORY_KEY = {
+        GPIOType.DIGITAL_INPUT: "digital_inputs",
+        GPIOType.ANALOG_INPUT: "analog_inputs",
+        GPIOType.POWER_OUTPUT: "power_outputs",
+        GPIOType.CAN_RX: "can_rx",
+        GPIOType.CAN_TX: "can_tx",
+        GPIOType.LOGIC: "logic",
+        GPIOType.NUMBER: "numbers",
+        GPIOType.TABLE_2D: "tables_2d",
+        GPIOType.TABLE_3D: "tables_3d",
+        GPIOType.SWITCH: "switches",
+        GPIOType.TIMER: "timers",
+        GPIOType.FILTER: "filters",
+        GPIOType.ENUM: "enums",
+    }
+
+    def __init__(self, parent=None, current_channel: str = "",
+                 channels_data: Optional[Dict[str, List[str]]] = None,
+                 show_tree: bool = True):
+        """
+        Initialize channel selector dialog.
+
+        Args:
+            parent: Parent widget
+            current_channel: Currently selected channel (to highlight)
+            channels_data: Dictionary with channel lists by type
+            show_tree: If True, show tree view with categories; otherwise flat list
+        """
         super().__init__(parent)
         self.selected_channel = current_channel
         self.channels_data = channels_data or {}
+        self.show_tree = show_tree
+        self.all_channels: List[tuple] = []  # (gpio_type, channel_id, display_name)
 
         self.setWindowTitle("Select Channel")
         self.setModal(True)
-        self.resize(600, 500)
+        self.resize(700, 550)
 
         self._init_ui()
         self._populate_channels()
@@ -34,25 +117,69 @@ class ChannelSelectorDialog(QDialog):
         """Initialize UI components."""
         layout = QVBoxLayout(self)
 
-        # Header with count
+        # Header with count and filter
+        header_layout = QHBoxLayout()
+
         self.header_label = QLabel()
         self.header_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        layout.addWidget(self.header_label)
+        header_layout.addWidget(self.header_label)
+
+        header_layout.addStretch()
+
+        # Category filter
+        self.category_filter = QComboBox()
+        self.category_filter.addItem("All Categories", None)
+        for cat_name in self.CATEGORIES.keys():
+            self.category_filter.addItem(cat_name, cat_name)
+        self.category_filter.currentIndexChanged.connect(self._on_filter_changed)
+        header_layout.addWidget(QLabel("Filter:"))
+        header_layout.addWidget(self.category_filter)
+
+        layout.addLayout(header_layout)
 
         # Search/filter box
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search channels...")
+        self.search_edit.setPlaceholderText("Search channels by name or ID...")
         self.search_edit.textChanged.connect(self._on_search)
+        self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
 
-        # Channel list
-        self.channel_list = QListWidget()
-        self.channel_list.setAlternatingRowColors(True)
-        self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-        layout.addWidget(self.channel_list)
+        # Main content
+        if self.show_tree:
+            # Tree view with categories
+            self.tree = QTreeWidget()
+            self.tree.setHeaderLabels(["Channel", "Type"])
+            self.tree.setColumnWidth(0, 350)
+            self.tree.setAlternatingRowColors(True)
+            self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+            self.tree.itemSelectionChanged.connect(self._on_selection_changed)
+            layout.addWidget(self.tree)
+            self.channel_list = None
+        else:
+            # Flat list
+            self.channel_list = QListWidget()
+            self.channel_list.setAlternatingRowColors(True)
+            self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+            layout.addWidget(self.channel_list)
+            self.tree = None
+
+        # Preview panel
+        self.preview_label = QLabel("Select a channel to see details")
+        self.preview_label.setStyleSheet(
+            "color: #666; font-style: italic; padding: 8px; "
+            "background-color: #f5f5f5; border-radius: 4px;"
+        )
+        self.preview_label.setWordWrap(True)
+        layout.addWidget(self.preview_label)
 
         # Buttons
         button_layout = QHBoxLayout()
+
+        # Clear selection button
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.clicked.connect(self._clear_selection)
+        button_layout.addWidget(self.clear_btn)
+
         button_layout.addStretch()
 
         self.ok_btn = QPushButton("OK")
@@ -70,138 +197,233 @@ class ChannelSelectorDialog(QDialog):
         """Populate channel list with all available channels."""
         self.all_channels = []
 
-        # Physical Inputs - префикс in.
-        if "inputs_physical" in self.channels_data:
-            for ch in self.channels_data["inputs_physical"]:
-                # ch уже содержит префикс "in." из main_window
-                self.all_channels.append(("Input (Physical)", ch))
+        # Map old keys to new GPIO types for backwards compatibility
+        key_mapping = {
+            # Old format
+            "inputs_physical": GPIOType.ANALOG_INPUT,
+            "inputs_virtual": GPIOType.ANALOG_INPUT,
+            "outputs_physical": GPIOType.POWER_OUTPUT,
+            "outputs_virtual": GPIOType.POWER_OUTPUT,
+            "functions": GPIOType.LOGIC,
+            "tables": GPIOType.TABLE_2D,
+            "numbers": GPIOType.NUMBER,
+            "switches": GPIOType.SWITCH,
+            "timers": GPIOType.TIMER,
+            "enums": GPIOType.ENUM,
+            "can_signals": GPIOType.CAN_RX,
+            "pid_controllers": GPIOType.NUMBER,  # Map PID to number
+            "hbridge": GPIOType.POWER_OUTPUT,  # Map H-Bridge to output
+            # New GPIO format keys
+            "digital_inputs": GPIOType.DIGITAL_INPUT,
+            "analog_inputs": GPIOType.ANALOG_INPUT,
+            "power_outputs": GPIOType.POWER_OUTPUT,
+            "can_rx": GPIOType.CAN_RX,
+            "can_tx": GPIOType.CAN_TX,
+            "logic": GPIOType.LOGIC,
+            "tables_2d": GPIOType.TABLE_2D,
+            "tables_3d": GPIOType.TABLE_3D,
+            "filters": GPIOType.FILTER,
+        }
 
-        # Virtual Inputs - префикс in.
-        if "inputs_virtual" in self.channels_data:
-            for ch in self.channels_data["inputs_virtual"]:
-                self.all_channels.append(("Input (Virtual)", ch))
+        # Process channels from data
+        for key, channels in self.channels_data.items():
+            gpio_type = key_mapping.get(key)
+            if gpio_type and channels:
+                prefix = GPIO_TYPE_PREFIXES.get(gpio_type, "")
+                for ch in channels:
+                    # Ensure channel has prefix
+                    if prefix and not ch.startswith(prefix):
+                        channel_id = f"{prefix}{ch}"
+                    else:
+                        channel_id = ch
+                    self.all_channels.append((gpio_type, channel_id, ch))
 
-        # Physical Outputs - префикс out.
-        if "outputs_physical" in self.channels_data:
-            for ch in self.channels_data["outputs_physical"]:
-                # ch уже содержит префикс "out." из main_window
-                self.all_channels.append(("Output (Physical)", ch))
+        self._update_display()
 
-        # Virtual Outputs - префикс out.
-        if "outputs_virtual" in self.channels_data:
-            for ch in self.channels_data["outputs_virtual"]:
-                self.all_channels.append(("Output (Virtual)", ch))
-
-        # Functions - префикс f_
-        if "functions" in self.channels_data:
-            for ch in self.channels_data["functions"]:
-                channel_name = f"f_{ch}" if not ch.startswith("f_") else ch
-                self.all_channels.append(("Function", channel_name))
-
-        # Tables - префикс t_
-        if "tables" in self.channels_data:
-            for ch in self.channels_data["tables"]:
-                channel_name = f"t_{ch}" if not ch.startswith("t_") else ch
-                self.all_channels.append(("Table", channel_name))
-
-        # Numbers/Constants - префикс n_
-        if "numbers" in self.channels_data:
-            for ch in self.channels_data["numbers"]:
-                channel_name = f"n_{ch}" if not ch.startswith("n_") else ch
-                self.all_channels.append(("Number", channel_name))
-
-        # Switches - префикс sw_
-        if "switches" in self.channels_data:
-            for ch in self.channels_data["switches"]:
-                channel_name = f"sw_{ch}" if not ch.startswith("sw_") else ch
-                self.all_channels.append(("Switch", channel_name))
-
-        # Timers - префикс tm_
-        if "timers" in self.channels_data:
-            for ch in self.channels_data["timers"]:
-                channel_name = f"tm_{ch}" if not ch.startswith("tm_") else ch
-                self.all_channels.append(("Timer", channel_name))
-
-        # Enums
-        if "enums" in self.channels_data:
-            for ch in self.channels_data["enums"]:
-                self.all_channels.append(("Enum", ch))
-
-        # CAN Signals - префикс c_
-        if "can_signals" in self.channels_data:
-            for ch in self.channels_data["can_signals"]:
-                channel_name = f"c_{ch}" if not ch.startswith("c_") else ch
-                self.all_channels.append(("CAN", channel_name))
-
-        # PID Controllers
-        if "pid_controllers" in self.channels_data:
-            for ch in self.channels_data["pid_controllers"]:
-                self.all_channels.append(("PID", ch))
-
-        # H-Bridge
-        if "hbridge" in self.channels_data:
-            for ch in self.channels_data["hbridge"]:
-                self.all_channels.append(("H-Bridge", ch))
-
-        self._update_list()
-
-    def _update_list(self, filter_text: str = ""):
-        """Update channel list with optional filter."""
-        self.channel_list.clear()
-
+    def _update_display(self, filter_text: str = "", category_filter: str = None):
+        """Update display with optional filter."""
         filter_lower = filter_text.lower()
         visible_count = 0
 
-        for category, channel in self.all_channels:
-            # Apply filter
-            if filter_text and filter_lower not in channel.lower():
-                continue
+        if self.show_tree and self.tree:
+            self.tree.clear()
+            category_items = {}
 
-            item = QListWidgetItem(channel)
-            item.setData(Qt.ItemDataRole.UserRole, channel)
-            item.setToolTip(f"{category}: {channel}")
+            for gpio_type, channel_id, display_name in self.all_channels:
+                # Apply text filter
+                if filter_text:
+                    if filter_lower not in channel_id.lower() and filter_lower not in display_name.lower():
+                        continue
 
-            # Add category prefix for clarity
-            item.setText(channel)
+                # Find category for this GPIO type
+                cat_name = None
+                type_name = None
+                for cat, info in self.CATEGORIES.items():
+                    for gtype, tname in info["types"]:
+                        if gtype == gpio_type:
+                            cat_name = cat
+                            type_name = tname
+                            break
+                    if cat_name:
+                        break
 
-            self.channel_list.addItem(item)
-            visible_count += 1
+                # Apply category filter
+                if category_filter and cat_name != category_filter:
+                    continue
+
+                if not cat_name:
+                    cat_name = "Other"
+                    type_name = gpio_type.value if gpio_type else "Unknown"
+
+                # Create category item if needed
+                if cat_name not in category_items:
+                    cat_item = QTreeWidgetItem(self.tree, [cat_name, ""])
+                    cat_item.setExpanded(True)
+                    cat_color = self.CATEGORIES.get(cat_name, {}).get("icon_color", "#666")
+                    cat_item.setForeground(0, QColor(cat_color))
+                    cat_item.setData(0, Qt.ItemDataRole.UserRole, None)  # No channel data for categories
+                    category_items[cat_name] = cat_item
+
+                # Add channel item
+                item = QTreeWidgetItem(category_items[cat_name])
+                item.setText(0, channel_id)
+                item.setText(1, type_name)
+                item.setData(0, Qt.ItemDataRole.UserRole, channel_id)
+                item.setToolTip(0, f"{type_name}: {channel_id}")
+                visible_count += 1
+
+        elif self.channel_list:
+            self.channel_list.clear()
+
+            for gpio_type, channel_id, display_name in self.all_channels:
+                # Apply text filter
+                if filter_text:
+                    if filter_lower not in channel_id.lower() and filter_lower not in display_name.lower():
+                        continue
+
+                # Find type name
+                type_name = gpio_type.value if gpio_type else "Unknown"
+                for cat, info in self.CATEGORIES.items():
+                    for gtype, tname in info["types"]:
+                        if gtype == gpio_type:
+                            type_name = tname
+                            break
+
+                # Apply category filter
+                if category_filter:
+                    cat_match = False
+                    for gtype, _ in self.CATEGORIES.get(category_filter, {}).get("types", []):
+                        if gtype == gpio_type:
+                            cat_match = True
+                            break
+                    if not cat_match:
+                        continue
+
+                item = QListWidgetItem(channel_id)
+                item.setData(Qt.ItemDataRole.UserRole, channel_id)
+                item.setToolTip(f"{type_name}: {channel_id}")
+                self.channel_list.addItem(item)
+                visible_count += 1
 
         # Update header
         total_count = len(self.all_channels)
-        if filter_text:
-            self.header_label.setText(f"Select Channel [{visible_count} of {total_count}]")
+        if filter_text or category_filter:
+            self.header_label.setText(f"Channels [{visible_count} of {total_count}]")
         else:
-            self.header_label.setText(f"Select Channel [{total_count} of {total_count}]")
+            self.header_label.setText(f"Channels [{total_count}]")
 
     def _on_search(self, text: str):
         """Handle search text change."""
-        self._update_list(text)
+        category = self.category_filter.currentData()
+        self._update_display(text, category)
 
-    def _on_item_double_clicked(self, item: QListWidgetItem):
+    def _on_filter_changed(self):
+        """Handle category filter change."""
+        category = self.category_filter.currentData()
+        self._update_display(self.search_edit.text(), category)
+
+    def _on_item_double_clicked(self, item, column=0):
         """Handle item double-click."""
-        self.accept()
+        if self.tree:
+            channel = item.data(0, Qt.ItemDataRole.UserRole)
+            if channel:  # Not a category
+                self.accept()
+        else:
+            self.accept()
+
+    def _on_selection_changed(self):
+        """Handle selection change - update preview."""
+        if self.tree:
+            items = self.tree.selectedItems()
+            if items:
+                item = items[0]
+                channel = item.data(0, Qt.ItemDataRole.UserRole)
+                if channel:
+                    type_name = item.text(1) or "Channel"
+                    self.preview_label.setText(f"<b>{type_name}</b><br>{channel}")
+                    self.preview_label.setStyleSheet(
+                        "color: #333; padding: 8px; "
+                        "background-color: #e8f4f8; border-radius: 4px; border: 1px solid #0078d4;"
+                    )
+                    return
+
+        self.preview_label.setText("Select a channel to see details")
+        self.preview_label.setStyleSheet(
+            "color: #666; font-style: italic; padding: 8px; "
+            "background-color: #f5f5f5; border-radius: 4px;"
+        )
 
     def _select_channel(self, channel: str):
         """Select a channel in the list."""
-        for i in range(self.channel_list.count()):
-            item = self.channel_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == channel:
-                self.channel_list.setCurrentItem(item)
-                self.channel_list.scrollToItem(item)
-                break
+        if self.tree:
+            # Iterate through all items
+            iterator = self.tree.itemIterator() if hasattr(self.tree, 'itemIterator') else None
+            # Manual iteration
+            for i in range(self.tree.topLevelItemCount()):
+                cat_item = self.tree.topLevelItem(i)
+                for j in range(cat_item.childCount()):
+                    child = cat_item.child(j)
+                    if child.data(0, Qt.ItemDataRole.UserRole) == channel:
+                        self.tree.setCurrentItem(child)
+                        self.tree.scrollToItem(child)
+                        return
+        elif self.channel_list:
+            for i in range(self.channel_list.count()):
+                item = self.channel_list.item(i)
+                if item.data(Qt.ItemDataRole.UserRole) == channel:
+                    self.channel_list.setCurrentItem(item)
+                    self.channel_list.scrollToItem(item)
+                    return
+
+    def _clear_selection(self):
+        """Clear current selection."""
+        self.selected_channel = ""
+        if self.tree:
+            self.tree.clearSelection()
+        elif self.channel_list:
+            self.channel_list.clearSelection()
+        self._on_selection_changed()
 
     def get_selected_channel(self) -> str:
         """Get selected channel name."""
-        current = self.channel_list.currentItem()
-        if current:
-            return current.data(Qt.ItemDataRole.UserRole)
+        if self.tree:
+            items = self.tree.selectedItems()
+            if items:
+                channel = items[0].data(0, Qt.ItemDataRole.UserRole)
+                if channel:
+                    return channel
+        elif self.channel_list:
+            current = self.channel_list.currentItem()
+            if current:
+                return current.data(Qt.ItemDataRole.UserRole)
         return ""
 
     @staticmethod
-    def select_channel(parent=None, current_channel: str = "", channels_data: Optional[Dict[str, List[str]]] = None) -> Optional[str]:
+    def select_channel(parent=None, current_channel: str = "",
+                       channels_data: Optional[Dict[str, List[str]]] = None,
+                       show_tree: bool = True) -> Optional[str]:
         """Static method to show dialog and return selected channel."""
-        dialog = ChannelSelectorDialog(parent, current_channel, channels_data)
+        dialog = ChannelSelectorDialog(parent, current_channel, channels_data, show_tree)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             return dialog.get_selected_channel()
         return None

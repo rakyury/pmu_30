@@ -1,8 +1,8 @@
 """
 PMU-30 Configuration Manager
+Version 2.0 - Unified GPIO Channel Architecture
 
 Owner: R2 m-sport
-© 2025 R2 m-sport. All rights reserved.
 """
 
 import json
@@ -11,47 +11,19 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
-from .config_schema import ConfigValidator
+from .config_schema import ConfigValidator, create_default_config
+from .gpio import GPIOBase, GPIOType, GPIOFactory
 
 logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
-    """Manages PMU-30 configuration files (JSON format)"""
+    """Manages PMU-30 configuration files (JSON format) with unified GPIO channels"""
 
     def __init__(self):
-        self.config: Dict[str, Any] = self._create_default_config()
+        self.config: Dict[str, Any] = create_default_config()
         self.current_file: Optional[Path] = None
         self.modified: bool = False
-
-    def _create_default_config(self) -> Dict[str, Any]:
-        """Create default configuration structure"""
-        return {
-            "version": "1.0",
-            "device": {
-                "name": "PMU-30",
-                "owner": "R2 m-sport",
-                "serial_number": "",
-                "created": datetime.now().isoformat(),
-                "modified": datetime.now().isoformat()
-            },
-            "inputs": [],  # 20 universal inputs
-            "outputs": [],  # 30 PROFET outputs
-            "hbridges": [],  # 4 H-Bridge outputs
-            "logic_functions": [],  # Logic engine functions
-            "virtual_channels": [],  # Virtual channels
-            "pid_controllers": [],  # PID controllers
-            "can_buses": [],  # CAN configuration
-            "wiper_modules": [],  # Wiper control
-            "turn_signal_modules": [],  # Turn signal control
-            "system": {
-                "battery_voltage_range": [6.0, 22.0],
-                "overtemp_threshold": 125,
-                "control_frequency": 1000,
-                "logic_frequency": 500,
-                "logging_frequency": 500
-            }
-        }
 
     def get_config(self) -> Dict[str, Any]:
         """Get current configuration"""
@@ -59,7 +31,7 @@ class ConfigManager:
 
     def new_config(self) -> None:
         """Create new empty configuration"""
-        self.config = self._create_default_config()
+        self.config = create_default_config()
         self.current_file = None
         self.modified = False
         logger.info("Created new configuration")
@@ -86,6 +58,18 @@ class ConfigManager:
             with open(path, 'r', encoding='utf-8') as f:
                 loaded_config = json.load(f)
 
+            # Check version and migrate if needed
+            version = loaded_config.get("version", "1.0")
+            if version.startswith("1."):
+                # Old format - don't support migration
+                error_msg = (
+                    "Configuration file uses old format (v1.x).\n"
+                    "Please create a new configuration.\n"
+                    "Migration from v1.x is not supported."
+                )
+                logger.error(error_msg)
+                return False, error_msg
+
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
 
@@ -93,6 +77,14 @@ class ConfigManager:
                 error_msg = ConfigValidator.format_validation_errors(validation_errors)
                 logger.error(f"Configuration validation failed:\n{error_msg}")
                 return False, error_msg
+
+            # Check for circular dependencies
+            cycles = ConfigValidator.detect_circular_dependencies(loaded_config)
+            if cycles:
+                cycle_str = " -> ".join(cycles[0])
+                error_msg = f"Circular dependency detected: {cycle_str}"
+                logger.warning(error_msg)
+                # Just warn, don't fail
 
             # Configuration is valid, apply it
             self.config = loaded_config
@@ -108,7 +100,11 @@ class ConfigManager:
             return True, None
 
         except json.JSONDecodeError as e:
-            error_msg = f"Invalid JSON format in configuration file:\n\nLine {e.lineno}, Column {e.colno}:\n{e.msg}\n\nPlease check the file syntax."
+            error_msg = (
+                f"Invalid JSON format in configuration file:\n\n"
+                f"Line {e.lineno}, Column {e.colno}:\n{e.msg}\n\n"
+                f"Please check the file syntax."
+            )
             logger.error(f"JSON decode error: {e}")
             return False, error_msg
 
@@ -156,6 +152,285 @@ class ConfigManager:
             logger.error(f"Failed to save configuration: {e}")
             return False
 
+    # ========== GPIO Channel Methods ==========
+
+    def get_all_channels(self) -> List[Dict[str, Any]]:
+        """Get all GPIO channels"""
+        return self.config.get("channels", [])
+
+    def get_channels_by_type(self, gpio_type: GPIOType) -> List[Dict[str, Any]]:
+        """Get channels of specific type"""
+        channels = self.config.get("channels", [])
+        return [ch for ch in channels if ch.get("gpio_type") == gpio_type.value]
+
+    def get_channel_by_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Get channel by ID"""
+        for ch in self.config.get("channels", []):
+            if ch.get("id") == channel_id:
+                return ch
+        return None
+
+    def get_channel_index(self, channel_id: str) -> int:
+        """Get channel index by ID, returns -1 if not found"""
+        for i, ch in enumerate(self.config.get("channels", [])):
+            if ch.get("id") == channel_id:
+                return i
+        return -1
+
+    def add_channel(self, channel_config: Dict[str, Any]) -> bool:
+        """
+        Add new GPIO channel
+
+        Args:
+            channel_config: Channel configuration dict
+
+        Returns:
+            True if added successfully
+        """
+        if "channels" not in self.config:
+            self.config["channels"] = []
+
+        # Check for duplicate ID
+        channel_id = channel_config.get("id", "")
+        if self.get_channel_by_id(channel_id):
+            logger.error(f"Channel with ID '{channel_id}' already exists")
+            return False
+
+        self.config["channels"].append(channel_config)
+        self.modified = True
+        logger.info(f"Added channel: {channel_id}")
+        return True
+
+    def update_channel(self, channel_id: str, channel_config: Dict[str, Any]) -> bool:
+        """
+        Update existing GPIO channel
+
+        Args:
+            channel_id: ID of channel to update
+            channel_config: New configuration
+
+        Returns:
+            True if updated successfully
+        """
+        index = self.get_channel_index(channel_id)
+        if index < 0:
+            logger.error(f"Channel '{channel_id}' not found")
+            return False
+
+        # Update the channel
+        self.config["channels"][index] = channel_config
+        self.modified = True
+        logger.info(f"Updated channel: {channel_id}")
+        return True
+
+    def remove_channel(self, channel_id: str) -> bool:
+        """
+        Remove GPIO channel
+
+        Args:
+            channel_id: ID of channel to remove
+
+        Returns:
+            True if removed successfully
+        """
+        index = self.get_channel_index(channel_id)
+        if index < 0:
+            logger.error(f"Channel '{channel_id}' not found")
+            return False
+
+        self.config["channels"].pop(index)
+        self.modified = True
+        logger.info(f"Removed channel: {channel_id}")
+        return True
+
+    def get_available_channels_for_input(
+        self,
+        exclude_id: Optional[str] = None
+    ) -> Dict[str, List[str]]:
+        """
+        Get all channels available for selection as input
+
+        Args:
+            exclude_id: Channel ID to exclude (prevent self-reference)
+
+        Returns:
+            Dict mapping category names to lists of channel IDs
+        """
+        available = {
+            "Digital Inputs": [],
+            "Analog Inputs": [],
+            "Power Outputs": [],
+            "Logic Functions": [],
+            "Math/Numbers": [],
+            "Timers": [],
+            "Filters": [],
+            "Switches": [],
+            "2D Tables": [],
+            "3D Tables": [],
+            "Enumerations": [],
+            "CAN RX": [],
+            "CAN TX": [],
+        }
+
+        type_to_category = {
+            "digital_input": "Digital Inputs",
+            "analog_input": "Analog Inputs",
+            "power_output": "Power Outputs",
+            "logic": "Logic Functions",
+            "number": "Math/Numbers",
+            "timer": "Timers",
+            "filter": "Filters",
+            "switch": "Switches",
+            "table_2d": "2D Tables",
+            "table_3d": "3D Tables",
+            "enum": "Enumerations",
+            "can_rx": "CAN RX",
+            "can_tx": "CAN TX",
+        }
+
+        for ch in self.config.get("channels", []):
+            ch_id = ch.get("id", "")
+            if ch_id and ch_id != exclude_id:
+                gpio_type = ch.get("gpio_type", "")
+                category = type_to_category.get(gpio_type)
+                if category:
+                    available[category].append(ch_id)
+
+        # Remove empty categories
+        return {k: v for k, v in available.items() if v}
+
+    def get_channel_ids_of_type(self, gpio_type: GPIOType) -> List[str]:
+        """Get list of channel IDs of specific type"""
+        return [
+            ch.get("id", "")
+            for ch in self.config.get("channels", [])
+            if ch.get("gpio_type") == gpio_type.value
+        ]
+
+    def channel_exists(self, channel_id: str) -> bool:
+        """Check if channel with given ID exists"""
+        return self.get_channel_by_id(channel_id) is not None
+
+    def get_channel_count(self, gpio_type: Optional[GPIOType] = None) -> int:
+        """Get count of channels, optionally filtered by type"""
+        channels = self.config.get("channels", [])
+        if gpio_type:
+            return sum(1 for ch in channels if ch.get("gpio_type") == gpio_type.value)
+        return len(channels)
+
+    # ========== System Settings ==========
+
+    def get_system_settings(self) -> Dict[str, Any]:
+        """Get system settings"""
+        return self.config.get("system", {})
+
+    def update_system_settings(self, settings: Dict[str, Any]) -> None:
+        """Update system settings"""
+        self.config["system"] = settings
+        self.modified = True
+
+    # ========== Device Info ==========
+
+    def get_device_info(self) -> Dict[str, Any]:
+        """Get device information"""
+        return self.config.get("device", {})
+
+    def update_device_info(self, info: Dict[str, Any]) -> None:
+        """Update device information"""
+        self.config["device"] = info
+        self.modified = True
+
+    # ========== State ==========
+
+    def is_modified(self) -> bool:
+        """Check if configuration has been modified"""
+        return self.modified
+
+    def set_modified(self, modified: bool = True) -> None:
+        """Set modified flag"""
+        self.modified = modified
+
+    def get_current_file(self) -> Optional[Path]:
+        """Get current configuration file path"""
+        return self.current_file
+
+    # ========== Validation ==========
+
+    def validate_config(self) -> Tuple[bool, List[str]]:
+        """
+        Validate current configuration
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        return ConfigValidator.validate_config(self.config)
+
+    def validate_channel_references(self) -> List[str]:
+        """
+        Check that all channel references are valid
+
+        Returns:
+            List of error messages
+        """
+        errors = []
+        all_channel_ids = {ch.get("id") for ch in self.config.get("channels", [])}
+
+        for ch in self.config.get("channels", []):
+            ch_id = ch.get("id", "unknown")
+            gpio_type = ch.get("gpio_type", "")
+
+            # Check references based on type
+            refs_to_check = []
+
+            if gpio_type == "logic":
+                refs_to_check = ch.get("inputs", [])
+            elif gpio_type == "number":
+                refs_to_check = ch.get("inputs", [])
+            elif gpio_type == "timer":
+                if ch.get("start_channel"):
+                    refs_to_check.append(ch["start_channel"])
+                if ch.get("stop_channel"):
+                    refs_to_check.append(ch["stop_channel"])
+            elif gpio_type == "filter":
+                if ch.get("input_channel"):
+                    refs_to_check.append(ch["input_channel"])
+            elif gpio_type == "power_output":
+                if ch.get("source_channel"):
+                    refs_to_check.append(ch["source_channel"])
+                if ch.get("duty_channel"):
+                    refs_to_check.append(ch["duty_channel"])
+            elif gpio_type in ["table_2d", "table_3d"]:
+                if ch.get("x_axis_channel"):
+                    refs_to_check.append(ch["x_axis_channel"])
+                if ch.get("y_axis_channel"):
+                    refs_to_check.append(ch["y_axis_channel"])
+            elif gpio_type == "switch":
+                if ch.get("input_up_channel"):
+                    refs_to_check.append(ch["input_up_channel"])
+                if ch.get("input_down_channel"):
+                    refs_to_check.append(ch["input_down_channel"])
+            elif gpio_type == "can_tx":
+                for sig in ch.get("signals", []):
+                    if sig.get("source_channel"):
+                        refs_to_check.append(sig["source_channel"])
+
+            for ref in refs_to_check:
+                if ref and ref not in all_channel_ids:
+                    errors.append(f"Channel '{ch_id}' references undefined channel '{ref}'")
+
+        return errors
+
+    def detect_circular_dependencies(self) -> List[List[str]]:
+        """
+        Detect circular dependencies
+
+        Returns:
+            List of cycles (each cycle is a list of channel IDs)
+        """
+        return ConfigValidator.detect_circular_dependencies(self.config)
+
+    # ========== Export ==========
+
     def export_to_yaml(self, filepath: str) -> bool:
         """Export configuration to YAML format"""
         try:
@@ -177,188 +452,33 @@ class ConfigManager:
             logger.error(f"Failed to export to YAML: {e}")
             return False
 
-    # Input Channels
-    def add_input(self, input_config: Dict[str, Any]) -> None:
-        """Add input channel configuration"""
-        if len(self.config["inputs"]) >= 20:
-            raise ValueError("Maximum 20 inputs allowed")
-        self.config["inputs"].append(input_config)
-        self.modified = True
-
-    def update_input(self, index: int, input_config: Dict[str, Any]) -> None:
-        """Update input channel configuration"""
-        if 0 <= index < len(self.config["inputs"]):
-            self.config["inputs"][index] = input_config
-            self.modified = True
-
-    def delete_input(self, index: int) -> None:
-        """Delete input channel configuration"""
-        if 0 <= index < len(self.config["inputs"]):
-            self.config["inputs"].pop(index)
-            self.modified = True
-
-    def get_inputs(self) -> list:
-        """Get all input configurations"""
-        return self.config["inputs"]
-
-    def clear_inputs(self) -> None:
-        """Clear all input configurations"""
-        self.config["inputs"] = []
-        self.modified = True
-
-    # Output Channels
-    def add_output(self, output_config: Dict[str, Any]) -> None:
-        """Add output channel configuration"""
-        if len(self.config["outputs"]) >= 30:
-            raise ValueError("Maximum 30 outputs allowed")
-        self.config["outputs"].append(output_config)
-        self.modified = True
-
-    def update_output(self, index: int, output_config: Dict[str, Any]) -> None:
-        """Update output channel configuration"""
-        if 0 <= index < len(self.config["outputs"]):
-            self.config["outputs"][index] = output_config
-            self.modified = True
-
-    def delete_output(self, index: int) -> None:
-        """Delete output channel configuration"""
-        if 0 <= index < len(self.config["outputs"]):
-            self.config["outputs"].pop(index)
-            self.modified = True
-
-    def get_outputs(self) -> list:
-        """Get all output configurations"""
-        return self.config["outputs"]
-
-    # H-Bridge Channels
-    def add_hbridge(self, hbridge_config: Dict[str, Any]) -> None:
-        """Add H-Bridge configuration"""
-        if len(self.config["hbridges"]) >= 4:
-            raise ValueError("Maximum 4 H-Bridges allowed")
-        self.config["hbridges"].append(hbridge_config)
-        self.modified = True
-
-    def update_hbridge(self, index: int, hbridge_config: Dict[str, Any]) -> None:
-        """Update H-Bridge configuration"""
-        if 0 <= index < len(self.config["hbridges"]):
-            self.config["hbridges"][index] = hbridge_config
-            self.modified = True
-
-    def delete_hbridge(self, index: int) -> None:
-        """Delete H-Bridge configuration"""
-        if 0 <= index < len(self.config["hbridges"]):
-            self.config["hbridges"].pop(index)
-            self.modified = True
-
-    def get_hbridges(self) -> list:
-        """Get all H-Bridge configurations"""
-        return self.config["hbridges"]
-
-    # Logic Functions
-    def add_logic_function(self, function_config: Dict[str, Any]) -> None:
-        """Add logic function"""
-        if len(self.config["logic_functions"]) >= 100:
-            raise ValueError("Maximum 100 logic functions allowed")
-        self.config["logic_functions"].append(function_config)
-        self.modified = True
-
-    def update_logic_function(self, index: int, function_config: Dict[str, Any]) -> None:
-        """Update logic function"""
-        if 0 <= index < len(self.config["logic_functions"]):
-            self.config["logic_functions"][index] = function_config
-            self.modified = True
-
-    def delete_logic_function(self, index: int) -> None:
-        """Delete logic function"""
-        if 0 <= index < len(self.config["logic_functions"]):
-            self.config["logic_functions"].pop(index)
-            self.modified = True
-
-    def get_logic_functions(self) -> list:
-        """Get all logic functions"""
-        return self.config["logic_functions"]
-
-    # PID Controllers
-    def add_pid_controller(self, pid_config: Dict[str, Any]) -> None:
-        """Add PID controller"""
-        self.config["pid_controllers"].append(pid_config)
-        self.modified = True
-
-    def update_pid_controller(self, index: int, pid_config: Dict[str, Any]) -> None:
-        """Update PID controller"""
-        if 0 <= index < len(self.config["pid_controllers"]):
-            self.config["pid_controllers"][index] = pid_config
-            self.modified = True
-
-    def delete_pid_controller(self, index: int) -> None:
-        """Delete PID controller"""
-        if 0 <= index < len(self.config["pid_controllers"]):
-            self.config["pid_controllers"].pop(index)
-            self.modified = True
-
-    def get_pid_controllers(self) -> list:
-        """Get all PID controllers"""
-        return self.config["pid_controllers"]
-
-    # CAN Bus
-    def add_can_bus(self, can_config: Dict[str, Any]) -> None:
-        """Add CAN bus configuration"""
-        if len(self.config["can_buses"]) >= 4:
-            raise ValueError("Maximum 4 CAN buses allowed")
-        self.config["can_buses"].append(can_config)
-        self.modified = True
-
-    def update_can_bus(self, index: int, can_config: Dict[str, Any]) -> None:
-        """Update CAN bus configuration"""
-        if 0 <= index < len(self.config["can_buses"]):
-            self.config["can_buses"][index] = can_config
-            self.modified = True
-
-    def delete_can_bus(self, index: int) -> None:
-        """Delete CAN bus configuration"""
-        if 0 <= index < len(self.config["can_buses"]):
-            self.config["can_buses"].pop(index)
-            self.modified = True
-
-    def get_can_buses(self) -> list:
-        """Get all CAN bus configurations"""
-        return self.config["can_buses"]
-
-    def is_modified(self) -> bool:
-        """Check if configuration has been modified"""
-        return self.modified
-
-    def get_current_file(self) -> Optional[Path]:
-        """Get current configuration file path"""
-        return self.current_file
-
-    def validate_config(self) -> tuple[bool, list[str]]:
+    def export_channel_summary(self) -> str:
         """
-        Validate configuration
+        Export summary of all channels
 
         Returns:
-            Tuple of (is_valid, list_of_errors)
+            Formatted string summary
         """
-        errors = []
+        lines = ["PMU-30 Configuration Summary", "=" * 40, ""]
 
-        # Check input count
-        if len(self.config["inputs"]) > 20:
-            errors.append("Too many inputs (maximum 20)")
+        type_counts = {}
+        for ch in self.config.get("channels", []):
+            gpio_type = ch.get("gpio_type", "unknown")
+            type_counts[gpio_type] = type_counts.get(gpio_type, 0) + 1
 
-        # Check output count
-        if len(self.config["outputs"]) > 30:
-            errors.append("Too many outputs (maximum 30)")
+        lines.append(f"Total channels: {len(self.config.get('channels', []))}")
+        lines.append("")
+        lines.append("By type:")
+        for gpio_type, count in sorted(type_counts.items()):
+            lines.append(f"  {gpio_type}: {count}")
 
-        # Check H-Bridge count
-        if len(self.config["hbridges"]) > 4:
-            errors.append("Too many H-Bridges (maximum 4)")
+        lines.append("")
+        lines.append("Channel list:")
+        for ch in self.config.get("channels", []):
+            ch_id = ch.get("id", "?")
+            ch_name = ch.get("name", "?")
+            ch_type = ch.get("gpio_type", "?")
+            enabled = "enabled" if ch.get("enabled", True) else "disabled"
+            lines.append(f"  [{ch_type}] {ch_id}: {ch_name} ({enabled})")
 
-        # Check logic function count
-        if len(self.config["logic_functions"]) > 100:
-            errors.append("Too many logic functions (maximum 100)")
-
-        # Check CAN bus count
-        if len(self.config["can_buses"]) > 4:
-            errors.append("Too many CAN buses (maximum 4)")
-
-        return (len(errors) == 0, errors)
+        return "\n".join(lines)

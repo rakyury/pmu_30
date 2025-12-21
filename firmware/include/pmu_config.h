@@ -25,8 +25,401 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 
+/* ============================================================================
+ * GPIO Type Enumeration (v2.0)
+ * All channels are GPIO with different types
+ * ============================================================================ */
+typedef enum {
+    PMU_GPIO_TYPE_DIGITAL_INPUT = 0,
+    PMU_GPIO_TYPE_ANALOG_INPUT,
+    PMU_GPIO_TYPE_POWER_OUTPUT,
+    PMU_GPIO_TYPE_CAN_RX,
+    PMU_GPIO_TYPE_CAN_TX,
+    PMU_GPIO_TYPE_LOGIC,
+    PMU_GPIO_TYPE_NUMBER,
+    PMU_GPIO_TYPE_TABLE_2D,
+    PMU_GPIO_TYPE_TABLE_3D,
+    PMU_GPIO_TYPE_SWITCH,
+    PMU_GPIO_TYPE_TIMER,
+    PMU_GPIO_TYPE_FILTER,
+    PMU_GPIO_TYPE_ENUM,
+    PMU_GPIO_TYPE_COUNT
+} PMU_GPIOType_t;
+
+/* Digital Input Subtypes */
+typedef enum {
+    PMU_DI_SUBTYPE_SWITCH_ACTIVE_LOW = 0,
+    PMU_DI_SUBTYPE_SWITCH_ACTIVE_HIGH,
+    PMU_DI_SUBTYPE_FREQUENCY,
+    PMU_DI_SUBTYPE_RPM,
+    PMU_DI_SUBTYPE_FLEX_FUEL,
+    PMU_DI_SUBTYPE_BEACON,
+    PMU_DI_SUBTYPE_PULS_OIL_SENSOR
+} PMU_DigitalInputSubtype_t;
+
+/* Analog Input Subtypes */
+typedef enum {
+    PMU_AI_SUBTYPE_SWITCH_ACTIVE_LOW = 0,
+    PMU_AI_SUBTYPE_SWITCH_ACTIVE_HIGH,
+    PMU_AI_SUBTYPE_ROTARY_SWITCH,
+    PMU_AI_SUBTYPE_LINEAR,
+    PMU_AI_SUBTYPE_CALIBRATED
+} PMU_AnalogInputSubtype_t;
+
+/* Edge Types */
+typedef enum {
+    PMU_EDGE_RISING = 0,
+    PMU_EDGE_FALLING,
+    PMU_EDGE_BOTH
+} PMU_EdgeType_t;
+
+/* Timer Modes */
+typedef enum {
+    PMU_TIMER_MODE_COUNT_UP = 0,
+    PMU_TIMER_MODE_COUNT_DOWN
+} PMU_TimerMode_t;
+
+/* Filter Types */
+typedef enum {
+    PMU_FILTER_MOVING_AVG = 0,
+    PMU_FILTER_LOW_PASS,
+    PMU_FILTER_MIN_WINDOW,
+    PMU_FILTER_MAX_WINDOW,
+    PMU_FILTER_MEDIAN
+} PMU_FilterType_t;
+
+/* Logic Operations */
+typedef enum {
+    PMU_LOGIC_IS_TRUE = 0,
+    PMU_LOGIC_IS_FALSE,
+    PMU_LOGIC_EQUAL,
+    PMU_LOGIC_NOT_EQUAL,
+    PMU_LOGIC_LESS,
+    PMU_LOGIC_GREATER,
+    PMU_LOGIC_LESS_EQUAL,
+    PMU_LOGIC_GREATER_EQUAL,
+    PMU_LOGIC_AND,
+    PMU_LOGIC_OR,
+    PMU_LOGIC_XOR,
+    PMU_LOGIC_CHANGED,
+    PMU_LOGIC_HYSTERESIS,
+    PMU_LOGIC_SET_RESET_LATCH,
+    PMU_LOGIC_TOGGLE,
+    PMU_LOGIC_PULSE,
+    PMU_LOGIC_FLASH
+} PMU_LogicOp_t;
+
+/* Math Operations for Number GPIO */
+typedef enum {
+    PMU_MATH_CONSTANT = 0,
+    PMU_MATH_CHANNEL,
+    PMU_MATH_ADD,
+    PMU_MATH_SUBTRACT,
+    PMU_MATH_MULTIPLY,
+    PMU_MATH_DIVIDE,
+    PMU_MATH_MODULO,
+    PMU_MATH_MIN,
+    PMU_MATH_MAX,
+    PMU_MATH_CLAMP,
+    PMU_MATH_LOOKUP2,
+    PMU_MATH_LOOKUP3,
+    PMU_MATH_LOOKUP4,
+    PMU_MATH_LOOKUP5
+} PMU_MathOp_t;
+
+/* Pullup Options for Analog Inputs */
+typedef enum {
+    PMU_PULLUP_NONE = 0,
+    PMU_PULLUP_1M_DOWN,
+    PMU_PULLUP_10K_UP,
+    PMU_PULLUP_10K_DOWN,
+    PMU_PULLUP_100K_UP,
+    PMU_PULLUP_100K_DOWN
+} PMU_PullupOption_t;
+
+/* Logic Polarity */
+typedef enum {
+    PMU_POLARITY_NORMAL = 0,
+    PMU_POLARITY_INVERTED
+} PMU_Polarity_t;
+
+/* Logic Default State */
+typedef enum {
+    PMU_DEFAULT_STATE_OFF = 0,
+    PMU_DEFAULT_STATE_ON
+} PMU_DefaultState_t;
+
+/* ============================================================================
+ * GPIO Channel Structures (v2.0)
+ * ============================================================================ */
+
+/* Maximum calibration points */
+#define PMU_MAX_CALIBRATION_POINTS  16
+#define PMU_MAX_TABLE_SIZE          16
+#define PMU_MAX_ENUM_ITEMS          16
+#define PMU_MAX_CAN_TX_SIGNALS      8
+#define PMU_MAX_NUMBER_INPUTS       5
+#define PMU_MAX_OUTPUT_PINS         4
+#define PMU_CHANNEL_ID_LEN          32
+
+/* Calibration Point */
+typedef struct {
+    float voltage;
+    float value;
+} PMU_CalibrationPoint_t;
+
+/* Enum Item */
+typedef struct {
+    int16_t value;
+    char text[16];
+    uint32_t color;  /* RGB color */
+} PMU_EnumItem_t;
+
+/* CAN TX Signal */
+typedef struct {
+    char source_channel[PMU_CHANNEL_ID_LEN];
+    uint8_t start_bit;
+    uint8_t length;
+    bool little_endian;
+    float factor;
+    float offset;
+} PMU_CanTxSignal_t;
+
+/* ============================================================================
+ * Digital Input GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    PMU_DigitalInputSubtype_t subtype;
+    uint8_t input_pin;              /* D1-D8 -> 0-7 */
+    bool enable_pullup;
+    uint16_t threshold_mv;          /* Threshold in mV */
+    uint16_t debounce_ms;
+    /* Frequency/RPM specific */
+    PMU_EdgeType_t trigger_edge;
+    float multiplier;
+    float divider;
+    uint16_t timeout_ms;
+    uint16_t number_of_teeth;       /* RPM specific */
+} PMU_DigitalInputConfig_t;
+
+/* ============================================================================
+ * Analog Input GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    PMU_AnalogInputSubtype_t subtype;
+    uint8_t input_pin;              /* A1-A20 -> 0-19 */
+    PMU_PullupOption_t pullup_option;
+    uint8_t decimal_places;
+    /* Switch mode */
+    uint16_t threshold_high_mv;
+    uint16_t threshold_high_time_ms;
+    uint16_t threshold_low_mv;
+    uint16_t threshold_low_time_ms;
+    /* Rotary switch mode */
+    uint8_t positions;
+    uint16_t debounce_ms;
+    /* Linear mode */
+    uint16_t min_voltage_mv;
+    uint16_t max_voltage_mv;
+    float min_value;
+    float max_value;
+    /* Calibrated mode */
+    uint8_t calibration_count;
+    PMU_CalibrationPoint_t calibration[PMU_MAX_CALIBRATION_POINTS];
+} PMU_AnalogInputConfig_t;
+
+/* ============================================================================
+ * Power Output GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    uint8_t output_pins[PMU_MAX_OUTPUT_PINS];
+    uint8_t output_pin_count;
+    char source_channel[PMU_CHANNEL_ID_LEN];
+    /* PWM */
+    bool pwm_enabled;
+    uint16_t pwm_frequency_hz;
+    char duty_channel[PMU_CHANNEL_ID_LEN];
+    float duty_fixed;               /* Fixed duty if no channel (0-100) */
+    uint16_t soft_start_ms;
+    /* Protection */
+    float current_limit_a;
+    float inrush_current_a;
+    uint16_t inrush_time_ms;
+    uint8_t retry_count;
+    bool retry_forever;
+} PMU_PowerOutputConfig_t;
+
+/* ============================================================================
+ * Logic Function GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    PMU_LogicOp_t operation;
+    /* Common: channel input */
+    char channel[PMU_CHANNEL_ID_LEN];
+    char channel_2[PMU_CHANNEL_ID_LEN];
+    /* Delays */
+    float true_delay_s;
+    float false_delay_s;
+    /* For comparison operations */
+    float constant;
+    /* For CHANGED operation */
+    float threshold;
+    float time_on_s;
+    /* For HYSTERESIS operation */
+    PMU_Polarity_t polarity;
+    float upper_value;
+    float lower_value;
+    /* For SET_RESET_LATCH */
+    char set_channel[PMU_CHANNEL_ID_LEN];
+    char reset_channel[PMU_CHANNEL_ID_LEN];
+    PMU_DefaultState_t default_state;
+    /* For TOGGLE/PULSE operation */
+    PMU_EdgeType_t edge;
+    char toggle_channel[PMU_CHANNEL_ID_LEN];
+    uint8_t pulse_count;
+    bool retrigger;
+    /* For FLASH operation */
+    float time_off_s;
+} PMU_LogicConfig_t;
+
+/* ============================================================================
+ * Number/Math GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    PMU_MathOp_t operation;
+    char inputs[PMU_MAX_NUMBER_INPUTS][PMU_CHANNEL_ID_LEN];
+    uint8_t input_count;
+    float constant_value;
+    float clamp_min;
+    float clamp_max;
+    float lookup_values[PMU_MAX_NUMBER_INPUTS];
+    uint8_t decimal_places;
+} PMU_NumberConfig_t;
+
+/* ============================================================================
+ * Timer GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    char start_channel[PMU_CHANNEL_ID_LEN];
+    PMU_EdgeType_t start_edge;
+    char stop_channel[PMU_CHANNEL_ID_LEN];
+    PMU_EdgeType_t stop_edge;
+    PMU_TimerMode_t mode;
+    uint16_t limit_hours;
+    uint8_t limit_minutes;
+    uint8_t limit_seconds;
+} PMU_TimerConfig_t;
+
+/* ============================================================================
+ * Filter GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    PMU_FilterType_t filter_type;
+    char input_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t window_size;
+    float time_constant;
+} PMU_FilterConfig_t;
+
+/* ============================================================================
+ * Enum GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    bool is_bitfield;
+    uint8_t item_count;
+    PMU_EnumItem_t items[PMU_MAX_ENUM_ITEMS];
+} PMU_EnumConfig_t;
+
+/* ============================================================================
+ * 2D Table GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    char x_axis_channel[PMU_CHANNEL_ID_LEN];
+    float x_min;
+    float x_max;
+    float x_step;
+    uint8_t x_count;
+    float x_values[PMU_MAX_TABLE_SIZE];
+    float output_values[PMU_MAX_TABLE_SIZE];
+    uint8_t decimal_places;
+} PMU_Table2DConfig_t;
+
+/* ============================================================================
+ * 3D Table GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    char x_axis_channel[PMU_CHANNEL_ID_LEN];
+    char y_axis_channel[PMU_CHANNEL_ID_LEN];
+    float x_min, x_max, x_step;
+    float y_min, y_max, y_step;
+    uint8_t x_count, y_count;
+    float x_values[PMU_MAX_TABLE_SIZE];
+    float y_values[PMU_MAX_TABLE_SIZE];
+    float data[PMU_MAX_TABLE_SIZE][PMU_MAX_TABLE_SIZE];
+    uint8_t decimal_places;
+} PMU_Table3DConfig_t;
+
+/* ============================================================================
+ * Switch GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    char switch_type[16];           /* "latching", "press_hold" */
+    char input_up_channel[PMU_CHANNEL_ID_LEN];
+    PMU_EdgeType_t input_up_edge;
+    char input_down_channel[PMU_CHANNEL_ID_LEN];
+    PMU_EdgeType_t input_down_edge;
+    int16_t state_first;
+    int16_t state_last;
+    int16_t state_default;
+} PMU_SwitchConfig_t;
+
+/* ============================================================================
+ * CAN RX GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    uint8_t can_bus;
+    uint32_t message_id;
+    bool is_extended;
+    uint8_t start_bit;
+    uint8_t length;
+    bool little_endian;
+    bool is_signed;
+    bool is_float;
+    float factor;
+    float offset;
+    uint16_t timeout_ms;
+} PMU_CanRxConfig_t;
+
+/* ============================================================================
+ * CAN TX GPIO
+ * ============================================================================ */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];
+    uint8_t can_bus;
+    uint32_t message_id;
+    bool is_extended;
+    uint16_t cycle_time_ms;
+    uint8_t signal_count;
+    PMU_CanTxSignal_t signals[PMU_MAX_CAN_TX_SIGNALS];
+} PMU_CanTxConfig_t;
+
+/* ============================================================================
+ * Legacy Structures (for backwards compatibility with v1.0)
+ * ============================================================================ */
+
 /**
- * @brief PMU Output Channel Configuration
+ * @brief PMU Output Channel Configuration (Legacy v1.0)
  */
 typedef struct {
     uint8_t channel;                /* Channel number (1-30) */
@@ -56,7 +449,7 @@ typedef struct {
 } PMU_HBridgeConfig_t;
 
 /**
- * @brief PMU Input Channel Configuration
+ * @brief PMU Input Channel Configuration (Legacy v1.0)
  */
 typedef enum {
     PMU_INPUT_SWITCH_ACTIVE_LOW = 0,

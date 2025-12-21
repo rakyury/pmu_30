@@ -8,7 +8,7 @@
 
 ## Overview
 
-Professional configuration software for the PMU-30 Power Distribution Module. Provides a modern, cross-platform GUI for:
+Professional configuration software for the PMU-30 Power Management Unit. Provides a modern, cross-platform GUI for:
 
 - Device configuration and monitoring
 - 30 output channel setup

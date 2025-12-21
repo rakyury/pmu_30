@@ -195,12 +195,6 @@ class InputConfigDialog(QDialog):
             self.type_layout.addRow("Max Voltage:", self.max_voltage_spin)
 
         elif input_type == "calibrated analog sensor":
-            # Unit field
-            self.unit_edit = QLineEdit()
-            self.unit_edit.setPlaceholderText("e.g., bar, °C, %")
-            self.unit_edit.setToolTip("Engineering unit")
-            self.type_layout.addRow("Unit:", self.unit_edit)
-
             # Calibration table
             calib_label = QLabel("Calibration Table:")
             calib_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -382,8 +376,6 @@ class InputConfigDialog(QDialog):
             self.min_voltage_spin.setValue(params.get("min_voltage", 0.0))
         if hasattr(self, 'max_voltage_spin'):
             self.max_voltage_spin.setValue(params.get("max_voltage", 5.0))
-        if hasattr(self, 'unit_edit'):
-            self.unit_edit.setText(params.get("unit", ""))
         if hasattr(self, 'calibration_table'):
             # Load calibration table data
             calibration_data = params.get("calibration_table", [])
@@ -430,8 +422,6 @@ class InputConfigDialog(QDialog):
             params["max_voltage"] = self.max_voltage_spin.value()
 
         elif input_type == "calibrated analog sensor":
-            params["unit"] = self.unit_edit.text()
-
             # Collect calibration table data
             calibration_data = []
             if hasattr(self, 'calibration_table'):

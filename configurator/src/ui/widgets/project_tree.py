@@ -1,66 +1,89 @@
 """
 Project Tree Widget
-Hierarchical tree view of all configuration items (like ECUMaster PMU Client)
+Hierarchical tree view of all GPIO channels (unified architecture)
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QMenu, QMessageBox, QStyle, QApplication
+    QPushButton, QMenu, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QAction, QColor, QFont
 from typing import Dict, Any, Optional, List
+
+from models.gpio import GPIOType, GPIO_TYPE_PREFIXES
 
 
 class ProjectTree(QWidget):
-    """Project tree with all configuration items."""
+    """Project tree with unified GPIO channel architecture."""
 
     # Signals
-    item_selected = pyqtSignal(str, object)  # (item_type, item_data)
-    item_added = pyqtSignal(str)  # item_type
-    item_edited = pyqtSignal(str, object)  # (item_type, item_data)
-    item_deleted = pyqtSignal(str, object)  # (item_type, item_data)
+    item_selected = pyqtSignal(str, object)  # (gpio_type, item_data)
+    item_added = pyqtSignal(str)  # gpio_type
+    item_edited = pyqtSignal(str, object)  # (gpio_type, item_data)
+    item_deleted = pyqtSignal(str, object)  # (gpio_type, item_data)
     configuration_changed = pyqtSignal()
+
+    # Folder structure with GPIO types
+    FOLDER_STRUCTURE = {
+        "Inputs": {
+            "subfolders": {
+                "Digital Inputs": {"gpio_type": GPIOType.DIGITAL_INPUT},
+                "Analog Inputs": {"gpio_type": GPIOType.ANALOG_INPUT},
+                "CAN RX": {"gpio_type": GPIOType.CAN_RX},
+            }
+        },
+        "Outputs": {
+            "subfolders": {
+                "Power Outputs": {"gpio_type": GPIOType.POWER_OUTPUT},
+                "CAN TX": {"gpio_type": GPIOType.CAN_TX},
+            }
+        },
+        "Functions": {
+            "subfolders": {
+                "Logic": {"gpio_type": GPIOType.LOGIC},
+                "Math": {"gpio_type": GPIOType.NUMBER},
+                "Filters": {"gpio_type": GPIOType.FILTER},
+            }
+        },
+        "Tables": {
+            "subfolders": {
+                "2D Tables": {"gpio_type": GPIOType.TABLE_2D},
+                "3D Tables": {"gpio_type": GPIOType.TABLE_3D},
+            }
+        },
+        "State": {
+            "subfolders": {
+                "Switches": {"gpio_type": GPIOType.SWITCH},
+                "Timers": {"gpio_type": GPIOType.TIMER},
+            }
+        },
+        "Data": {
+            "subfolders": {
+                "Enumerations": {"gpio_type": GPIOType.ENUM},
+            }
+        },
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_ui()
-        self._create_default_structure()
+        self._create_folder_structure()
 
-    def _get_icon(self, category: str) -> QIcon:
-        """Get icon for category."""
-        app = QApplication.instance()
-        if not app:
-            return QIcon()
-
-        style = app.style()
-        icon_map = {
-            "outputs": QStyle.StandardPixmap.SP_ArrowForward,  # Output arrow
-            "inputs": QStyle.StandardPixmap.SP_ArrowBack,  # Input arrow
-            "logic": QStyle.StandardPixmap.SP_CommandLink,  # Logic/command
-            "switches": QStyle.StandardPixmap.SP_DialogApplyButton,  # Switch/toggle
-            "can": QStyle.StandardPixmap.SP_DriveNetIcon,  # Network/CAN bus
-            "timers": QStyle.StandardPixmap.SP_BrowserReload,  # Timer/reload
-            "tables": QStyle.StandardPixmap.SP_FileDialogDetailedView,  # Table grid
-            "numbers": QStyle.StandardPixmap.SP_FileDialogInfoView,  # Numeric info
-            "hbridge": QStyle.StandardPixmap.SP_DriveHDIcon,  # H-Bridge/motor
-            "pid": QStyle.StandardPixmap.SP_DesktopIcon,  # PID controller
-            "lua": QStyle.StandardPixmap.SP_FileDialogContentsView,  # Script/code
-        }
-
-        pixmap_type = icon_map.get(category, QStyle.StandardPixmap.SP_DirIcon)
-        return style.standardIcon(pixmap_type)
+        # Store folder references by GPIO type
+        self.gpio_type_folders: Dict[GPIOType, QTreeWidgetItem] = {}
+        self._map_folders_to_gpio_types()
 
     def _init_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(8, 4, 8, 4)
 
         # Tree widget
         self.tree = QTreeWidget()
         self.tree.setHeaderLabel("Name")
         self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels(["Name", "Formula/Value"])
+        self.tree.setHeaderLabels(["Name", "Details"])
         self.tree.setColumnWidth(0, 200)
         self.tree.itemSelectionChanged.connect(self._on_selection_changed)
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -97,65 +120,52 @@ class ProjectTree(QWidget):
 
         layout.addLayout(h_layout)
 
-    def _create_default_structure(self):
-        """Create default tree structure."""
-        # OUT folder
-        self.out_folder = QTreeWidgetItem(self.tree, ["OUT", ""])
-        self.out_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "outputs"})
-        self.out_folder.setIcon(0, self._get_icon("outputs"))
-        self.out_folder.setExpanded(True)
+    def _create_folder_structure(self):
+        """Create hierarchical folder structure."""
+        self.folder_items: Dict[str, QTreeWidgetItem] = {}
 
-        # IN folder
-        self.in_folder = QTreeWidgetItem(self.tree, ["IN", ""])
-        self.in_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "inputs"})
-        self.in_folder.setIcon(0, self._get_icon("inputs"))
-        self.in_folder.setExpanded(True)
+        # Bold font for root folders
+        bold_font = QFont()
+        bold_font.setBold(True)
 
-        # Functions folder
-        self.functions_folder = QTreeWidgetItem(self.tree, ["Functions", ""])
-        self.functions_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "logic"})
-        self.functions_folder.setIcon(0, self._get_icon("logic"))
-        self.functions_folder.setExpanded(True)
+        for folder_name, folder_info in self.FOLDER_STRUCTURE.items():
+            # Create main folder
+            main_folder = QTreeWidgetItem(self.tree, [folder_name, ""])
+            main_folder.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "folder",
+                "folder_name": folder_name
+            })
+            main_folder.setFont(0, bold_font)
+            main_folder.setExpanded(True)
 
-        # Switches folder
-        self.switches_folder = QTreeWidgetItem(self.tree, ["Switches", ""])
-        self.switches_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "switches"})
-        self.switches_folder.setIcon(0, self._get_icon("switches"))
+            self.folder_items[folder_name] = main_folder
 
-        # CAN folder
-        self.can_folder = QTreeWidgetItem(self.tree, ["CAN", ""])
-        self.can_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "can"})
-        self.can_folder.setIcon(0, self._get_icon("can"))
+            # Create subfolders
+            for subfolder_name, subfolder_info in folder_info.get("subfolders", {}).items():
+                subfolder = QTreeWidgetItem(main_folder, [subfolder_name, ""])
+                subfolder.setData(0, Qt.ItemDataRole.UserRole, {
+                    "type": "folder",
+                    "folder_name": subfolder_name,
+                    "gpio_type": subfolder_info.get("gpio_type")
+                })
+                subfolder.setExpanded(False)
 
-        # Timers folder
-        self.timers_folder = QTreeWidgetItem(self.tree, ["Timers", ""])
-        self.timers_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "timers"})
-        self.timers_folder.setIcon(0, self._get_icon("timers"))
+                # Store reference
+                key = f"{folder_name}/{subfolder_name}"
+                self.folder_items[key] = subfolder
 
-        # Tables folder
-        self.tables_folder = QTreeWidgetItem(self.tree, ["Tables", ""])
-        self.tables_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "tables"})
-        self.tables_folder.setIcon(0, self._get_icon("tables"))
+    def _map_folders_to_gpio_types(self):
+        """Map folders to GPIO types for quick access."""
+        for folder_name, folder_info in self.FOLDER_STRUCTURE.items():
+            for subfolder_name, subfolder_info in folder_info.get("subfolders", {}).items():
+                gpio_type = subfolder_info.get("gpio_type")
+                if gpio_type:
+                    key = f"{folder_name}/{subfolder_name}"
+                    self.gpio_type_folders[gpio_type] = self.folder_items.get(key)
 
-        # Numbers folder
-        self.numbers_folder = QTreeWidgetItem(self.tree, ["Numbers", ""])
-        self.numbers_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "numbers"})
-        self.numbers_folder.setIcon(0, self._get_icon("numbers"))
-
-        # H-Bridge folder
-        self.hbridge_folder = QTreeWidgetItem(self.tree, ["H-Bridge", ""])
-        self.hbridge_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "hbridge"})
-        self.hbridge_folder.setIcon(0, self._get_icon("hbridge"))
-
-        # PID folder
-        self.pid_folder = QTreeWidgetItem(self.tree, ["PID Controllers", ""])
-        self.pid_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "pid"})
-        self.pid_folder.setIcon(0, self._get_icon("pid"))
-
-        # LUA folder
-        self.lua_folder = QTreeWidgetItem(self.tree, ["Lua Scripts", ""])
-        self.lua_folder.setData(0, Qt.ItemDataRole.UserRole, {"type": "folder", "category": "lua"})
-        self.lua_folder.setIcon(0, self._get_icon("lua"))
+    def _get_folder_for_type(self, gpio_type: GPIOType) -> Optional[QTreeWidgetItem]:
+        """Get folder item for GPIO type."""
+        return self.gpio_type_folders.get(gpio_type)
 
     def _on_selection_changed(self):
         """Handle selection change."""
@@ -165,12 +175,15 @@ class ProjectTree(QWidget):
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if data:
                 item_type = data.get("type", "")
-                self.item_selected.emit(item_type, data)
+                if item_type == "channel":
+                    gpio_type = data.get("gpio_type")
+                    if gpio_type:
+                        self.item_selected.emit(gpio_type.value, data)
 
     def _on_item_double_clicked(self, item, column):
         """Handle double click - edit item."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data and data.get("type") != "folder":
+        if data and data.get("type") == "channel":
             self._edit_item()
 
     def _show_context_menu(self, position):
@@ -186,8 +199,10 @@ class ProjectTree(QWidget):
         menu = QMenu(self)
 
         if data.get("type") == "folder":
-            add_action = menu.addAction("Add Item")
-            add_action.triggered.connect(self._add_item)
+            gpio_type = data.get("gpio_type")
+            if gpio_type:
+                add_action = menu.addAction(f"Add {gpio_type.value}")
+                add_action.triggered.connect(self._add_item)
         else:
             edit_action = menu.addAction("Edit")
             edit_action.triggered.connect(self._edit_item)
@@ -211,20 +226,18 @@ class ProjectTree(QWidget):
         item = items[0]
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
-        # Get category from folder or parent
+        # Get GPIO type from folder or parent
+        gpio_type = None
         if data.get("type") == "folder":
-            category = data.get("category", "")
-            parent_item = item
+            gpio_type = data.get("gpio_type")
         else:
             parent_item = item.parent()
             if parent_item:
                 parent_data = parent_item.data(0, Qt.ItemDataRole.UserRole)
-                category = parent_data.get("category", "")
-            else:
-                return
+                gpio_type = parent_data.get("gpio_type")
 
-        # Emit signal to open appropriate dialog
-        self.item_added.emit(category)
+        if gpio_type:
+            self.item_added.emit(gpio_type.value)
 
     def _duplicate_item(self):
         """Duplicate selected item."""
@@ -235,17 +248,22 @@ class ProjectTree(QWidget):
         item = items[0]
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
-        if data and data.get("type") != "folder":
-            # Create duplicate
+        if data and data.get("type") == "channel":
             parent = item.parent()
             if parent:
-                new_item = QTreeWidgetItem(parent)
-                new_item.setText(0, item.text(0) + " (Copy)")
-                new_item.setText(1, item.text(1))
-
-                # Deep copy data
                 import copy
                 new_data = copy.deepcopy(data)
+
+                # Update ID
+                channel_data = new_data.get("data", {})
+                old_id = channel_data.get("id", "")
+                channel_data["id"] = f"{old_id}_copy"
+                channel_data["name"] = channel_data.get("name", "") + " (Copy)"
+
+                # Add new item
+                new_item = QTreeWidgetItem(parent)
+                new_item.setText(0, channel_data.get("id", "Copy"))
+                new_item.setText(1, item.text(1))
                 new_item.setData(0, Qt.ItemDataRole.UserRole, new_data)
 
                 self.configuration_changed.emit()
@@ -259,7 +277,7 @@ class ProjectTree(QWidget):
         item = items[0]
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
-        if data and data.get("type") != "folder":
+        if data and data.get("type") == "channel":
             reply = QMessageBox.question(
                 self, "Confirm Delete",
                 f"Delete '{item.text(0)}'?",
@@ -270,7 +288,9 @@ class ProjectTree(QWidget):
                 parent = item.parent()
                 if parent:
                     parent.removeChild(item)
-                    self.item_deleted.emit(data.get("category", ""), data)
+                    gpio_type = data.get("gpio_type")
+                    if gpio_type:
+                        self.item_deleted.emit(gpio_type.value, data)
                     self.configuration_changed.emit()
 
     def _edit_item(self):
@@ -282,148 +302,159 @@ class ProjectTree(QWidget):
         item = items[0]
         data = item.data(0, Qt.ItemDataRole.UserRole)
 
-        if data and data.get("type") != "folder":
-            category = data.get("category", "")
-            self.item_edited.emit(category, data)
+        if data and data.get("type") == "channel":
+            gpio_type = data.get("gpio_type")
+            if gpio_type:
+                self.item_edited.emit(gpio_type.value, data)
+
+    # ========== Add channel methods ==========
+
+    def add_channel(self, gpio_type: GPIOType, channel_data: Dict[str, Any]) -> Optional[QTreeWidgetItem]:
+        """Add a channel to the appropriate folder."""
+        folder = self._get_folder_for_type(gpio_type)
+        if not folder:
+            return None
+
+        item = QTreeWidgetItem(folder)
+        prefix = GPIO_TYPE_PREFIXES.get(gpio_type, "")
+        channel_id = channel_data.get("id", "unnamed")
+
+        # Add prefix if not present
+        if prefix and not channel_id.startswith(prefix):
+            display_id = f"{prefix}{channel_id}"
+        else:
+            display_id = channel_id
+
+        item.setText(0, display_id)
+        item.setText(1, self._get_channel_details(gpio_type, channel_data))
+
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "channel",
+            "gpio_type": gpio_type,
+            "data": channel_data
+        })
+
+        folder.setExpanded(True)
+        return item
+
+    def _get_channel_details(self, gpio_type: GPIOType, data: Dict[str, Any]) -> str:
+        """Get display details string for channel."""
+        if gpio_type == GPIOType.DIGITAL_INPUT:
+            subtype = data.get("subtype", "switch")
+            return subtype.replace("_", " ").title()
+
+        elif gpio_type == GPIOType.ANALOG_INPUT:
+            return f"A{data.get('input_pin', 0)}"
+
+        elif gpio_type == GPIOType.POWER_OUTPUT:
+            return f"Ch{data.get('channel', 0)}"
+
+        elif gpio_type == GPIOType.LOGIC:
+            op = data.get("operation", "and").upper()
+            delay_on = data.get("delay_on_ms", 0)
+            delay_off = data.get("delay_off_ms", 0)
+            if delay_on or delay_off:
+                return f"{op} (+{delay_on}/-{delay_off}ms)"
+            return op
+
+        elif gpio_type == GPIOType.NUMBER:
+            op = data.get("operation", "constant")
+            if op == "constant":
+                val = data.get("constant_value", 0)
+                unit = data.get("unit", "")
+                return f"{val} {unit}".strip()
+            return op
+
+        elif gpio_type == GPIOType.TIMER:
+            mode = data.get("mode", "count_up")
+            h = data.get("limit_hours", 0)
+            m = data.get("limit_minutes", 0)
+            s = data.get("limit_seconds", 0)
+            return f"{mode} ({h}:{m:02d}:{s:02d})"
+
+        elif gpio_type == GPIOType.SWITCH:
+            states = data.get("states", [])
+            return f"{len(states)} states"
+
+        elif gpio_type == GPIOType.TABLE_2D or gpio_type == GPIOType.TABLE_3D:
+            points = data.get("table_data", [])
+            return f"{len(points)} points"
+
+        elif gpio_type == GPIOType.ENUM:
+            items = data.get("items", [])
+            return f"{len(items)} items"
+
+        elif gpio_type == GPIOType.CAN_RX or gpio_type == GPIOType.CAN_TX:
+            msg_id = data.get("message_id", 0)
+            return f"ID: 0x{msg_id:X}"
+
+        elif gpio_type == GPIOType.FILTER:
+            filter_type = data.get("filter_type", "moving_avg")
+            return filter_type.replace("_", " ").title()
+
+        return ""
+
+    # ========== Legacy add methods (for compatibility) ==========
 
     def add_output(self, output_data: Dict[str, Any]):
-        """Add output to tree."""
-        item = QTreeWidgetItem(self.out_folder)
-        item.setText(0, f"o_{output_data.get('name', 'Unnamed')}")
-        item.setText(1, f"Ch{output_data.get('channel', 0)}")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "output",
-            "category": "outputs",
-            "data": output_data
-        })
+        """Add output to tree (legacy)."""
+        self.add_channel(GPIOType.POWER_OUTPUT, output_data)
 
     def add_input(self, input_data: Dict[str, Any]):
-        """Add input to tree."""
-        item = QTreeWidgetItem(self.in_folder)
-        item.setText(0, f"in.{input_data.get('name', 'Unnamed')}")
-        item.setText(1, input_data.get('type', ''))
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "input",
-            "category": "inputs",
-            "data": input_data
-        })
+        """Add input to tree (legacy)."""
+        input_type = input_data.get("type", "analog")
+        if input_type == "digital":
+            self.add_channel(GPIOType.DIGITAL_INPUT, input_data)
+        else:
+            self.add_channel(GPIOType.ANALOG_INPUT, input_data)
 
     def add_logic_function(self, logic_data: Dict[str, Any]):
-        """Add logic function to tree."""
-        item = QTreeWidgetItem(self.functions_folder)
-        item.setText(0, logic_data.get('name', 'Unnamed'))
-
-        # Build formula string
-        operation = logic_data.get('operation', 'AND')
-        item.setText(1, f"{operation}")
-
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "logic",
-            "category": "logic",
-            "data": logic_data
-        })
-
-    def add_hbridge(self, hbridge_data: Dict[str, Any]):
-        """Add H-Bridge to tree."""
-        item = QTreeWidgetItem(self.hbridge_folder)
-        item.setText(0, hbridge_data.get('name', 'Unnamed'))
-        item.setText(1, hbridge_data.get('mode', 'Bidirectional'))
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "hbridge",
-            "category": "hbridge",
-            "data": hbridge_data
-        })
-
-    def add_pid_controller(self, pid_data: Dict[str, Any]):
-        """Add PID controller to tree."""
-        item = QTreeWidgetItem(self.pid_folder)
-        item.setText(0, pid_data.get('name', 'Unnamed'))
-        params = pid_data.get('parameters', {})
-        item.setText(1, f"Kp={params.get('kp', 0)}, Ki={params.get('ki', 0)}, Kd={params.get('kd', 0)}")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "pid",
-            "category": "pid",
-            "data": pid_data
-        })
-
-    def add_lua_script(self, lua_data: Dict[str, Any]):
-        """Add LUA script to tree."""
-        item = QTreeWidgetItem(self.lua_folder)
-        item.setText(0, lua_data.get('name', 'Unnamed'))
-        trigger = lua_data.get('trigger', {})
-        item.setText(1, trigger.get('type', 'Manual'))
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "lua",
-            "category": "lua",
-            "data": lua_data
-        })
+        """Add logic function to tree (legacy)."""
+        self.add_channel(GPIOType.LOGIC, logic_data)
 
     def add_number(self, number_data: Dict[str, Any]):
-        """Add number constant to tree."""
-        item = QTreeWidgetItem(self.numbers_folder)
-        item.setText(0, number_data.get('name', 'Unnamed'))
-        value = number_data.get('value', 0.0)
-        unit = number_data.get('unit', '')
-        item.setText(1, f"{value} {unit}".strip())
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "number",
-            "category": "numbers",
-            "data": number_data
-        })
+        """Add number to tree (legacy)."""
+        self.add_channel(GPIOType.NUMBER, number_data)
 
     def add_switch(self, switch_data: Dict[str, Any]):
-        """Add switch to tree."""
-        item = QTreeWidgetItem(self.switches_folder)
-        item.setText(0, switch_data.get('name', 'Unnamed'))
-        condition = switch_data.get('condition', {})
-        comparison = condition.get('comparison', '>')
-        threshold = condition.get('threshold', 0)
-        item.setText(1, f"{comparison} {threshold}")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "switch",
-            "category": "switches",
-            "data": switch_data
-        })
+        """Add switch to tree (legacy)."""
+        self.add_channel(GPIOType.SWITCH, switch_data)
 
     def add_table(self, table_data: Dict[str, Any]):
-        """Add lookup table to tree."""
-        item = QTreeWidgetItem(self.tables_folder)
-        item.setText(0, table_data.get('name', 'Unnamed'))
-        table_points = table_data.get('table_data', [])
-        item.setText(1, f"{len(table_points)} points")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "table",
-            "category": "tables",
-            "data": table_data
-        })
+        """Add table to tree (legacy)."""
+        self.add_channel(GPIOType.TABLE_2D, table_data)
 
     def add_timer(self, timer_data: Dict[str, Any]):
-        """Add timer to tree."""
-        item = QTreeWidgetItem(self.timers_folder)
-        item.setText(0, timer_data.get('name', 'Unnamed'))
-        mode = timer_data.get('mode', 'On Delay')
-        timing = timer_data.get('timing', {})
-        delay = timing.get('delay_ms', 0)
-        item.setText(1, f"{mode} ({delay}ms)")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "timer",
-            "category": "timers",
-            "data": timer_data
-        })
+        """Add timer to tree (legacy)."""
+        self.add_channel(GPIOType.TIMER, timer_data)
+
+    def add_enum(self, enum_data: Dict[str, Any]):
+        """Add enum to tree."""
+        self.add_channel(GPIOType.ENUM, enum_data)
 
     def add_can_message(self, can_data: Dict[str, Any]):
-        """Add CAN message to tree."""
-        item = QTreeWidgetItem(self.can_folder)
-        item.setText(0, can_data.get('name', 'Unnamed'))
-        msg_id = can_data.get('id', 0)
-        item.setText(1, f"ID: 0x{msg_id:X}")
-        item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": "can",
-            "category": "can",
-            "data": can_data
-        })
+        """Add CAN message to tree (legacy)."""
+        direction = can_data.get("direction", "rx")
+        if direction == "tx":
+            self.add_channel(GPIOType.CAN_TX, can_data)
+        else:
+            self.add_channel(GPIOType.CAN_RX, can_data)
 
-    def update_current_item(self, new_data: Dict[str, Any]):
+    def add_hbridge(self, hbridge_data: Dict[str, Any]):
+        """Add H-Bridge to tree (legacy - maps to power output)."""
+        self.add_channel(GPIOType.POWER_OUTPUT, hbridge_data)
+
+    def add_pid_controller(self, pid_data: Dict[str, Any]):
+        """Add PID controller to tree (legacy - maps to number)."""
+        self.add_channel(GPIOType.NUMBER, pid_data)
+
+    def add_lua_script(self, lua_data: Dict[str, Any]):
+        """Add LUA script to tree (legacy - not in new architecture)."""
+        pass  # LUA scripts are not part of GPIO architecture
+
+    # ========== Update and get methods ==========
+
+    def update_current_item(self, new_data: Dict[str, Any]) -> bool:
         """Update currently selected item with new data."""
         items = self.tree.selectedItems()
         if not items:
@@ -431,149 +462,104 @@ class ProjectTree(QWidget):
 
         item = items[0]
         old_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not old_data or old_data.get("type") == "folder":
+        if not old_data or old_data.get("type") != "channel":
             return False
 
-        category = old_data.get("category", "")
+        gpio_type = old_data.get("gpio_type")
+        if not gpio_type:
+            return False
 
-        # Update the item based on category
-        if category == "outputs":
-            item.setText(0, f"o_{new_data.get('name', 'Unnamed')}")
-            item.setText(1, f"Ch{new_data.get('channel', 0)}")
-        elif category == "inputs":
-            item.setText(0, f"in.{new_data.get('name', 'Unnamed')}")
-            item.setText(1, new_data.get('type', ''))
-        elif category == "logic":
-            item.setText(0, new_data.get('name', 'Unnamed'))
-            operation = new_data.get('operation', 'AND')
-            item.setText(1, f"{operation}")
-        elif category == "hbridge":
-            item.setText(0, new_data.get('name', 'Unnamed'))
-            item.setText(1, new_data.get('mode', 'Bidirectional'))
-        elif category == "pid":
-            item.setText(0, new_data.get('name', 'Unnamed'))
-            params = new_data.get('parameters', {})
-            item.setText(1, f"Kp={params.get('kp', 0)}, Ki={params.get('ki', 0)}, Kd={params.get('kd', 0)}")
-        elif category == "lua":
-            item.setText(0, new_data.get('name', 'Unnamed'))
-            trigger = new_data.get('trigger', {})
-            item.setText(1, trigger.get('type', 'Manual'))
+        # Update display
+        prefix = GPIO_TYPE_PREFIXES.get(gpio_type, "")
+        channel_id = new_data.get("id", "unnamed")
+
+        if prefix and not channel_id.startswith(prefix):
+            display_id = f"{prefix}{channel_id}"
+        else:
+            display_id = channel_id
+
+        item.setText(0, display_id)
+        item.setText(1, self._get_channel_details(gpio_type, new_data))
 
         # Update stored data
         item.setData(0, Qt.ItemDataRole.UserRole, {
-            "type": old_data.get("type"),
-            "category": category,
+            "type": "channel",
+            "gpio_type": gpio_type,
             "data": new_data
         })
 
         self.configuration_changed.emit()
         return True
 
+    def get_channels_by_type(self, gpio_type: GPIOType) -> List[Dict[str, Any]]:
+        """Get all channels of specified type."""
+        channels = []
+        folder = self._get_folder_for_type(gpio_type)
+        if folder:
+            for i in range(folder.childCount()):
+                child = folder.child(i)
+                data = child.data(0, Qt.ItemDataRole.UserRole)
+                if data and data.get("type") == "channel":
+                    channels.append(data.get("data", {}))
+        return channels
+
+    def get_all_channels(self) -> List[Dict[str, Any]]:
+        """Get all channels from all folders."""
+        channels = []
+        for gpio_type in GPIOType:
+            channels.extend(self.get_channels_by_type(gpio_type))
+        return channels
+
+    # ========== Legacy get methods ==========
+
     def get_all_outputs(self) -> List[Dict[str, Any]]:
-        """Get all output configurations."""
-        outputs = []
-        for i in range(self.out_folder.childCount()):
-            child = self.out_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "output":
-                outputs.append(data.get("data", {}))
-        return outputs
+        return self.get_channels_by_type(GPIOType.POWER_OUTPUT)
 
     def get_all_inputs(self) -> List[Dict[str, Any]]:
-        """Get all input configurations."""
-        inputs = []
-        for i in range(self.in_folder.childCount()):
-            child = self.in_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "input":
-                inputs.append(data.get("data", {}))
-        return inputs
+        return (self.get_channels_by_type(GPIOType.DIGITAL_INPUT) +
+                self.get_channels_by_type(GPIOType.ANALOG_INPUT))
 
     def get_all_logic_functions(self) -> List[Dict[str, Any]]:
-        """Get all logic function configurations."""
-        functions = []
-        for i in range(self.functions_folder.childCount()):
-            child = self.functions_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "logic":
-                functions.append(data.get("data", {}))
-        return functions
-
-    def get_all_hbridges(self) -> List[Dict[str, Any]]:
-        """Get all H-Bridge configurations."""
-        hbridges = []
-        for i in range(self.hbridge_folder.childCount()):
-            child = self.hbridge_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "hbridge":
-                hbridges.append(data.get("data", {}))
-        return hbridges
-
-    def get_all_pid_controllers(self) -> List[Dict[str, Any]]:
-        """Get all PID controller configurations."""
-        controllers = []
-        for i in range(self.pid_folder.childCount()):
-            child = self.pid_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "pid":
-                controllers.append(data.get("data", {}))
-        return controllers
-
-    def get_all_lua_scripts(self) -> List[Dict[str, Any]]:
-        """Get all LUA script configurations."""
-        scripts = []
-        for i in range(self.lua_folder.childCount()):
-            child = self.lua_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "lua":
-                scripts.append(data.get("data", {}))
-        return scripts
-
-    def get_all_tables(self) -> List[Dict[str, Any]]:
-        """Get all table configurations."""
-        tables = []
-        for i in range(self.tables_folder.childCount()):
-            child = self.tables_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "table":
-                tables.append(data.get("data", {}))
-        return tables
+        return self.get_channels_by_type(GPIOType.LOGIC)
 
     def get_all_numbers(self) -> List[Dict[str, Any]]:
-        """Get all number configurations."""
-        numbers = []
-        for i in range(self.numbers_folder.childCount()):
-            child = self.numbers_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "number":
-                numbers.append(data.get("data", {}))
-        return numbers
+        return self.get_channels_by_type(GPIOType.NUMBER)
 
     def get_all_switches(self) -> List[Dict[str, Any]]:
-        """Get all switch configurations."""
-        switches = []
-        for i in range(self.switches_folder.childCount()):
-            child = self.switches_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "switch":
-                switches.append(data.get("data", {}))
-        return switches
+        return self.get_channels_by_type(GPIOType.SWITCH)
+
+    def get_all_tables(self) -> List[Dict[str, Any]]:
+        return (self.get_channels_by_type(GPIOType.TABLE_2D) +
+                self.get_channels_by_type(GPIOType.TABLE_3D))
 
     def get_all_timers(self) -> List[Dict[str, Any]]:
-        """Get all timer configurations."""
-        timers = []
-        for i in range(self.timers_folder.childCount()):
-            child = self.timers_folder.child(i)
-            data = child.data(0, Qt.ItemDataRole.UserRole)
-            if data and data.get("type") == "timer":
-                timers.append(data.get("data", {}))
-        return timers
+        return self.get_channels_by_type(GPIOType.TIMER)
+
+    def get_all_hbridges(self) -> List[Dict[str, Any]]:
+        return []  # Mapped to power outputs
+
+    def get_all_pid_controllers(self) -> List[Dict[str, Any]]:
+        return []  # Mapped to numbers
+
+    def get_all_lua_scripts(self) -> List[Dict[str, Any]]:
+        return []  # Not in GPIO architecture
 
     def clear_all(self):
-        """Clear all items from tree (keep folder structure)."""
-        for folder in [self.out_folder, self.in_folder, self.functions_folder,
-                      self.switches_folder, self.can_folder, self.timers_folder,
-                      self.tables_folder, self.numbers_folder, self.hbridge_folder,
-                      self.pid_folder, self.lua_folder]:
-            while folder.childCount() > 0:
-                folder.removeChild(folder.child(0))
+        """Clear all channels from tree (keep folder structure)."""
+        for gpio_type in GPIOType:
+            folder = self._get_folder_for_type(gpio_type)
+            if folder:
+                while folder.childCount() > 0:
+                    folder.removeChild(folder.child(0))
+
+    def load_channels(self, channels: List[Dict[str, Any]]):
+        """Load channels from configuration."""
+        self.clear_all()
+
+        for channel in channels:
+            gpio_type_str = channel.get("gpio_type", "")
+            try:
+                gpio_type = GPIOType(gpio_type_str)
+                self.add_channel(gpio_type, channel)
+            except ValueError:
+                continue

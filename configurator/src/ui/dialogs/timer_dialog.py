@@ -1,203 +1,239 @@
 """
 Timer Configuration Dialog
-Allows creation of timers with various modes
+Supports start/stop channels, edge detection, counting modes and time limits
+Based on ECUMaster ADU timer implementation
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
-    QComboBox, QSpinBox, QDialogButtonBox, QGroupBox, QCheckBox, QLabel
+    QFormLayout, QGroupBox, QComboBox, QSpinBox, QGridLayout,
+    QLabel, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
+from .base_gpio_dialog import BaseGPIODialog
+from models.gpio import GPIOType, EdgeType, TimerMode
 
-class TimerDialog(QDialog):
-    """Dialog for configuring timers."""
 
-    TIMER_MODES = [
-        "On Delay",
-        "Off Delay",
-        "Pulse",
-        "Retentive"
-    ]
+class TimerDialog(BaseGPIODialog):
+    """Dialog for configuring timer channels"""
 
-    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None, available_channels: Optional[List[str]] = None):
-        super().__init__(parent)
-        self.config = config or {}
-        self.available_channels = available_channels or []
-        self._init_ui()
-        self._load_config()
+    def __init__(self, parent=None,
+                 config: Optional[Dict[str, Any]] = None,
+                 available_channels: Optional[Dict[str, List[str]]] = None):
+        super().__init__(parent, config, available_channels, GPIOType.TIMER)
 
-    def _init_ui(self):
-        """Initialize UI."""
-        self.setWindowTitle("Timer Configuration")
-        self.setMinimumWidth(500)
+        # Increase height to avoid scrollbar
+        self.setMinimumHeight(520)
+        self.resize(600, 540)
 
-        layout = QVBoxLayout(self)
+        self._create_trigger_group()
+        self._create_settings_group()
 
-        # Basic settings group
-        basic_group = QGroupBox("Basic Settings")
-        basic_layout = QFormLayout()
+        # Load config if editing
+        if config:
+            self._load_specific_config(config)
 
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Enter timer name...")
-        basic_layout.addRow("Name: *", self.name_edit)
+    def _create_trigger_group(self):
+        """Create start/stop trigger settings group with two-column layout"""
+        trigger_group = QGroupBox("Triggers")
+        layout = QGridLayout()
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
+        row = 0
 
-        self.enabled_check = QCheckBox()
-        self.enabled_check.setChecked(True)
-        basic_layout.addRow("Enabled:", self.enabled_check)
-
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(self.TIMER_MODES)
-        self.mode_combo.currentTextChanged.connect(self._on_mode_changed)
-        basic_layout.addRow("Mode:", self.mode_combo)
-
-        basic_group.setLayout(basic_layout)
-        layout.addWidget(basic_group)
-
-        # Trigger group
-        trigger_group = QGroupBox("Trigger")
-        trigger_layout = QFormLayout()
-
-        self.trigger_channel_combo = QComboBox()
-        self.trigger_channel_combo.setEditable(True)
-        self.trigger_channel_combo.addItems(self.available_channels)
-        self.trigger_channel_combo.setPlaceholderText("Select trigger channel...")
-        trigger_layout.addRow("Trigger Channel:", self.trigger_channel_combo)
-
-        self.trigger_invert_check = QCheckBox("Invert trigger (active low)")
-        trigger_layout.addRow("", self.trigger_invert_check)
-
-        trigger_group.setLayout(trigger_layout)
-        layout.addWidget(trigger_group)
-
-        # Timing group
-        timing_group = QGroupBox("Timing")
-        timing_layout = QFormLayout()
-
-        delay_layout = QHBoxLayout()
-        self.delay_spin = QSpinBox()
-        self.delay_spin.setRange(0, 3600000)  # 0 to 1 hour in ms
-        self.delay_spin.setValue(1000)
-        self.delay_spin.setSuffix(" ms")
-        delay_layout.addWidget(self.delay_spin)
-        timing_layout.addRow("Delay:", delay_layout)
-
-        # Pulse duration (only for Pulse mode)
-        pulse_layout = QHBoxLayout()
-        self.pulse_spin = QSpinBox()
-        self.pulse_spin.setRange(1, 3600000)
-        self.pulse_spin.setValue(100)
-        self.pulse_spin.setSuffix(" ms")
-        self.pulse_label = QLabel("Pulse Duration:")
-        pulse_layout.addWidget(self.pulse_spin)
-        timing_layout.addRow(self.pulse_label, pulse_layout)
-
-        timing_group.setLayout(timing_layout)
-        layout.addWidget(timing_group)
-
-        # Behavior
-        behavior_group = QGroupBox("Behavior")
-        behavior_layout = QVBoxLayout()
-
-        self.reset_on_trigger_check = QCheckBox("Reset on trigger loss")
-        behavior_layout.addWidget(self.reset_on_trigger_check)
-
-        self.one_shot_check = QCheckBox("One-shot mode (requires reset)")
-        behavior_layout.addWidget(self.one_shot_check)
-
-        behavior_group.setLayout(behavior_layout)
-        layout.addWidget(behavior_group)
-
-        # Mode description
-        self.mode_desc_label = QLabel()
-        self.mode_desc_label.setWordWrap(True)
-        self.mode_desc_label.setStyleSheet("color: gray; padding: 5px;")
-        layout.addWidget(self.mode_desc_label)
-
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
+        # Start channel selector (full width)
+        layout.addWidget(QLabel("Start Channel: *"), row, 0)
+        self.start_channel_widget, self.start_channel_edit = self._create_channel_selector(
+            "Select channel that starts the timer..."
         )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        layout.addWidget(self.start_channel_widget, row, 1, 1, 3)
+        row += 1
 
-        # Update mode description
-        self._on_mode_changed(self.mode_combo.currentText())
+        # Start edge and Stop edge in same row
+        layout.addWidget(QLabel("Start Edge:"), row, 0)
+        self.start_edge_combo = self._create_edge_combo(include_both=False)
+        layout.addWidget(self.start_edge_combo, row, 1)
 
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
+        layout.addWidget(QLabel("Stop Edge:"), row, 2)
+        self.stop_edge_combo = self._create_edge_combo(include_both=False)
+        self.stop_edge_combo.setCurrentIndex(1)  # Default to Falling
+        layout.addWidget(self.stop_edge_combo, row, 3)
+        row += 1
 
-        # Validate name (required field)
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
+        # Stop channel selector (full width)
+        layout.addWidget(QLabel("Stop Channel:"), row, 0)
+        self.stop_channel_widget, self.stop_channel_edit = self._create_channel_selector(
+            "Select channel that stops the timer (optional)..."
+        )
+        layout.addWidget(self.stop_channel_widget, row, 1, 1, 3)
+        row += 1
 
-        self.accept()
+        # Info
+        info = QLabel(
+            "Timer starts when start edge is detected on start channel.\n"
+            "If stop channel is not set, timer stops when reaching the limit."
+        )
+        info.setStyleSheet("color: #666; font-style: italic;")
+        layout.addWidget(info, row, 0, 1, 4)
 
-    def _on_mode_changed(self, mode: str):
-        """Handle mode change."""
-        # Show/hide pulse duration based on mode
-        is_pulse = mode == "Pulse"
-        self.pulse_label.setVisible(is_pulse)
-        self.pulse_spin.setVisible(is_pulse)
+        trigger_group.setLayout(layout)
+        self.content_layout.addWidget(trigger_group)
 
-        # Update description
-        descriptions = {
-            "On Delay": "Output turns ON after delay when trigger becomes active.",
-            "Off Delay": "Output turns OFF after delay when trigger becomes inactive.",
-            "Pulse": "Output generates a pulse of fixed duration when triggered.",
-            "Retentive": "Timer accumulates time while trigger is active, retains value when inactive."
-        }
-        self.mode_desc_label.setText(descriptions.get(mode, ""))
+    def _create_settings_group(self):
+        """Create mode and limit settings group with two-column layout"""
+        settings_group = QGroupBox("Settings")
+        layout = QGridLayout()
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
+        row = 0
 
-    def _load_config(self):
-        """Load configuration into UI."""
-        if not self.config:
-            return
+        # Mode selection
+        layout.addWidget(QLabel("Mode:"), row, 0)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Count up", TimerMode.COUNT_UP.value)
+        self.mode_combo.addItem("Count down", TimerMode.COUNT_DOWN.value)
+        self.mode_combo.setToolTip(
+            "Count Up: starts at 0 and counts up to limit\n"
+            "Count Down: starts at limit and counts down to 0"
+        )
+        layout.addWidget(self.mode_combo, row, 1)
+        row += 1
 
-        self.name_edit.setText(self.config.get("name", ""))
-        self.enabled_check.setChecked(self.config.get("enabled", True))
+        # Time limit - all three spinboxes in one row
+        layout.addWidget(QLabel("Time Limit:"), row, 0)
 
-        mode = self.config.get("mode", "On Delay")
-        idx = self.mode_combo.findText(mode)
-        if idx >= 0:
-            self.mode_combo.setCurrentIndex(idx)
+        # Container for h:m:s spinboxes
+        limit_container = QWidget()
+        limit_layout = QGridLayout(limit_container)
+        limit_layout.setContentsMargins(0, 0, 0, 0)
 
-        trigger = self.config.get("trigger", {})
-        channel = trigger.get("channel", "")
-        if channel:
-            self.trigger_channel_combo.setCurrentText(channel)
-        self.trigger_invert_check.setChecked(trigger.get("invert", False))
+        # Hours
+        self.hours_spin = QSpinBox()
+        self.hours_spin.setRange(0, 999)
+        self.hours_spin.setValue(0)
+        self.hours_spin.setSuffix(" h")
+        limit_layout.addWidget(self.hours_spin, 0, 0)
 
-        timing = self.config.get("timing", {})
-        self.delay_spin.setValue(timing.get("delay_ms", 1000))
-        self.pulse_spin.setValue(timing.get("pulse_duration_ms", 100))
+        # Minutes
+        self.minutes_spin = QSpinBox()
+        self.minutes_spin.setRange(0, 59)
+        self.minutes_spin.setValue(1)
+        self.minutes_spin.setSuffix(" min")
+        limit_layout.addWidget(self.minutes_spin, 0, 1)
 
-        behavior = self.config.get("behavior", {})
-        self.reset_on_trigger_check.setChecked(behavior.get("reset_on_trigger_loss", False))
-        self.one_shot_check.setChecked(behavior.get("one_shot", False))
+        # Seconds
+        self.seconds_spin = QSpinBox()
+        self.seconds_spin.setRange(0, 59)
+        self.seconds_spin.setValue(0)
+        self.seconds_spin.setSuffix(" s")
+        limit_layout.addWidget(self.seconds_spin, 0, 2)
+
+        layout.addWidget(limit_container, row, 1, 1, 3)
+        row += 1
+
+        # Total seconds display
+        self.total_label = QLabel("Total: 60 seconds")
+        self.total_label.setStyleSheet("color: #0078d4;")
+        layout.addWidget(self.total_label, row, 1, 1, 3)
+        row += 1
+
+        # Connect spinboxes to update total
+        self.hours_spin.valueChanged.connect(self._update_total)
+        self.minutes_spin.valueChanged.connect(self._update_total)
+        self.seconds_spin.valueChanged.connect(self._update_total)
+
+        # Info
+        info = QLabel(
+            "Count Up: Timer value goes 0 -> Limit\n"
+            "Count Down: Timer value goes Limit -> 0"
+        )
+        info.setStyleSheet("color: #666; font-style: italic;")
+        layout.addWidget(info, row, 0, 1, 4)
+
+        settings_group.setLayout(layout)
+        self.content_layout.addWidget(settings_group)
+
+    def _update_total(self):
+        """Update total seconds display"""
+        total = (
+            self.hours_spin.value() * 3600 +
+            self.minutes_spin.value() * 60 +
+            self.seconds_spin.value()
+        )
+
+        if total >= 3600:
+            hours = total // 3600
+            minutes = (total % 3600) // 60
+            seconds = total % 60
+            self.total_label.setText(f"Total: {hours}h {minutes}m {seconds}s ({total} seconds)")
+        elif total >= 60:
+            minutes = total // 60
+            seconds = total % 60
+            self.total_label.setText(f"Total: {minutes}m {seconds}s ({total} seconds)")
+        else:
+            self.total_label.setText(f"Total: {total} seconds")
+
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load type-specific configuration"""
+        # Start channel
+        self.start_channel_edit.setText(config.get("start_channel", ""))
+        self._set_edge_combo_value(
+            self.start_edge_combo,
+            config.get("start_edge", "rising")
+        )
+
+        # Stop channel
+        self.stop_channel_edit.setText(config.get("stop_channel", ""))
+        self._set_edge_combo_value(
+            self.stop_edge_combo,
+            config.get("stop_edge", "falling")
+        )
+
+        # Mode
+        mode = config.get("mode", "count_up")
+        for i in range(self.mode_combo.count()):
+            if self.mode_combo.itemData(i) == mode:
+                self.mode_combo.setCurrentIndex(i)
+                break
+
+        # Limit
+        self.hours_spin.setValue(config.get("limit_hours", 0))
+        self.minutes_spin.setValue(config.get("limit_minutes", 1))
+        self.seconds_spin.setValue(config.get("limit_seconds", 0))
+
+        self._update_total()
+
+    def _validate_specific(self) -> List[str]:
+        """Validate type-specific fields"""
+        errors = []
+
+        if not self.start_channel_edit.text().strip():
+            errors.append("Start channel is required")
+
+        total_time = (
+            self.hours_spin.value() * 3600 +
+            self.minutes_spin.value() * 60 +
+            self.seconds_spin.value()
+        )
+        if total_time == 0:
+            errors.append("Time limit must be greater than 0")
+
+        return errors
 
     def get_config(self) -> Dict[str, Any]:
-        """Get configuration from UI."""
-        return {
-            "name": self.name_edit.text(),
-            "enabled": self.enabled_check.isChecked(),
-            "mode": self.mode_combo.currentText(),
-            "trigger": {
-                "channel": self.trigger_channel_combo.currentText(),
-                "invert": self.trigger_invert_check.isChecked()
-            },
-            "timing": {
-                "delay_ms": self.delay_spin.value(),
-                "pulse_duration_ms": self.pulse_spin.value()
-            },
-            "behavior": {
-                "reset_on_trigger_loss": self.reset_on_trigger_check.isChecked(),
-                "one_shot": self.one_shot_check.isChecked()
-            }
-        }
+        """Get full configuration"""
+        config = self.get_base_config()
+
+        config.update({
+            "start_channel": self.start_channel_edit.text().strip(),
+            "start_edge": self._get_edge_combo_value(self.start_edge_combo),
+            "stop_channel": self.stop_channel_edit.text().strip(),
+            "stop_edge": self._get_edge_combo_value(self.stop_edge_combo),
+            "mode": self.mode_combo.currentData(),
+            "limit_hours": self.hours_spin.value(),
+            "limit_minutes": self.minutes_spin.value(),
+            "limit_seconds": self.seconds_spin.value()
+        })
+
+        return config

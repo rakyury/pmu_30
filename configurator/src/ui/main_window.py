@@ -768,7 +768,7 @@ class MainWindow(QMainWindow):
         about_text = f"""
         <h2>PMU-30 Configurator</h2>
         <p>Version 1.0.0</p>
-        <p>Professional 30-channel Power Distribution Module</p>
+        <p>Professional 30-channel Power Management Unit</p>
         <br>
         <p><b>Owner:</b> R2 m-sport</p>
         <p><b>Date:</b> 2025</p>

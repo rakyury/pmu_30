@@ -1,6 +1,7 @@
 """
 Main Window - ECUMaster Style
 Dock-based layout with project tree and monitoring panels
+Unified GPIO architecture support
 """
 
 import logging
@@ -12,28 +13,35 @@ from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
 
 from .widgets import ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector
+
+# New GPIO dialogs
+from .dialogs.digital_input_dialog import DigitalInputDialog
+from .dialogs.analog_input_dialog import AnalogInputDialog
+from .dialogs.logic_dialog import LogicDialog
+from .dialogs.timer_dialog import TimerDialog
+from .dialogs.enum_dialog import EnumDialog
+from .dialogs.number_dialog import NumberDialog
+from .dialogs.filter_dialog import FilterDialog
+from .dialogs.table_2d_dialog import Table2DDialog
+from .dialogs.table_3d_dialog import Table3DDialog
+
+# Existing dialogs (to be migrated later)
 from .dialogs.output_config_dialog import OutputConfigDialog
 from .dialogs.input_config_dialog import InputConfigDialog
-from .dialogs.logic_function_dialog import LogicFunctionDialog
-from .dialogs.hbridge_dialog import HBridgeDialog
-from .dialogs.pid_controller_dialog import PIDControllerDialog
-from .dialogs.lua_script_dialog import LuaScriptDialog
-from .dialogs.number_dialog import NumberDialog
 from .dialogs.switch_dialog import SwitchDialog
-from .dialogs.table_dialog import TableDialog
-from .dialogs.timer_dialog import TimerDialog
 from .dialogs.can_message_dialog import CANMessageDialog
 from .dialogs.connection_dialog import ConnectionDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
+from models.gpio import GPIOType
 from utils.theme import ThemeManager
 
 logger = logging.getLogger(__name__)
 
 
 class MainWindowECUMaster(QMainWindow):
-    """Main window with ECUMaster-style layout."""
+    """Main window with ECUMaster-style layout and unified GPIO architecture."""
 
     # Signals
     configuration_changed = pyqtSignal()
@@ -55,7 +63,7 @@ class MainWindowECUMaster(QMainWindow):
 
         self._init_ui()
         self._setup_menubar()
-        self._update_desktop_menu()  # Update desktop menu after it's created
+        self._update_desktop_menu()
         self._setup_statusbar()
         self._setup_connections()
 
@@ -68,7 +76,7 @@ class MainWindowECUMaster(QMainWindow):
         # Restore window geometry and state
         self._restore_layout()
 
-        logger.info("ECUMaster-style main window initialized")
+        logger.info("ECUMaster-style main window initialized with GPIO architecture")
 
     def _init_ui(self):
         """Initialize user interface."""
@@ -93,11 +101,12 @@ class MainWindowECUMaster(QMainWindow):
             QMainWindow.DockOption.AllowTabbedDocks
         )
 
-        # Create empty central widget
+        # Hide central widget - all content in docks
         central = QWidget()
+        central.hide()
         self.setCentralWidget(central)
 
-        # Create dock widgets (including Project Tree)
+        # Create dock widgets
         self._create_dock_widgets()
 
     def _create_dock_widgets(self):
@@ -191,7 +200,7 @@ class MainWindowECUMaster(QMainWindow):
         settings_action.triggered.connect(self.show_settings)
         edit_menu.addAction(settings_action)
 
-        # Desktops menu (for layouts)
+        # Desktops menu
         desktops_menu = menubar.addMenu("Desktops")
 
         restore_desktops_action = QAction("Restore desktops", self)
@@ -226,7 +235,6 @@ class MainWindowECUMaster(QMainWindow):
 
         desktops_menu.addSeparator()
 
-        # Switch desktop submenu
         self.switch_desktop_menu = desktops_menu.addMenu("Switch desktop to...")
 
         prev_desktop_action = QAction("Previous desktop", self)
@@ -270,7 +278,7 @@ class MainWindowECUMaster(QMainWindow):
         data_logger_action = QAction("Data Logger", self)
         tools_menu.addAction(data_logger_action)
 
-        # Windows menu (for dock widgets)
+        # Windows menu
         windows_menu = menubar.addMenu("Windows")
 
         project_tree_action = self.project_tree_dock.toggleViewAction()
@@ -304,7 +312,6 @@ class MainWindowECUMaster(QMainWindow):
         from PyQt6.QtWidgets import QStyleFactory
         available_styles = QStyleFactory.keys()
 
-        from PyQt6.QtGui import QActionGroup
         self.style_group = QActionGroup(self)
         self.style_group.setExclusive(True)
 
@@ -319,7 +326,6 @@ class MainWindowECUMaster(QMainWindow):
         for style_name in available_styles:
             action = QAction(style_name, self)
             action.setCheckable(True)
-            # Set Fusion as default
             if style_name == "Fusion":
                 action.setChecked(True)
             action.triggered.connect(lambda checked, s=style_name: self.change_style(s))
@@ -343,20 +349,17 @@ class MainWindowECUMaster(QMainWindow):
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
 
-        # Status message
         self.status_message = QLabel("Ready")
         self.statusbar.addWidget(self.status_message)
 
         self.statusbar.addWidget(QLabel(" | "))
 
-        # Device status
         self.device_status_label = QLabel("OFFLINE")
         self.device_status_label.setStyleSheet("color: #ef4444;")
         self.statusbar.addWidget(self.device_status_label)
 
         self.statusbar.addWidget(QLabel(" | "))
 
-        # CAN status
         self.can1_label = QLabel("CAN1:")
         self.statusbar.addWidget(self.can1_label)
 
@@ -367,259 +370,272 @@ class MainWindowECUMaster(QMainWindow):
 
         self.statusbar.addWidget(QLabel(" | "))
 
-        # Outputs status
         self.outputs_status_label = QLabel("OUTPUTS:")
         self.statusbar.addPermanentWidget(self.outputs_status_label)
 
-        # Update timer
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._update_statusbar)
         self.status_timer.start(500)
 
     def _update_statusbar(self):
         """Update status bar."""
-        # Update from configuration
         pass
 
     def _setup_connections(self):
         """Setup signal connections."""
-        # Project tree signals
         self.project_tree.item_added.connect(self._on_item_add_requested)
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
 
-    def _on_item_add_requested(self, category: str):
-        """Handle request to add new item."""
-        if category == "outputs":
-            self._add_output()
-        elif category == "inputs":
-            self._add_input()
-        elif category == "logic":
-            self._add_logic_function()
-        elif category == "hbridge":
-            self._add_hbridge()
-        elif category == "pid":
-            self._add_pid_controller()
-        elif category == "lua":
-            self._add_lua_script()
-        elif category == "numbers":
-            self._add_number()
-        elif category == "switches":
-            self._add_switch()
-        elif category == "tables":
-            self._add_table()
-        elif category == "timers":
-            self._add_timer()
-        elif category == "can":
-            self._add_can_message()
+    def _on_item_add_requested(self, gpio_type_str: str):
+        """Handle request to add new item by GPIO type."""
+        try:
+            gpio_type = GPIOType(gpio_type_str)
+        except ValueError:
+            return
 
-    def _on_item_edit_requested(self, category: str, data: dict):
-        """Handle request to edit item."""
-        item_data = data.get("data", {})
+        available_channels = self._get_available_channels()
 
-        if category == "outputs":
-            available_channels = self._get_available_channels()
-            dialog = OutputConfigDialog(self, item_data, [], available_channels)
+        if gpio_type == GPIOType.DIGITAL_INPUT:
+            dialog = DigitalInputDialog(self, None, available_channels)
             if dialog.exec():
-                # Get updated config from dialog
-                updated_config = dialog.get_config()
-                # Update the tree item
-                self.project_tree.update_current_item(updated_config)
-                # Update monitor
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.ANALOG_INPUT:
+            dialog = AnalogInputDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.POWER_OUTPUT:
+            dialog = OutputConfigDialog(self, None, [], available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
                 self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+                self.configuration_changed.emit()
 
-        elif category == "inputs":
-            dialog = InputConfigDialog(self, item_data, [])
+        elif gpio_type == GPIOType.LOGIC:
+            dialog = LogicDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.NUMBER:
+            dialog = NumberDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.TIMER:
+            dialog = TimerDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.SWITCH:
+            dialog = SwitchDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.TABLE_2D:
+            dialog = Table2DDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.TABLE_3D:
+            dialog = Table3DDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.ENUM:
+            dialog = EnumDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.FILTER:
+            dialog = FilterDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+        elif gpio_type == GPIOType.CAN_RX or gpio_type == GPIOType.CAN_TX:
+            dialog = CANMessageDialog(self, None)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(gpio_type, config)
+                self.configuration_changed.emit()
+
+    def _on_item_edit_requested(self, gpio_type_str: str, data: dict):
+        """Handle request to edit item by GPIO type."""
+        try:
+            gpio_type = GPIOType(gpio_type_str)
+        except ValueError:
+            return
+
+        item_data = data.get("data", {})
+        available_channels = self._get_available_channels()
+
+        if gpio_type == GPIOType.DIGITAL_INPUT:
+            dialog = DigitalInputDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
-                # Update monitor
+
+        elif gpio_type == GPIOType.ANALOG_INPUT:
+            dialog = AnalogInputDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
                 self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
 
-        elif category == "logic":
-            dialog = LogicFunctionDialog(self, item_data)
+        elif gpio_type == GPIOType.POWER_OUTPUT:
+            dialog = OutputConfigDialog(self, item_data, [], available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+                self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+
+        elif gpio_type == GPIOType.LOGIC:
+            dialog = LogicDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif category == "hbridge":
-            channel = item_data.get("channel", 0)
-            dialog = HBridgeDialog(self, channel, item_data)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-
-        elif category == "pid":
-            dialog = PIDControllerDialog(self, item_data)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-
-        elif category == "lua":
-            dialog = LuaScriptDialog(self, item_data)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-
-        elif category == "switches":
-            available_channels = self._get_available_channels()
-            dialog = SwitchDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-
-        elif category == "numbers":
-            available_channels = self._get_available_channels()
+        elif gpio_type == GPIOType.NUMBER:
             dialog = NumberDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
+        elif gpio_type == GPIOType.TIMER:
+            dialog = TimerDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.SWITCH:
+            dialog = SwitchDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.TABLE_2D:
+            dialog = Table2DDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.TABLE_3D:
+            dialog = Table3DDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.ENUM:
+            dialog = EnumDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.FILTER:
+            dialog = FilterDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif gpio_type == GPIOType.CAN_RX or gpio_type == GPIOType.CAN_TX:
+            dialog = CANMessageDialog(self, item_data)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
     def _get_available_channels(self) -> dict:
-        """Get all available channels for selection."""
+        """Get all available channels for selection organized by GPIO type."""
         channels = {
-            "inputs_physical": [f"in.{i}" for i in range(20)],
-            "outputs_physical": [f"out.{i}" for i in range(30)],
-            "functions": [],
-            "tables": [],
+            # New GPIO format
+            "digital_inputs": [],
+            "analog_inputs": [],
+            "power_outputs": [],
+            "logic": [],
             "numbers": [],
+            "tables_2d": [],
+            "tables_3d": [],
             "switches": [],
             "timers": [],
-            "pid_controllers": [],
-            "hbridge": [],
-            "can_signals": []
+            "filters": [],
+            "enums": [],
+            "can_rx": [],
+            "can_tx": [],
+            # Legacy format for backwards compatibility
+            "inputs_physical": [f"in.{i}" for i in range(20)],
+            "outputs_physical": [f"out.{i}" for i in range(30)],
         }
 
-        # Add logic functions
-        for func in self.project_tree.get_all_logic_functions():
-            channels["functions"].append(func.get("name", ""))
+        # Add channels from project tree
+        for ch in self.project_tree.get_channels_by_type(GPIOType.DIGITAL_INPUT):
+            channels["digital_inputs"].append(ch.get("id", ""))
 
-        # Add tables
-        for table in self.project_tree.get_all_tables():
-            channels["tables"].append(table.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.ANALOG_INPUT):
+            channels["analog_inputs"].append(ch.get("id", ""))
 
-        # Add numbers
-        for num in self.project_tree.get_all_numbers():
-            channels["numbers"].append(num.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.POWER_OUTPUT):
+            channels["power_outputs"].append(ch.get("id", ""))
 
-        # Add switches
-        for switch in self.project_tree.get_all_switches():
-            channels["switches"].append(switch.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.LOGIC):
+            channels["logic"].append(ch.get("id", ""))
 
-        # Add timers
-        for timer in self.project_tree.get_all_timers():
-            channels["timers"].append(timer.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.NUMBER):
+            channels["numbers"].append(ch.get("id", ""))
 
-        # Add PID controllers
-        for pid in self.project_tree.get_all_pid_controllers():
-            channels["pid_controllers"].append(pid.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.TABLE_2D):
+            channels["tables_2d"].append(ch.get("id", ""))
 
-        # Add H-Bridges
-        for hb in self.project_tree.get_all_hbridges():
-            channels["hbridge"].append(hb.get("name", ""))
+        for ch in self.project_tree.get_channels_by_type(GPIOType.TABLE_3D):
+            channels["tables_3d"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.SWITCH):
+            channels["switches"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.TIMER):
+            channels["timers"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.FILTER):
+            channels["filters"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.ENUM):
+            channels["enums"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.CAN_RX):
+            channels["can_rx"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(GPIOType.CAN_TX):
+            channels["can_tx"].append(ch.get("id", ""))
 
         return channels
-
-    def _add_output(self):
-        """Add new output."""
-        available_channels = self._get_available_channels()
-        dialog = OutputConfigDialog(self, None, [], available_channels)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_output(config)
-            # Update monitor
-            self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
-            self.configuration_changed.emit()
-
-    def _add_input(self):
-        """Add new input."""
-        dialog = InputConfigDialog(self, None, [])
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_input(config)
-            # Update monitor
-            self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
-            self.configuration_changed.emit()
-
-    def _add_logic_function(self):
-        """Add new logic function."""
-        dialog = LogicFunctionDialog(self, None)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_logic_function(config)
-            self.configuration_changed.emit()
-
-    def _add_hbridge(self):
-        """Add new H-Bridge."""
-        dialog = HBridgeDialog(self, 0, None)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_hbridge(config)
-            self.configuration_changed.emit()
-
-    def _add_pid_controller(self):
-        """Add new PID controller."""
-        dialog = PIDControllerDialog(self, None)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_pid_controller(config)
-            self.configuration_changed.emit()
-
-    def _add_lua_script(self):
-        """Add new LUA script."""
-        dialog = LuaScriptDialog(self, None)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_lua_script(config)
-            self.configuration_changed.emit()
-
-    def _add_number(self):
-        """Add new number constant."""
-        available_channels = self._get_available_channels()
-        dialog = NumberDialog(self, None, available_channels)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_number(config)
-            self.configuration_changed.emit()
-
-    def _add_switch(self):
-        """Add new switch."""
-        available_channels = self._get_available_channels()
-        dialog = SwitchDialog(self, None, available_channels)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_switch(config)
-            self.configuration_changed.emit()
-
-    def _add_table(self):
-        """Add new lookup table."""
-        dialog = TableDialog(self, None, [])
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_table(config)
-            self.configuration_changed.emit()
-
-    def _add_timer(self):
-        """Add new timer."""
-        dialog = TimerDialog(self, None, [])
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_timer(config)
-            self.configuration_changed.emit()
-
-    def _add_can_message(self):
-        """Add new CAN message."""
-        dialog = CANMessageDialog(self, None)
-        if dialog.exec():
-            config = dialog.get_config()
-            self.project_tree.add_can_message(config)
-            self.configuration_changed.emit()
 
     def _on_config_changed(self):
         """Handle configuration change."""
         self.config_manager.modified = True
 
-    # Menu actions
+    # ========== Menu actions ==========
+
     def new_configuration(self):
         """Create new configuration."""
         if self.config_manager.is_modified():
@@ -693,66 +709,53 @@ class MainWindowECUMaster(QMainWindow):
         # Clear tree
         self.project_tree.clear_all()
 
-        # Load outputs
-        for output in config.get("outputs", []):
-            self.project_tree.add_output(output)
+        # Load channels (new format)
+        channels = config.get("channels", [])
+        if channels:
+            self.project_tree.load_channels(channels)
+        else:
+            # Legacy format support
+            for output in config.get("outputs", []):
+                self.project_tree.add_output(output)
 
-        # Load inputs
-        for input_data in config.get("inputs", []):
-            self.project_tree.add_input(input_data)
+            for input_data in config.get("inputs", []):
+                self.project_tree.add_input(input_data)
 
-        # Load logic functions
-        for logic in config.get("logic_functions", []):
-            self.project_tree.add_logic_function(logic)
+            for logic in config.get("logic_functions", []):
+                self.project_tree.add_logic_function(logic)
 
-        # Load H-Bridge
-        for hb in config.get("hbridge", []):
-            self.project_tree.add_hbridge(hb)
+            for timer in config.get("timers", []):
+                self.project_tree.add_timer(timer)
 
-        # Load PID
-        for pid in config.get("pid_controllers", []):
-            self.project_tree.add_pid_controller(pid)
+            for num in config.get("numbers", []):
+                self.project_tree.add_number(num)
 
-        # Load LUA
-        for lua in config.get("lua_scripts", []):
-            self.project_tree.add_lua_script(lua)
+            for switch in config.get("switches", []):
+                self.project_tree.add_switch(switch)
+
+            for table in config.get("tables", []):
+                self.project_tree.add_table(table)
 
         # Update monitors
-        self.output_monitor.set_outputs(config.get("outputs", []))
-        self.analog_monitor.set_inputs(config.get("inputs", []))
+        self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+        self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
 
     def _save_config_from_ui(self):
         """Save configuration from UI."""
-        # Collect all data from project tree
         config = self.config_manager.get_config()
 
-        # Update outputs
-        config["outputs"] = self.project_tree.get_all_outputs()
+        # Save as new format with channels array
+        config["channels"] = self.project_tree.get_all_channels()
 
-        # Update inputs
-        config["inputs"] = self.project_tree.get_all_inputs()
+        # Clear legacy arrays
+        config["outputs"] = []
+        config["inputs"] = []
+        config["logic_functions"] = []
+        config["timers"] = []
+        config["numbers"] = []
+        config["switches"] = []
+        config["tables"] = []
 
-        # Update logic functions
-        config["logic_functions"] = self.project_tree.get_all_logic_functions()
-
-        # Update H-Bridge
-        config["hbridge"] = self.project_tree.get_all_hbridges()
-
-        # Update PID controllers
-        config["pid_controllers"] = self.project_tree.get_all_pid_controllers()
-
-        # Update LUA scripts
-        config["lua_scripts"] = self.project_tree.get_all_lua_scripts()
-
-        # CAN messages and settings would be handled separately when those tabs are implemented
-        # For now, preserve existing values if any
-        if "can_messages" not in config:
-            config["can_messages"] = []
-        if "settings" not in config:
-            config["settings"] = {}
-
-        # No need to call set_config - we modified the dict directly (it's a reference)
-        # Mark as modified so save will work
         self.config_manager.modified = True
 
     def connect_device(self):
@@ -762,7 +765,6 @@ class MainWindowECUMaster(QMainWindow):
             config = dialog.get_connection_config()
             self.status_message.setText(f"Connecting to {config.get('type')}...")
 
-            # Attempt connection using device controller
             success = self.device_controller.connect(config)
 
             if success:
@@ -772,7 +774,7 @@ class MainWindowECUMaster(QMainWindow):
                 QMessageBox.information(self, "Connected", "Successfully connected to PMU-30 device.")
             else:
                 self.status_message.setText("Connection failed")
-                QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.\nPlease check connection settings and try again.")
+                QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.")
         else:
             self.status_message.setText("Connection cancelled")
 
@@ -822,8 +824,9 @@ class MainWindowECUMaster(QMainWindow):
         """Show about dialog."""
         QMessageBox.about(
             self, "About PMU-30 Configurator",
-            "<b>PMU-30 Power Distribution Module Configurator</b><br><br>"
-            "Version: 1.0.0<br>"
+            "<b>PMU-30 Power Management Unit Configurator</b><br><br>"
+            "Version: 2.0.0<br>"
+            "GPIO Architecture: Unified Channels<br><br>"
             "© 2025 R2 m-sport. All rights reserved.<br><br>"
             "ECUMaster-style interface"
         )
@@ -856,7 +859,6 @@ class MainWindowECUMaster(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
-            # Always apply light theme (dark_mode = False)
             ThemeManager.toggle_theme(app, False)
 
     def change_style(self, style_name: str):
@@ -871,7 +873,6 @@ class MainWindowECUMaster(QMainWindow):
 
         if style_name == "Fluent":
             app.setStyle("Fusion")
-            # Always use light theme
             ThemeManager.toggle_theme(app, False)
         else:
             app.setStyle(QStyleFactory.create(style_name))
@@ -879,7 +880,8 @@ class MainWindowECUMaster(QMainWindow):
 
         self.update()
 
-    # Desktop management methods
+    # ========== Desktop management ==========
+
     def _load_desktops(self):
         """Load saved desktops from settings."""
         desktop_count = self.settings.value("desktops/count", 1, type=int)
@@ -890,7 +892,6 @@ class MainWindowECUMaster(QMainWindow):
             if geometry and state:
                 self.desktops[name] = {"geometry": geometry, "state": state}
 
-        # Always have at least a default desktop
         if "Default" not in self.desktops:
             self.desktops["Default"] = {}
 
@@ -898,7 +899,6 @@ class MainWindowECUMaster(QMainWindow):
 
     def _update_desktop_menu(self):
         """Update switch desktop submenu."""
-        # Check if menu exists (it's created in _setup_menubar)
         if not hasattr(self, 'switch_desktop_menu'):
             return
 
@@ -1001,7 +1001,8 @@ class MainWindowECUMaster(QMainWindow):
 
     def _replace_pane(self):
         """Replace current pane with another."""
-        QMessageBox.information(self, "Replace Pane", "Close the pane you want to replace, then use 'Add new pane' to add the desired pane.")
+        QMessageBox.information(self, "Replace Pane",
+                                "Close the pane you want to replace, then use 'Add new pane'.")
 
     def _switch_to_desktop(self, name: str):
         """Switch to specified desktop."""
@@ -1032,10 +1033,8 @@ class MainWindowECUMaster(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close."""
-        # Save layout
         self.save_layout()
 
-        # Check for unsaved changes
         if self.config_manager.is_modified():
             reply = QMessageBox.question(
                 self, "Unsaved Changes",

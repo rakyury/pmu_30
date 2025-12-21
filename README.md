@@ -1,6 +1,6 @@
-# PMU-30 - Automotive Power Distribution Module
+# PMU-30 - Automotive Power Management Unit
 
-Professional 30-channel Power Distribution Module for motorsport applications.
+Professional 30-channel Power Management Unit for motorsport applications.
 
 ## Overview
 

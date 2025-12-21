@@ -9,7 +9,7 @@
 
 ## Overview
 
-This directory contains the firmware for the PMU-30 Power Distribution Module. The firmware is built using PlatformIO and runs on the STM32H7 microcontroller with FreeRTOS for real-time task management.
+This directory contains the firmware for the PMU-30 Power Management Unit. The firmware is built using PlatformIO and runs on the STM32H7 microcontroller with FreeRTOS for real-time task management.
 
 ## Project Structure
 
