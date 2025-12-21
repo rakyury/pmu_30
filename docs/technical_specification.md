@@ -388,6 +388,101 @@ Debounce: 0.05s
 - **Type**: 2x DTM 4-pin or D-sub 9-pin
 - **Pinout**: CAN_H, CAN_L, GND, +12V (optional)
 
+#### 5.1.3 CAN Message Object Configuration
+
+Each CAN message that the PMU-30 transmits or receives must be configured as a Message Object. The configurator provides a comprehensive interface for defining CAN messages.
+
+##### Message Object Parameters
+
+| Parameter | Description | Range/Options |
+|-----------|-------------|---------------|
+| **Name** | User-defined message identifier | Up to 32 characters (e.g., "m_mob8") |
+| **CANbus** | Target CAN bus selection | CAN1, CAN2, CAN3, CAN4 |
+| **Base ID (hex)** | CAN message identifier | 0x000-0x7FF (Standard), 0x00000000-0x1FFFFFFF (Extended) |
+| **ID Type** | Identifier format | Standard (11-bit) / Extended (29-bit) |
+| **Message Type** | Message category | Normal, RTR (Remote Transmission Request), Error frame |
+| **Size** | Number of CAN frames | 1-8 frames (for CAN FD: up to 64 bytes) |
+| **Timeout [s]** | Reception timeout | 0.001-60.0 seconds |
+| **Direction** | Message direction | Transmit (TX) / Receive (RX) / Both |
+| **Transmission Rate [Hz]** | Periodic transmission frequency | 0 (on-demand) to 1000 Hz |
+| **Data Length Code (DLC)** | Number of data bytes | 0-8 (CAN 2.0), 0-64 (CAN FD) |
+
+##### Data Configuration
+
+Each message object includes data field configuration:
+
+- **Data Bytes**: 8 bytes for CAN 2.0 (0x0 to 0x7), up to 64 bytes for CAN FD
+- **Default Values**: Hexadecimal values for each byte (e.g., 0xFF, 0x00, 0xAA)
+- **Live Capture**: Enable real-time data capture from CAN bus for receive messages
+- **Signal Mapping**: Map individual signals within the message (via DBC integration)
+
+##### Test Data Interface
+
+The configurator provides test data functionality for development and debugging:
+
+- **Manual Entry**: Enter test data in hexadecimal format for each byte
+- **Live Capture**: Capture actual CAN bus data in real-time
+- **Playback**: Replay captured messages for testing
+- **Frequency Control**: Set transmission frequency for test messages
+
+##### Example Message Configurations
+
+**Example 1: Periodic Status Broadcast (TX)**
+```
+Name: PMU_Status
+CANbus: CAN1
+Base ID: 0x600
+Type: Standard (11-bit)
+Message Type: Normal
+Size: 1 frame
+DLC: 8 bytes
+Transmission Rate: 100 Hz
+Data: 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00
+```
+
+**Example 2: ECU Data Reception (RX)**
+```
+Name: Engine_Data
+CANbus: CAN2
+Base ID: 0x0CFFF048
+Type: Extended (29-bit)
+Message Type: Normal
+Size: 1 frame
+Timeout: 0.1 s
+DLC: 8 bytes
+Live Capture: Enabled
+```
+
+**Example 3: Event-Triggered Command (TX)**
+```
+Name: Output_Command
+CANbus: CAN1
+Base ID: 0x701
+Type: Standard
+Message Type: Normal
+Size: 1 frame
+Transmission Rate: 0 Hz (on-demand)
+DLC: 4 bytes
+```
+
+##### Message Filtering and Acceptance
+
+- **Hardware Filtering**: STM32H7 CAN peripheral supports hardware message filtering
+- **Filter Banks**: Up to 28 filter banks per CAN interface
+- **Filter Modes**:
+  - ID List mode (exact match)
+  - ID Mask mode (range match)
+- **FIFO Assignment**: Assign messages to FIFO0 or FIFO1 for priority handling
+
+##### CAN FD Specific Features
+
+When using CAN FD interfaces (CAN1, CAN2):
+
+- **Bit Rate Switching (BRS)**: Enable faster data phase (up to 5 Mbps)
+- **Flexible Data Rate**: Support for 12, 16, 20, 24, 32, 48, 64 byte payloads
+- **Error State Indicator (ESI)**: Monitor transmitter error state
+- **CRC**: Extended CRC for enhanced error detection
+
 ### 5.2 USB-C
 
 #### 5.2.1 Interface
@@ -749,6 +844,163 @@ local rpm = getCANSignal("Engine_RPM")
 local speed = getCANSignal("Vehicle_Speed")
 setCANSignal("PMU_Status", 1)
 ```
+
+#### CAN Bus Input Configuration
+
+The configurator provides a comprehensive interface for mapping CAN signals to internal virtual channels. Each CAN input can extract specific signals from CAN messages and make them available to the logic engine, Lua scripts, and output mappings.
+
+##### Channel Configuration
+
+| Parameter | Description | Options/Range |
+|-----------|-------------|---------------|
+| **Create new channel** | Create a new virtual channel for this signal | Radio button |
+| **Override existing** | Map signal to an existing channel | Radio button (recommended) |
+| **Override channel** | Target channel name | User-defined (e.g., "ecu.rpm", "sensor.oil_pressure") |
+
+##### Message Object Selection
+
+| Parameter | Description | Options/Range |
+|-----------|-------------|---------------|
+| **Message object** | CAN message object to extract from | Dropdown list of configured messages |
+| **Message ID** | CAN message identifier | Display only (from message object) |
+
+##### Signal Extraction Parameters
+
+| Parameter | Description | Options/Range |
+|-----------|-------------|---------------|
+| **Type** | Data type of the signal | unsigned, signed, float, double |
+| **Data format** | Bit width of the signal | 1bit, 8bit, 16bit, 32bit, 64bit |
+| **Endian** | Byte order | little endian, big endian (Motorola) |
+| **Byte offset** | Starting byte position in message | 0-63 (0-7 for CAN 2.0) |
+| **Extract bitfield** | Enable bit-level extraction | Checkbox |
+| **Bit count** | Number of bits to extract | 1-64 |
+| **Bit position** | Starting bit position within byte | 0-7 |
+
+##### Scaling and Conversion
+
+| Parameter | Description | Range |
+|-----------|-------------|-------|
+| **Multiplier** | Multiply extracted value | -1000000.0 to +1000000.0 |
+| **Divider** | Divide extracted value | 0.001 to 1000000.0 |
+| **Offset** | Add offset to result | -1000000.0 to +1000000.0 |
+| **Decimal places** | Display precision | 0-6 |
+
+**Formula:** `Result = ((RawValue × Multiplier) / Divider) + Offset`
+
+##### Fault Handling
+
+| Parameter | Description | Options |
+|-----------|-------------|---------|
+| **If message times out** | Behavior when message not received | - Use the previous value (hold last)<br>- Set value (specify fallback) |
+| **Set value** | Fallback value on timeout | User-defined numeric value |
+
+##### Test Data Interface
+
+The configurator includes a test data section for validation:
+
+| Parameter | Description |
+|-----------|-------------|
+| **Length** | Message length (DLC) | Matches message object |
+| **Data (hex)** | Raw CAN data bytes | 8 bytes (CAN 2.0) or up to 64 bytes (CAN FD) |
+| **Live Capture** | Capture real-time CAN data | Checkbox - enables live monitoring |
+| **Result** | Calculated signal value | Display field showing decoded result |
+
+##### Example Configurations
+
+**Example 1: Engine RPM (16-bit unsigned, little endian)**
+```
+Override channel: ecu.rpm
+Message object: m_emublack (ID: 0x600)
+Type: unsigned
+Data format: 16bit
+Endian: little endian
+Byte offset: 0
+Bit count: 16
+Bit position: 0
+Multiplier: 1
+Divider: 1
+Offset: 0
+Timeout: use previous value
+
+Test data: 03 00 01 01 00 01 00 00
+Result: 3 rpm
+```
+
+**Example 2: Coolant Temperature (8-bit signed with offset)**
+```
+Override channel: ecu.coolant_temp
+Message object: m_engine_data (ID: 0x0CFFF048)
+Type: signed
+Data format: 8bit
+Endian: little endian
+Byte offset: 2
+Multiplier: 1
+Divider: 1
+Offset: -40
+Decimal places: 0
+Timeout: set value: -40
+
+Formula: Temperature = RawValue - 40
+Range: -40°C to +215°C
+```
+
+**Example 3: Throttle Position (10-bit bitfield)**
+```
+Override channel: ecu.tps
+Message object: m_sensors (ID: 0x123)
+Type: unsigned
+Data format: 16bit
+Endian: little endian
+Byte offset: 1
+Extract bitfield: ☑
+Bit count: 10
+Bit position: 0
+Multiplier: 0.1
+Divider: 1
+Offset: 0
+Decimal places: 1
+Timeout: use previous value
+
+Formula: TPS% = (RawValue × 0.1)
+Range: 0.0% to 102.3%
+```
+
+**Example 4: Oil Pressure (big endian, scaled)**
+```
+Override channel: sensor.oil_pressure
+Message object: m_oil_data (ID: 0x456)
+Type: unsigned
+Data format: 16bit
+Endian: big endian
+Byte offset: 0
+Multiplier: 1
+Divider: 100
+Offset: 0
+Decimal places: 2
+Timeout: set value: 0
+
+Formula: Pressure = RawValue / 100
+Range: 0.00 to 655.35 bar
+```
+
+##### Signal Mapping Best Practices
+
+1. **Channel Naming**: Use hierarchical naming (e.g., "ecu.rpm", "sensor.oil_pressure")
+2. **Override Existing**: Prefer overriding existing channels for consistency
+3. **Timeout Handling**: Use "previous value" for critical signals, "set value" for non-critical
+4. **Bit Extraction**: Use bitfield extraction for signals not byte-aligned
+5. **Scaling**: Apply multiplier/divider to match engineering units
+6. **Testing**: Always verify with test data before deployment
+
+##### Virtual Channel Usage
+
+Once mapped, CAN signals become virtual channels accessible throughout the system:
+
+- **Logic Engine**: Use in conditional logic and virtual functions
+- **Lua Scripts**: Access via `getCANSignal("channel_name")`
+- **Output Mapping**: Map to output channel duty cycles or current limits
+- **Data Logging**: Automatically logged at 500 Hz
+- **Web Interface**: Real-time display and monitoring
 
 ### 5.7.4 DBC Export Capabilities
 
