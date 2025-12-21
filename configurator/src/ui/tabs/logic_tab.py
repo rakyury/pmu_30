@@ -17,6 +17,32 @@ class LogicTab(QWidget):
 
     configuration_changed = pyqtSignal()
 
+    # Category mapping for 64 function types
+    FUNCTION_CATEGORIES = {
+        # Mathematical (10 types)
+        "add": "Mathematical", "subtract": "Mathematical", "multiply": "Mathematical",
+        "divide": "Mathematical", "min": "Mathematical", "max": "Mathematical",
+        "average": "Mathematical", "abs": "Mathematical", "scale": "Mathematical", "clamp": "Mathematical",
+        # Comparison (7 types)
+        "greater": "Comparison", "less": "Comparison", "equal": "Comparison",
+        "not_equal": "Comparison", "greater_equal": "Comparison", "less_equal": "Comparison",
+        "in_range": "Comparison",
+        # Logic (6 types)
+        "and": "Logic", "or": "Logic", "not": "Logic", "xor": "Logic", "nand": "Logic", "nor": "Logic",
+        # Tables (2 types)
+        "table_1d": "Tables", "table_2d": "Tables",
+        # Filters (5 types)
+        "moving_avg": "Filters", "low_pass": "Filters", "min_window": "Filters",
+        "max_window": "Filters", "median": "Filters",
+        # Control (4 types)
+        "pid": "Control", "hysteresis": "Control", "rate_limit": "Control", "debounce": "Control",
+        # Special (12 types - timers, latches, etc.)
+        "mux": "Special", "demux": "Special", "conditional": "Special",
+        "flash": "Special", "pulse": "Special", "toggle": "Special",
+        "set_latch": "Special", "reset_latch": "Special", "sr_latch": "Special",
+        "counter": "Special", "timer_on": "Special", "timer_off": "Special",
+    }
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logic_functions = []
@@ -30,8 +56,11 @@ class LogicTab(QWidget):
         info_group = QGroupBox("Logic Engine")
         info_layout = QVBoxLayout()
         info_label = QLabel(
-            "Configure logic functions using physical inputs/outputs and 256 virtual channels.\n"
-            "Supports: AND, OR, NOT, XOR, Timers, Counters, Comparisons, Math operations."
+            "Configure logic functions with 64 operation types in 7 categories:\n"
+            "Mathematical (add, subtract, multiply, scale, clamp), Comparison (>, <, ==, in_range), "
+            "Logic (AND, OR, NOT, XOR), \n"
+            "Tables (1D/2D lookup), Filters (moving_avg, low_pass, median), "
+            "Control (PID, hysteresis, rate_limit), Special (mux, conditional)."
         )
         info_label.setWordWrap(True)
         info_layout.addWidget(info_label)
@@ -45,8 +74,8 @@ class LogicTab(QWidget):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Virtual Ch", "Name", "Operation", "Inputs"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(["Output Ch", "Name", "Type", "Category", "Inputs", "Parameters"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -86,6 +115,70 @@ class LogicTab(QWidget):
 
         self._update_table()
 
+    def _get_function_type(self, func: dict) -> str:
+        """Get function type from config (supports both old and new formats)."""
+        # New format: "type" field
+        if "type" in func:
+            return func["type"]
+        # Old format: "operation" field
+        if "operation" in func:
+            op = func["operation"].lower()
+            # Map old operations to new types
+            if "(" in op:
+                op = op.split("(")[0].strip()
+            return op
+        return "unknown"
+
+    def _get_output_channel(self, func: dict) -> str:
+        """Get output channel from config (supports both old and new formats)."""
+        # New format: "output" field (can be channel ID or name)
+        if "output" in func:
+            return str(func["output"])
+        # Old format: "virtual_channel" field
+        if "virtual_channel" in func:
+            return f"V{func['virtual_channel']}"
+        return "?"
+
+    def _format_parameters(self, func: dict) -> str:
+        """Format function parameters for display."""
+        func_type = self._get_function_type(func)
+        params = func.get("parameters", {})
+
+        if not params:
+            return "-"
+
+        # Format based on function type
+        if func_type == "pid":
+            return f"Kp={params.get('kp', 0):.2f}, Ki={params.get('ki', 0):.2f}, Kd={params.get('kd', 0):.2f}"
+        elif func_type == "hysteresis":
+            return f"ON={params.get('threshold_on', 0)}, OFF={params.get('threshold_off', 0)}"
+        elif func_type == "scale":
+            return f"×{params.get('multiplier', 1):.2f}, +{params.get('offset', 0):.2f}"
+        elif func_type == "clamp":
+            return f"Min={params.get('min', 0)}, Max={params.get('max', 100)}"
+        elif func_type in ["moving_avg", "min_window", "max_window", "median"]:
+            return f"Window={params.get('window_size', 5)}"
+        elif func_type == "low_pass":
+            return f"TC={params.get('time_constant', 0.1):.3f}s"
+        elif func_type == "rate_limit":
+            return f"Max={params.get('max_rate', 100)}/s"
+        elif func_type == "debounce":
+            return f"{params.get('debounce_ms', 50)}ms"
+        elif func_type == "in_range":
+            return f"[{params.get('min', 0)}, {params.get('max', 100)}]"
+        elif func_type in ["flash", "pulse"]:
+            return f"Period={params.get('period_ms', 1000)}ms, Duty={params.get('duty_cycle', 50)}%"
+        elif func_type in ["timer_on", "timer_off"]:
+            return f"Delay={params.get('delay_ms', 1000)}ms"
+        elif func_type == "counter":
+            return f"Max={params.get('max_count', 100)}"
+        elif func_type == "mux":
+            return f"{len(params.get('inputs', []))} inputs"
+        else:
+            # Generic parameter display (show first 2 params)
+            param_strs = [f"{k}={v}" for k, v in list(params.items())[:2]]
+            return ", ".join(param_strs) if param_strs else "-"
+
     def _update_table(self):
         """Update table with current logic functions."""
         self.table.setRowCount(0)
@@ -94,24 +187,40 @@ class LogicTab(QWidget):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
-            # Virtual channel
-            virt_ch = QTableWidgetItem(str(func.get("virtual_channel", 0)))
-            virt_ch.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 0, virt_ch)
+            # Output channel
+            output_ch = QTableWidgetItem(self._get_output_channel(func))
+            output_ch.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(row, 0, output_ch)
 
             # Name
             name = QTableWidgetItem(func.get("name", "Unnamed"))
             self.table.setItem(row, 1, name)
 
-            # Operation
-            operation = QTableWidgetItem(func.get("operation", "AND"))
-            self.table.setItem(row, 2, operation)
+            # Type
+            func_type = self._get_function_type(func)
+            type_item = QTableWidgetItem(func_type)
+            self.table.setItem(row, 2, type_item)
+
+            # Category
+            category = self.FUNCTION_CATEGORIES.get(func_type.lower(), "Other")
+            category_item = QTableWidgetItem(category)
+            self.table.setItem(row, 3, category_item)
 
             # Inputs summary
             inputs = func.get("inputs", [])
-            inputs_str = f"{len(inputs)} inputs"
+            if isinstance(inputs, list):
+                inputs_str = ", ".join(str(inp) for inp in inputs[:3])
+                if len(inputs) > 3:
+                    inputs_str += f" +{len(inputs)-3}"
+            else:
+                inputs_str = str(inputs)
             inputs_item = QTableWidgetItem(inputs_str)
-            self.table.setItem(row, 3, inputs_item)
+            self.table.setItem(row, 4, inputs_item)
+
+            # Parameters
+            params_str = self._format_parameters(func)
+            params_item = QTableWidgetItem(params_str)
+            self.table.setItem(row, 5, params_item)
 
         self._update_stats()
 
@@ -119,41 +228,79 @@ class LogicTab(QWidget):
         """Update statistics label."""
         func_count = len(self.logic_functions)
 
-        # Count unique virtual channels
+        # Count unique virtual channels (supports both formats)
         used_channels = set()
         for func in self.logic_functions:
+            # Old format: virtual_channel field
             vch = func.get("virtual_channel")
             if vch is not None:
-                used_channels.add(vch)
+                used_channels.add(f"V{vch}")
+            # New format: output field (if it starts with V or is a number)
+            output = func.get("output")
+            if output is not None:
+                output_str = str(output)
+                if output_str.startswith("V") or output_str.isdigit():
+                    used_channels.add(output_str)
+
+        # Count by category
+        category_counts = {}
+        for func in self.logic_functions:
+            func_type = self._get_function_type(func)
+            category = self.FUNCTION_CATEGORIES.get(func_type.lower(), "Other")
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        category_str = ", ".join([f"{cat}: {count}" for cat, count in sorted(category_counts.items())])
 
         self.stats_label.setText(
-            f"Functions: {func_count} / Virtual Channels Used: {len(used_channels)}/256"
+            f"Functions: {func_count} | Channels Used: {len(used_channels)} | By Category: {category_str}"
         )
 
     def _get_used_virtual_channels(self, exclude_index: int = -1) -> List[int]:
-        """Get list of used virtual channel numbers."""
+        """Get list of used virtual channel numbers (for backward compatibility)."""
         used = []
         for idx, func in enumerate(self.logic_functions):
             if idx != exclude_index:
+                # Old format: virtual_channel field
                 vch = func.get("virtual_channel")
-                if vch is not None:
+                if vch is not None and isinstance(vch, int):
                     used.append(vch)
+                # New format: output field (if it's a virtual channel)
+                output = func.get("output")
+                if output is not None:
+                    output_str = str(output)
+                    # Check if it's a virtual channel (V0-V255 or 0-255)
+                    if output_str.startswith("V") and output_str[1:].isdigit():
+                        used.append(int(output_str[1:]))
+                    elif output_str.isdigit():
+                        ch_num = int(output_str)
+                        if ch_num < 256:  # Assume it's a virtual channel
+                            used.append(ch_num)
         return used
 
     def add_function(self):
         """Add new logic function."""
         used_channels = self._get_used_virtual_channels()
 
-        # Find next available virtual channel
+        # Find next available virtual channel for default suggestion
         next_channel = 0
         for ch in range(256):
             if ch not in used_channels:
                 next_channel = ch
                 break
 
+        # Create default config with suggested virtual channel
+        default_config = {
+            "type": "add",
+            "name": "New Function",
+            "enabled": True,
+            "output": f"V{next_channel}",
+            "inputs": [],
+            "parameters": {}
+        }
+
         dialog = LogicFunctionDialog(
             self,
-            function_config={"virtual_channel": next_channel},
+            function_config=default_config,
             used_channels=used_channels
         )
 
@@ -210,7 +357,13 @@ class LogicTab(QWidget):
         # Copy config and update channel
         import copy
         new_config = copy.deepcopy(self.logic_functions[row])
-        new_config["virtual_channel"] = next_channel
+
+        # Update for new format (output) or old format (virtual_channel)
+        if "output" in new_config:
+            new_config["output"] = f"V{next_channel}"
+        else:
+            new_config["virtual_channel"] = next_channel
+
         new_config["name"] = new_config.get("name", "") + " (Copy)"
 
         dialog = LogicFunctionDialog(
