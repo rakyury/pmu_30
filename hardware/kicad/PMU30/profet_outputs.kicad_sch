@@ -1,0 +1,1400 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "profet-outputs-uuid-001")
+  (paper "A3")
+  (title_block
+    (title "PMU-30 PROFET Outputs")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "30x High-Side Switch Outputs")
+    (comment 2 "15x BTS7008-2EPA Dual PROFET")
+  )
+
+  (lib_symbols
+    (symbol "PMU30:BTS7008-2EPA"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 17.78 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "BTS7008-2EPA"
+        (at 0 -17.78 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "BTS7008-2EPA_0_1"
+        (rectangle
+          (start -10.16 15.24)
+          (end 10.16 -15.24)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "BTS7008-2EPA_1_1"
+        (pin power_in line
+          (at -12.7 12.7 0)
+          (length 2.54)
+          (name "VS"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -12.7 10.16 0)
+          (length 2.54)
+          (name "VS"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 5.08 0)
+          (length 2.54)
+          (name "IN0"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 2.54 0)
+          (length 2.54)
+          (name "IN1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 -2.54 0)
+          (length 2.54)
+          (name "DEN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin output line
+          (at -12.7 -7.62 0)
+          (length 2.54)
+          (name "IS"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 -17.78 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "7"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 12.7 12.7 180)
+          (length 2.54)
+          (name "OUT0"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "8"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 12.7 10.16 180)
+          (length 2.54)
+          (name "OUT0"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "9"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 12.7 2.54 180)
+          (length 2.54)
+          (name "OUT1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "10"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 12.7 0 180)
+          (length 2.54)
+          (name "OUT1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "11"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin output line
+          (at -12.7 -12.7 0)
+          (length 2.54)
+          (name "ST"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "12"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 -5.08 0)
+          (length 2.54)
+          (name "DSEL"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "13"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin passive line
+          (at 0 -17.78 90)
+          (length 2.54)
+          (name "PAD"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "14"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (text "PROFET OUTPUT SECTION"
+    (exclude_from_sim no)
+    (at 190.5 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "BTS7008-2EPA Specifications:"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-header")
+  )
+
+  (text "- Operating voltage: 4.5V to 28V (40V transient)"
+    (exclude_from_sim no)
+    (at 25.4 45.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-1")
+  )
+
+  (text "- Output current: 8A per channel (40A inrush)"
+    (exclude_from_sim no)
+    (at 25.4 50.8 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-2")
+  )
+
+  (text "- RDS(on): 13mOhm typical @ 25C"
+    (exclude_from_sim no)
+    (at 25.4 55.88 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-3")
+  )
+
+  (text "- Current sense ratio kILIS: 4700 typical"
+    (exclude_from_sim no)
+    (at 25.4 60.96 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-4")
+  )
+
+  (text "- PWM frequency: 100Hz to 2kHz"
+    (exclude_from_sim no)
+    (at 25.4 66.04 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-5")
+  )
+
+  (text "- Protection: OCP, OTP, OVP, short circuit"
+    (exclude_from_sim no)
+    (at 25.4 71.12 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-6")
+  )
+
+  (text "PROFET BANK 1 (OUT0-OUT5)"
+    (exclude_from_sim no)
+    (at 38.1 86.36 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-bank1-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 76.2 114.3 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U20-profet-01")
+    (property "Reference" "U20"
+      (at 76.2 93.98 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 76.2 134.62 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 76.2 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 76.2 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U20-pin1")
+    )
+    (pin "2"
+      (uuid "U20-pin2")
+    )
+    (pin "3"
+      (uuid "U20-pin3")
+    )
+    (pin "4"
+      (uuid "U20-pin4")
+    )
+    (pin "5"
+      (uuid "U20-pin5")
+    )
+    (pin "6"
+      (uuid "U20-pin6")
+    )
+    (pin "7"
+      (uuid "U20-pin7")
+    )
+    (pin "8"
+      (uuid "U20-pin8")
+    )
+    (pin "9"
+      (uuid "U20-pin9")
+    )
+    (pin "10"
+      (uuid "U20-pin10")
+    )
+    (pin "11"
+      (uuid "U20-pin11")
+    )
+    (pin "12"
+      (uuid "U20-pin12")
+    )
+    (pin "13"
+      (uuid "U20-pin13")
+    )
+    (pin "14"
+      (uuid "U20-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U20")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 152.4 114.3 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U21-profet-02")
+    (property "Reference" "U21"
+      (at 152.4 93.98 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 152.4 134.62 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 152.4 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 152.4 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U21-pin1")
+    )
+    (pin "2"
+      (uuid "U21-pin2")
+    )
+    (pin "3"
+      (uuid "U21-pin3")
+    )
+    (pin "4"
+      (uuid "U21-pin4")
+    )
+    (pin "5"
+      (uuid "U21-pin5")
+    )
+    (pin "6"
+      (uuid "U21-pin6")
+    )
+    (pin "7"
+      (uuid "U21-pin7")
+    )
+    (pin "8"
+      (uuid "U21-pin8")
+    )
+    (pin "9"
+      (uuid "U21-pin9")
+    )
+    (pin "10"
+      (uuid "U21-pin10")
+    )
+    (pin "11"
+      (uuid "U21-pin11")
+    )
+    (pin "12"
+      (uuid "U21-pin12")
+    )
+    (pin "13"
+      (uuid "U21-pin13")
+    )
+    (pin "14"
+      (uuid "U21-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U21")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 228.6 114.3 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U22-profet-03")
+    (property "Reference" "U22"
+      (at 228.6 93.98 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 228.6 134.62 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 228.6 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 228.6 114.3 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U22-pin1")
+    )
+    (pin "2"
+      (uuid "U22-pin2")
+    )
+    (pin "3"
+      (uuid "U22-pin3")
+    )
+    (pin "4"
+      (uuid "U22-pin4")
+    )
+    (pin "5"
+      (uuid "U22-pin5")
+    )
+    (pin "6"
+      (uuid "U22-pin6")
+    )
+    (pin "7"
+      (uuid "U22-pin7")
+    )
+    (pin "8"
+      (uuid "U22-pin8")
+    )
+    (pin "9"
+      (uuid "U22-pin9")
+    )
+    (pin "10"
+      (uuid "U22-pin10")
+    )
+    (pin "11"
+      (uuid "U22-pin11")
+    )
+    (pin "12"
+      (uuid "U22-pin12")
+    )
+    (pin "13"
+      (uuid "U22-pin13")
+    )
+    (pin "14"
+      (uuid "U22-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U22")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "PROFET BANK 2 (OUT6-OUT11)"
+    (exclude_from_sim no)
+    (at 38.1 149.86 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-bank2-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 76.2 177.8 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U23-profet-04")
+    (property "Reference" "U23"
+      (at 76.2 157.48 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 76.2 198.12 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 76.2 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 76.2 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U23-pin1")
+    )
+    (pin "2"
+      (uuid "U23-pin2")
+    )
+    (pin "3"
+      (uuid "U23-pin3")
+    )
+    (pin "4"
+      (uuid "U23-pin4")
+    )
+    (pin "5"
+      (uuid "U23-pin5")
+    )
+    (pin "6"
+      (uuid "U23-pin6")
+    )
+    (pin "7"
+      (uuid "U23-pin7")
+    )
+    (pin "8"
+      (uuid "U23-pin8")
+    )
+    (pin "9"
+      (uuid "U23-pin9")
+    )
+    (pin "10"
+      (uuid "U23-pin10")
+    )
+    (pin "11"
+      (uuid "U23-pin11")
+    )
+    (pin "12"
+      (uuid "U23-pin12")
+    )
+    (pin "13"
+      (uuid "U23-pin13")
+    )
+    (pin "14"
+      (uuid "U23-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U23")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 152.4 177.8 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U24-profet-05")
+    (property "Reference" "U24"
+      (at 152.4 157.48 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 152.4 198.12 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 152.4 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 152.4 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U24-pin1")
+    )
+    (pin "2"
+      (uuid "U24-pin2")
+    )
+    (pin "3"
+      (uuid "U24-pin3")
+    )
+    (pin "4"
+      (uuid "U24-pin4")
+    )
+    (pin "5"
+      (uuid "U24-pin5")
+    )
+    (pin "6"
+      (uuid "U24-pin6")
+    )
+    (pin "7"
+      (uuid "U24-pin7")
+    )
+    (pin "8"
+      (uuid "U24-pin8")
+    )
+    (pin "9"
+      (uuid "U24-pin9")
+    )
+    (pin "10"
+      (uuid "U24-pin10")
+    )
+    (pin "11"
+      (uuid "U24-pin11")
+    )
+    (pin "12"
+      (uuid "U24-pin12")
+    )
+    (pin "13"
+      (uuid "U24-pin13")
+    )
+    (pin "14"
+      (uuid "U24-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U24")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTS7008-2EPA")
+    (at 228.6 177.8 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U25-profet-06")
+    (property "Reference" "U25"
+      (at 228.6 157.48 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTS7008-2EPA"
+      (at 228.6 198.12 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:TSDSO-14_4.4x8.65mm_P1.27mm"
+      (at 228.6 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTS7008-2EPA-DataSheet-v02_02-EN.pdf"
+      (at 228.6 177.8 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U25-pin1")
+    )
+    (pin "2"
+      (uuid "U25-pin2")
+    )
+    (pin "3"
+      (uuid "U25-pin3")
+    )
+    (pin "4"
+      (uuid "U25-pin4")
+    )
+    (pin "5"
+      (uuid "U25-pin5")
+    )
+    (pin "6"
+      (uuid "U25-pin6")
+    )
+    (pin "7"
+      (uuid "U25-pin7")
+    )
+    (pin "8"
+      (uuid "U25-pin8")
+    )
+    (pin "9"
+      (uuid "U25-pin9")
+    )
+    (pin "10"
+      (uuid "U25-pin10")
+    )
+    (pin "11"
+      (uuid "U25-pin11")
+    )
+    (pin "12"
+      (uuid "U25-pin12")
+    )
+    (pin "13"
+      (uuid "U25-pin13")
+    )
+    (pin "14"
+      (uuid "U25-pin14")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/profet-outputs-uuid-001"
+          (reference "U25")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "CURRENT SENSING"
+    (exclude_from_sim no)
+    (at 292.1 38.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-header")
+  )
+
+  (text "IS pin current = I_load / kILIS"
+    (exclude_from_sim no)
+    (at 292.1 48.26 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-formula-1")
+  )
+
+  (text "kILIS = 4700 (typical)"
+    (exclude_from_sim no)
+    (at 292.1 53.34 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-formula-2")
+  )
+
+  (text "Sense resistor: 1K Ohm"
+    (exclude_from_sim no)
+    (at 292.1 58.42 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-formula-3")
+  )
+
+  (text "V_sense = I_load * R_sense / kILIS"
+    (exclude_from_sim no)
+    (at 292.1 63.5 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-formula-4")
+  )
+
+  (text "Example: 8A -> 1.7V"
+    (exclude_from_sim no)
+    (at 292.1 68.58 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-is-formula-5")
+  )
+
+  (text "DESIGN NOTES:"
+    (exclude_from_sim no)
+    (at 292.1 86.36 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-notes-header")
+  )
+
+  (text "1. Place 100nF decoupling cap on each VS pin"
+    (exclude_from_sim no)
+    (at 292.1 96.52 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-1")
+  )
+
+  (text "2. Use wide power traces (3mm min for 10A)"
+    (exclude_from_sim no)
+    (at 292.1 101.6 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-2")
+  )
+
+  (text "3. Thermal pad must be connected to GND"
+    (exclude_from_sim no)
+    (at 292.1 106.68 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-3")
+  )
+
+  (text "4. DEN pin enables diagnostic mode"
+    (exclude_from_sim no)
+    (at 292.1 111.76 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-4")
+  )
+
+  (text "5. DSEL selects channel for IS output"
+    (exclude_from_sim no)
+    (at 292.1 116.84 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-5")
+  )
+
+  (text "6. ST pin indicates fault status"
+    (exclude_from_sim no)
+    (at 292.1 121.92 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-6")
+  )
+
+  (text "NOTE: Additional 9 PROFET ICs (U26-U34)"
+    (exclude_from_sim no)
+    (at 38.1 218.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-more-profets")
+  )
+
+  (text "not shown for clarity. Same connection"
+    (exclude_from_sim no)
+    (at 38.1 223.52 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-more-profets-2")
+  )
+
+  (text "pattern as U20-U25."
+    (exclude_from_sim no)
+    (at 38.1 228.6 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-more-profets-3")
+  )
+
+  (global_label "VBAT"
+    (shape input)
+    (at 55.88 101.6 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-vbat-u20")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 48.8928 101.6 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "GND"
+    (shape input)
+    (at 76.2 134.62 270)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-gnd-u20")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 76.2 141.0738 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT0_PWM"
+    (shape input)
+    (at 55.88 109.22 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-out0-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 42.7738 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT1_PWM"
+    (shape input)
+    (at 55.88 111.76 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-out1-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 42.7738 111.76 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT0"
+    (shape output)
+    (at 96.52 101.6 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out0")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 104.8138 101.6 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT1"
+    (shape output)
+    (at 96.52 116.84 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out1")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 104.8138 116.84 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "IS0"
+    (shape output)
+    (at 55.88 121.92 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-is0")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 50.42 121.92 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "DEN0"
+    (shape input)
+    (at 55.88 116.84 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-den0")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 47.3538 116.84 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+)

@@ -1,0 +1,396 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "connectors-uuid-001")
+  (paper "A4")
+  (title_block
+    (title "PMU-30 Connectors")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "Deutsch DTM Connectors")
+    (comment 2 "IP67 Rated")
+  )
+
+  (lib_symbols)
+
+  (text "CONNECTOR SECTION"
+    (exclude_from_sim no)
+    (at 148.59 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "CONNECTOR SUMMARY:"
+    (exclude_from_sim no)
+    (at 25.4 43.18 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-summary-header")
+  )
+
+  (text "J1: DTM04-2P - Power Input (VBAT+, GND)"
+    (exclude_from_sim no)
+    (at 25.4 55.88 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j1")
+  )
+
+  (text "J2: DTM04-12PA - Outputs 1-12"
+    (exclude_from_sim no)
+    (at 25.4 63.5 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j2")
+  )
+
+  (text "J3: DTM04-12PA - Outputs 13-24"
+    (exclude_from_sim no)
+    (at 25.4 71.12 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j3")
+  )
+
+  (text "J4: DTM04-6PA - Outputs 25-30"
+    (exclude_from_sim no)
+    (at 25.4 78.74 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j4")
+  )
+
+  (text "J5: DTM04-8PA - H-Bridge 1-4 (Motor outputs)"
+    (exclude_from_sim no)
+    (at 25.4 86.36 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5")
+  )
+
+  (text "J6: DTM04-12PA - Analog Inputs 1-12"
+    (exclude_from_sim no)
+    (at 25.4 93.98 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j6")
+  )
+
+  (text "J7: DTM04-8PA - CAN Buses (4x CAN H/L pairs)"
+    (exclude_from_sim no)
+    (at 25.4 101.6 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7")
+  )
+
+  (text "J8: DTM04-4PA - Digital Inputs"
+    (exclude_from_sim no)
+    (at 25.4 109.22 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j8")
+  )
+
+  (text "J9: USB-C - Configuration/Debug"
+    (exclude_from_sim no)
+    (at 25.4 116.84 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j9")
+  )
+
+  (text "DEUTSCH DTM SPECIFICATIONS:"
+    (exclude_from_sim no)
+    (at 25.4 134.62 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-header")
+  )
+
+  (text "- IP67/IP69K environmental sealing"
+    (exclude_from_sim no)
+    (at 25.4 144.78 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-1")
+  )
+
+  (text "- Operating temperature: -55C to +125C"
+    (exclude_from_sim no)
+    (at 25.4 149.86 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-2")
+  )
+
+  (text "- Contact rating: 7.5A continuous (size 20)"
+    (exclude_from_sim no)
+    (at 25.4 154.94 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-3")
+  )
+
+  (text "- Vibration resistant locking mechanism"
+    (exclude_from_sim no)
+    (at 25.4 160.02 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-4")
+  )
+
+  (text "- Keying options prevent misconnection"
+    (exclude_from_sim no)
+    (at 25.4 165.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dtm-5")
+  )
+
+  (text "PIN ASSIGNMENTS:"
+    (exclude_from_sim no)
+    (at 177.8 43.18 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-header")
+  )
+
+  (text "J1 (Power):"
+    (exclude_from_sim no)
+    (at 177.8 55.88 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j1-header")
+  )
+
+  (text "1: VBAT+ (6-22V)"
+    (exclude_from_sim no)
+    (at 177.8 63.5 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j1-pin1")
+  )
+
+  (text "2: GND"
+    (exclude_from_sim no)
+    (at 177.8 68.58 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j1-pin2")
+  )
+
+  (text "J7 (CAN):"
+    (exclude_from_sim no)
+    (at 177.8 83.82 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7-header")
+  )
+
+  (text "1: CAN1_H  2: CAN1_L"
+    (exclude_from_sim no)
+    (at 177.8 91.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7-can1")
+  )
+
+  (text "3: CAN2_H  4: CAN2_L"
+    (exclude_from_sim no)
+    (at 177.8 96.52 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7-can2")
+  )
+
+  (text "5: CAN3_H  6: CAN3_L"
+    (exclude_from_sim no)
+    (at 177.8 101.6 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7-can3")
+  )
+
+  (text "7: CAN4_H  8: CAN4_L"
+    (exclude_from_sim no)
+    (at 177.8 106.68 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j7-can4")
+  )
+
+  (text "J5 (H-Bridge):"
+    (exclude_from_sim no)
+    (at 177.8 121.92 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5-header")
+  )
+
+  (text "1: MOTOR1_A  2: MOTOR1_B"
+    (exclude_from_sim no)
+    (at 177.8 129.54 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5-m1")
+  )
+
+  (text "3: MOTOR2_A  4: MOTOR2_B"
+    (exclude_from_sim no)
+    (at 177.8 134.62 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5-m2")
+  )
+
+  (text "5: MOTOR3_A  6: MOTOR3_B"
+    (exclude_from_sim no)
+    (at 177.8 139.7 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5-m3")
+  )
+
+  (text "7: MOTOR4_A  8: MOTOR4_B"
+    (exclude_from_sim no)
+    (at 177.8 144.78 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-j5-m4")
+  )
+)

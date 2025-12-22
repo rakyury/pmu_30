@@ -1241,10 +1241,6 @@ class CanRxChannel(ChannelBase):
     offset: float = 0.0
     decimal_places: int = 0
 
-    # Units/Quantity
-    quantity: str = ""                         # e.g., "Temperature", "Pressure"
-    unit: str = ""                             # e.g., "degC", "bar"
-
     # Timeout behavior
     default_value: float = 0.0
     timeout_behavior: CanTimeoutBehavior = CanTimeoutBehavior.USE_DEFAULT
@@ -1278,8 +1274,6 @@ class CanRxChannel(ChannelBase):
             "divider": self.divider,
             "offset": self.offset,
             "decimal_places": self.decimal_places,
-            "quantity": self.quantity,
-            "unit": self.unit,
             "default_value": self.default_value,
             "timeout_behavior": self.timeout_behavior.value if isinstance(self.timeout_behavior, CanTimeoutBehavior) else self.timeout_behavior,
         })
@@ -1338,8 +1332,6 @@ class CanRxChannel(ChannelBase):
             divider=data.get("divider", 1.0),
             offset=data.get("offset", 0.0),
             decimal_places=data.get("decimal_places", 0),
-            quantity=data.get("quantity", ""),
-            unit=data.get("unit", ""),
             default_value=data.get("default_value", 0.0),
             timeout_behavior=timeout_behavior,
             # Legacy fields
@@ -1522,8 +1514,8 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.TABLE_2D: "2D Table",
         ChannelType.TABLE_3D: "3D Table",
         ChannelType.SWITCH: "Switch",
-        ChannelType.CAN_RX: "CAN RX",
-        ChannelType.CAN_TX: "CAN TX",
+        ChannelType.CAN_RX: "CAN Input",
+        ChannelType.CAN_TX: "CAN Output",
     }
     return names.get(channel_type, channel_type.value)
 

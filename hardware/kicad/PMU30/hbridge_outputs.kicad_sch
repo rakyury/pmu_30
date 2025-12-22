@@ -1,0 +1,882 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "hbridge-outputs-uuid-001")
+  (paper "A4")
+  (title_block
+    (title "PMU-30 H-Bridge Outputs")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "4x Full H-Bridge Motor Drivers")
+    (comment 2 "8x BTN8982TA Half-Bridge")
+  )
+
+  (lib_symbols
+    (symbol "PMU30:BTN8982TA"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 15.24 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "BTN8982TA"
+        (at 0 -15.24 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_TO_SOT_SMD:TO-263-7_TabPin4"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTN8982TA-DS-v01_00-EN.pdf"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "BTN8982TA_0_1"
+        (rectangle
+          (start -7.62 12.7)
+          (end 7.62 -12.7)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "BTN8982TA_1_1"
+        (pin input line
+          (at -10.16 10.16 0)
+          (length 2.54)
+          (name "INH"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -10.16 5.08 0)
+          (length 2.54)
+          (name "IN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin output line
+          (at -10.16 -5.08 0)
+          (length 2.54)
+          (name "IS"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 -15.24 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 10.16 10.16 180)
+          (length 2.54)
+          (name "VS"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 10.16 0 180)
+          (length 2.54)
+          (name "OUT"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin output line
+          (at -10.16 -10.16 0)
+          (length 2.54)
+          (name "SR"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "7"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (text "H-BRIDGE OUTPUT SECTION"
+    (exclude_from_sim no)
+    (at 148.59 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "BTN8982TA Specifications:"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-header")
+  )
+
+  (text "- Operating voltage: 5.5V to 40V"
+    (exclude_from_sim no)
+    (at 25.4 45.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-1")
+  )
+
+  (text "- Continuous current: 30A (single device)"
+    (exclude_from_sim no)
+    (at 25.4 50.8 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-2")
+  )
+
+  (text "- RDS(on): 2.5mOhm (high-side), 2.0mOhm (low-side)"
+    (exclude_from_sim no)
+    (at 25.4 55.88 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-3")
+  )
+
+  (text "- Current sense ratio kILIS: 8500"
+    (exclude_from_sim no)
+    (at 25.4 60.96 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-4")
+  )
+
+  (text "- PWM frequency: up to 25kHz"
+    (exclude_from_sim no)
+    (at 25.4 66.04 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-spec-5")
+  )
+
+  (text "FULL H-BRIDGE 1 (Motor 1)"
+    (exclude_from_sim no)
+    (at 38.1 83.82 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-hbridge1-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:BTN8982TA")
+    (at 63.5 109.22 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U40-hbridge-1a")
+    (property "Reference" "U40"
+      (at 63.5 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTN8982TA"
+      (at 63.5 127 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:TO-263-7_TabPin4"
+      (at 63.5 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTN8982TA-DS-v01_00-EN.pdf"
+      (at 63.5 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U40-pin1")
+    )
+    (pin "2"
+      (uuid "U40-pin2")
+    )
+    (pin "3"
+      (uuid "U40-pin3")
+    )
+    (pin "4"
+      (uuid "U40-pin4")
+    )
+    (pin "5"
+      (uuid "U40-pin5")
+    )
+    (pin "6"
+      (uuid "U40-pin6")
+    )
+    (pin "7"
+      (uuid "U40-pin7")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/hbridge-outputs-uuid-001"
+          (reference "U40")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTN8982TA")
+    (at 127.0 109.22 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U41-hbridge-1b")
+    (property "Reference" "U41"
+      (at 127.0 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTN8982TA"
+      (at 127.0 127 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:TO-263-7_TabPin4"
+      (at 127.0 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTN8982TA-DS-v01_00-EN.pdf"
+      (at 127.0 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U41-pin1")
+    )
+    (pin "2"
+      (uuid "U41-pin2")
+    )
+    (pin "3"
+      (uuid "U41-pin3")
+    )
+    (pin "4"
+      (uuid "U41-pin4")
+    )
+    (pin "5"
+      (uuid "U41-pin5")
+    )
+    (pin "6"
+      (uuid "U41-pin6")
+    )
+    (pin "7"
+      (uuid "U41-pin7")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/hbridge-outputs-uuid-001"
+          (reference "U41")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "FULL H-BRIDGE 2 (Motor 2)"
+    (exclude_from_sim no)
+    (at 177.8 83.82 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-hbridge2-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:BTN8982TA")
+    (at 203.2 109.22 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U42-hbridge-2a")
+    (property "Reference" "U42"
+      (at 203.2 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTN8982TA"
+      (at 203.2 127 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:TO-263-7_TabPin4"
+      (at 203.2 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTN8982TA-DS-v01_00-EN.pdf"
+      (at 203.2 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U42-pin1")
+    )
+    (pin "2"
+      (uuid "U42-pin2")
+    )
+    (pin "3"
+      (uuid "U42-pin3")
+    )
+    (pin "4"
+      (uuid "U42-pin4")
+    )
+    (pin "5"
+      (uuid "U42-pin5")
+    )
+    (pin "6"
+      (uuid "U42-pin6")
+    )
+    (pin "7"
+      (uuid "U42-pin7")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/hbridge-outputs-uuid-001"
+          (reference "U42")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol
+    (lib_id "PMU30:BTN8982TA")
+    (at 266.7 109.22 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U43-hbridge-2b")
+    (property "Reference" "U43"
+      (at 266.7 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "BTN8982TA"
+      (at 266.7 127 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:TO-263-7_TabPin4"
+      (at 266.7 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.infineon.com/dgdl/Infineon-BTN8982TA-DS-v01_00-EN.pdf"
+      (at 266.7 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U43-pin1")
+    )
+    (pin "2"
+      (uuid "U43-pin2")
+    )
+    (pin "3"
+      (uuid "U43-pin3")
+    )
+    (pin "4"
+      (uuid "U43-pin4")
+    )
+    (pin "5"
+      (uuid "U43-pin5")
+    )
+    (pin "6"
+      (uuid "U43-pin6")
+    )
+    (pin "7"
+      (uuid "U43-pin7")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/hbridge-outputs-uuid-001"
+          (reference "U43")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "H-BRIDGE CONTROL:"
+    (exclude_from_sim no)
+    (at 25.4 147.32 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-control-header")
+  )
+
+  (text "INH (Inhibit): PWM for speed control"
+    (exclude_from_sim no)
+    (at 25.4 157.48 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-control-1")
+  )
+
+  (text "IN: Direction (H=High-side ON, L=Low-side ON)"
+    (exclude_from_sim no)
+    (at 25.4 162.56 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-control-2")
+  )
+
+  (text "IS: Current sense output (kILIS=8500)"
+    (exclude_from_sim no)
+    (at 25.4 167.64 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-control-3")
+  )
+
+  (text "SR: Slew rate control"
+    (exclude_from_sim no)
+    (at 25.4 172.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-control-4")
+  )
+
+  (text "MOTOR CONTROL MODES:"
+    (exclude_from_sim no)
+    (at 175.26 147.32 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-modes-header")
+  )
+
+  (text "Forward: INH_A=PWM, IN_A=H, INH_B=PWM, IN_B=L"
+    (exclude_from_sim no)
+    (at 175.26 157.48 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mode-fwd")
+  )
+
+  (text "Reverse: INH_A=PWM, IN_A=L, INH_B=PWM, IN_B=H"
+    (exclude_from_sim no)
+    (at 175.26 162.56 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mode-rev")
+  )
+
+  (text "Brake: INH_A=H, IN_A=L, INH_B=H, IN_B=L"
+    (exclude_from_sim no)
+    (at 175.26 167.64 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mode-brake")
+  )
+
+  (text "Coast: INH_A=L, INH_B=L"
+    (exclude_from_sim no)
+    (at 175.26 172.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mode-coast")
+  )
+
+  (text "NOTE: H-Bridge 3-4 (U44-U47) not shown"
+    (exclude_from_sim no)
+    (at 25.4 190.5 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-more")
+  )
+
+  (global_label "VBAT"
+    (shape input)
+    (at 73.66 99.06 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-vbat-u40")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 80.6472 99.06 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "GND"
+    (shape input)
+    (at 63.5 127 270)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-gnd-u40")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 63.5 133.4538 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "HB1_INH_A"
+    (shape input)
+    (at 45.72 99.06 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-hb1-inh-a")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 32.1338 99.06 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "HB1_IN_A"
+    (shape input)
+    (at 45.72 104.14 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-hb1-in-a")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 34.2138 104.14 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "MOTOR1_A"
+    (shape output)
+    (at 81.28 109.22 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-motor1-a")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 95.8 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "MOTOR1_B"
+    (shape output)
+    (at 144.78 109.22 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-motor1-b")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 159.3 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+)

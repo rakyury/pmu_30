@@ -1,0 +1,376 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+  (paper "A3")
+  (title_block
+    (title "PMU-30 Power Management Unit")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "Main Block Diagram")
+    (comment 2 "STM32H743 + 30 PROFET + 4 H-Bridge")
+  )
+
+  (lib_symbols)
+
+  (text "PMU-30 BLOCK DIAGRAM"
+    (exclude_from_sim no)
+    (at 148.59 30.48 0)
+    (effects
+      (font
+        (size 5 5)
+        (thickness 1)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "title-text-001")
+  )
+
+  (text "Power Input: 6-22V DC (250A max)"
+    (exclude_from_sim no)
+    (at 30.48 60.96 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-power-input")
+  )
+
+  (text "MCU: STM32H743VIT6"
+    (exclude_from_sim no)
+    (at 30.48 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mcu")
+  )
+
+  (text "Outputs: 30x PROFET BTS7008-2EPA"
+    (exclude_from_sim no)
+    (at 30.48 91.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-profet")
+  )
+
+  (text "H-Bridge: 4x BTN8982TA"
+    (exclude_from_sim no)
+    (at 30.48 106.68 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-hbridge")
+  )
+
+  (text "CAN: 2x FD (TJA1463) + 2x 2.0 (TJA1051)"
+    (exclude_from_sim no)
+    (at 30.48 121.92 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-can")
+  )
+
+  (text "Inputs: 20x Universal ADC"
+    (exclude_from_sim no)
+    (at 30.48 137.16 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-inputs")
+  )
+
+  (sheet
+    (at 180.34 50.8)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 255 255 194 1.0)
+    )
+    (uuid "sheet-power-input")
+    (property "Sheetname" "Power Input"
+      (at 180.34 50.0856 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "power_input.kicad_sch"
+      (at 180.34 76.6146 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "2")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 180.34 86.36)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 194 255 194 1.0)
+    )
+    (uuid "sheet-mcu-core")
+    (property "Sheetname" "MCU Core"
+      (at 180.34 85.6456 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "mcu_core.kicad_sch"
+      (at 180.34 112.1746 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "3")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 180.34 121.92)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 194 194 255 1.0)
+    )
+    (uuid "sheet-profet-outputs")
+    (property "Sheetname" "PROFET Outputs"
+      (at 180.34 121.2056 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "profet_outputs.kicad_sch"
+      (at 180.34 147.7346 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "4")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 180.34 157.48)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 255 194 194 1.0)
+    )
+    (uuid "sheet-hbridge-outputs")
+    (property "Sheetname" "H-Bridge Outputs"
+      (at 180.34 156.7656 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "hbridge_outputs.kicad_sch"
+      (at 180.34 183.2946 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "5")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 241.3 50.8)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 255 194 255 1.0)
+    )
+    (uuid "sheet-can-interfaces")
+    (property "Sheetname" "CAN Interfaces"
+      (at 241.3 50.0856 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "can_interfaces.kicad_sch"
+      (at 241.3 76.6146 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "6")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 241.3 86.36)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 194 255 255 1.0)
+    )
+    (uuid "sheet-analog-inputs")
+    (property "Sheetname" "Analog Inputs"
+      (at 241.3 85.6456 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "analog_inputs.kicad_sch"
+      (at 241.3 112.1746 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "7")
+        )
+      )
+    )
+  )
+
+  (sheet
+    (at 241.3 121.92)
+    (size 50.8 25.4)
+    (fields_autoplaced yes)
+    (stroke
+      (width 0.1524)
+      (type solid)
+    )
+    (fill
+      (color 255 255 255 1.0)
+    )
+    (uuid "sheet-connectors")
+    (property "Sheetname" "Connectors"
+      (at 241.3 121.2056 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left bottom)
+      )
+    )
+    (property "Sheetfile" "connectors.kicad_sch"
+      (at 241.3 147.7346 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left top)
+      )
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          (page "8")
+        )
+      )
+    )
+  )
+)

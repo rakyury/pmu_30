@@ -30,6 +30,9 @@ from .dialogs.output_config_dialog import OutputConfigDialog
 from .dialogs.input_config_dialog import InputConfigDialog
 from .dialogs.switch_dialog import SwitchDialog
 from .dialogs.can_message_dialog import CANMessageDialog
+from .dialogs.can_input_dialog import CANInputDialog
+from .dialogs.can_output_dialog import CANOutputDialog
+from .dialogs.can_messages_manager_dialog import CANMessagesManagerDialog
 from .dialogs.connection_dialog import ConnectionDialog
 
 from controllers.device_controller import DeviceController
@@ -189,6 +192,13 @@ class MainWindowProfessional(QMainWindow):
 
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
+
+        can_messages_action = QAction("CAN Messages...", self)
+        can_messages_action.setShortcut("Ctrl+M")
+        can_messages_action.triggered.connect(self.show_can_messages_manager)
+        edit_menu.addAction(can_messages_action)
+
+        edit_menu.addSeparator()
 
         settings_action = QAction("Settings...", self)
         settings_action.triggered.connect(self.show_settings)
@@ -422,8 +432,41 @@ class MainWindowProfessional(QMainWindow):
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif channel_type == ChannelType.CAN_RX or channel_type == ChannelType.CAN_TX:
-            dialog = CANMessageDialog(self, None)
+        elif channel_type == ChannelType.CAN_RX:
+            # CAN RX = CAN Input (signal extraction from CAN Message)
+            # Get list of CAN messages from config_manager
+            message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
+            if not message_ids:
+                QMessageBox.warning(
+                    self, "No CAN Messages",
+                    "Please create at least one CAN Message before adding CAN Inputs.\n\n"
+                    "Use the CAN Bus tab to create CAN Messages first."
+                )
+                return
+
+            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+
+            dialog = CANInputDialog(
+                self,
+                input_config=None,
+                message_ids=message_ids,
+                existing_channel_ids=existing_ids
+            )
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
+                self.configuration_changed.emit()
+
+        elif channel_type == ChannelType.CAN_TX:
+            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+            available_channels = self._get_available_channels()
+
+            dialog = CANOutputDialog(
+                self,
+                output_config=None,
+                existing_ids=existing_ids,
+                available_channels=available_channels
+            )
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -507,8 +550,31 @@ class MainWindowProfessional(QMainWindow):
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.CAN_RX or channel_type == ChannelType.CAN_TX:
-            dialog = CANMessageDialog(self, item_data)
+        elif channel_type == ChannelType.CAN_RX:
+            # CAN RX = CAN Input (signal extraction from CAN Message)
+            message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
+            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+
+            dialog = CANInputDialog(
+                self,
+                input_config=item_data,
+                message_ids=message_ids,
+                existing_channel_ids=existing_ids
+            )
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
+        elif channel_type == ChannelType.CAN_TX:
+            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+            available_channels = self._get_available_channels()
+
+            dialog = CANOutputDialog(
+                self,
+                output_config=item_data,
+                existing_ids=existing_ids,
+                available_channels=available_channels
+            )
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
@@ -738,6 +804,12 @@ class MainWindowProfessional(QMainWindow):
     def write_to_device(self):
         """Write configuration to device."""
         pass
+
+    def show_can_messages_manager(self):
+        """Show CAN Messages manager dialog."""
+        dialog = CANMessagesManagerDialog(self, self.config_manager)
+        dialog.messages_changed.connect(self._on_config_changed)
+        dialog.exec()
 
     def show_settings(self):
         """Show settings dialog."""

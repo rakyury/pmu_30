@@ -1,0 +1,1245 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "power-input-uuid-001")
+  (paper "A4")
+  (title_block
+    (title "PMU-30 Power Input")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "Power Input Section")
+    (comment 2 "TPS54360B DC-DC Converters")
+  )
+
+  (lib_symbols
+    (symbol "PMU30:DTM04-2P"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "J"
+        (at 0 5.08 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "DTM04-2P"
+        (at 0 -5.08 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Connector_Deutsch:DTM04-2P"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "DTM04-2P_0_1"
+        (rectangle
+          (start -5.08 3.81)
+          (end 5.08 -3.81)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "DTM04-2P_1_1"
+        (pin passive line
+          (at -7.62 1.27 0)
+          (length 2.54)
+          (name "VBAT+"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin passive line
+          (at -7.62 -1.27 0)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+
+    (symbol "PMU30:SM6T36CA"
+      (pin_names
+        (offset 0)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "D"
+        (at 0 2.54 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "SM6T36CA"
+        (at 0 -2.54 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Diode_SMD:D_SMC"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "SM6T36CA_0_1"
+        (polyline
+          (pts
+            (xy -1.27 1.27)
+            (xy -1.27 -1.27)
+          )
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type none)
+          )
+        )
+        (polyline
+          (pts
+            (xy 1.27 1.27)
+            (xy 1.27 -1.27)
+          )
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type none)
+          )
+        )
+        (polyline
+          (pts
+            (xy -1.27 0)
+            (xy 1.27 1.27)
+            (xy 1.27 -1.27)
+            (xy -1.27 0)
+          )
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type outline)
+          )
+        )
+      )
+      (symbol "SM6T36CA_1_1"
+        (pin passive line
+          (at -3.81 0 0)
+          (length 2.54)
+          (name "A"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin passive line
+          (at 3.81 0 180)
+          (length 2.54)
+          (name "K"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+
+    (symbol "PMU30:TPS54360B"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 15.24 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "TPS54360B"
+        (at 0 -15.24 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_SO:HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" "https://www.ti.com/lit/ds/symlink/tps54360b.pdf"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "TPS54360B_0_1"
+        (rectangle
+          (start -10.16 12.7)
+          (end 10.16 -12.7)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "TPS54360B_1_1"
+        (pin power_in line
+          (at -12.7 10.16 0)
+          (length 2.54)
+          (name "VIN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 5.08 0)
+          (length 2.54)
+          (name "EN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 0 0)
+          (length 2.54)
+          (name "SS/TR"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 -5.08 0)
+          (length 2.54)
+          (name "FB"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -12.7 -10.16 0)
+          (length 2.54)
+          (name "COMP"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 12.7 10.16 180)
+          (length 2.54)
+          (name "SW"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 12.7 5.08 180)
+          (length 2.54)
+          (name "BOOT"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "7"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 -15.24 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "8"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 2.54 -15.24 90)
+          (length 2.54)
+          (name "PAD"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "9"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+
+    (symbol "PMU30:AMS1117-3.3"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 5.08 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "AMS1117-3.3"
+        (at 0 -5.08 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_TO_SOT_SMD:SOT-223-3_TabPin2"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" ""
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "AMS1117-3.3_0_1"
+        (rectangle
+          (start -5.08 3.81)
+          (end 5.08 -3.81)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "AMS1117-3.3_1_1"
+        (pin power_in line
+          (at -7.62 1.27 0)
+          (length 2.54)
+          (name "VIN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 -6.35 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_out line
+          (at 7.62 1.27 180)
+          (length 2.54)
+          (name "VOUT"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (text "POWER INPUT SECTION"
+    (exclude_from_sim no)
+    (at 148.59 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "Input: 6-22V DC via DTM-2 connector"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-input-spec")
+  )
+
+  (text "TVS Protection: SM6T36CA bidirectional"
+    (exclude_from_sim no)
+    (at 25.4 43.18 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-tvs-spec")
+  )
+
+  (text "DC-DC 1: TPS54360B 12V @ 3.5A (PROFET, H-Bridge supply)"
+    (exclude_from_sim no)
+    (at 25.4 48.26 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dcdc1-spec")
+  )
+
+  (text "DC-DC 2: TPS54360B 5V @ 3.5A (CAN, Sensors)"
+    (exclude_from_sim no)
+    (at 25.4 53.34 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-dcdc2-spec")
+  )
+
+  (text "LDO: AMS1117-3.3 3.3V @ 1A (MCU, Logic)"
+    (exclude_from_sim no)
+    (at 25.4 58.42 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-ldo-spec")
+  )
+
+  (text "POWER INPUT CONNECTOR"
+    (exclude_from_sim no)
+    (at 38.1 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-connector")
+  )
+
+  (symbol
+    (lib_id "PMU30:DTM04-2P")
+    (at 50.8 91.44 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "J1-power-input")
+    (property "Reference" "J1"
+      (at 50.8 83.82 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "DTM04-2P"
+      (at 50.8 99.06 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Connector_Deutsch:DTM04-2P"
+      (at 50.8 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" ""
+      (at 50.8 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "J1-pin1")
+    )
+    (pin "2"
+      (uuid "J1-pin2")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/power-input-uuid-001"
+          (reference "J1")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "TVS PROTECTION"
+    (exclude_from_sim no)
+    (at 88.9 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-tvs")
+  )
+
+  (symbol
+    (lib_id "PMU30:SM6T36CA")
+    (at 101.6 91.44 90)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "D1-tvs")
+    (property "Reference" "D1"
+      (at 106.68 91.44 90)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "SM6T36CA"
+      (at 111.76 91.44 90)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Diode_SMD:D_SMC"
+      (at 101.6 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" ""
+      (at 101.6 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "D1-pin1")
+    )
+    (pin "2"
+      (uuid "D1-pin2")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/power-input-uuid-001"
+          (reference "D1")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "12V DC-DC CONVERTER"
+    (exclude_from_sim no)
+    (at 139.7 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-12v")
+  )
+
+  (symbol
+    (lib_id "PMU30:TPS54360B")
+    (at 160.02 101.6 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U1-tps54360-12v")
+    (property "Reference" "U1"
+      (at 160.02 83.82 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "TPS54360B"
+      (at 160.02 119.38 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm"
+      (at 160.02 101.6 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.ti.com/lit/ds/symlink/tps54360b.pdf"
+      (at 160.02 101.6 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U1-pin1")
+    )
+    (pin "2"
+      (uuid "U1-pin2")
+    )
+    (pin "3"
+      (uuid "U1-pin3")
+    )
+    (pin "4"
+      (uuid "U1-pin4")
+    )
+    (pin "5"
+      (uuid "U1-pin5")
+    )
+    (pin "6"
+      (uuid "U1-pin6")
+    )
+    (pin "7"
+      (uuid "U1-pin7")
+    )
+    (pin "8"
+      (uuid "U1-pin8")
+    )
+    (pin "9"
+      (uuid "U1-pin9")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/power-input-uuid-001"
+          (reference "U1")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "5V DC-DC CONVERTER"
+    (exclude_from_sim no)
+    (at 139.7 132.08 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-5v")
+  )
+
+  (symbol
+    (lib_id "PMU30:TPS54360B")
+    (at 160.02 157.48 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U2-tps54360-5v")
+    (property "Reference" "U2"
+      (at 160.02 139.7 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "TPS54360B"
+      (at 160.02 175.26 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm"
+      (at 160.02 157.48 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.ti.com/lit/ds/symlink/tps54360b.pdf"
+      (at 160.02 157.48 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U2-pin1")
+    )
+    (pin "2"
+      (uuid "U2-pin2")
+    )
+    (pin "3"
+      (uuid "U2-pin3")
+    )
+    (pin "4"
+      (uuid "U2-pin4")
+    )
+    (pin "5"
+      (uuid "U2-pin5")
+    )
+    (pin "6"
+      (uuid "U2-pin6")
+    )
+    (pin "7"
+      (uuid "U2-pin7")
+    )
+    (pin "8"
+      (uuid "U2-pin8")
+    )
+    (pin "9"
+      (uuid "U2-pin9")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/power-input-uuid-001"
+          (reference "U2")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "3.3V LDO REGULATOR"
+    (exclude_from_sim no)
+    (at 215.9 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-3v3")
+  )
+
+  (symbol
+    (lib_id "PMU30:AMS1117-3.3")
+    (at 231.14 91.44 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U3-ams1117")
+    (property "Reference" "U3"
+      (at 231.14 83.82 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "AMS1117-3.3"
+      (at 231.14 99.06 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_TO_SOT_SMD:SOT-223-3_TabPin2"
+      (at 231.14 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" ""
+      (at 231.14 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U3-pin1")
+    )
+    (pin "2"
+      (uuid "U3-pin2")
+    )
+    (pin "3"
+      (uuid "U3-pin3")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/power-input-uuid-001"
+          (reference "U3")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "DESIGN NOTES:"
+    (exclude_from_sim no)
+    (at 25.4 190.5 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-notes-header")
+  )
+
+  (text "1. Input capacitors: 4x 100uF/50V ceramic (1210) for bulk"
+    (exclude_from_sim no)
+    (at 25.4 198.12 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-1")
+  )
+
+  (text "2. TVS clamping voltage: 36V nominal, 58.1V max"
+    (exclude_from_sim no)
+    (at 25.4 203.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-2")
+  )
+
+  (text "3. TPS54360B: 60V max input, 3.5A continuous output"
+    (exclude_from_sim no)
+    (at 25.4 208.28 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-3")
+  )
+
+  (text "4. Feedback resistors: R1/R2 ratio sets output voltage"
+    (exclude_from_sim no)
+    (at 25.4 213.36 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-4")
+  )
+
+  (text "5. Boot capacitor: 100nF ceramic required"
+    (exclude_from_sim no)
+    (at 25.4 218.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-5")
+  )
+
+  (text "6. Soft-start capacitor: 10nF-100nF for controlled ramp"
+    (exclude_from_sim no)
+    (at 25.4 223.52 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-6")
+  )
+
+  (global_label "VBAT"
+    (shape input)
+    (at 66.04 90.17 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-vbat")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 73.0272 90.17 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "+12V"
+    (shape output)
+    (at 182.88 91.44 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-12v")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 190.1534 91.44 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "+5V"
+    (shape output)
+    (at 182.88 147.32 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-5v")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 189.38 147.32 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "+3.3V"
+    (shape output)
+    (at 248.92 92.71 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-3v3")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 257.42 92.71 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "GND"
+    (shape input)
+    (at 66.04 92.71 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-gnd")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 72.4938 92.71 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+)

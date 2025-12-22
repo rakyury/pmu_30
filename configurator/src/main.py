@@ -20,7 +20,7 @@ from PyQt6.QtGui import QIcon
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ui.main_window import MainWindow
+from ui.main_window_professional import MainWindowProfessional
 from utils.logger import setup_logger
 
 
@@ -44,7 +44,7 @@ def main():
     app.setApplicationVersion("1.0.0")
 
     # Create and show main window
-    window = MainWindow()
+    window = MainWindowProfessional()
     window.show()
 
     logger.info("Application started successfully")

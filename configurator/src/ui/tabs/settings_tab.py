@@ -60,41 +60,188 @@ class SettingsTab(QWidget):
         device_group.setLayout(device_layout)
         layout.addWidget(device_group)
 
-        # CAN Bus Settings Group
-        can_group = QGroupBox("CAN Bus Settings")
-        can_layout = QFormLayout()
+        # CAN A Bus Settings Group
+        can_a_group = QGroupBox("CAN A Bus (FDCAN1)")
+        can_a_layout = QFormLayout()
 
-        self.can_bitrate_combo = QComboBox()
-        self.can_bitrate_combo.addItems(["125 kbps", "250 kbps", "500 kbps", "1000 kbps"])
-        self.can_bitrate_combo.setCurrentIndex(2)  # 500 kbps default
-        self.can_bitrate_combo.currentTextChanged.connect(self._on_config_changed)
-        can_layout.addRow("CAN Bitrate:", self.can_bitrate_combo)
+        self.can_a_enabled_check = QCheckBox("Enable CAN A")
+        self.can_a_enabled_check.setChecked(True)
+        self.can_a_enabled_check.toggled.connect(self._on_config_changed)
+        can_a_layout.addRow("", self.can_a_enabled_check)
+
+        self.can_a_bitrate_combo = QComboBox()
+        self.can_a_bitrate_combo.addItems(["125 kbps", "250 kbps", "500 kbps", "1000 kbps"])
+        self.can_a_bitrate_combo.setCurrentIndex(2)  # 500 kbps default
+        self.can_a_bitrate_combo.currentTextChanged.connect(self._on_config_changed)
+        can_a_layout.addRow("Bitrate:", self.can_a_bitrate_combo)
+
+        self.can_a_fd_enabled_check = QCheckBox("Enable CAN FD")
+        self.can_a_fd_enabled_check.setChecked(False)
+        self.can_a_fd_enabled_check.setToolTip("Enable CAN FD mode (up to 8 Mbps data rate)")
+        self.can_a_fd_enabled_check.toggled.connect(self._on_config_changed)
+        can_a_layout.addRow("", self.can_a_fd_enabled_check)
+
+        self.can_a_fd_bitrate_combo = QComboBox()
+        self.can_a_fd_bitrate_combo.addItems(["1 Mbps", "2 Mbps", "4 Mbps", "5 Mbps", "8 Mbps"])
+        self.can_a_fd_bitrate_combo.setCurrentIndex(1)  # 2 Mbps default
+        self.can_a_fd_bitrate_combo.currentTextChanged.connect(self._on_config_changed)
+        can_a_layout.addRow("FD Data Rate:", self.can_a_fd_bitrate_combo)
+
+        self.can_a_terminator_check = QCheckBox("Enable Terminator (120Ω)")
+        self.can_a_terminator_check.setChecked(False)
+        self.can_a_terminator_check.toggled.connect(self._on_config_changed)
+        can_a_layout.addRow("", self.can_a_terminator_check)
+
+        self.can_a_listen_only_check = QCheckBox("Listen Only Mode")
+        self.can_a_listen_only_check.setChecked(False)
+        self.can_a_listen_only_check.toggled.connect(self._on_config_changed)
+        can_a_layout.addRow("", self.can_a_listen_only_check)
+
+        can_a_group.setLayout(can_a_layout)
+        layout.addWidget(can_a_group)
+
+        # CAN B Bus Settings Group
+        can_b_group = QGroupBox("CAN B Bus (FDCAN2)")
+        can_b_layout = QFormLayout()
+
+        self.can_b_enabled_check = QCheckBox("Enable CAN B")
+        self.can_b_enabled_check.setChecked(False)
+        self.can_b_enabled_check.toggled.connect(self._on_config_changed)
+        can_b_layout.addRow("", self.can_b_enabled_check)
+
+        self.can_b_bitrate_combo = QComboBox()
+        self.can_b_bitrate_combo.addItems(["125 kbps", "250 kbps", "500 kbps", "1000 kbps"])
+        self.can_b_bitrate_combo.setCurrentIndex(2)  # 500 kbps default
+        self.can_b_bitrate_combo.currentTextChanged.connect(self._on_config_changed)
+        can_b_layout.addRow("Bitrate:", self.can_b_bitrate_combo)
+
+        self.can_b_fd_enabled_check = QCheckBox("Enable CAN FD")
+        self.can_b_fd_enabled_check.setChecked(False)
+        self.can_b_fd_enabled_check.setToolTip("Enable CAN FD mode (up to 8 Mbps data rate)")
+        self.can_b_fd_enabled_check.toggled.connect(self._on_config_changed)
+        can_b_layout.addRow("", self.can_b_fd_enabled_check)
+
+        self.can_b_fd_bitrate_combo = QComboBox()
+        self.can_b_fd_bitrate_combo.addItems(["1 Mbps", "2 Mbps", "4 Mbps", "5 Mbps", "8 Mbps"])
+        self.can_b_fd_bitrate_combo.setCurrentIndex(1)  # 2 Mbps default
+        self.can_b_fd_bitrate_combo.currentTextChanged.connect(self._on_config_changed)
+        can_b_layout.addRow("FD Data Rate:", self.can_b_fd_bitrate_combo)
+
+        self.can_b_terminator_check = QCheckBox("Enable Terminator (120Ω)")
+        self.can_b_terminator_check.setChecked(False)
+        self.can_b_terminator_check.toggled.connect(self._on_config_changed)
+        can_b_layout.addRow("", self.can_b_terminator_check)
+
+        self.can_b_listen_only_check = QCheckBox("Listen Only Mode")
+        self.can_b_listen_only_check.setChecked(False)
+        self.can_b_listen_only_check.toggled.connect(self._on_config_changed)
+        can_b_layout.addRow("", self.can_b_listen_only_check)
+
+        can_b_group.setLayout(can_b_layout)
+        layout.addWidget(can_b_group)
+
+        # CAN General Settings
+        can_general_group = QGroupBox("CAN General Settings")
+        can_general_layout = QFormLayout()
 
         self.can_node_id_spin = QSpinBox()
         self.can_node_id_spin.setRange(0, 127)
         self.can_node_id_spin.setValue(1)
         self.can_node_id_spin.setToolTip("CAN Node ID for this device")
         self.can_node_id_spin.valueChanged.connect(self._on_config_changed)
-        can_layout.addRow("Node ID:", self.can_node_id_spin)
-
-        self.can_terminator_check = QCheckBox("Enable CAN Terminator (120Ω)")
-        self.can_terminator_check.setChecked(False)
-        self.can_terminator_check.toggled.connect(self._on_config_changed)
-        can_layout.addRow("", self.can_terminator_check)
-
-        self.can_listen_only_check = QCheckBox("Listen Only Mode")
-        self.can_listen_only_check.setChecked(False)
-        self.can_listen_only_check.setToolTip("Device will not transmit on CAN bus")
-        self.can_listen_only_check.toggled.connect(self._on_config_changed)
-        can_layout.addRow("", self.can_listen_only_check)
+        can_general_layout.addRow("Node ID:", self.can_node_id_spin)
 
         self.can_auto_retransmit_check = QCheckBox("Automatic Retransmission")
         self.can_auto_retransmit_check.setChecked(True)
         self.can_auto_retransmit_check.toggled.connect(self._on_config_changed)
-        can_layout.addRow("", self.can_auto_retransmit_check)
+        can_general_layout.addRow("", self.can_auto_retransmit_check)
 
-        can_group.setLayout(can_layout)
-        layout.addWidget(can_group)
+        can_general_group.setLayout(can_general_layout)
+        layout.addWidget(can_general_group)
+
+        # Legacy compatibility - keep old attribute for status bar
+        self.can_bitrate_combo = self.can_a_bitrate_combo
+
+        # Standard CAN Stream Group
+        stream_group = QGroupBox("Standard CAN Stream")
+        stream_layout = QFormLayout()
+
+        self.stream_enabled_check = QCheckBox("Enable Standard CAN Stream")
+        self.stream_enabled_check.setChecked(False)
+        self.stream_enabled_check.setToolTip(
+            "Broadcast predefined PMU parameters over CAN bus.\n"
+            "Compatible with Ecumaster Standard CAN Stream format."
+        )
+        self.stream_enabled_check.toggled.connect(self._on_stream_enabled_changed)
+        self.stream_enabled_check.toggled.connect(self._on_config_changed)
+        stream_layout.addRow("", self.stream_enabled_check)
+
+        self.stream_can_bus_combo = QComboBox()
+        self.stream_can_bus_combo.addItems(["CAN A", "CAN B"])
+        self.stream_can_bus_combo.setCurrentIndex(0)
+        self.stream_can_bus_combo.setToolTip("CAN bus for stream transmission")
+        self.stream_can_bus_combo.currentTextChanged.connect(self._on_config_changed)
+        stream_layout.addRow("CAN Bus:", self.stream_can_bus_combo)
+
+        # Base ID with hex input
+        base_id_layout = QHBoxLayout()
+        base_id_label = QLabel("0x")
+        self.stream_base_id_edit = QLineEdit()
+        self.stream_base_id_edit.setPlaceholderText("600")
+        self.stream_base_id_edit.setText("600")
+        self.stream_base_id_edit.setMaximumWidth(80)
+        self.stream_base_id_edit.setToolTip(
+            "Base CAN ID (hex). Stream uses 8 consecutive IDs:\n"
+            "BaseID+0: System Status & Temperatures\n"
+            "BaseID+1: Output States\n"
+            "BaseID+2: Analog Inputs a1-a8\n"
+            "BaseID+3: Analog Inputs a9-a16\n"
+            "BaseID+4: Output Currents o1-o8\n"
+            "BaseID+5: Output Currents o9-o16\n"
+            "BaseID+6: Output Voltages o1-o8\n"
+            "BaseID+7: Output Voltages o9-o16"
+        )
+        self.stream_base_id_edit.textChanged.connect(self._on_config_changed)
+        base_id_layout.addWidget(base_id_label)
+        base_id_layout.addWidget(self.stream_base_id_edit)
+        base_id_layout.addStretch()
+        stream_layout.addRow("Base ID:", base_id_layout)
+
+        self.stream_extended_id_check = QCheckBox("Use Extended (29-bit) CAN IDs")
+        self.stream_extended_id_check.setChecked(False)
+        self.stream_extended_id_check.toggled.connect(self._on_config_changed)
+        stream_layout.addRow("", self.stream_extended_id_check)
+
+        self.stream_include_extended_check = QCheckBox("Include PMU-30 Extended Frames (BaseID+8 to +15)")
+        self.stream_include_extended_check.setChecked(False)
+        self.stream_include_extended_check.setToolTip(
+            "Include additional 8 frames for PMU-30 specific data:\n"
+            "BaseID+8:  Output States o17-o30\n"
+            "BaseID+9:  Output Currents o17-o24\n"
+            "BaseID+10: Output Currents o25-o30\n"
+            "BaseID+11: Output Voltages o17-o24\n"
+            "BaseID+12: Output Voltages o25-o30\n"
+            "BaseID+13: Analog Inputs a17-a20\n"
+            "BaseID+14: Digital Inputs\n"
+            "BaseID+15: H-Bridge Status"
+        )
+        self.stream_include_extended_check.toggled.connect(self._on_config_changed)
+        stream_layout.addRow("", self.stream_include_extended_check)
+
+        # Stream info label
+        stream_info = QLabel(
+            "<i>Standard CAN Stream transmits PMU data at 20 Hz and 62.5 Hz rates.<br>"
+            "Ecumaster-compatible for real-time monitoring.</i>"
+        )
+        stream_info.setWordWrap(True)
+        stream_info.setTextFormat(Qt.TextFormat.RichText)
+        stream_layout.addRow("", stream_info)
+
+        stream_group.setLayout(stream_layout)
+        layout.addWidget(stream_group)
+
+        # Initial state update
+        self._on_stream_enabled_changed(False)
 
         # Power Settings Group
         power_group = QGroupBox("Power Settings")
@@ -246,30 +393,74 @@ class SettingsTab(QWidget):
         calibration_group.setLayout(calibration_layout)
         layout.addWidget(calibration_group)
 
+        # Device Specifications Group
+        specs_group = QGroupBox("Device Specifications")
+        specs_layout = QVBoxLayout()
+
+        specs_text = QLabel(
+            "<b>PMU-30 Power Management Unit</b><br>"
+            "<br>"
+            "<b>MCU:</b> STM32H723ZGT6 (Cortex-M7 @ 550MHz)<br>"
+            "<br>"
+            "<b>Power Outputs:</b><br>"
+            "• 30x High-Side Outputs (PROFET Smart Switches)<br>"
+            "• Per-channel current sensing and protection<br>"
+            "• PWM capable (1Hz - 20kHz)<br>"
+            "• Soft-start and inrush current handling<br>"
+            "• Automatic retry on overcurrent<br>"
+            "<br>"
+            "<b>H-Bridge Motor Drivers:</b><br>"
+            "• 4x Dual H-Bridge outputs<br>"
+            "• Bidirectional motor control<br>"
+            "• PWM speed control<br>"
+            "<br>"
+            "<b>Inputs:</b><br>"
+            "• 8x Digital Inputs (5-30V tolerant)<br>"
+            "• 20x Analog Inputs (0-5V, 12-bit ADC)<br>"
+            "• Configurable pull-up/pull-down resistors<br>"
+            "• Frequency measurement up to 20kHz<br>"
+            "<br>"
+            "<b>CAN Bus:</b><br>"
+            "• 2x CAN FD interfaces (FDCAN1, FDCAN2)<br>"
+            "• Up to 8 Mbps data rate in FD mode<br>"
+            "• Software-selectable 120Ω termination<br>"
+            "• Isolated transceiver option<br>"
+            "<br>"
+            "<b>Logic Engine:</b><br>"
+            "• 256 Virtual Channels<br>"
+            "• Boolean operations (AND, OR, XOR, etc.)<br>"
+            "• Comparisons with hysteresis<br>"
+            "• Timers and delays<br>"
+            "• 2D/3D Lookup tables<br>"
+            "• Math operations<br>"
+            "<br>"
+            "<b>Advanced Features:</b><br>"
+            "• PID Controllers<br>"
+            "• Lua 5.4 Scripting engine<br>"
+            "• Real-time data logging<br>"
+            "• OTA firmware updates<br>"
+            "<br>"
+            "<b>Environmental:</b><br>"
+            "• Operating voltage: 8-32V DC<br>"
+            "• Operating temperature: -40°C to +85°C<br>"
+            "• IP67 enclosure (optional)<br>"
+        )
+        specs_text.setWordWrap(True)
+        specs_text.setTextFormat(Qt.TextFormat.RichText)
+        specs_layout.addWidget(specs_text)
+
+        specs_group.setLayout(specs_layout)
+        layout.addWidget(specs_group)
+
         # About Group
         about_group = QGroupBox("About")
         about_layout = QVBoxLayout()
 
         about_text = QLabel(
-            "<b>PMU-30 Power Management Unit Configurator</b><br>"
+            "<b>PMU-30 Configurator</b><br>"
+            "Version: 2.0.0<br>"
             "<br>"
-            "Version: 1.0.0<br>"
             "© 2025 R2 m-sport. All rights reserved.<br>"
-            "<br>"
-            "<b>Device Specifications:</b><br>"
-            "• 30 High-Side Outputs<br>"
-            "• 4 Dual H-Bridge Motor Drivers<br>"
-            "• 20 Analog/Digital Inputs<br>"
-            "• CAN FD Interface<br>"
-            "• Logic Engine with 256 Virtual Channels<br>"
-            "• PID Controllers<br>"
-            "• LUA 5.4 Scripting<br>"
-            "<br>"
-            "<b>Features:</b><br>"
-            "• Current monitoring and protection<br>"
-            "• Thermal management<br>"
-            "• Diagnostic feedback<br>"
-            "• Flexible configuration<br>"
         )
         about_text.setWordWrap(True)
         about_text.setTextFormat(Qt.TextFormat.RichText)
@@ -292,6 +483,13 @@ class SettingsTab(QWidget):
         """Handle configuration change."""
         self.configuration_changed.emit()
 
+    def _on_stream_enabled_changed(self, enabled: bool):
+        """Handle stream enable/disable state change."""
+        self.stream_can_bus_combo.setEnabled(enabled)
+        self.stream_base_id_edit.setEnabled(enabled)
+        self.stream_extended_id_check.setEnabled(enabled)
+        self.stream_include_extended_check.setEnabled(enabled)
+
     def load_configuration(self, config: dict):
         """Load settings from configuration."""
         settings = config.get("settings", {})
@@ -302,17 +500,52 @@ class SettingsTab(QWidget):
         self.device_description_edit.setText(device.get("description", ""))
         self.serial_number_edit.setText(device.get("serial_number", ""))
 
-        # CAN bus settings
-        can = settings.get("can", {})
-        bitrate = can.get("bitrate", "500 kbps")
-        index = self.can_bitrate_combo.findText(bitrate)
+        # CAN A bus settings
+        can_a = settings.get("can_a", settings.get("can", {}))  # Fallback to legacy "can" key
+        self.can_a_enabled_check.setChecked(can_a.get("enabled", True))
+        bitrate = can_a.get("bitrate", "500 kbps")
+        index = self.can_a_bitrate_combo.findText(bitrate)
         if index >= 0:
-            self.can_bitrate_combo.setCurrentIndex(index)
+            self.can_a_bitrate_combo.setCurrentIndex(index)
+        self.can_a_fd_enabled_check.setChecked(can_a.get("fd_enabled", False))
+        fd_bitrate = can_a.get("fd_bitrate", "2 Mbps")
+        index = self.can_a_fd_bitrate_combo.findText(fd_bitrate)
+        if index >= 0:
+            self.can_a_fd_bitrate_combo.setCurrentIndex(index)
+        self.can_a_terminator_check.setChecked(can_a.get("terminator", False))
+        self.can_a_listen_only_check.setChecked(can_a.get("listen_only", False))
 
+        # CAN B bus settings
+        can_b = settings.get("can_b", {})
+        self.can_b_enabled_check.setChecked(can_b.get("enabled", False))
+        bitrate = can_b.get("bitrate", "500 kbps")
+        index = self.can_b_bitrate_combo.findText(bitrate)
+        if index >= 0:
+            self.can_b_bitrate_combo.setCurrentIndex(index)
+        self.can_b_fd_enabled_check.setChecked(can_b.get("fd_enabled", False))
+        fd_bitrate = can_b.get("fd_bitrate", "2 Mbps")
+        index = self.can_b_fd_bitrate_combo.findText(fd_bitrate)
+        if index >= 0:
+            self.can_b_fd_bitrate_combo.setCurrentIndex(index)
+        self.can_b_terminator_check.setChecked(can_b.get("terminator", False))
+        self.can_b_listen_only_check.setChecked(can_b.get("listen_only", False))
+
+        # CAN general settings (legacy compatibility)
+        can = settings.get("can", {})
         self.can_node_id_spin.setValue(can.get("node_id", 1))
-        self.can_terminator_check.setChecked(can.get("terminator", False))
-        self.can_listen_only_check.setChecked(can.get("listen_only", False))
         self.can_auto_retransmit_check.setChecked(can.get("auto_retransmit", True))
+
+        # Standard CAN Stream settings
+        stream = settings.get("standard_can_stream", {})
+        stream_enabled = stream.get("enabled", False)
+        self.stream_enabled_check.setChecked(stream_enabled)
+        can_bus = stream.get("can_bus", 1)
+        self.stream_can_bus_combo.setCurrentIndex(0 if can_bus == 1 else 1)
+        base_id = stream.get("base_id", 0x600)
+        self.stream_base_id_edit.setText(f"{base_id:X}")
+        self.stream_extended_id_check.setChecked(stream.get("is_extended", False))
+        self.stream_include_extended_check.setChecked(stream.get("include_extended_frames", False))
+        self._on_stream_enabled_changed(stream_enabled)
 
         # Power settings
         power = settings.get("power", {})
@@ -355,12 +588,32 @@ class SettingsTab(QWidget):
                     "description": self.device_description_edit.text(),
                     "serial_number": self.serial_number_edit.text()
                 },
+                "can_a": {
+                    "enabled": self.can_a_enabled_check.isChecked(),
+                    "bitrate": self.can_a_bitrate_combo.currentText(),
+                    "fd_enabled": self.can_a_fd_enabled_check.isChecked(),
+                    "fd_bitrate": self.can_a_fd_bitrate_combo.currentText(),
+                    "terminator": self.can_a_terminator_check.isChecked(),
+                    "listen_only": self.can_a_listen_only_check.isChecked()
+                },
+                "can_b": {
+                    "enabled": self.can_b_enabled_check.isChecked(),
+                    "bitrate": self.can_b_bitrate_combo.currentText(),
+                    "fd_enabled": self.can_b_fd_enabled_check.isChecked(),
+                    "fd_bitrate": self.can_b_fd_bitrate_combo.currentText(),
+                    "terminator": self.can_b_terminator_check.isChecked(),
+                    "listen_only": self.can_b_listen_only_check.isChecked()
+                },
                 "can": {
-                    "bitrate": self.can_bitrate_combo.currentText(),
                     "node_id": self.can_node_id_spin.value(),
-                    "terminator": self.can_terminator_check.isChecked(),
-                    "listen_only": self.can_listen_only_check.isChecked(),
                     "auto_retransmit": self.can_auto_retransmit_check.isChecked()
+                },
+                "standard_can_stream": {
+                    "enabled": self.stream_enabled_check.isChecked(),
+                    "can_bus": 1 if self.stream_can_bus_combo.currentIndex() == 0 else 2,
+                    "base_id": int(self.stream_base_id_edit.text() or "600", 16),
+                    "is_extended": self.stream_extended_id_check.isChecked(),
+                    "include_extended_frames": self.stream_include_extended_check.isChecked()
                 },
                 "power": {
                     "nominal_voltage": self.nominal_voltage_spin.value(),
@@ -388,11 +641,33 @@ class SettingsTab(QWidget):
         self.device_description_edit.clear()
         self.serial_number_edit.clear()
 
-        self.can_bitrate_combo.setCurrentIndex(2)  # 500 kbps
+        # CAN A defaults
+        self.can_a_enabled_check.setChecked(True)
+        self.can_a_bitrate_combo.setCurrentIndex(2)  # 500 kbps
+        self.can_a_fd_enabled_check.setChecked(False)
+        self.can_a_fd_bitrate_combo.setCurrentIndex(1)  # 2 Mbps
+        self.can_a_terminator_check.setChecked(False)
+        self.can_a_listen_only_check.setChecked(False)
+
+        # CAN B defaults
+        self.can_b_enabled_check.setChecked(False)
+        self.can_b_bitrate_combo.setCurrentIndex(2)  # 500 kbps
+        self.can_b_fd_enabled_check.setChecked(False)
+        self.can_b_fd_bitrate_combo.setCurrentIndex(1)  # 2 Mbps
+        self.can_b_terminator_check.setChecked(False)
+        self.can_b_listen_only_check.setChecked(False)
+
+        # CAN general defaults
         self.can_node_id_spin.setValue(1)
-        self.can_terminator_check.setChecked(False)
-        self.can_listen_only_check.setChecked(False)
         self.can_auto_retransmit_check.setChecked(True)
+
+        # Standard CAN Stream defaults
+        self.stream_enabled_check.setChecked(False)
+        self.stream_can_bus_combo.setCurrentIndex(0)  # CAN A
+        self.stream_base_id_edit.setText("600")
+        self.stream_extended_id_check.setChecked(False)
+        self.stream_include_extended_check.setChecked(False)
+        self._on_stream_enabled_changed(False)
 
         self.nominal_voltage_spin.setValue(12.0)
         self.low_voltage_warning_spin.setValue(10.5)

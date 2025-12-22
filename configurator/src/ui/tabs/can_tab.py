@@ -43,7 +43,7 @@ class CANTab(QWidget):
         info_label = QLabel(
             "Configure CAN communication using a two-level architecture:\n"
             "1. CAN Messages - define frame properties (ID, bus, timeout)\n"
-            "2. CAN Inputs - extract signals from messages (format, scaling, units)"
+            "2. CAN Inputs - extract signals from messages (format, scaling)"
         )
         info_label.setWordWrap(True)
         info_layout.addWidget(info_label)
@@ -127,9 +127,9 @@ class CANTab(QWidget):
         inputs_layout.addWidget(inputs_header)
 
         self.inputs_table = QTableWidget()
-        self.inputs_table.setColumnCount(6)
+        self.inputs_table.setColumnCount(4)
         self.inputs_table.setHorizontalHeaderLabels([
-            "Channel ID", "Message", "Format", "Scale", "Unit", "Quantity"
+            "Channel ID", "Message", "Format", "Scale"
         ])
         self.inputs_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.inputs_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -399,15 +399,6 @@ class CANTab(QWidget):
             scale_item = QTableWidgetItem(scale_str)
             scale_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.inputs_table.setItem(row, 3, scale_item)
-
-            # Unit
-            unit = QTableWidgetItem(inp.get("unit", ""))
-            unit.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.inputs_table.setItem(row, 4, unit)
-
-            # Quantity
-            quantity = QTableWidgetItem(inp.get("quantity", ""))
-            self.inputs_table.setItem(row, 5, quantity)
 
         if filter_message_id:
             self.input_stats_label.setText(f"Inputs: {shown_count} (filtered from {len(self.can_inputs)})")

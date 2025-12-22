@@ -30,13 +30,13 @@ class ProjectTree(QWidget):
             "subfolders": {
                 "Digital Inputs": {"channel_type": ChannelType.DIGITAL_INPUT},
                 "Analog Inputs": {"channel_type": ChannelType.ANALOG_INPUT},
-                "CAN RX": {"channel_type": ChannelType.CAN_RX},
+                "CAN Inputs": {"channel_type": ChannelType.CAN_RX},
             }
         },
         "Outputs": {
             "subfolders": {
                 "Power Outputs": {"channel_type": ChannelType.POWER_OUTPUT},
-                "CAN TX": {"channel_type": ChannelType.CAN_TX},
+                "CAN Outputs": {"channel_type": ChannelType.CAN_TX},
             }
         },
         "Functions": {
@@ -428,9 +428,26 @@ class ProjectTree(QWidget):
             items = data.get("items", [])
             return f"{len(items)} items"
 
-        elif channel_type == ChannelType.CAN_RX or channel_type == ChannelType.CAN_TX:
+        elif channel_type == ChannelType.CAN_RX:
+            # CAN Input - show message reference and format
+            msg_ref = data.get("message_ref", "")
+            data_format = data.get("data_format", "16bit")
+            if hasattr(data_format, 'value'):
+                data_format = data_format.value
+            byte_order = data.get("byte_order", "little_endian")
+            order_short = "LE" if byte_order == "little_endian" else "BE"
+            format_short = {"8bit": "8", "16bit": "16", "32bit": "32", "custom": "C"}.get(data_format, "?")
+            return f"{msg_ref} [{format_short}{order_short}]"
+
+        elif channel_type == ChannelType.CAN_TX:
             msg_id = data.get("message_id", 0)
-            return f"ID: 0x{msg_id:X}"
+            can_bus = data.get("can_bus", 1)
+            tx_mode = data.get("transmit_mode", "cycle")
+            if tx_mode == "cycle":
+                freq = data.get("frequency_hz", 10)
+                return f"CAN{can_bus} 0x{msg_id:X} @ {freq}Hz"
+            else:
+                return f"CAN{can_bus} 0x{msg_id:X} (Triggered)"
 
         elif channel_type == ChannelType.FILTER:
             filter_type = data.get("filter_type", "moving_avg")

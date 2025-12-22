@@ -83,6 +83,17 @@ PMU_CONFIG_SCHEMA = {
                 "can1_baudrate": {"type": "integer"},
                 "can2_baudrate": {"type": "integer"}
             }
+        },
+        # Standard CAN Stream configuration
+        "standard_can_stream": {
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "can_bus": {"type": "integer", "enum": [1, 2]},
+                "base_id": {"type": "integer", "minimum": 0, "maximum": 2047},
+                "is_extended": {"type": "boolean"},
+                "include_extended_frames": {"type": "boolean"}
+            }
         }
     }
 }
@@ -270,8 +281,6 @@ CHANNEL_TYPE_SCHEMAS = {
         "divider": {"type": "number"},
         "offset": {"type": "number"},
         "decimal_places": {"type": "integer", "minimum": 0, "maximum": 6},
-        "quantity": {"type": "string"},
-        "unit": {"type": "string"},
         "default_value": {"type": "number"},
         "timeout_behavior": {"type": "string", "enum": ["use_default", "hold_last", "set_zero"]},
         # Legacy fields (v2.0 backwards compatibility)

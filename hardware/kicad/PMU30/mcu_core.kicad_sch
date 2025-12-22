@@ -1,0 +1,1433 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "mcu-core-uuid-001")
+  (paper "A3")
+  (title_block
+    (title "PMU-30 MCU Core")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "STM32H743VIT6 Microcontroller")
+    (comment 2 "480MHz Cortex-M7, 2MB Flash, 1MB RAM")
+  )
+
+  (lib_symbols
+    (symbol "PMU30:STM32H743VIT6"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 55.88 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "STM32H743VIT6"
+        (at 0 -55.88 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_QFP:LQFP-100_14x14mm_P0.5mm"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" "https://www.st.com/resource/en/datasheet/stm32h743vi.pdf"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "STM32H743VIT6_0_1"
+        (rectangle
+          (start -25.4 53.34)
+          (end 25.4 -53.34)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "STM32H743VIT6_1_1"
+        (pin power_in line
+          (at -27.94 50.8 0)
+          (length 2.54)
+          (name "VBAT"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "6"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -27.94 45.72 0)
+          (length 2.54)
+          (name "VDD"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "11"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -27.94 40.64 0)
+          (length 2.54)
+          (name "VDDA"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "22"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -27.94 35.56 0)
+          (length 2.54)
+          (name "VREF+"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "21"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -27.94 -45.72 0)
+          (length 2.54)
+          (name "VSS"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "10"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at -27.94 -50.8 0)
+          (length 2.54)
+          (name "VSSA"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "20"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -27.94 25.4 0)
+          (length 2.54)
+          (name "NRST"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "14"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -27.94 20.32 0)
+          (length 2.54)
+          (name "BOOT0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "94"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at -27.94 10.16 0)
+          (length 2.54)
+          (name "PH0-OSC_IN"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "12"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at -27.94 5.08 0)
+          (length 2.54)
+          (name "PH1-OSC_OUT"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "13"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at -27.94 0 0)
+          (length 2.54)
+          (name "PC14-OSC32_IN"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "7"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at -27.94 -5.08 0)
+          (length 2.54)
+          (name "PC15-OSC32_OUT"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "8"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 50.8 180)
+          (length 2.54)
+          (name "PA0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "23"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 48.26 180)
+          (length 2.54)
+          (name "PA1"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "24"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 45.72 180)
+          (length 2.54)
+          (name "PA2"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "25"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 43.18 180)
+          (length 2.54)
+          (name "PA3"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "26"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 40.64 180)
+          (length 2.54)
+          (name "PA4"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "29"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 38.1 180)
+          (length 2.54)
+          (name "PA5"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "30"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 35.56 180)
+          (length 2.54)
+          (name "PA6"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "31"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 33.02 180)
+          (length 2.54)
+          (name "PA7"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "32"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 25.4 180)
+          (length 2.54)
+          (name "PB0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "35"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 22.86 180)
+          (length 2.54)
+          (name "PB1"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "36"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 0 180)
+          (length 2.54)
+          (name "PC0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "15"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 -2.54 180)
+          (length 2.54)
+          (name "PC1"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "16"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 -25.4 180)
+          (length 2.54)
+          (name "PD0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "81"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 -27.94 180)
+          (length 2.54)
+          (name "PD1"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "82"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 -45.72 180)
+          (length 2.54)
+          (name "PE0"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "97"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 27.94 -48.26 180)
+          (length 2.54)
+          (name "PE1"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+          (number "98"
+            (effects
+              (font
+                (size 1.016 1.016)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (text "MCU CORE SECTION"
+    (exclude_from_sim no)
+    (at 190.5 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "STM32H743VIT6 - ARM Cortex-M7 @ 480MHz"
+    (exclude_from_sim no)
+    (at 25.4 38.1 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mcu-spec-1")
+  )
+
+  (text "Flash: 2MB, RAM: 1MB (864KB + 128KB + 64KB)"
+    (exclude_from_sim no)
+    (at 25.4 43.18 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mcu-spec-2")
+  )
+
+  (text "Package: LQFP-100 (14x14mm)"
+    (exclude_from_sim no)
+    (at 25.4 48.26 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-mcu-spec-3")
+  )
+
+  (text "MAIN MCU"
+    (exclude_from_sim no)
+    (at 139.7 66.04 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-mcu")
+  )
+
+  (symbol
+    (lib_id "PMU30:STM32H743VIT6")
+    (at 165.1 124.46 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U10-stm32h743")
+    (property "Reference" "U10"
+      (at 165.1 63.5 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "STM32H743VIT6"
+      (at 165.1 185.42 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_QFP:LQFP-100_14x14mm_P0.5mm"
+      (at 165.1 124.46 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.st.com/resource/en/datasheet/stm32h743vi.pdf"
+      (at 165.1 124.46 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "6"
+      (uuid "U10-pin6")
+    )
+    (pin "11"
+      (uuid "U10-pin11")
+    )
+    (pin "22"
+      (uuid "U10-pin22")
+    )
+    (pin "21"
+      (uuid "U10-pin21")
+    )
+    (pin "10"
+      (uuid "U10-pin10")
+    )
+    (pin "20"
+      (uuid "U10-pin20")
+    )
+    (pin "14"
+      (uuid "U10-pin14")
+    )
+    (pin "94"
+      (uuid "U10-pin94")
+    )
+    (pin "12"
+      (uuid "U10-pin12")
+    )
+    (pin "13"
+      (uuid "U10-pin13")
+    )
+    (pin "7"
+      (uuid "U10-pin7")
+    )
+    (pin "8"
+      (uuid "U10-pin8")
+    )
+    (pin "23"
+      (uuid "U10-pin23")
+    )
+    (pin "24"
+      (uuid "U10-pin24")
+    )
+    (pin "25"
+      (uuid "U10-pin25")
+    )
+    (pin "26"
+      (uuid "U10-pin26")
+    )
+    (pin "29"
+      (uuid "U10-pin29")
+    )
+    (pin "30"
+      (uuid "U10-pin30")
+    )
+    (pin "31"
+      (uuid "U10-pin31")
+    )
+    (pin "32"
+      (uuid "U10-pin32")
+    )
+    (pin "35"
+      (uuid "U10-pin35")
+    )
+    (pin "36"
+      (uuid "U10-pin36")
+    )
+    (pin "15"
+      (uuid "U10-pin15")
+    )
+    (pin "16"
+      (uuid "U10-pin16")
+    )
+    (pin "81"
+      (uuid "U10-pin81")
+    )
+    (pin "82"
+      (uuid "U10-pin82")
+    )
+    (pin "97"
+      (uuid "U10-pin97")
+    )
+    (pin "98"
+      (uuid "U10-pin98")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/mcu-core-uuid-001"
+          (reference "U10")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "HSE CRYSTAL 25MHz"
+    (exclude_from_sim no)
+    (at 38.1 66.04 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-hse")
+  )
+
+  (text "Y1: 25MHz crystal (10ppm)"
+    (exclude_from_sim no)
+    (at 38.1 73.66 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-hse-spec")
+  )
+
+  (text "C10, C11: 20pF load capacitors"
+    (exclude_from_sim no)
+    (at 38.1 78.74 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-hse-caps")
+  )
+
+  (text "LSE CRYSTAL 32.768kHz"
+    (exclude_from_sim no)
+    (at 38.1 91.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-lse")
+  )
+
+  (text "Y2: 32.768kHz crystal (RTC)"
+    (exclude_from_sim no)
+    (at 38.1 99.06 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-lse-spec")
+  )
+
+  (text "C12, C13: 6.8pF load capacitors"
+    (exclude_from_sim no)
+    (at 38.1 104.14 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-lse-caps")
+  )
+
+  (text "DECOUPLING CAPACITORS"
+    (exclude_from_sim no)
+    (at 38.1 116.84 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-decoupling")
+  )
+
+  (text "C14-C21: 100nF ceramic (0402) per VDD pin"
+    (exclude_from_sim no)
+    (at 38.1 124.46 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-decoupling-100n")
+  )
+
+  (text "C22-C25: 4.7uF ceramic (0603) bulk"
+    (exclude_from_sim no)
+    (at 38.1 129.54 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-decoupling-4u7")
+  )
+
+  (text "C26: 1uF ceramic VDDA decoupling"
+    (exclude_from_sim no)
+    (at 38.1 134.62 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-decoupling-vdda")
+  )
+
+  (text "RESET CIRCUIT"
+    (exclude_from_sim no)
+    (at 38.1 147.32 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-reset")
+  )
+
+  (text "R10: 10K pullup to VDD"
+    (exclude_from_sim no)
+    (at 38.1 154.94 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-reset-pullup")
+  )
+
+  (text "C27: 100nF filter capacitor"
+    (exclude_from_sim no)
+    (at 38.1 160.02 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-reset-cap")
+  )
+
+  (text "PIN ALLOCATION"
+    (exclude_from_sim no)
+    (at 241.3 66.04 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-pinout")
+  )
+
+  (text "PORTA: TIM1_CH1-4 (OUT0-3), USART1, SPI1"
+    (exclude_from_sim no)
+    (at 241.3 76.2 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-a")
+  )
+
+  (text "PORTB: TIM2_CH1-4 (OUT4-7), I2C1, CAN1"
+    (exclude_from_sim no)
+    (at 241.3 83.82 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-b")
+  )
+
+  (text "PORTC: TIM3_CH1-4 (OUT8-11), ADC1_IN10-15"
+    (exclude_from_sim no)
+    (at 241.3 91.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-c")
+  )
+
+  (text "PORTD: TIM4_CH1-4 (OUT12-15), USART3, FDCAN1"
+    (exclude_from_sim no)
+    (at 241.3 99.06 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-d")
+  )
+
+  (text "PORTE: TIM5_CH1-4 (OUT16-19), ADC3_IN"
+    (exclude_from_sim no)
+    (at 241.3 106.68 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-e")
+  )
+
+  (text "PORTF: TIM8_CH1-4 (OUT20-23), ADC2_IN"
+    (exclude_from_sim no)
+    (at 241.3 114.3 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-f")
+  )
+
+  (text "PORTG: Digital inputs, Status LEDs"
+    (exclude_from_sim no)
+    (at 241.3 121.92 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-pinout-g")
+  )
+
+  (text "SWD DEBUG"
+    (exclude_from_sim no)
+    (at 241.3 137.16 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-section-swd")
+  )
+
+  (text "PA13: SWDIO"
+    (exclude_from_sim no)
+    (at 241.3 147.32 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-swd-dio")
+  )
+
+  (text "PA14: SWCLK"
+    (exclude_from_sim no)
+    (at 241.3 154.94 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-swd-clk")
+  )
+
+  (text "PB3: SWO (optional)"
+    (exclude_from_sim no)
+    (at 241.3 162.56 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-swd-swo")
+  )
+
+  (text "DESIGN NOTES:"
+    (exclude_from_sim no)
+    (at 25.4 200.66 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-notes-header")
+  )
+
+  (text "1. Place decoupling caps as close to VDD pins as possible"
+    (exclude_from_sim no)
+    (at 25.4 208.28 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-1")
+  )
+
+  (text "2. Use solid ground plane under MCU"
+    (exclude_from_sim no)
+    (at 25.4 213.36 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-2")
+  )
+
+  (text "3. Keep crystal traces short (<10mm)"
+    (exclude_from_sim no)
+    (at 25.4 218.44 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-3")
+  )
+
+  (text "4. VDDA requires LC filter from VDD"
+    (exclude_from_sim no)
+    (at 25.4 223.52 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-4")
+  )
+
+  (text "5. BOOT0 tied to GND via 10K for normal boot"
+    (exclude_from_sim no)
+    (at 25.4 228.6 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-note-5")
+  )
+
+  (global_label "+3.3V"
+    (shape input)
+    (at 127.0 73.66 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-3v3-vdd")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 118.5 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "GND"
+    (shape input)
+    (at 127.0 175.26 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-gnd-vss")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 120.5462 175.26 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN1_TX"
+    (shape output)
+    (at 203.2 99.06 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-fdcan1-tx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.9338 99.06 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN1_RX"
+    (shape input)
+    (at 203.2 101.6 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-fdcan1-rx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.6962 101.6 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN2_TX"
+    (shape output)
+    (at 203.2 106.68 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-fdcan2-tx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.9338 106.68 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN2_RX"
+    (shape input)
+    (at 203.2 109.22 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-fdcan2-rx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.6962 109.22 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT0_PWM"
+    (shape output)
+    (at 203.2 73.66 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out0-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.3062 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT1_PWM"
+    (shape output)
+    (at 203.2 76.2 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out1-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.3062 76.2 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT2_PWM"
+    (shape output)
+    (at 203.2 78.74 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out2-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.3062 78.74 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "OUT3_PWM"
+    (shape output)
+    (at 203.2 81.28 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-out3-pwm")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 216.3062 81.28 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "ADC1_IN0"
+    (shape input)
+    (at 203.2 124.46 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-adc1-in0")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 214.8038 124.46 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "ADC1_IN1"
+    (shape input)
+    (at 203.2 127.0 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-adc1-in1")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 214.8038 127.0 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+)

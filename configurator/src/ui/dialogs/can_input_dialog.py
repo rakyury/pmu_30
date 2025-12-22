@@ -200,23 +200,6 @@ class CANInputDialog(QDialog):
         scale_group.setLayout(scale_layout)
         layout.addWidget(scale_group)
 
-        # Units group
-        units_group = QGroupBox("Units & Display")
-        units_layout = QFormLayout()
-
-        self.quantity_edit = QLineEdit()
-        self.quantity_edit.setPlaceholderText("e.g., Engine Speed, Temperature")
-        self.quantity_edit.setToolTip("Physical quantity description")
-        units_layout.addRow("Quantity:", self.quantity_edit)
-
-        self.unit_edit = QLineEdit()
-        self.unit_edit.setPlaceholderText("e.g., rpm, degC, bar")
-        self.unit_edit.setToolTip("Unit of measurement")
-        units_layout.addRow("Unit:", self.unit_edit)
-
-        units_group.setLayout(units_layout)
-        layout.addWidget(units_group)
-
         # Timeout Behavior group
         timeout_group = QGroupBox("Timeout Behavior")
         timeout_layout = QFormLayout()
@@ -359,10 +342,6 @@ class CANInputDialog(QDialog):
         self.offset_spin.setValue(config.get("offset", 0.0))
         self.decimals_spin.setValue(config.get("decimal_places", 0))
 
-        # Units
-        self.quantity_edit.setText(config.get("quantity", ""))
-        self.unit_edit.setText(config.get("unit", ""))
-
         # Timeout behavior
         self.default_value_spin.setValue(config.get("default_value", 0.0))
         timeout_behavior = config.get("timeout_behavior", "use_default")
@@ -401,8 +380,6 @@ class CANInputDialog(QDialog):
             "divider": self.divider_spin.value(),
             "offset": self.offset_spin.value(),
             "decimal_places": self.decimals_spin.value(),
-            "quantity": self.quantity_edit.text().strip(),
-            "unit": self.unit_edit.text().strip(),
             "default_value": self.default_value_spin.value(),
             "timeout_behavior": timeout_behavior,
         }

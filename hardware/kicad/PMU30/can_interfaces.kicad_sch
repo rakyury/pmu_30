@@ -1,0 +1,662 @@
+(kicad_sch
+  (version 20231120)
+  (generator "eeschema")
+  (generator_version "8.0")
+  (uuid "can-interfaces-uuid-001")
+  (paper "A4")
+  (title_block
+    (title "PMU-30 CAN Interfaces")
+    (date "2024-12-22")
+    (rev "A")
+    (company "R2 m-sport")
+    (comment 1 "2x CAN FD + 2x CAN 2.0")
+    (comment 2 "TJA1463 + TJA1051")
+  )
+
+  (lib_symbols
+    (symbol "PMU30:TJA1463"
+      (pin_names
+        (offset 1.016)
+      )
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "U"
+        (at 0 12.7 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Value" "TJA1463"
+        (at 0 -12.7 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+        )
+      )
+      (property "Footprint" "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (property "Datasheet" "https://www.nxp.com/docs/en/data-sheet/TJA1463.pdf"
+        (at 0 0 0)
+        (effects
+          (font
+            (size 1.27 1.27)
+          )
+          (hide yes)
+        )
+      )
+      (symbol "TJA1463_0_1"
+        (rectangle
+          (start -7.62 10.16)
+          (end 7.62 -10.16)
+          (stroke
+            (width 0.254)
+            (type default)
+          )
+          (fill
+            (type background)
+          )
+        )
+      )
+      (symbol "TJA1463_1_1"
+        (pin input line
+          (at -10.16 7.62 0)
+          (length 2.54)
+          (name "TXD"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "1"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 -12.7 90)
+          (length 2.54)
+          (name "GND"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "2"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin power_in line
+          (at 0 12.7 270)
+          (length 2.54)
+          (name "VCC"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "3"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin output line
+          (at -10.16 2.54 0)
+          (length 2.54)
+          (name "RXD"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "4"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -10.16 -2.54 0)
+          (length 2.54)
+          (name "STB"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "5"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 10.16 2.54 180)
+          (length 2.54)
+          (name "CANH"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "6"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin bidirectional line
+          (at 10.16 -2.54 180)
+          (length 2.54)
+          (name "CANL"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "7"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+        (pin input line
+          (at -10.16 -7.62 0)
+          (length 2.54)
+          (name "EN"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+          (number "8"
+            (effects
+              (font
+                (size 1.27 1.27)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  (text "CAN INTERFACE SECTION"
+    (exclude_from_sim no)
+    (at 148.59 25.4 0)
+    (effects
+      (font
+        (size 3.81 3.81)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-title-001")
+  )
+
+  (text "CAN FD 1 (5Mbps data rate)"
+    (exclude_from_sim no)
+    (at 38.1 45.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-canfd1-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:TJA1463")
+    (at 76.2 73.66 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U50-tja1463-canfd1")
+    (property "Reference" "U50"
+      (at 76.2 58.42 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "TJA1463"
+      (at 76.2 88.9 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+      (at 76.2 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.nxp.com/docs/en/data-sheet/TJA1463.pdf"
+      (at 76.2 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U50-pin1")
+    )
+    (pin "2"
+      (uuid "U50-pin2")
+    )
+    (pin "3"
+      (uuid "U50-pin3")
+    )
+    (pin "4"
+      (uuid "U50-pin4")
+    )
+    (pin "5"
+      (uuid "U50-pin5")
+    )
+    (pin "6"
+      (uuid "U50-pin6")
+    )
+    (pin "7"
+      (uuid "U50-pin7")
+    )
+    (pin "8"
+      (uuid "U50-pin8")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/can-interfaces-uuid-001"
+          (reference "U50")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "CAN FD 2 (5Mbps data rate)"
+    (exclude_from_sim no)
+    (at 152.4 45.72 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-canfd2-header")
+  )
+
+  (symbol
+    (lib_id "PMU30:TJA1463")
+    (at 190.5 73.66 0)
+    (unit 1)
+    (exclude_from_sim no)
+    (in_bom yes)
+    (on_board yes)
+    (dnp no)
+    (uuid "U51-tja1463-canfd2")
+    (property "Reference" "U51"
+      (at 190.5 58.42 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Value" "TJA1463"
+      (at 190.5 88.9 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+      )
+    )
+    (property "Footprint" "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+      (at 190.5 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (property "Datasheet" "https://www.nxp.com/docs/en/data-sheet/TJA1463.pdf"
+      (at 190.5 73.66 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (hide yes)
+      )
+    )
+    (pin "1"
+      (uuid "U51-pin1")
+    )
+    (pin "2"
+      (uuid "U51-pin2")
+    )
+    (pin "3"
+      (uuid "U51-pin3")
+    )
+    (pin "4"
+      (uuid "U51-pin4")
+    )
+    (pin "5"
+      (uuid "U51-pin5")
+    )
+    (pin "6"
+      (uuid "U51-pin6")
+    )
+    (pin "7"
+      (uuid "U51-pin7")
+    )
+    (pin "8"
+      (uuid "U51-pin8")
+    )
+    (instances
+      (project "PMU30"
+        (path "/a1b2c3d4-e5f6-7890-abcd-ef1234567890/can-interfaces-uuid-001"
+          (reference "U51")
+          (unit 1)
+        )
+      )
+    )
+  )
+
+  (text "CAN 2.0 Bus 1 (1Mbps)"
+    (exclude_from_sim no)
+    (at 38.1 111.76 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-can1-header")
+  )
+
+  (text "TJA1051 - CAN 2.0 transceiver"
+    (exclude_from_sim no)
+    (at 38.1 119.38 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-can1-type")
+  )
+
+  (text "CAN 2.0 Bus 2 (1Mbps)"
+    (exclude_from_sim no)
+    (at 152.4 111.76 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-can2-header")
+  )
+
+  (text "TJA1051 - CAN 2.0 transceiver"
+    (exclude_from_sim no)
+    (at 152.4 119.38 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-can2-type")
+  )
+
+  (text "ESD PROTECTION"
+    (exclude_from_sim no)
+    (at 38.1 147.32 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-esd-header")
+  )
+
+  (text "PESD1CAN TVS on each CAN bus"
+    (exclude_from_sim no)
+    (at 38.1 154.94 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-esd-spec")
+  )
+
+  (text "TERMINATION"
+    (exclude_from_sim no)
+    (at 38.1 167.64 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+        (bold yes)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-term-header")
+  )
+
+  (text "120 Ohm termination resistor (optional)"
+    (exclude_from_sim no)
+    (at 38.1 175.26 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-term-spec")
+  )
+
+  (text "Jumper selectable for bus termination"
+    (exclude_from_sim no)
+    (at 38.1 180.34 0)
+    (effects
+      (font
+        (size 2.54 2.54)
+      )
+      (justify left bottom)
+    )
+    (uuid "text-term-jumper")
+  )
+
+  (global_label "+5V"
+    (shape input)
+    (at 76.2 58.42 90)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-5v-u50")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 76.2 51.92 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "GND"
+    (shape input)
+    (at 76.2 88.9 270)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-gnd-u50")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 76.2 95.3538 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN1_TX"
+    (shape input)
+    (at 58.42 66.04 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-fdcan1-tx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 44.6862 66.04 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "FDCAN1_RX"
+    (shape output)
+    (at 58.42 71.12 180)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify right)
+    )
+    (uuid "glabel-fdcan1-rx")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 44.9238 71.12 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify right)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "CAN1_H"
+    (shape bidirectional)
+    (at 93.98 71.12 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-can1-h")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 104.3538 71.12 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+
+  (global_label "CAN1_L"
+    (shape bidirectional)
+    (at 93.98 76.2 0)
+    (fields_autoplaced yes)
+    (effects
+      (font
+        (size 1.27 1.27)
+      )
+      (justify left)
+    )
+    (uuid "glabel-can1-l")
+    (property "Intersheetrefs" "${INTERSHEET_REFS}"
+      (at 103.8062 76.2 0)
+      (effects
+        (font
+          (size 1.27 1.27)
+        )
+        (justify left)
+        (hide yes)
+      )
+    )
+  )
+)
