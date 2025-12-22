@@ -24,6 +24,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_emulator.h"
+#include "emu_protocol_server.h"
 #include "stm32_hal_emu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +150,18 @@ int main(int argc, char* argv[])
     PMU_Emu_Protection_SetVoltage(12000);   /* 12V battery */
     PMU_Emu_Protection_SetTemperature(25);  /* 25C ambient */
 
+    /* Initialize and start protocol server */
+    EMU_ServerConfig_t server_cfg = {
+        .port = 9876,
+        .timeout_ms = 10,
+        .verbose = true
+    };
+    if (EMU_Server_Init(&server_cfg) != 0) {
+        fprintf(stderr, "Warning: Failed to initialize protocol server\n");
+    } else if (EMU_Server_Start() != 0) {
+        fprintf(stderr, "Warning: Failed to start protocol server\n");
+    }
+
     /* Run appropriate mode */
     switch (g_mode) {
         case EMU_MODE_INTERACTIVE:
@@ -163,6 +176,7 @@ int main(int argc, char* argv[])
             printf("Running in headless mode. Press Ctrl+C to stop.\n");
             while (g_running) {
                 PMU_Emu_Tick(EMU_TICK_RATE_MS);
+                EMU_Server_Process(EMU_TICK_RATE_MS);
 #ifdef _WIN32
                 Sleep(EMU_TICK_RATE_MS);
 #else
@@ -173,6 +187,7 @@ int main(int argc, char* argv[])
     }
 
     /* Cleanup */
+    EMU_Server_Stop();
     PMU_Emu_Deinit();
     printf("\nEmulator terminated.\n");
 
@@ -298,8 +313,9 @@ static void RunInteractiveMode(void)
         /* Process command */
         ProcessCommand(cmd);
 
-        /* Run emulator tick */
+        /* Run emulator tick and server */
         PMU_Emu_Tick(10);  /* 10ms per command cycle */
+        EMU_Server_Process(1);
     }
 }
 
