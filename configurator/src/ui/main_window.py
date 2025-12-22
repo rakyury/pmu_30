@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         # Create tabs
         self.outputs_tab = OutputsTab()
         self.inputs_tab = InputsTab()
-        self.can_tab = CANTab()
+        self.can_tab = CANTab(config_manager=self.config_manager)
         self.logic_tab = LogicTab()
         self.hbridge_tab = HBridgeTab()
         self.pid_tab = PIDTab()
