@@ -1,6 +1,6 @@
 """
 PMU-30 Configurator Launcher
-Choose between Classic and ECUMaster style UI
+Choose between Classic and Modern style UI
 """
 
 import sys
@@ -16,7 +16,7 @@ def show_launcher():
     print()
     print("Choose UI Style:")
     print()
-    print("1. ECUMaster Style (Recommended)")
+    print("1. Modern Style (Recommended)")
     print("   - Dock-based layout")
     print("   - Project tree with hierarchy")
     print("   - Real-time monitoring panels")
@@ -36,7 +36,7 @@ def show_launcher():
             choice = input("Enter your choice (1-3): ").strip()
 
             if choice == "1":
-                print("\nLaunching ECUMaster Style...")
+                print("\nLaunching Modern Style...")
                 os.chdir(os.path.dirname(os.path.abspath(__file__)))
                 os.system("python src/main_ecumaster.py")
                 break

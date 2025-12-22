@@ -10,11 +10,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, DigitalInputSubtype, EdgeType
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, DigitalInputSubtype, EdgeType
 
 
-class DigitalInputDialog(BaseGPIODialog):
+class DigitalInputDialog(BaseChannelDialog):
     """Dialog for configuring digital input channels"""
 
     # Subtype display names
@@ -31,7 +31,7 @@ class DigitalInputDialog(BaseGPIODialog):
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.DIGITAL_INPUT)
+        super().__init__(parent, config, available_channels, ChannelType.DIGITAL_INPUT)
 
         self._create_type_group()
         self._create_hardware_group()

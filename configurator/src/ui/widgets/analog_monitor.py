@@ -31,16 +31,6 @@ class AnalogMonitor(QWidget):
 
         # Toolbar
         toolbar = QHBoxLayout()
-
-        self.pin_btn = QPushButton("pin")
-        self.pin_btn.setMaximumWidth(40)
-        self.pin_btn.setCheckable(True)
-        toolbar.addWidget(self.pin_btn)
-
-        self.abc_btn = QPushButton("abc")
-        self.abc_btn.setMaximumWidth(40)
-        toolbar.addWidget(self.abc_btn)
-
         toolbar.addStretch()
 
         # Info button

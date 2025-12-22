@@ -1,8 +1,8 @@
 """
-GPIO - Unified Channel Model for PMU-30 Configurator
+Channel - Unified Channel Model for PMU-30 Configurator
 
-All channels in the system are GPIO (virtual channels) with different types.
-Each GPIO generates a value that can be used by other GPIOs.
+All channels in the system are virtual channels with different types.
+Each channel generates a value that can be used by other channels.
 """
 
 from dataclasses import dataclass, field
@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional
 from enum import Enum
 
 
-class GPIOType(Enum):
-    """All supported GPIO types"""
+class ChannelType(Enum):
+    """All supported channel types"""
     DIGITAL_INPUT = "digital_input"
     ANALOG_INPUT = "analog_input"
     POWER_OUTPUT = "power_output"
@@ -82,7 +82,7 @@ class ChannelMultiplier(Enum):
 
 
 class MathOperation(Enum):
-    """Math operations for Number GPIO"""
+    """Math operations for Number channel"""
     CONSTANT = "constant"
     CHANNEL = "channel"  # Channel or constant
     ADD = "add"
@@ -122,24 +122,24 @@ class TimerMode(Enum):
 
 
 @dataclass
-class GPIOBase:
-    """Base class for all GPIO channels"""
+class ChannelBase:
+    """Base class for all channels"""
     id: str
-    gpio_type: GPIOType
+    channel_type: ChannelType
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
             "id": self.id,
-            "gpio_type": self.gpio_type.value
+            "channel_type": self.channel_type.value
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'GPIOBase':
+    def from_dict(cls, data: Dict[str, Any]) -> 'ChannelBase':
         """Create from dictionary"""
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType(data.get("gpio_type", "digital_input"))
+            channel_type=ChannelType(data.get("channel_type", "digital_input"))
         )
 
     def validate(self) -> List[str]:
@@ -150,16 +150,16 @@ class GPIOBase:
         return errors
 
     def get_output_channels(self) -> List[str]:
-        """Get list of channels this GPIO outputs"""
+        """Get list of channels this channel outputs"""
         return [self.id]
 
     def get_input_channels(self) -> List[str]:
-        """Get list of channels this GPIO reads from"""
+        """Get list of channels this channel reads from"""
         return []
 
 
 @dataclass
-class DigitalInputGPIO(GPIOBase):
+class DigitalInputChannel(ChannelBase):
     """Digital input channel with multiple subtypes"""
     subtype: DigitalInputSubtype = DigitalInputSubtype.SWITCH_ACTIVE_LOW
     input_pin: int = 0  # D1-D8 -> 0-7
@@ -174,7 +174,7 @@ class DigitalInputGPIO(GPIOBase):
     number_of_teeth: int = 1  # RPM specific
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.DIGITAL_INPUT
+        self.channel_type = ChannelType.DIGITAL_INPUT
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -198,10 +198,10 @@ class DigitalInputGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'DigitalInputGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'DigitalInputChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.DIGITAL_INPUT,
+            channel_type=ChannelType.DIGITAL_INPUT,
             subtype=DigitalInputSubtype(data.get("subtype", "switch_active_low")),
             input_pin=data.get("input_pin", 0),
             enable_pullup=data.get("enable_pullup", False),
@@ -226,7 +226,7 @@ class DigitalInputGPIO(GPIOBase):
 
 
 @dataclass
-class AnalogInputGPIO(GPIOBase):
+class AnalogInputChannel(ChannelBase):
     """Analog input channel"""
     subtype: AnalogInputSubtype = AnalogInputSubtype.LINEAR
     input_pin: int = 0  # A1-A20 -> 0-19
@@ -249,7 +249,7 @@ class AnalogInputGPIO(GPIOBase):
     calibration_points: List[Dict[str, float]] = field(default_factory=list)
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.ANALOG_INPUT
+        self.channel_type = ChannelType.ANALOG_INPUT
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -284,10 +284,10 @@ class AnalogInputGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'AnalogInputGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'AnalogInputChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.ANALOG_INPUT,
+            channel_type=ChannelType.ANALOG_INPUT,
             subtype=AnalogInputSubtype(data.get("subtype", "linear")),
             input_pin=data.get("input_pin", 0),
             pullup_option=data.get("pullup_option", "1m_down"),
@@ -307,7 +307,7 @@ class AnalogInputGPIO(GPIOBase):
 
 
 @dataclass
-class PowerOutputGPIO(GPIOBase):
+class PowerOutputChannel(ChannelBase):
     """Power output channel (PROFET)"""
     output_pins: List[int] = field(default_factory=lambda: [0])  # O1-O30 -> 0-29
     source_channel: str = ""  # Control source channel
@@ -325,7 +325,7 @@ class PowerOutputGPIO(GPIOBase):
     retry_forever: bool = False
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.POWER_OUTPUT
+        self.channel_type = ChannelType.POWER_OUTPUT
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -346,10 +346,10 @@ class PowerOutputGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PowerOutputGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'PowerOutputChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.POWER_OUTPUT,
+            channel_type=ChannelType.POWER_OUTPUT,
             output_pins=data.get("output_pins", [0]),
             source_channel=data.get("source_channel", ""),
             pwm_enabled=data.get("pwm_enabled", False),
@@ -386,7 +386,7 @@ class LogicDefaultState(Enum):
 
 
 @dataclass
-class LogicGPIO(GPIOBase):
+class LogicChannel(ChannelBase):
     """Logic function channel"""
     operation: LogicOperation = LogicOperation.IS_TRUE
 
@@ -435,7 +435,7 @@ class LogicGPIO(GPIOBase):
     time_off_s: float = 0.5
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.LOGIC
+        self.channel_type = ChannelType.LOGIC
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -510,10 +510,10 @@ class LogicGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'LogicGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'LogicChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.LOGIC,
+            channel_type=ChannelType.LOGIC,
             operation=LogicOperation(data.get("operation", "is_true")),
             channel=data.get("channel", ""),
             channel_2=data.get("channel_2", ""),
@@ -536,7 +536,7 @@ class LogicGPIO(GPIOBase):
         )
 
     def get_input_channels(self) -> List[str]:
-        """Get list of channels this GPIO reads from"""
+        """Get list of channels this channel reads from"""
         channels = []
         op = self.operation
 
@@ -612,7 +612,7 @@ class LogicGPIO(GPIOBase):
 
 
 @dataclass
-class NumberGPIO(GPIOBase):
+class NumberChannel(ChannelBase):
     """Math/Number operation channel"""
     operation: MathOperation = MathOperation.CONSTANT
     # Input channel with multiplier: [(channel_id, multiplier), ...]
@@ -629,7 +629,7 @@ class NumberGPIO(GPIOBase):
     decimal_places: int = 2
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.NUMBER
+        self.channel_type = ChannelType.NUMBER
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -671,10 +671,10 @@ class NumberGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'NumberGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'NumberChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.NUMBER,
+            channel_type=ChannelType.NUMBER,
             operation=MathOperation(data.get("operation", "constant")),
             inputs=data.get("inputs", []),
             input_multipliers=data.get("input_multipliers", []),
@@ -690,7 +690,7 @@ class NumberGPIO(GPIOBase):
 
 
 @dataclass
-class TimerGPIO(GPIOBase):
+class TimerChannel(ChannelBase):
     """Timer channel"""
     start_channel: str = ""
     start_edge: EdgeType = EdgeType.RISING
@@ -702,7 +702,7 @@ class TimerGPIO(GPIOBase):
     limit_seconds: int = 0
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.TIMER
+        self.channel_type = ChannelType.TIMER
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -719,10 +719,10 @@ class TimerGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TimerGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'TimerChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.TIMER,
+            channel_type=ChannelType.TIMER,
             start_channel=data.get("start_channel", ""),
             start_edge=EdgeType(data.get("start_edge", "rising")),
             stop_channel=data.get("stop_channel", ""),
@@ -749,7 +749,7 @@ class TimerGPIO(GPIOBase):
 
 
 @dataclass
-class FilterGPIO(GPIOBase):
+class FilterChannel(ChannelBase):
     """Filter channel"""
     filter_type: FilterType = FilterType.MOVING_AVG
     input_channel: str = ""
@@ -757,7 +757,7 @@ class FilterGPIO(GPIOBase):
     time_constant: float = 0.1
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.FILTER
+        self.channel_type = ChannelType.FILTER
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -776,10 +776,10 @@ class FilterGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'FilterGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'FilterChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.FILTER,
+            channel_type=ChannelType.FILTER,
             filter_type=FilterType(data.get("filter_type", "moving_avg")),
             input_channel=data.get("input_channel", ""),
             window_size=data.get("window_size", 10),
@@ -814,13 +814,13 @@ class EnumItem:
 
 
 @dataclass
-class EnumGPIO(GPIOBase):
+class EnumChannel(ChannelBase):
     """Enumeration channel"""
     is_bitfield: bool = False
     items: List[EnumItem] = field(default_factory=list)
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.ENUM
+        self.channel_type = ChannelType.ENUM
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -831,18 +831,18 @@ class EnumGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'EnumGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'EnumChannel':
         items = [EnumItem.from_dict(item) for item in data.get("items", [])]
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.ENUM,
+            channel_type=ChannelType.ENUM,
             is_bitfield=data.get("is_bitfield", False),
             items=items
         )
 
 
 @dataclass
-class Table2DGPIO(GPIOBase):
+class Table2DChannel(ChannelBase):
     """2D lookup table channel"""
     x_axis_channel: str = ""
     # Axis configuration for auto-generation
@@ -857,7 +857,7 @@ class Table2DGPIO(GPIOBase):
     decimal_places: int = 0
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.TABLE_2D
+        self.channel_type = ChannelType.TABLE_2D
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -873,10 +873,10 @@ class Table2DGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Table2DGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Table2DChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.TABLE_2D,
+            channel_type=ChannelType.TABLE_2D,
             x_axis_channel=data.get("x_axis_channel", ""),
             x_min=data.get("x_min", 0.0),
             x_max=data.get("x_max", 100.0),
@@ -902,7 +902,7 @@ class Table2DGPIO(GPIOBase):
 
 
 @dataclass
-class Table3DGPIO(GPIOBase):
+class Table3DChannel(ChannelBase):
     """3D lookup table channel"""
     x_axis_channel: str = ""
     y_axis_channel: str = ""
@@ -922,7 +922,7 @@ class Table3DGPIO(GPIOBase):
     decimal_places: int = 0
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.TABLE_3D
+        self.channel_type = ChannelType.TABLE_3D
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -943,10 +943,10 @@ class Table3DGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Table3DGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Table3DChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.TABLE_3D,
+            channel_type=ChannelType.TABLE_3D,
             x_axis_channel=data.get("x_axis_channel", ""),
             y_axis_channel=data.get("y_axis_channel", ""),
             x_min=data.get("x_min", 0.0),
@@ -993,7 +993,7 @@ class Table3DGPIO(GPIOBase):
 
 
 @dataclass
-class SwitchGPIO(GPIOBase):
+class SwitchChannel(ChannelBase):
     """Switch/State machine channel"""
     switch_type: str = "latching"  # latching, press_hold
     input_up_channel: str = ""
@@ -1005,7 +1005,7 @@ class SwitchGPIO(GPIOBase):
     state_default: int = 0
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.SWITCH
+        self.channel_type = ChannelType.SWITCH
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -1022,10 +1022,10 @@ class SwitchGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'SwitchGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'SwitchChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.SWITCH,
+            channel_type=ChannelType.SWITCH,
             switch_type=data.get("switch_type", "latching"),
             input_up_channel=data.get("input_up_channel", ""),
             input_up_edge=EdgeType(data.get("input_up_edge", "rising")),
@@ -1046,7 +1046,7 @@ class SwitchGPIO(GPIOBase):
 
 
 @dataclass
-class CanRxGPIO(GPIOBase):
+class CanRxChannel(ChannelBase):
     """CAN receive channel"""
     can_bus: int = 1  # 1 or 2
     message_id: int = 0
@@ -1060,7 +1060,7 @@ class CanRxGPIO(GPIOBase):
     timeout_ms: int = 1000
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.CAN_RX
+        self.channel_type = ChannelType.CAN_RX
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -1079,10 +1079,10 @@ class CanRxGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CanRxGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'CanRxChannel':
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.CAN_RX,
+            channel_type=ChannelType.CAN_RX,
             can_bus=data.get("can_bus", 1),
             message_id=data.get("message_id", 0),
             is_extended=data.get("is_extended", False),
@@ -1129,7 +1129,7 @@ class CanTxSignal:
 
 
 @dataclass
-class CanTxGPIO(GPIOBase):
+class CanTxChannel(ChannelBase):
     """CAN transmit channel"""
     can_bus: int = 1
     message_id: int = 0
@@ -1138,7 +1138,7 @@ class CanTxGPIO(GPIOBase):
     signals: List[CanTxSignal] = field(default_factory=list)
 
     def __post_init__(self):
-        self.gpio_type = GPIOType.CAN_TX
+        self.channel_type = ChannelType.CAN_TX
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
@@ -1152,11 +1152,11 @@ class CanTxGPIO(GPIOBase):
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CanTxGPIO':
+    def from_dict(cls, data: Dict[str, Any]) -> 'CanTxChannel':
         signals = [CanTxSignal.from_dict(sig) for sig in data.get("signals", [])]
         return cls(
             id=data.get("id", ""),
-            gpio_type=GPIOType.CAN_TX,
+            channel_type=ChannelType.CAN_TX,
             can_bus=data.get("can_bus", 1),
             message_id=data.get("message_id", 0),
             is_extended=data.get("is_extended", False),
@@ -1168,88 +1168,108 @@ class CanTxGPIO(GPIOBase):
         return [sig.source_channel for sig in self.signals if sig.source_channel]
 
 
-# GPIO Type to Class mapping
-GPIO_CLASS_MAP = {
-    GPIOType.DIGITAL_INPUT: DigitalInputGPIO,
-    GPIOType.ANALOG_INPUT: AnalogInputGPIO,
-    GPIOType.POWER_OUTPUT: PowerOutputGPIO,
-    GPIOType.LOGIC: LogicGPIO,
-    GPIOType.NUMBER: NumberGPIO,
-    GPIOType.TIMER: TimerGPIO,
-    GPIOType.FILTER: FilterGPIO,
-    GPIOType.ENUM: EnumGPIO,
-    GPIOType.TABLE_2D: Table2DGPIO,
-    GPIOType.TABLE_3D: Table3DGPIO,
-    GPIOType.SWITCH: SwitchGPIO,
-    GPIOType.CAN_RX: CanRxGPIO,
-    GPIOType.CAN_TX: CanTxGPIO,
+# Channel Type to Class mapping
+CHANNEL_CLASS_MAP = {
+    ChannelType.DIGITAL_INPUT: DigitalInputChannel,
+    ChannelType.ANALOG_INPUT: AnalogInputChannel,
+    ChannelType.POWER_OUTPUT: PowerOutputChannel,
+    ChannelType.LOGIC: LogicChannel,
+    ChannelType.NUMBER: NumberChannel,
+    ChannelType.TIMER: TimerChannel,
+    ChannelType.FILTER: FilterChannel,
+    ChannelType.ENUM: EnumChannel,
+    ChannelType.TABLE_2D: Table2DChannel,
+    ChannelType.TABLE_3D: Table3DChannel,
+    ChannelType.SWITCH: SwitchChannel,
+    ChannelType.CAN_RX: CanRxChannel,
+    ChannelType.CAN_TX: CanTxChannel,
 }
 
 
-class GPIOFactory:
-    """Factory for creating GPIO instances"""
+class ChannelFactory:
+    """Factory for creating Channel instances"""
 
     @staticmethod
-    def create(gpio_type: GPIOType, **kwargs) -> GPIOBase:
-        """Create GPIO instance by type"""
-        gpio_class = GPIO_CLASS_MAP.get(gpio_type)
-        if gpio_class:
-            return gpio_class(**kwargs)
-        raise ValueError(f"Unknown GPIO type: {gpio_type}")
+    def create(channel_type: ChannelType, **kwargs) -> ChannelBase:
+        """Create Channel instance by type"""
+        channel_class = CHANNEL_CLASS_MAP.get(channel_type)
+        if channel_class:
+            return channel_class(**kwargs)
+        raise ValueError(f"Unknown channel type: {channel_type}")
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> GPIOBase:
-        """Create GPIO from dictionary"""
-        gpio_type_str = data.get("gpio_type", "digital_input")
-        gpio_type = GPIOType(gpio_type_str)
-        gpio_class = GPIO_CLASS_MAP.get(gpio_type)
-        if gpio_class:
-            return gpio_class.from_dict(data)
-        raise ValueError(f"Unknown GPIO type: {gpio_type_str}")
+    def from_dict(data: Dict[str, Any]) -> ChannelBase:
+        """Create Channel from dictionary"""
+        channel_type_str = data.get("channel_type", data.get("gpio_type", "digital_input"))
+        channel_type = ChannelType(channel_type_str)
+        channel_class = CHANNEL_CLASS_MAP.get(channel_type)
+        if channel_class:
+            return channel_class.from_dict(data)
+        raise ValueError(f"Unknown channel type: {channel_type_str}")
 
 
 # Prefix mapping for channel IDs
-GPIO_PREFIX_MAP = {
-    GPIOType.DIGITAL_INPUT: "di_",
-    GPIOType.ANALOG_INPUT: "ai_",
-    GPIOType.POWER_OUTPUT: "out_",
-    GPIOType.LOGIC: "l_",
-    GPIOType.NUMBER: "n_",
-    GPIOType.TIMER: "tm_",
-    GPIOType.FILTER: "flt_",
-    GPIOType.ENUM: "e_",
-    GPIOType.TABLE_2D: "t2d_",
-    GPIOType.TABLE_3D: "t3d_",
-    GPIOType.SWITCH: "sw_",
-    GPIOType.CAN_RX: "crx_",
-    GPIOType.CAN_TX: "ctx_",
+CHANNEL_PREFIX_MAP = {
+    ChannelType.DIGITAL_INPUT: "di_",
+    ChannelType.ANALOG_INPUT: "ai_",
+    ChannelType.POWER_OUTPUT: "out_",
+    ChannelType.LOGIC: "l_",
+    ChannelType.NUMBER: "n_",
+    ChannelType.TIMER: "tm_",
+    ChannelType.FILTER: "flt_",
+    ChannelType.ENUM: "e_",
+    ChannelType.TABLE_2D: "t2d_",
+    ChannelType.TABLE_3D: "t3d_",
+    ChannelType.SWITCH: "sw_",
+    ChannelType.CAN_RX: "crx_",
+    ChannelType.CAN_TX: "ctx_",
 }
 
 
-def get_gpio_prefix(gpio_type: GPIOType) -> str:
-    """Get standard prefix for GPIO type"""
-    return GPIO_PREFIX_MAP.get(gpio_type, "")
+def get_channel_prefix(channel_type: ChannelType) -> str:
+    """Get standard prefix for channel type"""
+    return CHANNEL_PREFIX_MAP.get(channel_type, "")
 
 
-def get_gpio_display_name(gpio_type: GPIOType) -> str:
-    """Get human-readable name for GPIO type"""
+def get_channel_display_name(channel_type: ChannelType) -> str:
+    """Get human-readable name for channel type"""
     names = {
-        GPIOType.DIGITAL_INPUT: "Digital Input",
-        GPIOType.ANALOG_INPUT: "Analog Input",
-        GPIOType.POWER_OUTPUT: "Power Output",
-        GPIOType.LOGIC: "Logic Function",
-        GPIOType.NUMBER: "Math/Number",
-        GPIOType.TIMER: "Timer",
-        GPIOType.FILTER: "Filter",
-        GPIOType.ENUM: "Enumeration",
-        GPIOType.TABLE_2D: "2D Table",
-        GPIOType.TABLE_3D: "3D Table",
-        GPIOType.SWITCH: "Switch",
-        GPIOType.CAN_RX: "CAN RX",
-        GPIOType.CAN_TX: "CAN TX",
+        ChannelType.DIGITAL_INPUT: "Digital Input",
+        ChannelType.ANALOG_INPUT: "Analog Input",
+        ChannelType.POWER_OUTPUT: "Power Output",
+        ChannelType.LOGIC: "Logic Function",
+        ChannelType.NUMBER: "Math/Number",
+        ChannelType.TIMER: "Timer",
+        ChannelType.FILTER: "Filter",
+        ChannelType.ENUM: "Enumeration",
+        ChannelType.TABLE_2D: "2D Table",
+        ChannelType.TABLE_3D: "3D Table",
+        ChannelType.SWITCH: "Switch",
+        ChannelType.CAN_RX: "CAN RX",
+        ChannelType.CAN_TX: "CAN TX",
     }
-    return names.get(gpio_type, gpio_type.value)
+    return names.get(channel_type, channel_type.value)
 
 
-# Alias for backwards compatibility
-GPIO_TYPE_PREFIXES = GPIO_PREFIX_MAP
+# Backwards compatibility aliases
+GPIOType = ChannelType
+GPIOBase = ChannelBase
+DigitalInputGPIO = DigitalInputChannel
+AnalogInputGPIO = AnalogInputChannel
+PowerOutputGPIO = PowerOutputChannel
+LogicGPIO = LogicChannel
+NumberGPIO = NumberChannel
+TimerGPIO = TimerChannel
+FilterGPIO = FilterChannel
+EnumGPIO = EnumChannel
+Table2DGPIO = Table2DChannel
+Table3DGPIO = Table3DChannel
+SwitchGPIO = SwitchChannel
+CanRxGPIO = CanRxChannel
+CanTxGPIO = CanTxChannel
+GPIO_CLASS_MAP = CHANNEL_CLASS_MAP
+GPIOFactory = ChannelFactory
+GPIO_PREFIX_MAP = CHANNEL_PREFIX_MAP
+GPIO_TYPE_PREFIXES = CHANNEL_PREFIX_MAP
+get_gpio_prefix = get_channel_prefix
+get_gpio_display_name = get_channel_display_name

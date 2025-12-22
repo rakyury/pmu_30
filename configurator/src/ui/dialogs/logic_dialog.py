@@ -1,6 +1,5 @@
 """
 Logic Function Configuration Dialog
-Based on ECUMaster ADU logic function implementation
 Dynamic UI based on operation type
 """
 
@@ -11,12 +10,12 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, LogicOperation, LogicPolarity, LogicDefaultState, EdgeType
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, LogicOperation, LogicPolarity, LogicDefaultState, EdgeType
 
 
-class LogicDialog(BaseGPIODialog):
-    """Dialog for configuring logic function channels (ECUMaster ADU style)"""
+class LogicDialog(BaseChannelDialog):
+    """Dialog for configuring logic function channels"""
 
     # All operations with display names and descriptions
     OPERATIONS = [
@@ -63,7 +62,7 @@ class LogicDialog(BaseGPIODialog):
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.LOGIC)
+        super().__init__(parent, config, available_channels, ChannelType.LOGIC)
 
         self._create_operation_group()
         self._create_params_group()

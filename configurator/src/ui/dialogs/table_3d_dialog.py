@@ -1,7 +1,6 @@
 """
 3D Table Configuration Dialog
 Lookup table with X and Y axis channels and auto-generated values
-Based on ECUMaster ADU Table implementation
 """
 
 from PyQt6.QtWidgets import (
@@ -13,8 +12,8 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 
 
 class VerticalLabel(QLabel):
@@ -39,13 +38,13 @@ class VerticalLabel(QLabel):
         return QSize(size.height(), size.width())
 
 
-class Table3DDialog(BaseGPIODialog):
+class Table3DDialog(BaseChannelDialog):
     """Dialog for configuring 3D lookup table channels."""
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.TABLE_3D)
+        super().__init__(parent, config, available_channels, ChannelType.TABLE_3D)
 
         # Increase dialog size for 3D table content
         self.setMinimumHeight(550)

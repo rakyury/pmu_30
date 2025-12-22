@@ -127,7 +127,7 @@ class InputConfigDialog(QDialog):
         input_type = self.INPUT_TYPES[index]
 
         if input_type in ["switch - active high", "switch - active low"]:
-            # Voltage thresholds with time parameters (ECUMaster style)
+            # Voltage thresholds with time parameters
             # "1 if voltage >"
             threshold_high_layout = QHBoxLayout()
             self.threshold_high_spin = QDoubleSpinBox()

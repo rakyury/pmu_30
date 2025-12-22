@@ -1,6 +1,6 @@
 """
-PMU-30 Configurator - ECUMaster Style
-Entry point for ECUMaster-style UI with dock widgets
+PMU-30 Configurator - Modern Style
+Entry point for modern dock-based UI
 
 Owner: R2 m-sport
 © 2025 R2 m-sport. All rights reserved.
@@ -19,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    """Main entry point for ECUMaster-style configurator."""
+    """Main entry point for modern dock-based configurator."""
 
-    logger.info("Starting PMU-30 Configurator (ECUMaster Style)...")
+    logger.info("Starting PMU-30 Configurator (Modern Style)...")
 
     # Enable High DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -39,7 +39,7 @@ def main():
     window = MainWindowECUMaster()
     window.show()
 
-    logger.info("Application started successfully (ECUMaster Style)")
+    logger.info("Application started successfully (Modern Style)")
 
     # Run event loop
     sys.exit(app.exec())

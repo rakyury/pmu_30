@@ -10,11 +10,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, FilterType
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, FilterType
 
 
-class FilterDialog(BaseGPIODialog):
+class FilterDialog(BaseChannelDialog):
     """Dialog for configuring filter channels."""
 
     # Filter type display names
@@ -29,7 +29,7 @@ class FilterDialog(BaseGPIODialog):
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.FILTER)
+        super().__init__(parent, config, available_channels, ChannelType.FILTER)
 
         self._create_filter_group()
 

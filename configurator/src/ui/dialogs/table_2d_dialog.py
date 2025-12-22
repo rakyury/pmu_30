@@ -1,7 +1,6 @@
 """
 2D Table Configuration Dialog
 Lookup table with X axis channel and auto-generated values
-Based on ECUMaster ADU Table implementation
 """
 
 from PyQt6.QtWidgets import (
@@ -13,17 +12,17 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 
 
-class Table2DDialog(BaseGPIODialog):
+class Table2DDialog(BaseChannelDialog):
     """Dialog for configuring 2D lookup table channels."""
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.TABLE_2D)
+        super().__init__(parent, config, available_channels, ChannelType.TABLE_2D)
 
         # Increase dialog size for table content
         self.resize(650, 500)

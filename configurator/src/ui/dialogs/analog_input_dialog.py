@@ -1,6 +1,5 @@
 """
 Analog Input Configuration Dialog
-Based on ECUMaster ADU analog input configuration
 Supports: switch (active low/high), rotary switch, linear, calibrated
 """
 
@@ -12,11 +11,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, AnalogInputSubtype
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, AnalogInputSubtype
 
 
-class AnalogInputDialog(BaseGPIODialog):
+class AnalogInputDialog(BaseChannelDialog):
     """Dialog for configuring analog input channels"""
 
     # Subtype display names
@@ -41,7 +40,7 @@ class AnalogInputDialog(BaseGPIODialog):
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.ANALOG_INPUT)
+        super().__init__(parent, config, available_channels, ChannelType.ANALOG_INPUT)
 
         self._create_settings_group()
         self._create_switch_group()

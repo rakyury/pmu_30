@@ -74,6 +74,9 @@ class ProjectTree(QWidget):
         self.gpio_type_folders: Dict[GPIOType, QTreeWidgetItem] = {}
         self._map_folders_to_gpio_types()
 
+        # Initial button states
+        self._update_button_states()
+
     def _init_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout(self)
@@ -169,6 +172,8 @@ class ProjectTree(QWidget):
 
     def _on_selection_changed(self):
         """Handle selection change."""
+        self._update_button_states()
+
         items = self.tree.selectedItems()
         if items:
             item = items[0]
@@ -179,6 +184,45 @@ class ProjectTree(QWidget):
                     gpio_type = data.get("gpio_type")
                     if gpio_type:
                         self.item_selected.emit(gpio_type.value, data)
+
+    def _update_button_states(self):
+        """Update button enabled states based on selection."""
+        items = self.tree.selectedItems()
+
+        # Default: all buttons disabled
+        can_add = False
+        can_edit = False
+        can_delete = False
+        can_duplicate = False
+
+        if items:
+            item = items[0]
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data:
+                item_type = data.get("type", "")
+
+                if item_type == "folder":
+                    # Folder with gpio_type selected - can add
+                    gpio_type = data.get("gpio_type")
+                    if gpio_type:
+                        can_add = True
+
+                elif item_type == "channel":
+                    # Channel selected - can edit, delete, duplicate
+                    can_edit = True
+                    can_delete = True
+                    can_duplicate = True
+                    # Can also add to parent folder
+                    parent = item.parent()
+                    if parent:
+                        parent_data = parent.data(0, Qt.ItemDataRole.UserRole)
+                        if parent_data and parent_data.get("gpio_type"):
+                            can_add = True
+
+        self.add_btn.setEnabled(can_add)
+        self.edit_btn.setEnabled(can_edit)
+        self.delete_btn.setEnabled(can_delete)
+        self.duplicate_btn.setEnabled(can_duplicate)
 
     def _on_item_double_clicked(self, item, column):
         """Handle double click - edit item."""

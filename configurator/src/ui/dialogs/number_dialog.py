@@ -1,7 +1,6 @@
 """
 Number (Math Channel) Configuration Dialog
 Math operations with operation-specific UI
-Based on ECUMaster ADU Number implementation
 """
 
 from PyQt6.QtWidgets import (
@@ -11,11 +10,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, MathOperation, ChannelMultiplier
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, MathOperation, ChannelMultiplier
 
 
-class NumberDialog(BaseGPIODialog):
+class NumberDialog(BaseChannelDialog):
     """Dialog for configuring math/number channels with operation-specific UI."""
 
     # Operation display names
@@ -48,7 +47,7 @@ class NumberDialog(BaseGPIODialog):
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.NUMBER)
+        super().__init__(parent, config, available_channels, ChannelType.NUMBER)
 
         self._create_operation_group()
         self._create_params_group()

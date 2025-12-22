@@ -13,8 +13,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, EnumItem
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, EnumItem
 
 
 class EnumItemDialog(QDialog):
@@ -121,13 +121,13 @@ class EnumItemDialog(QDialog):
         }
 
 
-class EnumDialog(BaseGPIODialog):
+class EnumDialog(BaseChannelDialog):
     """Dialog for configuring enumeration channels"""
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.ENUM)
+        super().__init__(parent, config, available_channels, ChannelType.ENUM)
 
         self._create_settings_group()
         self._create_items_group()

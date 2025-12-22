@@ -1,7 +1,6 @@
 """
 Timer Configuration Dialog
 Supports start/stop channels, edge detection, counting modes and time limits
-Based on ECUMaster ADU timer implementation
 """
 
 from PyQt6.QtWidgets import (
@@ -11,17 +10,17 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
-from .base_gpio_dialog import BaseGPIODialog
-from models.gpio import GPIOType, EdgeType, TimerMode
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType, EdgeType, TimerMode
 
 
-class TimerDialog(BaseGPIODialog):
+class TimerDialog(BaseChannelDialog):
     """Dialog for configuring timer channels"""
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, GPIOType.TIMER)
+        super().__init__(parent, config, available_channels, ChannelType.TIMER)
 
         # Increase height to avoid scrollbar
         self.setMinimumHeight(520)

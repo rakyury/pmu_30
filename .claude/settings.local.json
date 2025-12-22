@@ -15,7 +15,8 @@
       "Bash(timeout 5 python:*)",
       "Bash(echo:*)",
       "Bash(python -m pytest:*)",
-      "Bash(python -m unittest:*)"
+      "Bash(python -m unittest:*)",
+      "Bash(grep:*)"
     ]
   }
 }

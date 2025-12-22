@@ -1,5 +1,5 @@
 """
-Main Window - ECUMaster Style
+Main Window - Modern Style
 Dock-based layout with project tree and monitoring panels
 Unified GPIO architecture support
 """
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindowECUMaster(QMainWindow):
-    """Main window with ECUMaster-style layout and unified GPIO architecture."""
+    """Main window with modern dock-based layout and unified GPIO architecture."""
 
     # Signals
     configuration_changed = pyqtSignal()
@@ -56,14 +56,8 @@ class MainWindowECUMaster(QMainWindow):
         # Settings for saving/restoring layout
         self.settings = QSettings("R2msport", "PMU30Configurator")
 
-        # Desktop management
-        self.desktops = {}  # name -> {geometry, state}
-        self.current_desktop = "Default"
-        self._load_desktops()
-
         self._init_ui()
         self._setup_menubar()
-        self._update_desktop_menu()
         self._setup_statusbar()
         self._setup_connections()
 
@@ -76,7 +70,7 @@ class MainWindowECUMaster(QMainWindow):
         # Restore window geometry and state
         self._restore_layout()
 
-        logger.info("ECUMaster-style main window initialized with GPIO architecture")
+        logger.info("Main window initialized with GPIO architecture")
 
     def _init_ui(self):
         """Initialize user interface."""
@@ -200,74 +194,27 @@ class MainWindowECUMaster(QMainWindow):
         settings_action.triggered.connect(self.show_settings)
         edit_menu.addAction(settings_action)
 
-        # Desktops menu
-        desktops_menu = menubar.addMenu("Desktops")
-
-        restore_desktops_action = QAction("Restore desktops", self)
-        restore_desktops_action.triggered.connect(self._restore_desktops)
-        desktops_menu.addAction(restore_desktops_action)
-
-        store_desktops_action = QAction("Store desktops", self)
-        store_desktops_action.triggered.connect(self._store_desktops)
-        desktops_menu.addAction(store_desktops_action)
-
-        desktops_menu.addSeparator()
-
-        open_template_action = QAction("Open desktops template...", self)
-        open_template_action.triggered.connect(self._open_desktop_template)
-        desktops_menu.addAction(open_template_action)
-
-        save_template_action = QAction("Save desktops template...", self)
-        save_template_action.triggered.connect(self._save_desktop_template)
-        desktops_menu.addAction(save_template_action)
-
-        desktops_menu.addSeparator()
-
-        add_pane_action = QAction("Add new pane", self)
-        add_pane_action.setShortcut("F9")
-        add_pane_action.triggered.connect(self._add_new_pane)
-        desktops_menu.addAction(add_pane_action)
-
-        replace_pane_action = QAction("Replace pane", self)
-        replace_pane_action.setShortcut("Shift+F9")
-        replace_pane_action.triggered.connect(self._replace_pane)
-        desktops_menu.addAction(replace_pane_action)
-
-        desktops_menu.addSeparator()
-
-        self.switch_desktop_menu = desktops_menu.addMenu("Switch desktop to...")
-
-        prev_desktop_action = QAction("Previous desktop", self)
-        prev_desktop_action.setShortcut("Ctrl+PgUp")
-        prev_desktop_action.triggered.connect(self._previous_desktop)
-        desktops_menu.addAction(prev_desktop_action)
-
-        next_desktop_action = QAction("Next desktop", self)
-        next_desktop_action.setShortcut("Ctrl+PgDown")
-        next_desktop_action.triggered.connect(self._next_desktop)
-        desktops_menu.addAction(next_desktop_action)
-
-        # Devices menu
-        devices_menu = menubar.addMenu("Devices")
+        # Device menu
+        device_menu = menubar.addMenu("Device")
 
         connect_action = QAction("Connect...", self)
         connect_action.setShortcut("Ctrl+D")
         connect_action.triggered.connect(self.connect_device)
-        devices_menu.addAction(connect_action)
+        device_menu.addAction(connect_action)
 
         disconnect_action = QAction("Disconnect", self)
         disconnect_action.triggered.connect(self.disconnect_device)
-        devices_menu.addAction(disconnect_action)
+        device_menu.addAction(disconnect_action)
 
-        devices_menu.addSeparator()
+        device_menu.addSeparator()
 
         read_config_action = QAction("Read Configuration", self)
         read_config_action.triggered.connect(self.read_from_device)
-        devices_menu.addAction(read_config_action)
+        device_menu.addAction(read_config_action)
 
         write_config_action = QAction("Write Configuration", self)
         write_config_action.triggered.connect(self.write_to_device)
-        devices_menu.addAction(write_config_action)
+        device_menu.addAction(write_config_action)
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -827,8 +774,7 @@ class MainWindowECUMaster(QMainWindow):
             "<b>PMU-30 Power Management Unit Configurator</b><br><br>"
             "Version: 2.0.0<br>"
             "GPIO Architecture: Unified Channels<br><br>"
-            "© 2025 R2 m-sport. All rights reserved.<br><br>"
-            "ECUMaster-style interface"
+            "© 2025 R2 m-sport. All rights reserved."
         )
 
     def save_layout(self):
@@ -879,157 +825,6 @@ class MainWindowECUMaster(QMainWindow):
             app.setStyleSheet("")
 
         self.update()
-
-    # ========== Desktop management ==========
-
-    def _load_desktops(self):
-        """Load saved desktops from settings."""
-        desktop_count = self.settings.value("desktops/count", 1, type=int)
-        for i in range(desktop_count):
-            name = self.settings.value(f"desktops/{i}/name", f"Desktop {i+1}")
-            geometry = self.settings.value(f"desktops/{i}/geometry")
-            state = self.settings.value(f"desktops/{i}/state")
-            if geometry and state:
-                self.desktops[name] = {"geometry": geometry, "state": state}
-
-        if "Default" not in self.desktops:
-            self.desktops["Default"] = {}
-
-        self._update_desktop_menu()
-
-    def _update_desktop_menu(self):
-        """Update switch desktop submenu."""
-        if not hasattr(self, 'switch_desktop_menu'):
-            return
-
-        self.switch_desktop_menu.clear()
-        for name in sorted(self.desktops.keys()):
-            action = QAction(name, self)
-            action.triggered.connect(lambda checked, n=name: self._switch_to_desktop(n))
-            if name == self.current_desktop:
-                action.setCheckable(True)
-                action.setChecked(True)
-            self.switch_desktop_menu.addAction(action)
-
-    def _restore_desktops(self):
-        """Restore all saved desktops."""
-        self._load_desktops()
-        QMessageBox.information(self, "Desktops", "Desktops restored successfully.")
-
-    def _store_desktops(self):
-        """Store current layout as a desktop."""
-        from PyQt6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(self, "Store Desktop", "Desktop name:")
-        if ok and name:
-            self.desktops[name] = {
-                "geometry": self.saveGeometry(),
-                "state": self.saveState()
-            }
-            self._save_desktops()
-            self._update_desktop_menu()
-            QMessageBox.information(self, "Desktop Saved", f"Desktop '{name}' saved successfully.")
-
-    def _save_desktops(self):
-        """Save all desktops to settings."""
-        self.settings.setValue("desktops/count", len(self.desktops))
-        for i, (name, data) in enumerate(self.desktops.items()):
-            self.settings.setValue(f"desktops/{i}/name", name)
-            if "geometry" in data:
-                self.settings.setValue(f"desktops/{i}/geometry", data["geometry"])
-            if "state" in data:
-                self.settings.setValue(f"desktops/{i}/state", data["state"])
-
-    def _open_desktop_template(self):
-        """Open desktop template from file."""
-        filename, _ = QFileDialog.getOpenFileName(
-            self, "Open Desktop Template", "",
-            "Desktop Files (*.desktop);;All Files (*.*)"
-        )
-        if filename:
-            import json
-            try:
-                with open(filename, 'r') as f:
-                    data = json.load(f)
-                for name, layout in data.items():
-                    if "geometry" in layout and "state" in layout:
-                        from PyQt6.QtCore import QByteArray
-                        self.desktops[name] = {
-                            "geometry": QByteArray.fromBase64(layout["geometry"].encode()),
-                            "state": QByteArray.fromBase64(layout["state"].encode())
-                        }
-                self._update_desktop_menu()
-                QMessageBox.information(self, "Success", "Desktop template loaded successfully.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to load template: {str(e)}")
-
-    def _save_desktop_template(self):
-        """Save desktops as template file."""
-        filename, _ = QFileDialog.getSaveFileName(
-            self, "Save Desktop Template", "",
-            "Desktop Files (*.desktop);;All Files (*.*)"
-        )
-        if filename:
-            import json
-            data = {}
-            for name, layout in self.desktops.items():
-                if "geometry" in layout and "state" in layout:
-                    data[name] = {
-                        "geometry": bytes(layout["geometry"].toBase64()).decode(),
-                        "state": bytes(layout["state"].toBase64()).decode()
-                    }
-            try:
-                with open(filename, 'w') as f:
-                    json.dump(data, f, indent=2)
-                QMessageBox.information(self, "Success", "Desktop template saved successfully.")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to save template: {str(e)}")
-
-    def _add_new_pane(self):
-        """Add new dock widget pane."""
-        from PyQt6.QtWidgets import QInputDialog
-        items = ["Project Tree", "Output Monitor", "Analog Monitor", "Variables Inspector"]
-        item, ok = QInputDialog.getItem(self, "Add Pane", "Select pane to add:", items, 0, False)
-        if ok and item:
-            if item == "Project Tree":
-                self.project_tree_dock.show()
-            elif item == "Output Monitor":
-                self.output_dock.show()
-            elif item == "Analog Monitor":
-                self.analog_dock.show()
-            elif item == "Variables Inspector":
-                self.variables_dock.show()
-
-    def _replace_pane(self):
-        """Replace current pane with another."""
-        QMessageBox.information(self, "Replace Pane",
-                                "Close the pane you want to replace, then use 'Add new pane'.")
-
-    def _switch_to_desktop(self, name: str):
-        """Switch to specified desktop."""
-        if name in self.desktops:
-            layout = self.desktops[name]
-            if "geometry" in layout:
-                self.restoreGeometry(layout["geometry"])
-            if "state" in layout:
-                self.restoreState(layout["state"])
-            self.current_desktop = name
-            self._update_desktop_menu()
-
-    def _previous_desktop(self):
-        """Switch to previous desktop."""
-        names = sorted(self.desktops.keys())
-        if len(names) > 1:
-            current_idx = names.index(self.current_desktop) if self.current_desktop in names else 0
-            prev_idx = (current_idx - 1) % len(names)
-            self._switch_to_desktop(names[prev_idx])
-
-    def _next_desktop(self):
-        """Switch to next desktop."""
-        names = sorted(self.desktops.keys())
-        if len(names) > 1:
-            current_idx = names.index(self.current_desktop) if self.current_desktop in names else 0
-            next_idx = (current_idx + 1) % len(names)
-            self._switch_to_desktop(names[next_idx])
 
     def closeEvent(self, event):
         """Handle window close."""

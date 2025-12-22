@@ -104,12 +104,12 @@ python launch.py
 ```
 
 Select your preferred interface:
-1. **ECUMaster Style** - Modern dock-based layout ⭐
+1. **Modern Style** - Dock-based layout ⭐
 2. **Classic Style** - Traditional tab-based interface
 
 **Option 2: Direct Launch**
 
-ECUMaster Style:
+Modern Style:
 ```bash
 cd configurator
 python src/main_ecumaster.py
@@ -123,8 +123,8 @@ python src/main.py
 
 ### UI Styles Comparison
 
-| Feature | ECUMaster Style | Classic Style |
-|---------|-----------------|---------------|
+| Feature | Modern Style | Classic Style |
+|---------|--------------|---------------|
 | Layout | Dock widgets | Tabs |
 | Monitoring | Always visible | Separate tab |
 | Project tree | Hierarchical | By category |
@@ -150,7 +150,7 @@ python src/main.py
 - Configuration save/load (JSON)
 - 28 unit tests ✅
 
-**ECUMaster Style Only:**
+**Modern Style Only:**
 - Project tree with hierarchy
 - Output Monitor (real-time)
 - Analog Monitor (real-time)
@@ -160,10 +160,8 @@ python src/main.py
 
 ### Documentation
 
-- [README_ECUMASTER.md](configurator/README_ECUMASTER.md) - Detailed ECUMaster UI guide
-- [UI_IMPROVEMENTS.md](configurator/docs/UI_IMPROVEMENTS.md) - UI development history
-- [ECUMASTER_UI_DESIGN.md](configurator/docs/ECUMASTER_UI_DESIGN.md) - Architecture
-- [QT_STYLES.md](configurator/docs/QT_STYLES.md) - Available Qt styles
+- [docs/UI_IMPROVEMENTS.md](configurator/docs/UI_IMPROVEMENTS.md) - UI development history
+- [docs/QT_STYLES.md](configurator/docs/QT_STYLES.md) - Available Qt styles
 
 ## Development Status
 

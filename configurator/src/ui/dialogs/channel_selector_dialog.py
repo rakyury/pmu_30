@@ -14,70 +14,70 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from typing import List, Dict, Any, Optional
 
-from models.gpio import GPIOType, GPIO_TYPE_PREFIXES
+from models.channel import ChannelType, CHANNEL_PREFIX_MAP
 
 
 class ChannelSelectorDialog(QDialog):
-    """Dialog for selecting a channel from all available GPIO sources."""
+    """Dialog for selecting a channel from all available sources."""
 
-    # Category definitions with display names and GPIO types
+    # Category definitions with display names and channel types
     CATEGORIES = {
         "Inputs": {
             "icon_color": "#10b981",  # Green
             "types": [
-                (GPIOType.DIGITAL_INPUT, "Digital Inputs"),
-                (GPIOType.ANALOG_INPUT, "Analog Inputs"),
-                (GPIOType.CAN_RX, "CAN RX"),
+                (ChannelType.DIGITAL_INPUT, "Digital Inputs"),
+                (ChannelType.ANALOG_INPUT, "Analog Inputs"),
+                (ChannelType.CAN_RX, "CAN RX"),
             ]
         },
         "Outputs": {
             "icon_color": "#ef4444",  # Red
             "types": [
-                (GPIOType.POWER_OUTPUT, "Power Outputs"),
-                (GPIOType.CAN_TX, "CAN TX"),
+                (ChannelType.POWER_OUTPUT, "Power Outputs"),
+                (ChannelType.CAN_TX, "CAN TX"),
             ]
         },
         "Functions": {
             "icon_color": "#3b82f6",  # Blue
             "types": [
-                (GPIOType.LOGIC, "Logic Functions"),
-                (GPIOType.NUMBER, "Math Channels"),
-                (GPIOType.FILTER, "Filters"),
+                (ChannelType.LOGIC, "Logic Functions"),
+                (ChannelType.NUMBER, "Math Channels"),
+                (ChannelType.FILTER, "Filters"),
             ]
         },
         "Tables": {
             "icon_color": "#8b5cf6",  # Purple
             "types": [
-                (GPIOType.TABLE_2D, "2D Tables"),
-                (GPIOType.TABLE_3D, "3D Tables"),
+                (ChannelType.TABLE_2D, "2D Tables"),
+                (ChannelType.TABLE_3D, "3D Tables"),
             ]
         },
         "State": {
             "icon_color": "#f59e0b",  # Orange
             "types": [
-                (GPIOType.SWITCH, "Switches"),
-                (GPIOType.TIMER, "Timers"),
+                (ChannelType.SWITCH, "Switches"),
+                (ChannelType.TIMER, "Timers"),
             ]
         },
         "Data": {
             "icon_color": "#06b6d4",  # Cyan
             "types": [
-                (GPIOType.ENUM, "Enumerations"),
+                (ChannelType.ENUM, "Enumerations"),
             ]
         }
     }
 
-    # GPIO type to category key mapping
-    GPIO_TYPE_CATEGORY_KEY = {
-        GPIOType.DIGITAL_INPUT: "digital_inputs",
-        GPIOType.ANALOG_INPUT: "analog_inputs",
-        GPIOType.POWER_OUTPUT: "power_outputs",
-        GPIOType.CAN_RX: "can_rx",
-        GPIOType.CAN_TX: "can_tx",
-        GPIOType.LOGIC: "logic",
-        GPIOType.NUMBER: "numbers",
-        GPIOType.TABLE_2D: "tables_2d",
-        GPIOType.TABLE_3D: "tables_3d",
+    # Channel type to category key mapping
+    CHANNEL_TYPE_CATEGORY_KEY = {
+        ChannelType.DIGITAL_INPUT: "digital_inputs",
+        ChannelType.ANALOG_INPUT: "analog_inputs",
+        ChannelType.POWER_OUTPUT: "power_outputs",
+        ChannelType.CAN_RX: "can_rx",
+        ChannelType.CAN_TX: "can_tx",
+        ChannelType.LOGIC: "logic",
+        ChannelType.NUMBER: "numbers",
+        ChannelType.TABLE_2D: "tables_2d",
+        ChannelType.TABLE_3D: "tables_3d",
         GPIOType.SWITCH: "switches",
         GPIOType.TIMER: "timers",
         GPIOType.FILTER: "filters",
