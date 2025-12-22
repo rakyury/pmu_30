@@ -714,7 +714,25 @@ class MainWindow(QMainWindow):
         self.config_manager.config.update(self.logic_tab.get_configuration())
         self.config_manager.config.update(self.pid_tab.get_configuration())
         self.config_manager.config.update(self.lua_tab.get_configuration())
-        self.config_manager.config.update(self.can_tab.get_configuration())
+
+        # Handle CAN tab specially - merge can_inputs into channels array
+        can_config = self.can_tab.get_configuration()
+        self.config_manager.config["can_messages"] = can_config.get("can_messages", [])
+        self.config_manager.config["can_buses"] = can_config.get("can_buses", [])
+
+        # Merge CAN inputs into channels array (removing old can_rx channels first)
+        channels = self.config_manager.config.get("channels", [])
+        # Remove existing can_rx channels
+        channels = [ch for ch in channels if ch.get("channel_type") != "can_rx"]
+        # Add new CAN inputs
+        can_inputs = can_config.get("can_inputs", [])
+        channels.extend(can_inputs)
+        self.config_manager.config["channels"] = channels
+
+        # Remove stale can_inputs key if present
+        if "can_inputs" in self.config_manager.config:
+            del self.config_manager.config["can_inputs"]
+
         self.config_manager.config.update(self.settings_tab.get_configuration())
         self.config_manager.config.update(self.wiper_tab.get_configuration())
         self.config_manager.config.update(self.turn_signal_tab.get_configuration())

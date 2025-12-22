@@ -15,6 +15,7 @@ from .input_config_dialog import InputConfigDialog
 from .output_config_dialog import OutputConfigDialog
 from .connection_dialog import ConnectionDialog
 from .can_message_dialog import CANMessageDialog
+from .can_input_dialog import CANInputDialog
 from .channel_selector_dialog import ChannelSelectorDialog
 
 __all__ = [
@@ -33,5 +34,6 @@ __all__ = [
     'OutputConfigDialog',
     'ConnectionDialog',
     'CANMessageDialog',
+    'CANInputDialog',
     'ChannelSelectorDialog',
 ]

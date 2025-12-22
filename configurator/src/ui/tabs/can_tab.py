@@ -1,27 +1,32 @@
 """
 CAN Bus Configuration Tab
-Manages CAN bus configuration and messages for PMU-30
+Two-level architecture: CAN Messages (Level 1) + CAN Inputs (Level 2)
+
+Based on Ecumaster PMU Client design pattern.
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox, QLabel, QGroupBox, QComboBox,
-    QFileDialog, QFormLayout
+    QFileDialog, QFormLayout, QSplitter, QCheckBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from ..dialogs.can_message_dialog import CANMessageDialog
-from typing import Dict, Any, List
-import json
+from ..dialogs.can_input_dialog import CANInputDialog
+from typing import Dict, Any, List, Optional
+import copy
 
 
 class CANTab(QWidget):
-    """CAN Bus configuration tab."""
+    """CAN Bus configuration tab with two-level architecture."""
 
     configuration_changed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, config_manager=None):
         super().__init__(parent)
-        self.can_messages = []
+        self.config_manager = config_manager
+        self.can_messages = []  # Level 1: CAN Message Objects
+        self.can_inputs = []    # Level 2: CAN Input channels (from channels array)
         self.can_config = {
             "bus_speed": 500000,
             "bus_enabled": True
@@ -36,9 +41,9 @@ class CANTab(QWidget):
         info_group = QGroupBox("CAN Bus Configuration")
         info_layout = QVBoxLayout()
         info_label = QLabel(
-            "Configure CAN messages for communication with other ECUs.\n"
-            "Supports standard (11-bit) and extended (29-bit) CAN IDs.\n"
-            "Import DBC files for automatic message configuration."
+            "Configure CAN communication using a two-level architecture:\n"
+            "1. CAN Messages - define frame properties (ID, bus, timeout)\n"
+            "2. CAN Inputs - extract signals from messages (format, scaling, units)"
         )
         info_label.setWordWrap(True)
         info_layout.addWidget(info_label)
@@ -60,62 +65,113 @@ class CANTab(QWidget):
         bus_settings_group.setLayout(bus_layout)
         layout.addWidget(bus_settings_group)
 
-        # Messages table
-        messages_label = QLabel("CAN Messages")
-        messages_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        layout.addWidget(messages_label)
+        # Splitter for two tables
+        splitter = QSplitter(Qt.Orientation.Vertical)
 
-        self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels([
-            "CAN ID", "Name", "Direction", "Period (ms)", "DLC", "Signals"
+        # === CAN Messages Section (Level 1) ===
+        messages_widget = QWidget()
+        messages_layout = QVBoxLayout(messages_widget)
+        messages_layout.setContentsMargins(0, 0, 0, 0)
+
+        messages_header = QLabel("CAN Messages")
+        messages_header.setStyleSheet("font-weight: bold; font-size: 14px;")
+        messages_layout.addWidget(messages_header)
+
+        self.messages_table = QTableWidget()
+        self.messages_table.setColumnCount(6)
+        self.messages_table.setHorizontalHeaderLabels([
+            "ID", "Name", "Bus", "Base ID", "Type", "Timeout"
         ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.itemDoubleClicked.connect(self.edit_message)
-        layout.addWidget(self.table)
+        self.messages_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.messages_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.messages_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.messages_table.itemDoubleClicked.connect(self._edit_message)
+        self.messages_table.itemSelectionChanged.connect(self._on_message_selection_changed)
+        messages_layout.addWidget(self.messages_table)
 
-        # Buttons
-        button_layout = QHBoxLayout()
+        # Message buttons
+        msg_btn_layout = QHBoxLayout()
 
         self.add_msg_btn = QPushButton("Add Message")
-        self.add_msg_btn.clicked.connect(self.add_message)
-        button_layout.addWidget(self.add_msg_btn)
+        self.add_msg_btn.clicked.connect(self._add_message)
+        msg_btn_layout.addWidget(self.add_msg_btn)
 
         self.edit_msg_btn = QPushButton("Edit")
-        self.edit_msg_btn.clicked.connect(self.edit_message)
-        button_layout.addWidget(self.edit_msg_btn)
-
-        self.copy_msg_btn = QPushButton("Copy")
-        self.copy_msg_btn.clicked.connect(self.copy_message)
-        button_layout.addWidget(self.copy_msg_btn)
+        self.edit_msg_btn.clicked.connect(self._edit_message)
+        msg_btn_layout.addWidget(self.edit_msg_btn)
 
         self.delete_msg_btn = QPushButton("Delete")
-        self.delete_msg_btn.clicked.connect(self.delete_message)
-        button_layout.addWidget(self.delete_msg_btn)
+        self.delete_msg_btn.clicked.connect(self._delete_message)
+        msg_btn_layout.addWidget(self.delete_msg_btn)
 
-        button_layout.addStretch()
+        msg_btn_layout.addStretch()
 
         self.import_dbc_btn = QPushButton("Import DBC...")
-        self.import_dbc_btn.clicked.connect(self.import_dbc)
-        button_layout.addWidget(self.import_dbc_btn)
+        self.import_dbc_btn.clicked.connect(self._import_dbc)
+        msg_btn_layout.addWidget(self.import_dbc_btn)
 
-        self.export_dbc_btn = QPushButton("Export DBC...")
-        self.export_dbc_btn.clicked.connect(self.export_dbc)
-        button_layout.addWidget(self.export_dbc_btn)
+        messages_layout.addLayout(msg_btn_layout)
 
-        self.clear_all_btn = QPushButton("Clear All")
-        self.clear_all_btn.clicked.connect(self.clear_all)
-        button_layout.addWidget(self.clear_all_btn)
+        self.msg_stats_label = QLabel("Messages: 0")
+        messages_layout.addWidget(self.msg_stats_label)
 
-        layout.addLayout(button_layout)
+        splitter.addWidget(messages_widget)
 
-        # Stats label
-        self.stats_label = QLabel("Messages: 0 (TX: 0, RX: 0)")
-        layout.addWidget(self.stats_label)
+        # === CAN Inputs Section (Level 2) ===
+        inputs_widget = QWidget()
+        inputs_layout = QVBoxLayout(inputs_widget)
+        inputs_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._update_table()
+        inputs_header = QLabel("CAN Inputs (Signals)")
+        inputs_header.setStyleSheet("font-weight: bold; font-size: 14px;")
+        inputs_layout.addWidget(inputs_header)
+
+        self.inputs_table = QTableWidget()
+        self.inputs_table.setColumnCount(6)
+        self.inputs_table.setHorizontalHeaderLabels([
+            "Channel ID", "Message", "Format", "Scale", "Unit", "Quantity"
+        ])
+        self.inputs_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.inputs_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.inputs_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.inputs_table.itemDoubleClicked.connect(self._edit_input)
+        inputs_layout.addWidget(self.inputs_table)
+
+        # Input buttons
+        input_btn_layout = QHBoxLayout()
+
+        self.add_input_btn = QPushButton("Add Input")
+        self.add_input_btn.clicked.connect(self._add_input)
+        input_btn_layout.addWidget(self.add_input_btn)
+
+        self.edit_input_btn = QPushButton("Edit")
+        self.edit_input_btn.clicked.connect(self._edit_input)
+        input_btn_layout.addWidget(self.edit_input_btn)
+
+        self.delete_input_btn = QPushButton("Delete")
+        self.delete_input_btn.clicked.connect(self._delete_input)
+        input_btn_layout.addWidget(self.delete_input_btn)
+
+        input_btn_layout.addStretch()
+
+        self.filter_check = QCheckBox("Filter by selected message")
+        self.filter_check.stateChanged.connect(self._update_inputs_table)
+        input_btn_layout.addWidget(self.filter_check)
+
+        inputs_layout.addLayout(input_btn_layout)
+
+        self.input_stats_label = QLabel("Inputs: 0")
+        inputs_layout.addWidget(self.input_stats_label)
+
+        splitter.addWidget(inputs_widget)
+
+        # Set initial splitter sizes
+        splitter.setSizes([300, 300])
+
+        layout.addWidget(splitter)
+
+        self._update_messages_table()
+        self._update_inputs_table()
 
     def _on_bus_settings_changed(self):
         """Handle bus settings change."""
@@ -129,173 +185,342 @@ class CANTab(QWidget):
         self.can_config["bus_speed"] = speed_map.get(speed_text, 500000)
         self.configuration_changed.emit()
 
-    def _update_table(self):
-        """Update table with current CAN messages."""
-        self.table.setRowCount(0)
+    def _on_message_selection_changed(self):
+        """Handle message selection change."""
+        if self.filter_check.isChecked():
+            self._update_inputs_table()
+
+    # ========== Messages Table (Level 1) ==========
+
+    def _update_messages_table(self):
+        """Update messages table with current CAN messages."""
+        self.messages_table.setRowCount(0)
 
         for idx, msg in enumerate(self.can_messages):
-            row = self.table.rowCount()
-            self.table.insertRow(row)
+            row = self.messages_table.rowCount()
+            self.messages_table.insertRow(row)
 
-            # CAN ID
-            can_id = msg.get("can_id", 0)
-            extended = msg.get("extended", False)
-            id_str = f"0x{can_id:03X}" if not extended else f"0x{can_id:08X}"
-            can_id_item = QTableWidgetItem(id_str)
-            can_id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 0, can_id_item)
+            # ID
+            msg_id = QTableWidgetItem(msg.get("id", ""))
+            self.messages_table.setItem(row, 0, msg_id)
 
             # Name
-            name = QTableWidgetItem(msg.get("name", "Unnamed"))
-            self.table.setItem(row, 1, name)
+            name = QTableWidgetItem(msg.get("name", ""))
+            self.messages_table.setItem(row, 1, name)
 
-            # Direction
-            direction = QTableWidgetItem(msg.get("direction", "Transmit"))
-            direction.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 2, direction)
+            # Bus
+            can_bus = QTableWidgetItem(f"CAN {msg.get('can_bus', 1)}")
+            can_bus.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.messages_table.setItem(row, 2, can_bus)
 
-            # Period
-            period = QTableWidgetItem(str(msg.get("period_ms", 0)))
-            period.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 3, period)
+            # Base ID (hex)
+            base_id = msg.get("base_id", 0)
+            is_extended = msg.get("is_extended", False)
+            id_str = f"0x{base_id:08X}" if is_extended else f"0x{base_id:03X}"
+            base_id_item = QTableWidgetItem(id_str)
+            base_id_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.messages_table.setItem(row, 3, base_id_item)
 
-            # DLC
-            dlc = QTableWidgetItem(str(msg.get("dlc", 8)))
-            dlc.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 4, dlc)
+            # Type
+            msg_type = msg.get("message_type", "normal")
+            type_display = {
+                "normal": "Normal",
+                "compound": "Compound",
+                "pmu1_rx": "PMU1",
+                "pmu2_rx": "PMU2",
+                "pmu3_rx": "PMU3"
+            }.get(msg_type, msg_type)
+            type_item = QTableWidgetItem(type_display)
+            type_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.messages_table.setItem(row, 4, type_item)
 
-            # Signals count
-            signals = msg.get("signals", [])
-            signals_item = QTableWidgetItem(f"{len(signals)} signals")
-            signals_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, 5, signals_item)
+            # Timeout
+            timeout = QTableWidgetItem(f"{msg.get('timeout_ms', 500)} ms")
+            timeout.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.messages_table.setItem(row, 5, timeout)
 
-        self._update_stats()
+        self.msg_stats_label.setText(f"Messages: {len(self.can_messages)}")
 
-    def _update_stats(self):
-        """Update statistics label."""
-        total = len(self.can_messages)
-        tx = sum(1 for msg in self.can_messages if msg.get("direction") == "Transmit")
-        rx = sum(1 for msg in self.can_messages if msg.get("direction") == "Receive")
+    def _get_message_ids(self) -> List[str]:
+        """Get list of message IDs."""
+        return [msg.get("id", "") for msg in self.can_messages]
 
-        self.stats_label.setText(f"Messages: {total} (TX: {tx}, RX: {rx})")
-
-    def _get_used_can_ids(self, exclude_index: int = -1) -> List[int]:
-        """Get list of used CAN IDs."""
-        used = []
-        for idx, msg in enumerate(self.can_messages):
-            if idx != exclude_index:
-                can_id = msg.get("can_id")
-                if can_id is not None:
-                    used.append(can_id)
-        return used
-
-    def add_message(self):
+    def _add_message(self):
         """Add new CAN message."""
-        used_ids = self._get_used_can_ids()
+        existing_ids = self._get_message_ids()
 
         dialog = CANMessageDialog(
             self,
             message_config=None,
-            can_id_list=used_ids
+            existing_ids=existing_ids
         )
 
         if dialog.exec():
             config = dialog.get_config()
             self.can_messages.append(config)
-            self._update_table()
+            self._update_messages_table()
             self.configuration_changed.emit()
 
-    def edit_message(self):
+    def _edit_message(self):
         """Edit selected CAN message."""
-        row = self.table.currentRow()
+        row = self.messages_table.currentRow()
         if row < 0 or row >= len(self.can_messages):
             QMessageBox.warning(self, "No Selection", "Please select a message to edit.")
             return
 
-        used_ids = self._get_used_can_ids(exclude_index=row)
+        existing_ids = self._get_message_ids()
 
         dialog = CANMessageDialog(
             self,
             message_config=self.can_messages[row],
-            can_id_list=used_ids
+            existing_ids=existing_ids
         )
 
         if dialog.exec():
+            old_id = self.can_messages[row].get("id", "")
             config = dialog.get_config()
+            new_id = config.get("id", "")
+
+            # Update message references in inputs if ID changed
+            if old_id != new_id:
+                for inp in self.can_inputs:
+                    if inp.get("message_ref") == old_id:
+                        inp["message_ref"] = new_id
+
             self.can_messages[row] = config
-            self._update_table()
+            self._update_messages_table()
+            self._update_inputs_table()
             self.configuration_changed.emit()
 
-    def copy_message(self):
-        """Copy selected CAN message."""
-        row = self.table.currentRow()
-        if row < 0 or row >= len(self.can_messages):
-            QMessageBox.warning(self, "No Selection", "Please select a message to copy.")
-            return
-
-        # Copy config
-        import copy
-        new_config = copy.deepcopy(self.can_messages[row])
-        new_config["name"] = new_config.get("name", "") + " (Copy)"
-
-        # Find next available CAN ID
-        used_ids = self._get_used_can_ids()
-        new_id = new_config.get("can_id", 0) + 1
-        while new_id in used_ids and new_id < 0x7FF:
-            new_id += 1
-
-        new_config["can_id"] = new_id
-
-        dialog = CANMessageDialog(
-            self,
-            message_config=new_config,
-            can_id_list=used_ids
-        )
-
-        if dialog.exec():
-            config = dialog.get_config()
-            self.can_messages.append(config)
-            self._update_table()
-            self.configuration_changed.emit()
-
-    def delete_message(self):
+    def _delete_message(self):
         """Delete selected CAN message."""
-        row = self.table.currentRow()
+        row = self.messages_table.currentRow()
         if row < 0 or row >= len(self.can_messages):
             QMessageBox.warning(self, "No Selection", "Please select a message to delete.")
             return
 
-        msg_name = self.can_messages[row].get("name", "Unnamed")
+        msg_id = self.can_messages[row].get("id", "Unnamed")
 
-        reply = QMessageBox.question(
-            self, "Confirm Delete",
-            f"Delete CAN message '{msg_name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        # Check if any inputs reference this message
+        referencing_inputs = [
+            inp.get("id", "?") for inp in self.can_inputs
+            if inp.get("message_ref") == msg_id
+        ]
+
+        if referencing_inputs:
+            reply = QMessageBox.warning(
+                self, "Message In Use",
+                f"CAN message '{msg_id}' is referenced by {len(referencing_inputs)} input(s):\n"
+                f"{', '.join(referencing_inputs[:5])}{'...' if len(referencing_inputs) > 5 else ''}\n\n"
+                f"Delete message and remove references?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # Remove references
+            for inp in self.can_inputs:
+                if inp.get("message_ref") == msg_id:
+                    inp["message_ref"] = ""
+        else:
+            reply = QMessageBox.question(
+                self, "Confirm Delete",
+                f"Delete CAN message '{msg_id}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        del self.can_messages[row]
+        self._update_messages_table()
+        self._update_inputs_table()
+        self.configuration_changed.emit()
+
+    # ========== Inputs Table (Level 2) ==========
+
+    def _update_inputs_table(self):
+        """Update inputs table with current CAN inputs."""
+        self.inputs_table.setRowCount(0)
+
+        # Get selected message ID for filtering
+        filter_message_id = None
+        if self.filter_check.isChecked():
+            row = self.messages_table.currentRow()
+            if row >= 0 and row < len(self.can_messages):
+                filter_message_id = self.can_messages[row].get("id")
+
+        shown_count = 0
+        for idx, inp in enumerate(self.can_inputs):
+            # Apply filter
+            if filter_message_id and inp.get("message_ref") != filter_message_id:
+                continue
+
+            row = self.inputs_table.rowCount()
+            self.inputs_table.insertRow(row)
+            shown_count += 1
+
+            # Store original index for editing
+            self.inputs_table.setItem(row, 0, QTableWidgetItem(inp.get("id", "")))
+
+            # Message reference
+            message_ref = QTableWidgetItem(inp.get("message_ref", ""))
+            self.inputs_table.setItem(row, 1, message_ref)
+
+            # Format (e.g., "U16 LE")
+            data_type = inp.get("data_type", "unsigned")
+            if hasattr(data_type, 'value'):
+                data_type = data_type.value
+            data_format = inp.get("data_format", "16bit")
+            if hasattr(data_format, 'value'):
+                data_format = data_format.value
+            byte_order = inp.get("byte_order", "little_endian")
+
+            type_short = {"unsigned": "U", "signed": "S", "float": "F"}.get(data_type, "?")
+            format_short = {"8bit": "8", "16bit": "16", "32bit": "32", "custom": "C"}.get(data_format, "?")
+            order_short = "LE" if byte_order == "little_endian" else "BE"
+
+            format_str = f"{type_short}{format_short} {order_short}"
+            format_item = QTableWidgetItem(format_str)
+            format_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.inputs_table.setItem(row, 2, format_item)
+
+            # Scale
+            multiplier = inp.get("multiplier", 1.0)
+            divider = inp.get("divider", 1.0)
+            offset = inp.get("offset", 0.0)
+            scale_parts = []
+            if multiplier != 1.0:
+                scale_parts.append(f"x{multiplier}")
+            if divider != 1.0:
+                scale_parts.append(f"/{divider}")
+            if offset != 0.0:
+                scale_parts.append(f"+{offset}" if offset > 0 else f"{offset}")
+            scale_str = " ".join(scale_parts) if scale_parts else "1:1"
+            scale_item = QTableWidgetItem(scale_str)
+            scale_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.inputs_table.setItem(row, 3, scale_item)
+
+            # Unit
+            unit = QTableWidgetItem(inp.get("unit", ""))
+            unit.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.inputs_table.setItem(row, 4, unit)
+
+            # Quantity
+            quantity = QTableWidgetItem(inp.get("quantity", ""))
+            self.inputs_table.setItem(row, 5, quantity)
+
+        if filter_message_id:
+            self.input_stats_label.setText(f"Inputs: {shown_count} (filtered from {len(self.can_inputs)})")
+        else:
+            self.input_stats_label.setText(f"Inputs: {len(self.can_inputs)}")
+
+    def _get_input_ids(self) -> List[str]:
+        """Get list of CAN input channel IDs."""
+        return [inp.get("id", "") for inp in self.can_inputs]
+
+    def _find_input_index(self, channel_id: str) -> int:
+        """Find index of input by channel ID."""
+        for i, inp in enumerate(self.can_inputs):
+            if inp.get("id") == channel_id:
+                return i
+        return -1
+
+    def _add_input(self):
+        """Add new CAN input."""
+        message_ids = self._get_message_ids()
+        if not message_ids:
+            QMessageBox.warning(
+                self, "No Messages",
+                "Please create at least one CAN message before adding inputs."
+            )
+            return
+
+        existing_ids = self._get_input_ids()
+        if self.config_manager:
+            # Also include other channel IDs
+            all_channel_ids = [ch.get("id", "") for ch in self.config_manager.get_all_channels()]
+            existing_ids = list(set(existing_ids + all_channel_ids))
+
+        dialog = CANInputDialog(
+            self,
+            input_config=None,
+            message_ids=message_ids,
+            existing_channel_ids=existing_ids
         )
 
-        if reply == QMessageBox.StandardButton.Yes:
-            del self.can_messages[row]
-            self._update_table()
+        if dialog.exec():
+            config = dialog.get_config()
+            self.can_inputs.append(config)
+            self._update_inputs_table()
             self.configuration_changed.emit()
 
-    def clear_all(self):
-        """Clear all CAN messages."""
-        if not self.can_messages:
+    def _edit_input(self):
+        """Edit selected CAN input."""
+        row = self.inputs_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select an input to edit.")
+            return
+
+        # Get channel ID from table
+        id_item = self.inputs_table.item(row, 0)
+        if not id_item:
+            return
+
+        channel_id = id_item.text()
+        original_index = self._find_input_index(channel_id)
+        if original_index < 0:
+            return
+
+        message_ids = self._get_message_ids()
+        existing_ids = self._get_input_ids()
+        if self.config_manager:
+            all_channel_ids = [ch.get("id", "") for ch in self.config_manager.get_all_channels()]
+            existing_ids = list(set(existing_ids + all_channel_ids))
+
+        dialog = CANInputDialog(
+            self,
+            input_config=self.can_inputs[original_index],
+            message_ids=message_ids,
+            existing_channel_ids=existing_ids
+        )
+
+        if dialog.exec():
+            config = dialog.get_config()
+            self.can_inputs[original_index] = config
+            self._update_inputs_table()
+            self.configuration_changed.emit()
+
+    def _delete_input(self):
+        """Delete selected CAN input."""
+        row = self.inputs_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select an input to delete.")
+            return
+
+        # Get channel ID from table
+        id_item = self.inputs_table.item(row, 0)
+        if not id_item:
+            return
+
+        channel_id = id_item.text()
+        original_index = self._find_input_index(channel_id)
+        if original_index < 0:
             return
 
         reply = QMessageBox.question(
-            self, "Confirm Clear All",
-            f"Delete all {len(self.can_messages)} CAN messages?",
+            self, "Confirm Delete",
+            f"Delete CAN input '{channel_id}'?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            self.can_messages.clear()
-            self._update_table()
+            del self.can_inputs[original_index]
+            self._update_inputs_table()
             self.configuration_changed.emit()
 
-    def import_dbc(self):
+    # ========== DBC Import ==========
+
+    def _import_dbc(self):
         """Import CAN messages from DBC file."""
         filename, _ = QFileDialog.getOpenFileName(
             self,
@@ -306,68 +531,41 @@ class CANTab(QWidget):
 
         if filename:
             try:
-                # TODO: Implement actual DBC parsing using cantools or similar
+                # TODO: Implement actual DBC parsing using cantools
                 QMessageBox.information(
                     self, "Import DBC",
                     f"DBC import from {filename} will be implemented.\n\n"
-                    "This feature requires the 'cantools' library for parsing DBC files."
+                    "This feature requires the 'cantools' library for parsing DBC files.\n\n"
+                    "Install with: pip install cantools"
                 )
-                # Example placeholder for future implementation:
-                # import cantools
-                # db = cantools.database.load_file(filename)
-                # for message in db.messages:
-                #     self.can_messages.append({
-                #         "can_id": message.frame_id,
-                #         "name": message.name,
-                #         "dlc": message.length,
-                #         "signals": [...]
-                #     })
-                # self._update_table()
-                # self.configuration_changed.emit()
             except Exception as e:
                 QMessageBox.critical(
                     self, "Import Error",
                     f"Failed to import DBC file:\n{str(e)}"
                 )
 
-    def export_dbc(self):
-        """Export CAN messages to DBC file."""
-        if not self.can_messages:
-            QMessageBox.warning(
-                self, "No Messages",
-                "No CAN messages to export."
-            )
-            return
-
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export DBC File",
-            "",
-            "DBC Files (*.dbc);;All Files (*)"
-        )
-
-        if filename:
-            try:
-                # TODO: Implement actual DBC generation using cantools or similar
-                QMessageBox.information(
-                    self, "Export DBC",
-                    f"DBC export to {filename} will be implemented.\n\n"
-                    "This feature requires the 'cantools' library for generating DBC files."
-                )
-            except Exception as e:
-                QMessageBox.critical(
-                    self, "Export Error",
-                    f"Failed to export DBC file:\n{str(e)}"
-                )
+    # ========== Configuration Load/Save ==========
 
     def load_configuration(self, config: dict):
-        """Load CAN configuration."""
-        can_config = config.get("can_buses", [])
-        if can_config:
-            # Load first bus (for now, single bus support)
-            bus = can_config[0] if isinstance(can_config, list) else can_config
-            self.can_config = bus.get("config", self.can_config)
-            self.can_messages = bus.get("messages", [])
+        """Load CAN configuration from config dict."""
+        # Load CAN messages (Level 1) from can_messages array
+        self.can_messages = config.get("can_messages", [])
+
+        # Load CAN inputs (Level 2) from channels array
+        channels = config.get("channels", [])
+        self.can_inputs = [
+            ch for ch in channels
+            if ch.get("channel_type") == "can_rx"
+        ]
+
+        # Load bus settings
+        can_buses = config.get("can_buses", [])
+        if can_buses and isinstance(can_buses, list) and len(can_buses) > 0:
+            bus = can_buses[0]
+            self.can_config = {
+                "bus_speed": bus.get("bitrate", 500000),
+                "bus_enabled": bus.get("enabled", True)
+            }
 
             # Update UI
             speed = self.can_config.get("bus_speed", 500000)
@@ -382,24 +580,38 @@ class CANTab(QWidget):
             if index >= 0:
                 self.bus_speed_combo.setCurrentIndex(index)
 
-        self._update_table()
+        self._update_messages_table()
+        self._update_inputs_table()
 
     def get_configuration(self) -> dict:
-        """Get current CAN configuration."""
+        """Get current CAN configuration for saving."""
         return {
+            "can_messages": self.can_messages,
+            "can_inputs": self.can_inputs,  # Will be merged into channels array
             "can_buses": [{
-                "name": "CAN1",
-                "config": self.can_config,
-                "messages": self.can_messages
+                "bus": 1,
+                "enabled": self.can_config.get("bus_enabled", True),
+                "bitrate": self.can_config.get("bus_speed", 500000),
+                "fd_enabled": False
             }]
         }
+
+    def get_can_messages(self) -> List[Dict[str, Any]]:
+        """Get CAN messages for config_manager."""
+        return self.can_messages
+
+    def get_can_inputs(self) -> List[Dict[str, Any]]:
+        """Get CAN inputs for config_manager (to merge into channels)."""
+        return self.can_inputs
 
     def reset_to_defaults(self):
         """Reset to default configuration."""
         self.can_messages.clear()
+        self.can_inputs.clear()
         self.can_config = {
             "bus_speed": 500000,
             "bus_enabled": True
         }
         self.bus_speed_combo.setCurrentIndex(2)  # 500 kbps
-        self._update_table()
+        self._update_messages_table()
+        self._update_inputs_table()

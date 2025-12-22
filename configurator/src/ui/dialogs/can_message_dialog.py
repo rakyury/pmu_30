@@ -1,34 +1,48 @@
 """
-CAN Message Configuration Dialog
-Configures a single CAN message with signals
+CAN Message Object Configuration Dialog
+Configures a CAN Message Object (Level 1) - frame properties only
+
+Signals are configured separately in CAN Input Dialog.
 """
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QSpinBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QLabel, QCheckBox
+    QPushButton, QLineEdit, QComboBox, QSpinBox, QLabel,
+    QCheckBox, QTextEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
 
 class CANMessageDialog(QDialog):
-    """Dialog for configuring a single CAN message."""
+    """Dialog for configuring a CAN Message Object (Level 1)."""
 
-    SIGNAL_TYPES = ["uint8", "uint16", "uint32", "int8", "int16", "int32", "float", "bool"]
-    BYTE_ORDERS = ["Little Endian", "Big Endian"]
-    MAPPING_TYPES = ["Physical Input", "Physical Output", "Virtual Channel", "None"]
+    MESSAGE_TYPES = [
+        ("Normal", "normal"),
+        ("Compound (Multiplexed)", "compound"),
+        ("PMU1 RX Format", "pmu1_rx"),
+        ("PMU2 RX Format", "pmu2_rx"),
+        ("PMU3 RX Format", "pmu3_rx"),
+    ]
 
     def __init__(self, parent=None, message_config: Optional[Dict[str, Any]] = None,
-                 can_id_list=None):
+                 existing_ids: Optional[List[str]] = None):
+        """
+        Initialize CAN Message Dialog.
+
+        Args:
+            parent: Parent widget
+            message_config: Existing message configuration (for editing)
+            existing_ids: List of existing message IDs (for validation)
+        """
         super().__init__(parent)
         self.message_config = message_config
-        self.can_id_list = can_id_list or []
-        self.signals = []
+        self.existing_ids = existing_ids or []
+        self.editing_id = message_config.get("id", "") if message_config else ""
 
-        self.setWindowTitle("CAN Message Configuration")
+        self.setWindowTitle("CAN Message Object" if not message_config else f"Edit CAN Message: {self.editing_id}")
         self.setModal(True)
-        self.resize(700, 600)
+        self.resize(500, 450)
 
         self._init_ui()
 
@@ -39,75 +53,107 @@ class CANMessageDialog(QDialog):
         """Initialize UI components."""
         layout = QVBoxLayout()
 
-        # Basic settings group
-        basic_group = QGroupBox("Message Settings")
-        basic_layout = QFormLayout()
+        # Identification group
+        id_group = QGroupBox("Identification")
+        id_layout = QFormLayout()
 
-        self.can_id_spin = QSpinBox()
-        self.can_id_spin.setRange(0, 0x7FF)  # Standard CAN ID
-        self.can_id_spin.setDisplayIntegerBase(16)
-        self.can_id_spin.setPrefix("0x")
-        self.can_id_spin.setToolTip("CAN Message ID (0x000-0x7FF)")
-        basic_layout.addRow("CAN ID:", self.can_id_spin)
-
-        self.extended_check = QCheckBox("Extended ID (29-bit)")
-        self.extended_check.toggled.connect(self._on_extended_toggled)
-        basic_layout.addRow("", self.extended_check)
+        self.id_edit = QLineEdit()
+        self.id_edit.setPlaceholderText("e.g., msg_ecu_base")
+        self.id_edit.setToolTip("Unique identifier for this message (letters, numbers, underscores)")
+        id_layout.addRow("Message ID: *", self.id_edit)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Engine Data, Speed Info")
-        basic_layout.addRow("Name: *", self.name_edit)
+        self.name_edit.setPlaceholderText("e.g., ECU Base Data")
+        self.name_edit.setToolTip("Human-readable name for display")
+        id_layout.addRow("Name:", self.name_edit)
 
-        self.period_spin = QSpinBox()
-        self.period_spin.setRange(0, 10000)
-        self.period_spin.setValue(100)
-        self.period_spin.setSuffix(" ms")
-        self.period_spin.setToolTip("Transmission period (0 = event-driven)")
-        basic_layout.addRow("Period:", self.period_spin)
+        id_group.setLayout(id_layout)
+        layout.addWidget(id_group)
 
+        # CAN Settings group
+        can_group = QGroupBox("CAN Settings")
+        can_layout = QFormLayout()
+
+        # CAN Bus
+        self.can_bus_combo = QComboBox()
+        self.can_bus_combo.addItems(["CAN 1", "CAN 2", "CAN 3", "CAN 4"])
+        self.can_bus_combo.setToolTip("Select CAN bus (1-4)")
+        can_layout.addRow("CAN Bus:", self.can_bus_combo)
+
+        # Base ID with hex display
+        id_row_layout = QHBoxLayout()
+        self.base_id_spin = QSpinBox()
+        self.base_id_spin.setRange(0, 0x7FF)
+        self.base_id_spin.setDisplayIntegerBase(16)
+        self.base_id_spin.setPrefix("0x")
+        self.base_id_spin.setToolTip("CAN Message ID (hex)")
+        id_row_layout.addWidget(self.base_id_spin)
+
+        self.extended_check = QCheckBox("Extended (29-bit)")
+        self.extended_check.toggled.connect(self._on_extended_toggled)
+        id_row_layout.addWidget(self.extended_check)
+
+        can_layout.addRow("Base ID:", id_row_layout)
+
+        # Message Type
+        self.type_combo = QComboBox()
+        for display_name, _ in self.MESSAGE_TYPES:
+            self.type_combo.addItem(display_name)
+        self.type_combo.currentIndexChanged.connect(self._on_type_changed)
+        self.type_combo.setToolTip("Message type (Normal for single-frame, Compound for multiplexed)")
+        can_layout.addRow("Type:", self.type_combo)
+
+        # Frame Count (for compound)
+        self.frame_count_spin = QSpinBox()
+        self.frame_count_spin.setRange(1, 8)
+        self.frame_count_spin.setValue(1)
+        self.frame_count_spin.setToolTip("Number of frames for compound/multiplexed messages")
+        self.frame_count_spin.setEnabled(False)
+        can_layout.addRow("Frame Count:", self.frame_count_spin)
+
+        # DLC
         self.dlc_spin = QSpinBox()
-        self.dlc_spin.setRange(0, 8)
+        self.dlc_spin.setRange(0, 64)
         self.dlc_spin.setValue(8)
-        self.dlc_spin.setToolTip("Data Length Code (0-8 bytes)")
-        basic_layout.addRow("DLC:", self.dlc_spin)
+        self.dlc_spin.setToolTip("Data Length Code (bytes per frame)")
+        can_layout.addRow("DLC:", self.dlc_spin)
 
-        self.direction_combo = QComboBox()
-        self.direction_combo.addItems(["Transmit", "Receive"])
-        basic_layout.addRow("Direction:", self.direction_combo)
+        # Timeout
+        self.timeout_spin = QSpinBox()
+        self.timeout_spin.setRange(0, 65535)
+        self.timeout_spin.setValue(500)
+        self.timeout_spin.setSuffix(" ms")
+        self.timeout_spin.setToolTip("Reception timeout (0 = no timeout)")
+        can_layout.addRow("Timeout:", self.timeout_spin)
 
-        basic_group.setLayout(basic_layout)
-        layout.addWidget(basic_group)
+        # Enabled
+        self.enabled_check = QCheckBox("Message enabled")
+        self.enabled_check.setChecked(True)
+        can_layout.addRow("", self.enabled_check)
 
-        # Signals group
-        signals_group = QGroupBox("Signals")
-        signals_layout = QVBoxLayout()
+        can_group.setLayout(can_layout)
+        layout.addWidget(can_group)
 
-        # Signals table
-        self.signals_table = QTableWidget()
-        self.signals_table.setColumnCount(6)
-        self.signals_table.setHorizontalHeaderLabels([
-            "Name", "Start Bit", "Length", "Type", "Byte Order", "Mapping"
-        ])
-        self.signals_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.signals_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        signals_layout.addWidget(self.signals_table)
+        # Description group
+        desc_group = QGroupBox("Description")
+        desc_layout = QVBoxLayout()
 
-        # Signal buttons
-        signal_btn_layout = QHBoxLayout()
+        self.description_edit = QTextEdit()
+        self.description_edit.setMaximumHeight(80)
+        self.description_edit.setPlaceholderText("Optional description...")
+        desc_layout.addWidget(self.description_edit)
 
-        self.add_signal_btn = QPushButton("Add Signal")
-        self.add_signal_btn.clicked.connect(self._add_signal)
-        signal_btn_layout.addWidget(self.add_signal_btn)
+        desc_group.setLayout(desc_layout)
+        layout.addWidget(desc_group)
 
-        self.remove_signal_btn = QPushButton("Remove Signal")
-        self.remove_signal_btn.clicked.connect(self._remove_signal)
-        signal_btn_layout.addWidget(self.remove_signal_btn)
+        # Info label
+        info_label = QLabel(
+            "<i>Note: Signals are configured separately using CAN Inputs.</i>"
+        )
+        info_label.setStyleSheet("color: #888888;")
+        layout.addWidget(info_label)
 
-        signal_btn_layout.addStretch()
-
-        signals_layout.addLayout(signal_btn_layout)
-        signals_group.setLayout(signals_layout)
-        layout.addWidget(signals_group)
+        layout.addStretch()
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -115,6 +161,7 @@ class CANMessageDialog(QDialog):
 
         self.ok_btn = QPushButton("OK")
         self.ok_btn.clicked.connect(self._on_accept)
+        self.ok_btn.setDefault(True)
         button_layout.addWidget(self.ok_btn)
 
         self.cancel_btn = QPushButton("Cancel")
@@ -125,156 +172,107 @@ class CANMessageDialog(QDialog):
 
         self.setLayout(layout)
 
+    def _on_extended_toggled(self, extended: bool):
+        """Handle extended ID checkbox toggle."""
+        if extended:
+            self.base_id_spin.setRange(0, 0x1FFFFFFF)  # Extended CAN ID (29-bit)
+        else:
+            self.base_id_spin.setRange(0, 0x7FF)  # Standard CAN ID (11-bit)
+            # Clamp current value if needed
+            if self.base_id_spin.value() > 0x7FF:
+                self.base_id_spin.setValue(0x7FF)
+
+    def _on_type_changed(self, index: int):
+        """Handle message type change."""
+        # Enable frame count only for compound type
+        msg_type = self.MESSAGE_TYPES[index][1]
+        self.frame_count_spin.setEnabled(msg_type == "compound")
+        if msg_type != "compound":
+            self.frame_count_spin.setValue(1)
+
     def _on_accept(self):
         """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
+        # Validate ID
+        msg_id = self.id_edit.text().strip()
+        if not msg_id:
+            QMessageBox.warning(self, "Validation Error", "Message ID is required!")
+            self.id_edit.setFocus()
+            return
 
-        # Validate name (required field)
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
+        # Check ID format
+        import re
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', msg_id):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Message ID must start with a letter and contain only letters, numbers, and underscores!"
+            )
+            self.id_edit.setFocus()
+            return
+
+        # Check for duplicate ID (only if creating new or ID changed)
+        if msg_id != self.editing_id and msg_id in self.existing_ids:
+            QMessageBox.warning(
+                self, "Validation Error",
+                f"Message ID '{msg_id}' already exists!"
+            )
+            self.id_edit.setFocus()
             return
 
         self.accept()
 
-    def _on_extended_toggled(self, extended: bool):
-        """Handle extended ID checkbox toggle."""
-        if extended:
-            self.can_id_spin.setRange(0, 0x1FFFFFFF)  # Extended CAN ID
-        else:
-            self.can_id_spin.setRange(0, 0x7FF)  # Standard CAN ID
-
-    def _add_signal(self):
-        """Add a new signal to the table."""
-        row = self.signals_table.rowCount()
-        self.signals_table.insertRow(row)
-
-        # Name
-        name_item = QTableWidgetItem(f"Signal_{row}")
-        self.signals_table.setItem(row, 0, name_item)
-
-        # Start Bit
-        start_bit = QSpinBox()
-        start_bit.setRange(0, 63)
-        start_bit.setValue(row * 8)
-        self.signals_table.setCellWidget(row, 1, start_bit)
-
-        # Length
-        length = QSpinBox()
-        length.setRange(1, 64)
-        length.setValue(8)
-        self.signals_table.setCellWidget(row, 2, length)
-
-        # Type
-        sig_type = QComboBox()
-        sig_type.addItems(self.SIGNAL_TYPES)
-        self.signals_table.setCellWidget(row, 3, sig_type)
-
-        # Byte Order
-        byte_order = QComboBox()
-        byte_order.addItems(self.BYTE_ORDERS)
-        self.signals_table.setCellWidget(row, 4, byte_order)
-
-        # Mapping
-        mapping = QComboBox()
-        mapping.addItems(self.MAPPING_TYPES)
-        self.signals_table.setCellWidget(row, 5, mapping)
-
-    def _remove_signal(self):
-        """Remove selected signal from the table."""
-        current_row = self.signals_table.currentRow()
-        if current_row >= 0:
-            self.signals_table.removeRow(current_row)
-
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.can_id_spin.setValue(config.get("can_id", 0))
-        self.extended_check.setChecked(config.get("extended", False))
+        self.id_edit.setText(config.get("id", ""))
         self.name_edit.setText(config.get("name", ""))
-        self.period_spin.setValue(config.get("period_ms", 100))
+
+        # CAN Bus (1-4 -> index 0-3)
+        can_bus = config.get("can_bus", 1)
+        self.can_bus_combo.setCurrentIndex(can_bus - 1)
+
+        # Base ID and extended
+        is_extended = config.get("is_extended", False)
+        self.extended_check.setChecked(is_extended)
+        self.base_id_spin.setValue(config.get("base_id", 0))
+
+        # Message Type
+        msg_type = config.get("message_type", "normal")
+        for i, (_, value) in enumerate(self.MESSAGE_TYPES):
+            if value == msg_type:
+                self.type_combo.setCurrentIndex(i)
+                break
+
+        # Frame Count
+        self.frame_count_spin.setValue(config.get("frame_count", 1))
+
+        # DLC
         self.dlc_spin.setValue(config.get("dlc", 8))
 
-        direction = config.get("direction", "Transmit")
-        index = self.direction_combo.findText(direction)
-        if index >= 0:
-            self.direction_combo.setCurrentIndex(index)
+        # Timeout
+        self.timeout_spin.setValue(config.get("timeout_ms", 500))
 
-        # Load signals
-        signals = config.get("signals", [])
-        for signal in signals:
-            row = self.signals_table.rowCount()
-            self.signals_table.insertRow(row)
+        # Enabled
+        self.enabled_check.setChecked(config.get("enabled", True))
 
-            # Name
-            name_item = QTableWidgetItem(signal.get("name", ""))
-            self.signals_table.setItem(row, 0, name_item)
-
-            # Start Bit
-            start_bit = QSpinBox()
-            start_bit.setRange(0, 63)
-            start_bit.setValue(signal.get("start_bit", 0))
-            self.signals_table.setCellWidget(row, 1, start_bit)
-
-            # Length
-            length = QSpinBox()
-            length.setRange(1, 64)
-            length.setValue(signal.get("length", 8))
-            self.signals_table.setCellWidget(row, 2, length)
-
-            # Type
-            sig_type = QComboBox()
-            sig_type.addItems(self.SIGNAL_TYPES)
-            type_idx = sig_type.findText(signal.get("type", "uint8"))
-            if type_idx >= 0:
-                sig_type.setCurrentIndex(type_idx)
-            self.signals_table.setCellWidget(row, 3, sig_type)
-
-            # Byte Order
-            byte_order = QComboBox()
-            byte_order.addItems(self.BYTE_ORDERS)
-            order_idx = byte_order.findText(signal.get("byte_order", "Little Endian"))
-            if order_idx >= 0:
-                byte_order.setCurrentIndex(order_idx)
-            self.signals_table.setCellWidget(row, 4, byte_order)
-
-            # Mapping
-            mapping = QComboBox()
-            mapping.addItems(self.MAPPING_TYPES)
-            map_idx = mapping.findText(signal.get("mapping_type", "None"))
-            if map_idx >= 0:
-                mapping.setCurrentIndex(map_idx)
-            self.signals_table.setCellWidget(row, 5, mapping)
+        # Description
+        self.description_edit.setPlainText(config.get("description", ""))
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
-        # Parse signals from table
-        signals = []
-        for row in range(self.signals_table.rowCount()):
-            name_item = self.signals_table.item(row, 0)
-            start_bit_widget = self.signals_table.cellWidget(row, 1)
-            length_widget = self.signals_table.cellWidget(row, 2)
-            type_widget = self.signals_table.cellWidget(row, 3)
-            byte_order_widget = self.signals_table.cellWidget(row, 4)
-            mapping_widget = self.signals_table.cellWidget(row, 5)
-
-            if name_item and start_bit_widget and length_widget:
-                signals.append({
-                    "name": name_item.text(),
-                    "start_bit": start_bit_widget.value(),
-                    "length": length_widget.value(),
-                    "type": type_widget.currentText(),
-                    "byte_order": byte_order_widget.currentText(),
-                    "mapping_type": mapping_widget.currentText()
-                })
+        msg_type_index = self.type_combo.currentIndex()
+        msg_type = self.MESSAGE_TYPES[msg_type_index][1]
 
         config = {
-            "can_id": self.can_id_spin.value(),
-            "extended": self.extended_check.isChecked(),
-            "name": self.name_edit.text(),
-            "period_ms": self.period_spin.value(),
+            "id": self.id_edit.text().strip(),
+            "name": self.name_edit.text().strip(),
+            "can_bus": self.can_bus_combo.currentIndex() + 1,  # 0-3 -> 1-4
+            "base_id": self.base_id_spin.value(),
+            "is_extended": self.extended_check.isChecked(),
+            "message_type": msg_type,
+            "frame_count": self.frame_count_spin.value(),
             "dlc": self.dlc_spin.value(),
-            "direction": self.direction_combo.currentText(),
-            "signals": signals
+            "timeout_ms": self.timeout_spin.value(),
+            "enabled": self.enabled_check.isChecked(),
+            "description": self.description_edit.toPlainText().strip()
         }
 
         return config

@@ -53,6 +53,12 @@ static FDCAN_HandleTypeDef hfdcan2;     /* CAN FD 2 */
 static FDCAN_HandleTypeDef hfdcan3;     /* CAN 2.0 (FDCAN in classic mode) */
 static uint32_t system_tick_ms = 0;     /* System tick counter in ms */
 
+/* Two-Level Architecture (v3.0) storage */
+static PMU_CAN_MessageObject_t message_objects[PMU_CAN_MAX_MESSAGE_OBJECTS];
+static uint16_t message_object_count = 0;
+static PMU_CAN_Input_t can_inputs[PMU_CAN_MAX_INPUTS];
+static uint16_t can_input_count = 0;
+
 /* Private function prototypes -----------------------------------------------*/
 static HAL_StatusTypeDef CAN_InitBus(PMU_CAN_Bus_t bus);
 static void CAN_ProcessRxMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg);
@@ -61,6 +67,10 @@ static float CAN_ExtractSignal(uint8_t* data, PMU_CAN_SignalMap_t* signal);
 static void CAN_CheckTimeouts(PMU_CAN_Bus_t bus);
 static uint8_t CAN_BytesToDLC(uint8_t bytes);
 static uint8_t CAN_DLCToBytes(uint8_t dlc);
+
+/* Two-level architecture helpers */
+static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data);
+static PMU_CAN_MessageObject_t* CAN_FindMessageByCanId(PMU_CAN_Bus_t bus, uint32_t can_id);
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -264,15 +274,21 @@ void PMU_CAN_Update(void)
 
                 can_buses[bus].stats.rx_count++;
 
-                /* Process signal mapping for this message */
+                /* Process signal mapping for this message (legacy v2.0) */
                 CAN_ProcessRxMessage(bus, &msg);
+
+                /* Process two-level architecture (v3.0) */
+                PMU_CAN_HandleRxMessage(bus, msg.id, msg.data, msg.dlc);
             }
         }
 #endif
 
-        /* Check for signal timeouts */
+        /* Check for signal timeouts (legacy v2.0) */
         CAN_CheckTimeouts(bus);
     }
+
+    /* Process two-level architecture timeouts (v3.0) */
+    PMU_CAN_ProcessMessageTimeouts();
 }
 
 /**
@@ -641,6 +657,465 @@ static uint8_t CAN_BytesToDLC(uint8_t bytes)
     if (bytes <= 32) return 13;
     if (bytes <= 48) return 14;
     return 15;  /* 64 bytes */
+}
+
+/* ============================================================================
+ * Two-Level Architecture Implementation (v3.0)
+ * ============================================================================ */
+
+/**
+ * @brief Find message object by CAN ID and bus
+ * @param bus CAN bus
+ * @param can_id CAN message ID
+ * @retval Pointer to message object or NULL
+ */
+static PMU_CAN_MessageObject_t* CAN_FindMessageByCanId(PMU_CAN_Bus_t bus, uint32_t can_id)
+{
+    for (uint16_t i = 0; i < message_object_count; i++) {
+        if (message_objects[i].can_bus == bus &&
+            message_objects[i].base_id == can_id &&
+            message_objects[i].enabled) {
+            return &message_objects[i];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * @brief Extract value from CAN data using input configuration
+ * @param input CAN Input configuration
+ * @param data Raw CAN data bytes
+ * @retval Extracted and scaled value
+ */
+static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data)
+{
+    uint64_t raw_value = 0;
+    float value = 0.0f;
+
+    /* Determine bit position based on format */
+    uint8_t start_bit = 0;
+    uint8_t bit_length = 0;
+
+    switch (input->data_format) {
+        case PMU_CAN_DATA_FORMAT_8BIT:
+            start_bit = input->byte_offset * 8;
+            bit_length = 8;
+            break;
+        case PMU_CAN_DATA_FORMAT_16BIT:
+            start_bit = input->byte_offset * 8;
+            bit_length = 16;
+            break;
+        case PMU_CAN_DATA_FORMAT_32BIT:
+            start_bit = input->byte_offset * 8;
+            bit_length = 32;
+            break;
+        case PMU_CAN_DATA_FORMAT_CUSTOM:
+            start_bit = input->start_bit;
+            bit_length = input->bit_length;
+            break;
+        default:
+            start_bit = input->byte_offset * 8;
+            bit_length = 16;
+            break;
+    }
+
+    /* Extract bits based on byte order */
+    uint8_t start_byte = start_bit / 8;
+    uint8_t start_bit_in_byte = start_bit % 8;
+    uint8_t bytes_needed = (bit_length + start_bit_in_byte + 7) / 8;
+
+    if (input->byte_order == 0) {  /* Little endian (Intel) */
+        for (uint8_t i = 0; i < bytes_needed && (start_byte + i) < 64; i++) {
+            raw_value |= ((uint64_t)data[start_byte + i] << (i * 8));
+        }
+        raw_value >>= start_bit_in_byte;
+    } else {  /* Big endian (Motorola) */
+        /* Motorola byte order: MSB first */
+        for (uint8_t i = 0; i < bytes_needed && (start_byte + i) < 64; i++) {
+            raw_value = (raw_value << 8) | data[start_byte + i];
+        }
+        /* Align to bit boundary */
+        uint8_t shift = (bytes_needed * 8) - bit_length - start_bit_in_byte;
+        raw_value >>= shift;
+    }
+
+    /* Mask to length */
+    uint64_t mask = (bit_length >= 64) ? ~0ULL : ((1ULL << bit_length) - 1);
+    raw_value &= mask;
+
+    /* Convert based on data type */
+    switch (input->data_type) {
+        case PMU_CAN_DATA_TYPE_UNSIGNED:
+            value = (float)raw_value;
+            break;
+
+        case PMU_CAN_DATA_TYPE_SIGNED:
+            /* Sign extend if MSB is set */
+            if (raw_value & (1ULL << (bit_length - 1))) {
+                raw_value |= ~mask;
+            }
+            value = (float)((int64_t)raw_value);
+            break;
+
+        case PMU_CAN_DATA_TYPE_FLOAT:
+            if (bit_length == 32) {
+                /* IEEE 754 float */
+                union {
+                    uint32_t u;
+                    float f;
+                } conv;
+                conv.u = (uint32_t)raw_value;
+                value = conv.f;
+            } else {
+                value = (float)raw_value;
+            }
+            break;
+
+        default:
+            value = (float)raw_value;
+            break;
+    }
+
+    /* Apply scaling: value = raw * multiplier / divider + offset */
+    if (input->divider != 0.0f) {
+        value = value * input->multiplier / input->divider + input->offset;
+    } else {
+        value = value * input->multiplier + input->offset;
+    }
+
+    return value;
+}
+
+/**
+ * @brief Add a CAN Message Object
+ */
+HAL_StatusTypeDef PMU_CAN_AddMessageObject(PMU_CAN_MessageObject_t* msg_obj)
+{
+    if (msg_obj == NULL || message_object_count >= PMU_CAN_MAX_MESSAGE_OBJECTS) {
+        return HAL_ERROR;
+    }
+
+    /* Check for duplicate ID */
+    for (uint16_t i = 0; i < message_object_count; i++) {
+        if (strcmp(message_objects[i].id, msg_obj->id) == 0) {
+            return HAL_ERROR;  /* Duplicate ID */
+        }
+    }
+
+    /* Copy message object */
+    memcpy(&message_objects[message_object_count], msg_obj, sizeof(PMU_CAN_MessageObject_t));
+
+    /* Initialize runtime state */
+    message_objects[message_object_count].last_rx_tick = 0;
+    message_objects[message_object_count].timeout_flag = 0;
+    message_objects[message_object_count].compound_frame_idx = 0;
+    memset(message_objects[message_object_count].rx_data, 0, 64);
+
+    message_object_count++;
+    return HAL_OK;
+}
+
+/**
+ * @brief Remove a CAN Message Object by ID
+ */
+HAL_StatusTypeDef PMU_CAN_RemoveMessageObject(const char* msg_id)
+{
+    if (msg_id == NULL) {
+        return HAL_ERROR;
+    }
+
+    for (uint16_t i = 0; i < message_object_count; i++) {
+        if (strcmp(message_objects[i].id, msg_id) == 0) {
+            /* Shift remaining objects down */
+            for (uint16_t j = i; j < message_object_count - 1; j++) {
+                memcpy(&message_objects[j], &message_objects[j + 1],
+                       sizeof(PMU_CAN_MessageObject_t));
+            }
+            message_object_count--;
+
+            /* Re-link inputs (some may now have NULL message_ptr) */
+            PMU_CAN_LinkInputsToMessages();
+            return HAL_OK;
+        }
+    }
+
+    return HAL_ERROR;  /* Not found */
+}
+
+/**
+ * @brief Get CAN Message Object by ID
+ */
+PMU_CAN_MessageObject_t* PMU_CAN_GetMessageObject(const char* msg_id)
+{
+    if (msg_id == NULL) {
+        return NULL;
+    }
+
+    for (uint16_t i = 0; i < message_object_count; i++) {
+        if (strcmp(message_objects[i].id, msg_id) == 0) {
+            return &message_objects[i];
+        }
+    }
+
+    return NULL;
+}
+
+/**
+ * @brief Clear all CAN Message Objects
+ */
+HAL_StatusTypeDef PMU_CAN_ClearMessageObjects(void)
+{
+    message_object_count = 0;
+    memset(message_objects, 0, sizeof(message_objects));
+
+    /* Clear input message pointers */
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        can_inputs[i].message_ptr = NULL;
+    }
+
+    return HAL_OK;
+}
+
+/**
+ * @brief Get number of active CAN Message Objects
+ */
+uint16_t PMU_CAN_GetMessageObjectCount(void)
+{
+    return message_object_count;
+}
+
+/**
+ * @brief Add a CAN Input
+ */
+HAL_StatusTypeDef PMU_CAN_AddInput(PMU_CAN_Input_t* input)
+{
+    if (input == NULL || can_input_count >= PMU_CAN_MAX_INPUTS) {
+        return HAL_ERROR;
+    }
+
+    /* Check for duplicate ID */
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        if (strcmp(can_inputs[i].id, input->id) == 0) {
+            return HAL_ERROR;  /* Duplicate ID */
+        }
+    }
+
+    /* Copy input */
+    memcpy(&can_inputs[can_input_count], input, sizeof(PMU_CAN_Input_t));
+
+    /* Initialize runtime state */
+    can_inputs[can_input_count].current_value = input->default_value;
+    can_inputs[can_input_count].timeout_flag = 0;
+    can_inputs[can_input_count].message_ptr = NULL;
+
+    /* Try to link to message */
+    PMU_CAN_MessageObject_t* msg = PMU_CAN_GetMessageObject(input->message_ref);
+    if (msg != NULL) {
+        can_inputs[can_input_count].message_ptr = msg;
+    }
+
+    can_input_count++;
+    return HAL_OK;
+}
+
+/**
+ * @brief Remove a CAN Input by ID
+ */
+HAL_StatusTypeDef PMU_CAN_RemoveInput(const char* input_id)
+{
+    if (input_id == NULL) {
+        return HAL_ERROR;
+    }
+
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        if (strcmp(can_inputs[i].id, input_id) == 0) {
+            /* Shift remaining inputs down */
+            for (uint16_t j = i; j < can_input_count - 1; j++) {
+                memcpy(&can_inputs[j], &can_inputs[j + 1], sizeof(PMU_CAN_Input_t));
+            }
+            can_input_count--;
+            return HAL_OK;
+        }
+    }
+
+    return HAL_ERROR;  /* Not found */
+}
+
+/**
+ * @brief Get CAN Input by ID
+ */
+PMU_CAN_Input_t* PMU_CAN_GetInput(const char* input_id)
+{
+    if (input_id == NULL) {
+        return NULL;
+    }
+
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        if (strcmp(can_inputs[i].id, input_id) == 0) {
+            return &can_inputs[i];
+        }
+    }
+
+    return NULL;
+}
+
+/**
+ * @brief Clear all CAN Inputs
+ */
+HAL_StatusTypeDef PMU_CAN_ClearInputs(void)
+{
+    can_input_count = 0;
+    memset(can_inputs, 0, sizeof(can_inputs));
+    return HAL_OK;
+}
+
+/**
+ * @brief Get number of active CAN Inputs
+ */
+uint16_t PMU_CAN_GetInputCount(void)
+{
+    return can_input_count;
+}
+
+/**
+ * @brief Link CAN Inputs to their parent Message Objects
+ */
+uint16_t PMU_CAN_LinkInputsToMessages(void)
+{
+    uint16_t linked_count = 0;
+
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        can_inputs[i].message_ptr = PMU_CAN_GetMessageObject(can_inputs[i].message_ref);
+        if (can_inputs[i].message_ptr != NULL) {
+            linked_count++;
+        }
+    }
+
+    return linked_count;
+}
+
+/**
+ * @brief Process CAN Message timeouts
+ */
+void PMU_CAN_ProcessMessageTimeouts(void)
+{
+    for (uint16_t i = 0; i < message_object_count; i++) {
+        PMU_CAN_MessageObject_t* msg = &message_objects[i];
+
+        if (!msg->enabled || msg->timeout_ms == 0) {
+            continue;
+        }
+
+        /* Check timeout */
+        uint32_t elapsed = system_tick_ms - msg->last_rx_tick;
+        if (elapsed > msg->timeout_ms) {
+            msg->timeout_flag = 1;
+        }
+    }
+}
+
+/**
+ * @brief Process CAN Inputs - extract values and update virtual channels
+ */
+void PMU_CAN_ProcessInputs(void)
+{
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        PMU_CAN_Input_t* input = &can_inputs[i];
+        PMU_CAN_MessageObject_t* msg = input->message_ptr;
+
+        /* Skip if not linked to a message */
+        if (msg == NULL) {
+            continue;
+        }
+
+        /* Handle timeout */
+        if (msg->timeout_flag) {
+            input->timeout_flag = 1;
+
+            switch (input->timeout_behavior) {
+                case PMU_CAN_TIMEOUT_USE_DEFAULT:
+                    input->current_value = input->default_value;
+                    break;
+                case PMU_CAN_TIMEOUT_HOLD_LAST:
+                    /* Keep current value */
+                    break;
+                case PMU_CAN_TIMEOUT_SET_ZERO:
+                    input->current_value = 0.0f;
+                    break;
+            }
+        } else {
+            input->timeout_flag = 0;
+
+            /* Calculate data offset for compound messages */
+            uint8_t* data = msg->rx_data;
+            if (msg->message_type == PMU_CAN_MSG_TYPE_COMPOUND && input->frame_offset > 0) {
+                /* For compound messages, each frame is DLC bytes */
+                data = &msg->rx_data[input->frame_offset * msg->dlc];
+            }
+
+            /* Extract value */
+            input->current_value = CAN_ExtractInputValue(input, data);
+        }
+
+        /* Update virtual channel if assigned */
+        if (input->virtual_channel != 0) {
+            PMU_Logic_SetVChannel(input->virtual_channel, (int32_t)(input->current_value));
+        }
+    }
+}
+
+/**
+ * @brief Handle received CAN message (two-level architecture)
+ */
+void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc)
+{
+    /* Find matching message object */
+    PMU_CAN_MessageObject_t* msg = CAN_FindMessageByCanId(bus, can_id);
+
+    if (msg == NULL) {
+        return;  /* No matching message object */
+    }
+
+    /* Update timestamp and clear timeout */
+    msg->last_rx_tick = system_tick_ms;
+    msg->timeout_flag = 0;
+
+    /* Copy received data */
+    if (msg->message_type == PMU_CAN_MSG_TYPE_COMPOUND) {
+        /* For compound messages, store frames sequentially */
+        uint8_t frame_offset = msg->compound_frame_idx * msg->dlc;
+        if (frame_offset + dlc <= 64) {
+            memcpy(&msg->rx_data[frame_offset], data, dlc);
+        }
+        msg->compound_frame_idx++;
+        if (msg->compound_frame_idx >= msg->frame_count) {
+            msg->compound_frame_idx = 0;
+        }
+    } else {
+        /* Normal message - copy directly */
+        memcpy(msg->rx_data, data, (dlc > 64) ? 64 : dlc);
+    }
+
+    /* Process inputs that use this message */
+    for (uint16_t i = 0; i < can_input_count; i++) {
+        if (can_inputs[i].message_ptr == msg) {
+            /* Calculate data offset for this input */
+            uint8_t* input_data = msg->rx_data;
+            if (msg->message_type == PMU_CAN_MSG_TYPE_COMPOUND) {
+                input_data = &msg->rx_data[can_inputs[i].frame_offset * msg->dlc];
+            }
+
+            /* Extract and update value */
+            can_inputs[i].current_value = CAN_ExtractInputValue(&can_inputs[i], input_data);
+            can_inputs[i].timeout_flag = 0;
+
+            /* Update virtual channel if assigned */
+            if (can_inputs[i].virtual_channel != 0) {
+                PMU_Logic_SetVChannel(can_inputs[i].virtual_channel,
+                                      (int32_t)(can_inputs[i].current_value));
+            }
+        }
+    }
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

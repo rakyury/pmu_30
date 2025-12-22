@@ -37,6 +37,45 @@ typedef enum {
 } PMU_CAN_Bus_t;
 
 /**
+ * @brief CAN Message type (Level 1)
+ */
+typedef enum {
+    PMU_CAN_MSG_TYPE_NORMAL = 0,    /* Normal single-frame message */
+    PMU_CAN_MSG_TYPE_COMPOUND,      /* Compound/multiplexed message */
+    PMU_CAN_MSG_TYPE_PMU1_RX,       /* PMU1 RX format */
+    PMU_CAN_MSG_TYPE_PMU2_RX,       /* PMU2 RX format */
+    PMU_CAN_MSG_TYPE_PMU3_RX        /* PMU3 RX format */
+} PMU_CAN_MessageType_t;
+
+/**
+ * @brief CAN Input timeout behavior (Level 2)
+ */
+typedef enum {
+    PMU_CAN_TIMEOUT_USE_DEFAULT = 0,    /* Use configured default value */
+    PMU_CAN_TIMEOUT_HOLD_LAST,          /* Hold last received value */
+    PMU_CAN_TIMEOUT_SET_ZERO            /* Set value to zero */
+} PMU_CAN_TimeoutBehavior_t;
+
+/**
+ * @brief CAN Input data type (Level 2)
+ */
+typedef enum {
+    PMU_CAN_DATA_TYPE_UNSIGNED = 0,     /* Unsigned integer */
+    PMU_CAN_DATA_TYPE_SIGNED,           /* Signed integer */
+    PMU_CAN_DATA_TYPE_FLOAT             /* IEEE 754 float */
+} PMU_CAN_DataType_t;
+
+/**
+ * @brief CAN Input data format (Level 2)
+ */
+typedef enum {
+    PMU_CAN_DATA_FORMAT_8BIT = 0,       /* 8-bit value */
+    PMU_CAN_DATA_FORMAT_16BIT,          /* 16-bit value */
+    PMU_CAN_DATA_FORMAT_32BIT,          /* 32-bit value */
+    PMU_CAN_DATA_FORMAT_CUSTOM          /* Custom bit field */
+} PMU_CAN_DataFormat_t;
+
+/**
  * @brief CAN frame type
  */
 typedef enum {
@@ -103,6 +142,63 @@ typedef struct {
     uint8_t  bus_status;        /* 0=OK, 1=Warning, 2=Passive, 3=Bus-off */
 } PMU_CAN_Statistics_t;
 
+/**
+ * @brief CAN Message Object (Level 1) - Container for CAN frame
+ *
+ * Defines the CAN frame structure: ID, bus, type, timeout.
+ * CAN Inputs (Level 2) reference this object to extract signals.
+ */
+typedef struct {
+    char id[32];                        /* Unique message identifier */
+    char name[32];                      /* Human-readable name */
+    PMU_CAN_Bus_t can_bus;              /* CAN bus (1-4) */
+    uint32_t base_id;                   /* CAN message ID (11 or 29 bit) */
+    uint8_t is_extended;                /* 1=Extended (29-bit), 0=Standard (11-bit) */
+    PMU_CAN_MessageType_t message_type; /* Message type (normal, compound, etc.) */
+    uint8_t frame_count;                /* Number of frames for compound (1-8) */
+    uint8_t dlc;                        /* Data Length Code */
+    uint16_t timeout_ms;                /* Reception timeout in ms */
+    uint8_t enabled;                    /* Message enabled flag */
+    /* Runtime state */
+    uint32_t last_rx_tick;              /* Last receive timestamp (ms) */
+    uint8_t timeout_flag;               /* Timeout occurred flag */
+    uint8_t rx_data[64];                /* Received data buffer */
+    uint8_t compound_frame_idx;         /* Current compound frame index */
+} PMU_CAN_MessageObject_t;
+
+/**
+ * @brief CAN Input (Level 2) - Signal extraction from CAN Message
+ *
+ * References a CAN Message Object and defines how to extract
+ * a signal value with scaling and timeout behavior.
+ */
+typedef struct {
+    char id[32];                        /* Unique channel identifier */
+    char message_ref[32];               /* Reference to CAN Message Object ID */
+    uint8_t frame_offset;               /* Frame offset for compound messages (0-7) */
+    /* Data extraction */
+    PMU_CAN_DataType_t data_type;       /* Value type (unsigned, signed, float) */
+    PMU_CAN_DataFormat_t data_format;   /* Format (8bit, 16bit, 32bit, custom) */
+    uint8_t byte_order;                 /* 0=Little endian, 1=Big endian */
+    uint8_t byte_offset;                /* Starting byte position (0-7) */
+    uint8_t start_bit;                  /* Start bit for custom format (0-63) */
+    uint8_t bit_length;                 /* Bit length for custom format (1-64) */
+    /* Scaling: value = raw * multiplier / divider + offset */
+    float multiplier;                   /* Scale multiplier */
+    float divider;                      /* Scale divider */
+    float offset;                       /* Offset added after scaling */
+    uint8_t decimal_places;             /* Decimal places for display */
+    /* Timeout behavior */
+    float default_value;                /* Value on timeout */
+    PMU_CAN_TimeoutBehavior_t timeout_behavior;  /* What to do on timeout */
+    /* Runtime state */
+    uint16_t virtual_channel;           /* Target virtual channel index */
+    float current_value;                /* Current scaled value */
+    uint8_t timeout_flag;               /* Signal timeout flag */
+    /* Linked message pointer (resolved at runtime) */
+    PMU_CAN_MessageObject_t* message_ptr;  /* Pointer to parent message */
+} PMU_CAN_Input_t;
+
 /* Exported constants --------------------------------------------------------*/
 
 /* CAN bitrates */
@@ -125,11 +221,20 @@ typedef struct {
 #define PMU_CAN_FD_DLC_48           14
 #define PMU_CAN_FD_DLC_64           15
 
-/* Maximum signal mappings per bus */
+/* Maximum signal mappings per bus (legacy) */
 #define PMU_CAN_MAX_SIGNAL_MAPS     256
 
 /* Signal timeout default */
 #define PMU_CAN_SIGNAL_TIMEOUT_MS   500
+
+/* Maximum CAN Message Objects (Level 1) */
+#define PMU_CAN_MAX_MESSAGE_OBJECTS 64
+
+/* Maximum CAN Inputs (Level 2) */
+#define PMU_CAN_MAX_INPUTS          256
+
+/* Maximum message ID length */
+#define PMU_CAN_MSG_ID_LEN          32
 
 /* Exported macro ------------------------------------------------------------*/
 
@@ -238,6 +343,114 @@ uint8_t PMU_CAN_IsBusOnline(PMU_CAN_Bus_t bus);
  */
 HAL_StatusTypeDef PMU_CAN_SetFilter(PMU_CAN_Bus_t bus, uint32_t filter_id,
                                      uint32_t filter_mask, PMU_CAN_IDType_t id_type);
+
+/* ============================================================================
+ * Two-Level Architecture Functions (v3.0)
+ * Level 1: CAN Message Objects
+ * Level 2: CAN Inputs (signals)
+ * ============================================================================ */
+
+/**
+ * @brief Add a CAN Message Object (Level 1)
+ * @param msg_obj Message object configuration
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_AddMessageObject(PMU_CAN_MessageObject_t* msg_obj);
+
+/**
+ * @brief Remove a CAN Message Object by ID
+ * @param msg_id Message object ID
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_RemoveMessageObject(const char* msg_id);
+
+/**
+ * @brief Get CAN Message Object by ID
+ * @param msg_id Message object ID
+ * @retval Pointer to message object or NULL
+ */
+PMU_CAN_MessageObject_t* PMU_CAN_GetMessageObject(const char* msg_id);
+
+/**
+ * @brief Clear all CAN Message Objects
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_ClearMessageObjects(void);
+
+/**
+ * @brief Get number of active CAN Message Objects
+ * @retval Number of message objects
+ */
+uint16_t PMU_CAN_GetMessageObjectCount(void);
+
+/**
+ * @brief Add a CAN Input (Level 2)
+ * @param input Input configuration
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_AddInput(PMU_CAN_Input_t* input);
+
+/**
+ * @brief Remove a CAN Input by ID
+ * @param input_id Input ID
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_RemoveInput(const char* input_id);
+
+/**
+ * @brief Get CAN Input by ID
+ * @param input_id Input ID
+ * @retval Pointer to input or NULL
+ */
+PMU_CAN_Input_t* PMU_CAN_GetInput(const char* input_id);
+
+/**
+ * @brief Clear all CAN Inputs
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_ClearInputs(void);
+
+/**
+ * @brief Get number of active CAN Inputs
+ * @retval Number of inputs
+ */
+uint16_t PMU_CAN_GetInputCount(void);
+
+/**
+ * @brief Link CAN Inputs to their parent Message Objects
+ *
+ * Call after loading configuration to resolve message_ref strings
+ * to actual message object pointers.
+ *
+ * @retval Number of successfully linked inputs
+ */
+uint16_t PMU_CAN_LinkInputsToMessages(void);
+
+/**
+ * @brief Process CAN Message timeouts
+ *
+ * Check all message objects for reception timeout.
+ * Should be called periodically (e.g., every 10ms).
+ */
+void PMU_CAN_ProcessMessageTimeouts(void);
+
+/**
+ * @brief Process CAN Inputs
+ *
+ * Extract signal values from received messages and apply scaling.
+ * Updates virtual channels with the resulting values.
+ * Should be called after message reception.
+ */
+void PMU_CAN_ProcessInputs(void);
+
+/**
+ * @brief Handle received CAN message (two-level architecture)
+ * @param bus Bus identifier
+ * @param can_id CAN message ID
+ * @param data Message data bytes
+ * @param dlc Data length
+ */
+void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc);
 
 #ifdef __cplusplus
 }
