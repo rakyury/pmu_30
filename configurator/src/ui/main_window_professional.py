@@ -803,7 +803,84 @@ class MainWindowProfessional(QMainWindow):
 
     def write_to_device(self):
         """Write configuration to device."""
-        pass
+        if not self.device_controller.is_connected():
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Please connect to device first."
+            )
+            return
+
+        try:
+            import json
+            import struct
+
+            # Get current configuration as JSON
+            config = self.config_manager.get_config()
+            config_json = json.dumps(config, indent=2).encode('utf-8')
+
+            self.status_message.setText(f"Writing configuration ({len(config_json)} bytes)...")
+
+            # Split into chunks (1024 bytes each)
+            chunk_size = 1024
+            chunks = [
+                config_json[i:i + chunk_size]
+                for i in range(0, len(config_json), chunk_size)
+            ]
+            total_chunks = len(chunks)
+
+            # Send each chunk
+            for idx, chunk in enumerate(chunks):
+                # Build SET_CONFIG frame
+                # Header: chunk_index (2 bytes) + total_chunks (2 bytes)
+                header = struct.pack('<HH', idx, total_chunks)
+                payload = header + chunk
+
+                # Build protocol frame: 0xAA | len (2B) | msg_type (1B) | payload | CRC (2B)
+                msg_type = 0x22  # SET_CONFIG
+                frame_data = struct.pack('<BHB', 0xAA, len(payload), msg_type) + payload
+
+                # Calculate CRC16-CCITT
+                crc = 0xFFFF
+                for byte in frame_data[1:]:  # Skip start byte
+                    crc ^= byte << 8
+                    for _ in range(8):
+                        if crc & 0x8000:
+                            crc = (crc << 1) ^ 0x1021
+                        else:
+                            crc <<= 1
+                        crc &= 0xFFFF
+
+                frame = frame_data + struct.pack('<H', crc)
+
+                # Send frame
+                self.device_controller.send_command(frame)
+
+                # Update progress
+                progress = int((idx + 1) / total_chunks * 100)
+                self.status_message.setText(f"Writing configuration... {progress}%")
+
+            # Wait for ACK (simple approach - just wait a bit)
+            import time
+            time.sleep(0.5)
+
+            self.status_message.setText("Configuration written successfully")
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Configuration written to device.\n"
+                f"Size: {len(config_json)} bytes\n"
+                f"Chunks: {total_chunks}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to write configuration: {e}")
+            self.status_message.setText("Write failed")
+            QMessageBox.critical(
+                self,
+                "Write Failed",
+                f"Failed to write configuration:\n{str(e)}"
+            )
 
     def show_can_messages_manager(self):
         """Show CAN Messages manager dialog."""

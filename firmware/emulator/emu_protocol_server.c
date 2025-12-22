@@ -10,6 +10,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "emu_protocol_server.h"
 #include "pmu_emulator.h"
+#include "pmu_config_json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,6 +42,12 @@ typedef struct {
     uint32_t last_telemetry_tick;
     uint8_t rx_buffer[EMU_SERVER_BUFFER_SIZE];
     size_t rx_len;
+    /* Config upload state */
+    uint8_t* config_buffer;
+    size_t config_buffer_size;
+    size_t config_received;
+    uint16_t config_chunks_received;
+    uint16_t config_total_chunks;
 } EMU_Client_t;
 
 /* Private define ------------------------------------------------------------*/
@@ -76,6 +83,7 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
 static int Server_SendResponse(int client_idx, uint8_t msg_type, const uint8_t* payload, uint16_t len);
 static uint16_t Server_CRC16(const uint8_t* data, size_t len);
 static void Server_BuildTelemetry(uint8_t* buffer, size_t* len);
+static int Server_ApplyConfig(const char* json, size_t len);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -168,6 +176,11 @@ void EMU_Server_Stop(void)
             close(server.clients[i].socket);
             server.clients[i].active = false;
             server.clients[i].socket = -1;
+        }
+        /* Free config buffer if allocated */
+        if (server.clients[i].config_buffer) {
+            free(server.clients[i].config_buffer);
+            server.clients[i].config_buffer = NULL;
         }
     }
 
@@ -376,6 +389,11 @@ static void Server_ProcessClient(int client_idx)
         close(client->socket);
         client->socket = -1;
         client->active = false;
+        /* Free config buffer if allocated */
+        if (client->config_buffer) {
+            free(client->config_buffer);
+            client->config_buffer = NULL;
+        }
         server.stats.connections_active--;
         return;
     }
@@ -557,11 +575,79 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
         }
 
         case EMU_MSG_SET_CONFIG: {
-            /* Accept config */
-            resp[0] = 1;  /* Success */
-            resp[1] = 0;  /* Error code low */
-            resp[2] = 0;  /* Error code high */
-            Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+            /* Parse chunk header */
+            if (len < 4) {
+                resp[0] = 0;  /* Failure */
+                resp[1] = 1;  /* Error code: invalid length */
+                resp[2] = 0;
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+                break;
+            }
+
+            uint16_t chunk_idx = payload[0] | (payload[1] << 8);
+            uint16_t total_chunks = payload[2] | (payload[3] << 8);
+            uint8_t* chunk_data = payload + 4;
+            uint16_t chunk_len = len - 4;
+
+            EMU_Client_t* client = &server.clients[client_idx];
+
+            LOG_SERVER("SET_CONFIG chunk %d/%d, %d bytes", chunk_idx + 1, total_chunks, chunk_len);
+
+            /* First chunk - allocate buffer */
+            if (chunk_idx == 0) {
+                /* Free previous buffer if any */
+                if (client->config_buffer) {
+                    free(client->config_buffer);
+                }
+                /* Allocate generous buffer (100KB max) */
+                client->config_buffer_size = 100 * 1024;
+                client->config_buffer = (uint8_t*)malloc(client->config_buffer_size);
+                client->config_received = 0;
+                client->config_chunks_received = 0;
+                client->config_total_chunks = total_chunks;
+
+                if (!client->config_buffer) {
+                    LOG_SERVER("Failed to allocate config buffer");
+                    resp[0] = 0;  /* Failure */
+                    resp[1] = 2;  /* Error: out of memory */
+                    resp[2] = 0;
+                    Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+                    break;
+                }
+            }
+
+            /* Store chunk data */
+            if (client->config_buffer &&
+                client->config_received + chunk_len <= client->config_buffer_size) {
+                memcpy(client->config_buffer + client->config_received, chunk_data, chunk_len);
+                client->config_received += chunk_len;
+                client->config_chunks_received++;
+            }
+
+            /* All chunks received? */
+            if (client->config_chunks_received >= client->config_total_chunks) {
+                /* Null-terminate for JSON parsing */
+                if (client->config_received < client->config_buffer_size) {
+                    client->config_buffer[client->config_received] = '\0';
+                }
+
+                LOG_SERVER("Config complete: %zu bytes", client->config_received);
+
+                /* Apply configuration */
+                int result = Server_ApplyConfig((char*)client->config_buffer, client->config_received);
+
+                /* Send ACK */
+                resp[0] = (result == 0) ? 1 : 0;
+                resp[1] = (result != 0) ? 3 : 0;  /* Error: parse error */
+                resp[2] = 0;
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+
+                /* Free buffer */
+                free(client->config_buffer);
+                client->config_buffer = NULL;
+                client->config_buffer_size = 0;
+                client->config_received = 0;
+            }
             break;
         }
 
@@ -683,6 +769,70 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     }
 
     *len = offset;
+}
+
+/**
+ * @brief Apply configuration JSON to emulator using firmware's JSON parser
+ * @param json JSON string
+ * @param len JSON length
+ * @return 0 on success, -1 on error
+ */
+static int Server_ApplyConfig(const char* json, size_t len)
+{
+    if (!json || len == 0) {
+        return -1;
+    }
+
+    LOG_SERVER("Applying configuration (%zu bytes) using firmware parser...", len);
+
+    /* Initialize JSON loader */
+    PMU_JSON_Init();
+
+    /* Use firmware's JSON parser */
+    PMU_JSON_LoadStats_t stats = {0};
+    PMU_JSON_Status_t result = PMU_JSON_LoadFromString(json, (uint32_t)len, &stats);
+
+    if (result != PMU_JSON_OK) {
+        const char* error = PMU_JSON_GetLastError();
+        LOG_SERVER("JSON parse error: %s", error ? error : "unknown");
+        printf("\n");
+        printf("╔════════════════════════════════════════════════════════════╗\n");
+        printf("║          CONFIGURATION LOAD FAILED                         ║\n");
+        printf("╠════════════════════════════════════════════════════════════╣\n");
+        printf("║  Error: %-50s ║\n", error ? error : "Parse error");
+        printf("╚════════════════════════════════════════════════════════════╝\n");
+        printf("\n");
+        return -1;
+    }
+
+    /* Save config to file for reference */
+    FILE* f = fopen("last_config.json", "w");
+    if (f) {
+        fwrite(json, 1, len, f);
+        fclose(f);
+        LOG_SERVER("Config saved to last_config.json");
+    }
+
+    /* Print success with statistics */
+    printf("\n");
+    printf("╔════════════════════════════════════════════════════════════╗\n");
+    printf("║          CONFIGURATION LOADED FROM CONFIGURATOR            ║\n");
+    printf("╠════════════════════════════════════════════════════════════╣\n");
+    printf("║  Total Channels:    %-5lu                                  ║\n", (unsigned long)stats.total_channels);
+    printf("║  ├─ Digital Inputs: %-5lu                                  ║\n", (unsigned long)stats.digital_inputs);
+    printf("║  ├─ Analog Inputs:  %-5lu                                  ║\n", (unsigned long)stats.analog_inputs);
+    printf("║  ├─ Power Outputs:  %-5lu                                  ║\n", (unsigned long)stats.power_outputs);
+    printf("║  ├─ Logic Functions:%-5lu                                  ║\n", (unsigned long)stats.logic_functions);
+    printf("║  ├─ CAN RX:         %-5lu                                  ║\n", (unsigned long)stats.can_rx);
+    printf("║  └─ CAN TX:         %-5lu                                  ║\n", (unsigned long)stats.can_tx);
+    printf("║  CAN Messages:      %-5lu                                  ║\n", (unsigned long)stats.can_messages);
+    printf("║  CAN Stream:        %-5s                                  ║\n", stats.stream_enabled ? "ON" : "OFF");
+    printf("║  Parse Time:        %-5lu ms                               ║\n", (unsigned long)stats.parse_time_ms);
+    printf("║  Config saved to:   last_config.json                       ║\n");
+    printf("╚════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+
+    return 0;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
