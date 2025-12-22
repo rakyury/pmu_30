@@ -26,7 +26,9 @@
 #include "pmu_logic.h"
 #include "pmu_protection.h"
 #include "pmu_can.h"
+#ifndef PMU_EMULATOR
 #include "pmu_ui.h"
+#endif
 #include <string.h>
 
 /* TODO: Include Lua headers when library is added */
