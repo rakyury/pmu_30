@@ -2,9 +2,21 @@
 
 ## Overview
 
-Standard CAN Stream provides **real-time broadcast of key PMU parameters** over CAN bus for monitoring and data logging. The stream uses a **predefined set of 8 CAN frames** with configurable Base ID and CAN bus selection.
+Standard CAN Stream provides **real-time broadcast of key PMU parameters** over CAN bus for monitoring and data logging. The stream uses a **predefined set of CAN frames** with configurable Base ID and CAN bus selection.
 
 This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU status without custom configuration.
+
+---
+
+## PMU-30 Hardware
+
+| Resource | Count | Description |
+|----------|-------|-------------|
+| Power Outputs | 30 | o1-o30 (PROFET high-side switches) |
+| Analog Inputs | 20 | a1-a20 (0-5V, 12-bit ADC) |
+| Digital Inputs | 8 | d1-d8 (5-30V tolerant) |
+| H-Bridges | 4 | hb1-hb4 (dual H-bridge drivers) |
+| Low-Side Outputs | 6 | l1-l6 (ground switching) |
 
 ---
 
@@ -14,25 +26,43 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 |-----------|-------|---------|-------------|
 | **Enabled** | On/Off | Off | Enable Standard CAN Stream |
 | **CAN Bus** | CAN A / CAN B | CAN A | Which CAN bus to transmit on |
-| **Base ID** | 0x000 - 0x7F8 | 0x600 | Base CAN ID (frames use BaseID+0 through BaseID+7) |
+| **Base ID** | 0x000 - 0x7F0 | 0x600 | Base CAN ID |
 | **Extended ID** | Yes/No | No | Use 29-bit extended CAN IDs |
+| **Include Extended** | Yes/No | No | Include PMU-30 extended frames (8-15) |
 
 ---
 
 ## Frame Structure
 
-The stream consists of **8 CAN frames** transmitted at different rates:
+### Standard Frames (Ecumaster Compatible)
+
+8 frames covering first 16 outputs and 16 analog inputs:
 
 | Frame | CAN ID | Rate | Content |
 |-------|--------|------|---------|
 | 0 | BaseID + 0 | 20 Hz | System Status & Temperatures |
-| 1 | BaseID + 1 | 20 Hz | Output States (16 outputs) |
+| 1 | BaseID + 1 | 20 Hz | Output States o1-o16 |
 | 2 | BaseID + 2 | 62.5 Hz | Analog Inputs a1-a8 |
 | 3 | BaseID + 3 | 62.5 Hz | Analog Inputs a9-a16 |
 | 4 | BaseID + 4 | 20 Hz | Output Currents o1-o8 |
 | 5 | BaseID + 5 | 20 Hz | Output Currents o9-o16 |
 | 6 | BaseID + 6 | 20 Hz | Output Voltages o1-o8 |
 | 7 | BaseID + 7 | 20 Hz | Output Voltages o9-o16 |
+
+### PMU-30 Extended Frames
+
+8 additional frames for full hardware coverage:
+
+| Frame | CAN ID | Rate | Content |
+|-------|--------|------|---------|
+| 8 | BaseID + 8 | 20 Hz | Output States o17-o30 |
+| 9 | BaseID + 9 | 20 Hz | Output Currents o17-o24 |
+| 10 | BaseID + 10 | 20 Hz | Output Currents o25-o30 + reserved |
+| 11 | BaseID + 11 | 20 Hz | Output Voltages o17-o24 |
+| 12 | BaseID + 12 | 20 Hz | Output Voltages o25-o30 + reserved |
+| 13 | BaseID + 13 | 62.5 Hz | Analog Inputs a17-a20 |
+| 14 | BaseID + 14 | 20 Hz | Digital Inputs d1-d8 |
+| 15 | BaseID + 15 | 20 Hz | H-Bridge Status hb1-hb4 |
 
 ---
 
@@ -81,9 +111,9 @@ General system health, power status, and board temperatures.
 
 ---
 
-## Frame 1: Output States (BaseID + 1, 20 Hz)
+## Frame 1: Output States o1-o16 (BaseID + 1, 20 Hz)
 
-Status and active state for all 16 power outputs. Each byte contains data for 2 outputs.
+Status and active state for outputs 1-16. Each byte contains data for 2 outputs.
 
 ### Byte Layout
 
@@ -231,6 +261,172 @@ Voltage measurements at output pins for outputs 9-16.
 
 ---
 
+## Frame 8: Output States o17-o30 (BaseID + 8, 20 Hz) - Extended
+
+Status and active state for outputs 17-30. Same nibble format as Frame 1.
+
+| Byte | High Nibble (bits 4-7) | Low Nibble (bits 0-3) |
+|------|------------------------|----------------------|
+| 0 | o17 | o18 |
+| 1 | o19 | o20 |
+| 2 | o21 | o22 |
+| 3 | o23 | o24 |
+| 4 | o25 | o26 |
+| 5 | o27 | o28 |
+| 6 | o29 | o30 |
+| 7 | reserved | reserved |
+
+---
+
+## Frame 9: Output Currents o17-o24 (BaseID + 9, 20 Hz) - Extended
+
+| Byte | Signal | Range | Resolution | Formula |
+|------|--------|-------|------------|---------|
+| 0 | o17.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 1 | o18.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 2 | o19.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 3 | o20.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 4 | o21.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 5 | o22.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 6 | o23.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 7 | o24.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+
+---
+
+## Frame 10: Output Currents o25-o30 (BaseID + 10, 20 Hz) - Extended
+
+| Byte | Signal | Range | Resolution | Formula |
+|------|--------|-------|------------|---------|
+| 0 | o25.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 1 | o26.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 2 | o27.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 3 | o28.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 4 | o29.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 5 | o30.current | 0-63.75 A | 0.25 A/bit | A = raw × 0.25 |
+| 6 | reserved | - | - | - |
+| 7 | reserved | - | - | - |
+
+---
+
+## Frame 11: Output Voltages o17-o24 (BaseID + 11, 20 Hz) - Extended
+
+| Byte | Signal | Range | Resolution | Formula |
+|------|--------|-------|------------|---------|
+| 0 | o17.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 1 | o18.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 2 | o19.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 3 | o20.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 4 | o21.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 5 | o22.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 6 | o23.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 7 | o24.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+
+---
+
+## Frame 12: Output Voltages o25-o30 (BaseID + 12, 20 Hz) - Extended
+
+| Byte | Signal | Range | Resolution | Formula |
+|------|--------|-------|------------|---------|
+| 0 | o25.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 1 | o26.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 2 | o27.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 3 | o28.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 4 | o29.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 5 | o30.voltage | 0-16.19 V | 0.0635 V/bit | V = raw × 0.0635 |
+| 6 | reserved | - | - | - |
+| 7 | reserved | - | - | - |
+
+---
+
+## Frame 13: Analog Inputs a17-a20 (BaseID + 13, 62.5 Hz) - Extended
+
+| Byte | Signal | Range | Resolution | Formula |
+|------|--------|-------|------------|---------|
+| 0 | a17.voltage | 0-5.0 V | 0.0196 V/bit | V = raw × 0.0196 |
+| 1 | a18.voltage | 0-5.0 V | 0.0196 V/bit | V = raw × 0.0196 |
+| 2 | a19.voltage | 0-5.0 V | 0.0196 V/bit | V = raw × 0.0196 |
+| 3 | a20.voltage | 0-5.0 V | 0.0196 V/bit | V = raw × 0.0196 |
+| 4 | reserved | - | - | - |
+| 5 | reserved | - | - | - |
+| 6 | reserved | - | - | - |
+| 7 | reserved | - | - | - |
+
+---
+
+## Frame 14: Digital Inputs (BaseID + 14, 20 Hz) - Extended
+
+Digital input states and frequency/pulse counters for inputs d1-d8.
+
+| Byte | Signal | Description |
+|------|--------|-------------|
+| 0 | Digital States | Bitfield for d1-d8 (bit 0 = d1) |
+| 1 | d1 counter LSB | Frequency/pulse counter low byte |
+| 2 | d1 counter MSB | Frequency/pulse counter high byte |
+| 3 | d2 counter LSB | Frequency/pulse counter low byte |
+| 4 | d2 counter MSB | Frequency/pulse counter high byte |
+| 5 | reserved | - |
+| 6 | reserved | - |
+| 7 | reserved | - |
+
+### Digital States Bitfield (Byte 0)
+
+| Bit | Mask | Input |
+|-----|------|-------|
+| 0 | 0x01 | d1 |
+| 1 | 0x02 | d2 |
+| 2 | 0x04 | d3 |
+| 3 | 0x08 | d4 |
+| 4 | 0x10 | d5 |
+| 5 | 0x20 | d6 |
+| 6 | 0x40 | d7 |
+| 7 | 0x80 | d8 |
+
+---
+
+## Frame 15: H-Bridge Status (BaseID + 15, 20 Hz) - Extended
+
+Status and current for all 4 H-Bridge motor drivers.
+
+| Byte | Signal | Range | Resolution | Description |
+|------|--------|-------|------------|-------------|
+| 0 | hb1.status | 0-7 | - | H-Bridge 1 status code |
+| 1 | hb1.current | 0-63.75 A | 0.25 A/bit | H-Bridge 1 current |
+| 2 | hb2.status | 0-7 | - | H-Bridge 2 status code |
+| 3 | hb2.current | 0-63.75 A | 0.25 A/bit | H-Bridge 2 current |
+| 4 | hb3.status | 0-7 | - | H-Bridge 3 status code |
+| 5 | hb3.current | 0-63.75 A | 0.25 A/bit | H-Bridge 3 current |
+| 6 | hb4.status | 0-7 | - | H-Bridge 4 status code |
+| 7 | hb4.current | 0-63.75 A | 0.25 A/bit | H-Bridge 4 current |
+
+### H-Bridge Status Codes
+
+| Value | Status | Description |
+|-------|--------|-------------|
+| 0 | IDLE | Motor stopped |
+| 1 | FORWARD | Running forward |
+| 2 | REVERSE | Running reverse |
+| 3 | BRAKE | Active braking |
+| 4 | COAST | Coasting (free-wheel) |
+| 5 | OVERCURRENT | Overcurrent fault |
+| 6 | STALL | Stall detected |
+| 7 | THERMAL | Thermal shutdown |
+
+---
+
+## Coverage Summary
+
+| Resource | Standard (0-7) | Extended (8-15) | Total |
+|----------|----------------|-----------------|-------|
+| Outputs States | o1-o16 | o17-o30 | 30/30 |
+| Output Currents | o1-o16 | o17-o30 | 30/30 |
+| Output Voltages | o1-o16 | o17-o30 | 30/30 |
+| Analog Inputs | a1-a16 | a17-a20 | 20/20 |
+| Digital Inputs | - | d1-d8 | 8/8 |
+| H-Bridges | - | hb1-hb4 | 4/4 |
+| Low-Side | l1-l6 | - | 6/6 |
+
+---
+
 ## DBC File Export
 
 The configurator can export a DBC file for the Standard CAN Stream. Example:
@@ -270,34 +466,18 @@ BO_ 1538 PMU_AnalogInputs1: 8 PMU30
 
 ---
 
-## PMU-30 Extended Features
-
-PMU-30 extends the standard stream with additional frames for:
-
-### Frame 8-11: Outputs o17-o30 (20 Hz)
-Additional output states, currents, and voltages for outputs 17-30.
-
-### Frame 12-13: Analog Inputs a17-a20 (62.5 Hz)
-Extended analog input coverage.
-
-### Frame 14: Digital Inputs (20 Hz)
-Digital input states for all 8 digital inputs.
-
-### Frame 15: H-Bridge Status (20 Hz)
-Status and current for 4 H-Bridge motor drivers.
-
----
-
 ## Configuration JSON Example
 
 ```json
 {
-  "standard_can_stream": {
-    "enabled": true,
-    "can_bus": 1,
-    "base_id": 1536,
-    "is_extended": false,
-    "include_extended_frames": true
+  "settings": {
+    "standard_can_stream": {
+      "enabled": true,
+      "can_bus": 1,
+      "base_id": 1536,
+      "is_extended": false,
+      "include_extended_frames": true
+    }
   }
 }
 ```
@@ -309,18 +489,22 @@ Status and current for 4 H-Bridge motor drivers.
 - **20 Hz frames** are transmitted every 50 ms
 - **62.5 Hz frames** are transmitted every 16 ms
 - All frames are transmitted in sequence with minimum inter-frame gap
-- Total bus load depends on CAN bus speed:
-  - At 500 kbps: ~2% bus load for standard stream
-  - At 1 Mbps: ~1% bus load for standard stream
+
+### Bus Load
+
+| Mode | Frames | At 500 kbps | At 1 Mbps |
+|------|--------|-------------|-----------|
+| Standard only | 8 | ~2% | ~1% |
+| With extended | 16 | ~4% | ~2% |
 
 ---
 
 ## Compatibility
 
-The Standard CAN Stream format is compatible with:
+The Standard CAN Stream format (frames 0-7) is compatible with:
 - Ecumaster PMU series
 - AiM data loggers
 - MoTeC systems
 - Generic CAN analyzers
 
-This allows PMU-30 to be used as a drop-in replacement in existing vehicle installations.
+Extended frames (8-15) are PMU-30 specific.

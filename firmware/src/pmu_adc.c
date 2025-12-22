@@ -144,22 +144,145 @@ HAL_StatusTypeDef PMU_ADC_Init(void)
         }
     }
 
-    /* Start ADC DMA */
+    /* Start ADC1 DMA */
     if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_dma_buffer, 8) != HAL_OK) {
         return HAL_ERROR;
     }
 
-    /* ADC2 and ADC3 would be configured similarly for remaining 12 channels
-     * ADC2: Channels 8-13 (6 channels)
-     * ADC3: Channels 14-19 (6 channels)
-     */
+    /* ========================================================================
+     * ADC2 Configuration (Channels 8-13, 6 inputs)
+     * Pin mapping:
+     * ADC2_IN0  (PA0_C) - Input 8
+     * ADC2_IN1  (PA1_C) - Input 9
+     * ADC2_IN10 (PC0)   - Input 10
+     * ADC2_IN11 (PC1)   - Input 11
+     * ADC2_IN12 (PC2)   - Input 12
+     * ADC2_IN13 (PC3)   - Input 13
+     * ======================================================================== */
+    hadc2.Instance = ADC2;
+    hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+    hadc2.Init.Resolution = ADC_RESOLUTION_12B;
+    hadc2.Init.ScanConvMode = ADC_SCAN_ENABLE;
+    hadc2.Init.EOCSelection = ADC_EOC_SEQ_CONV;
+    hadc2.Init.LowPowerAutoWait = DISABLE;
+    hadc2.Init.ContinuousConvMode = ENABLE;
+    hadc2.Init.NbrOfConversion = 6;              /* 6 channels on ADC2 */
+    hadc2.Init.DiscontinuousConvMode = DISABLE;
+    hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc2.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;
+    hadc2.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+    hadc2.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
+    hadc2.Init.OversamplingMode = DISABLE;
 
-    /* TODO: Configure GPIO EXTI for frequency input channels
-     * Example for frequency inputs on channels configured as PMU_INPUT_FREQUENCY:
-     * - Configure GPIO with EXTI on rising edge
-     * - Enable NVIC interrupt
-     * - Map to specific pins (e.g., PB0-PB3 for 4 frequency inputs)
-     */
+    if (HAL_ADC_Init(&hadc2) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* Configure ADC2 channels */
+    const uint32_t adc2_channels[6] = {
+        ADC_CHANNEL_0, ADC_CHANNEL_1, ADC_CHANNEL_10,
+        ADC_CHANNEL_11, ADC_CHANNEL_12, ADC_CHANNEL_13
+    };
+
+    for (uint8_t i = 0; i < 6; i++) {
+        sConfig.Channel = adc2_channels[i];
+        sConfig.Rank = ADC_REGULAR_RANK_1 + i;
+        sConfig.SamplingTime = ADC_SAMPLETIME_64CYCLES_5;
+        sConfig.SingleDiff = ADC_SINGLE_ENDED;
+        sConfig.OffsetNumber = ADC_OFFSET_NONE;
+        sConfig.Offset = 0;
+
+        if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK) {
+            return HAL_ERROR;
+        }
+    }
+
+    /* Start ADC2 DMA */
+    if (HAL_ADC_Start_DMA(&hadc2, (uint32_t*)&adc_dma_buffer[8], 6) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* ========================================================================
+     * ADC3 Configuration (Channels 14-19, 6 inputs)
+     * Pin mapping:
+     * ADC3_IN0  (PC2_C) - Input 14
+     * ADC3_IN1  (PC3_C) - Input 15
+     * ADC3_IN10 (PC0)   - Input 16 (shared with ADC2, use alternate)
+     * ADC3_IN11 (PC1)   - Input 17
+     * ADC3_IN12 (PH2)   - Input 18
+     * ADC3_IN13 (PH3)   - Input 19
+     * ======================================================================== */
+    hadc3.Instance = ADC3;
+    hadc3.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
+    hadc3.Init.Resolution = ADC_RESOLUTION_12B;
+    hadc3.Init.ScanConvMode = ADC_SCAN_ENABLE;
+    hadc3.Init.EOCSelection = ADC_EOC_SEQ_CONV;
+    hadc3.Init.LowPowerAutoWait = DISABLE;
+    hadc3.Init.ContinuousConvMode = ENABLE;
+    hadc3.Init.NbrOfConversion = 6;              /* 6 channels on ADC3 */
+    hadc3.Init.DiscontinuousConvMode = DISABLE;
+    hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;
+    hadc3.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+    hadc3.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
+    hadc3.Init.OversamplingMode = DISABLE;
+
+    if (HAL_ADC_Init(&hadc3) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* Configure ADC3 channels */
+    const uint32_t adc3_channels[6] = {
+        ADC_CHANNEL_0, ADC_CHANNEL_1, ADC_CHANNEL_10,
+        ADC_CHANNEL_11, ADC_CHANNEL_12, ADC_CHANNEL_13
+    };
+
+    for (uint8_t i = 0; i < 6; i++) {
+        sConfig.Channel = adc3_channels[i];
+        sConfig.Rank = ADC_REGULAR_RANK_1 + i;
+        sConfig.SamplingTime = ADC_SAMPLETIME_64CYCLES_5;
+        sConfig.SingleDiff = ADC_SINGLE_ENDED;
+        sConfig.OffsetNumber = ADC_OFFSET_NONE;
+        sConfig.Offset = 0;
+
+        if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK) {
+            return HAL_ERROR;
+        }
+    }
+
+    /* Start ADC3 DMA */
+    if (HAL_ADC_Start_DMA(&hadc3, (uint32_t*)&adc_dma_buffer[14], 6) != HAL_OK) {
+        return HAL_ERROR;
+    }
+
+    /* ========================================================================
+     * Frequency Input Configuration (GPIO EXTI)
+     * 4 frequency inputs on PB0-PB3
+     * Used for RPM, speed sensors, etc.
+     * ======================================================================== */
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    /* Enable GPIOB clock */
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    /* Configure PB0-PB3 as input with pull-up, EXTI interrupt */
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* Enable EXTI interrupts */
+    HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+    HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+    HAL_NVIC_SetPriority(EXTI2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+    HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
 #endif /* UNIT_TEST */
 
     return status;

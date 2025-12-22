@@ -453,8 +453,35 @@ static float CAN_ExtractSignal(uint8_t* data, PMU_CAN_SignalMap_t* signal)
         }
         raw_value >>= start_bit_in_byte;
     } else {  /* Motorola (MSB first) */
-        /* TODO: Implement Motorola byte order extraction */
-        raw_value = 0;
+        /* Motorola byte order (DBC format):
+         * - start_bit indicates the MSB position of the signal
+         * - Signal spans towards higher byte indices
+         * - Bit numbering: byte_index * 8 + (7 - bit_within_byte)
+         */
+        uint8_t bits_remaining = signal->length_bits;
+        uint8_t current_byte = start_byte;
+        uint8_t bits_from_msb = start_bit_in_byte + 1;  /* Bits available from MSB position down */
+
+        /* Extract bits from first byte (MSB portion) */
+        uint8_t bits_to_take = (bits_remaining < bits_from_msb) ? bits_remaining : bits_from_msb;
+        uint8_t first_mask = (1 << bits_to_take) - 1;
+        uint8_t shift_first = bits_from_msb - bits_to_take;
+        raw_value = (data[current_byte] >> shift_first) & first_mask;
+        bits_remaining -= bits_to_take;
+        current_byte++;
+
+        /* Extract full bytes in between */
+        while (bits_remaining >= 8 && current_byte < 8) {
+            raw_value = (raw_value << 8) | data[current_byte];
+            bits_remaining -= 8;
+            current_byte++;
+        }
+
+        /* Extract remaining bits from last byte (LSB portion) */
+        if (bits_remaining > 0 && current_byte < 8) {
+            raw_value = (raw_value << bits_remaining) |
+                        (data[current_byte] >> (8 - bits_remaining));
+        }
     }
 
     /* Mask to length */
@@ -729,14 +756,35 @@ static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data)
             raw_value |= ((uint64_t)data[start_byte + i] << (i * 8));
         }
         raw_value >>= start_bit_in_byte;
-    } else {  /* Big endian (Motorola) */
-        /* Motorola byte order: MSB first */
-        for (uint8_t i = 0; i < bytes_needed && (start_byte + i) < 64; i++) {
-            raw_value = (raw_value << 8) | data[start_byte + i];
+    } else {  /* Big endian (Motorola/DBC format) */
+        /* Motorola byte order (DBC format):
+         * - start_bit indicates the MSB position of the signal
+         * - Signal spans towards higher byte indices
+         */
+        uint8_t bits_remaining = bit_length;
+        uint8_t current_byte = start_byte;
+        uint8_t bits_from_msb = start_bit_in_byte + 1;
+
+        /* Extract bits from first byte (MSB portion) */
+        uint8_t bits_to_take = (bits_remaining < bits_from_msb) ? bits_remaining : bits_from_msb;
+        uint8_t first_mask = (1 << bits_to_take) - 1;
+        uint8_t shift_first = bits_from_msb - bits_to_take;
+        raw_value = (data[current_byte] >> shift_first) & first_mask;
+        bits_remaining -= bits_to_take;
+        current_byte++;
+
+        /* Extract full bytes in between */
+        while (bits_remaining >= 8 && current_byte < 64) {
+            raw_value = (raw_value << 8) | data[current_byte];
+            bits_remaining -= 8;
+            current_byte++;
         }
-        /* Align to bit boundary */
-        uint8_t shift = (bytes_needed * 8) - bit_length - start_bit_in_byte;
-        raw_value >>= shift;
+
+        /* Extract remaining bits from last byte (LSB portion) */
+        if (bits_remaining > 0 && current_byte < 64) {
+            raw_value = (raw_value << bits_remaining) |
+                        (data[current_byte] >> (8 - bits_remaining));
+        }
     }
 
     /* Mask to length */

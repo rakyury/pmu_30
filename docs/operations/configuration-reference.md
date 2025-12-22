@@ -560,12 +560,22 @@ Ecumaster-compatible PMU parameter broadcast.
 | is_extended | boolean | - | Use 29-bit extended IDs |
 | include_extended_frames | boolean | - | Include frames 8-15 (PMU-30 specific) |
 
+#### PMU-30 Hardware
+
+| Resource | Count |
+|----------|-------|
+| Power Outputs | 30 (o1-o30) |
+| Analog Inputs | 20 (a1-a20) |
+| Digital Inputs | 8 (d1-d8) |
+| H-Bridges | 4 (hb1-hb4) |
+| Low-Side Outputs | 6 (l1-l6) |
+
 #### Standard Stream Frames (8 frames at 20/62.5 Hz)
 
 | Frame | CAN ID | Rate | Content |
 |-------|--------|------|---------|
 | 0 | BaseID+0 | 20 Hz | System Status & Temperatures |
-| 1 | BaseID+1 | 20 Hz | Output States (o1-o16) |
+| 1 | BaseID+1 | 20 Hz | Output States o1-o16 |
 | 2 | BaseID+2 | 62.5 Hz | Analog Inputs a1-a8 |
 | 3 | BaseID+3 | 62.5 Hz | Analog Inputs a9-a16 |
 | 4 | BaseID+4 | 20 Hz | Output Currents o1-o8 |
@@ -573,7 +583,7 @@ Ecumaster-compatible PMU parameter broadcast.
 | 6 | BaseID+6 | 20 Hz | Output Voltages o1-o8 |
 | 7 | BaseID+7 | 20 Hz | Output Voltages o9-o16 |
 
-#### Extended Frames (PMU-30 specific)
+#### Extended Frames (PMU-30 specific, covers all 30 outputs)
 
 | Frame | CAN ID | Rate | Content |
 |-------|--------|------|---------|
@@ -583,8 +593,8 @@ Ecumaster-compatible PMU parameter broadcast.
 | 11 | BaseID+11 | 20 Hz | Output Voltages o17-o24 |
 | 12 | BaseID+12 | 20 Hz | Output Voltages o25-o30 |
 | 13 | BaseID+13 | 62.5 Hz | Analog Inputs a17-a20 |
-| 14 | BaseID+14 | 20 Hz | Digital Inputs |
-| 15 | BaseID+15 | 20 Hz | H-Bridge Status |
+| 14 | BaseID+14 | 20 Hz | Digital Inputs d1-d8 |
+| 15 | BaseID+15 | 20 Hz | H-Bridge Status hb1-hb4 |
 
 ### 5.3 Power Settings
 

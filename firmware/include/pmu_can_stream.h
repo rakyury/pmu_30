@@ -134,6 +134,18 @@ typedef enum {
     PMU_OUTPUT_STATUS_THERMAL_SHUTDOWN  = 7     /**< Thermal shutdown */
 } PMU_OutputStatus_t;
 
+/** H-Bridge Status Codes (Frame 15) */
+typedef enum {
+    PMU_HBRIDGE_STATUS_IDLE             = 0,    /**< Motor stopped */
+    PMU_HBRIDGE_STATUS_FORWARD          = 1,    /**< Running forward */
+    PMU_HBRIDGE_STATUS_REVERSE          = 2,    /**< Running reverse */
+    PMU_HBRIDGE_STATUS_BRAKE            = 3,    /**< Active braking */
+    PMU_HBRIDGE_STATUS_COAST            = 4,    /**< Coasting (free-wheel) */
+    PMU_HBRIDGE_STATUS_OVERCURRENT      = 5,    /**< Overcurrent fault */
+    PMU_HBRIDGE_STATUS_STALL            = 6,    /**< Stall detected */
+    PMU_HBRIDGE_STATUS_THERMAL          = 7     /**< Thermal shutdown */
+} PMU_HBridgeStreamStatus_t;
+
 /** Odd output (high nibble) masks */
 #define PMU_STREAM_ODD_STATUS_MASK          0xE0
 #define PMU_STREAM_ODD_STATUS_SHIFT         5
