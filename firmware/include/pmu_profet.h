@@ -23,6 +23,7 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "pmu_config.h"
+#include "pmu_spi.h"
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -135,6 +136,25 @@ HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel);
  * @retval Pointer to channel data
  */
 PMU_PROFET_Channel_t* PMU_PROFET_GetChannelData(uint8_t channel);
+
+/**
+ * @brief Enable SPI-based diagnostics (high precision mode)
+ * @param enable 1=enable, 0=disable
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_EnableSPIDiag(uint8_t enable);
+
+/**
+ * @brief Get SPI diagnostic data for all channels
+ * @retval Pointer to SPI diagnostic data
+ */
+PMU_SPI_DiagData_t* PMU_PROFET_GetSPIDiagData(void);
+
+/**
+ * @brief Calibrate current sensing (zero offset)
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_CalibrateCurrent(void);
 
 #ifdef __cplusplus
 }

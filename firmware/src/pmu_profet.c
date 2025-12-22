@@ -25,6 +25,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_profet.h"
+#include "pmu_spi.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 
