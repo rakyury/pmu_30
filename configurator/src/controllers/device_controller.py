@@ -1,14 +1,15 @@
 """
 Device Controller for PMU-30
 
-Handles communication with PMU-30 device via USB, WiFi, or Bluetooth.
+Handles communication with PMU-30 device via USB, WiFi, Bluetooth, or Emulator.
 
 Owner: R2 m-sport
 © 2025 R2 m-sport. All rights reserved.
 """
 
 import logging
-from typing import List, Optional
+import socket
+from typing import List, Optional, Dict, Any
 from PyQt6.QtCore import QObject, pyqtSignal
 
 import serial
@@ -58,22 +59,38 @@ class DeviceController(QObject):
         logger.debug("Bluetooth device discovery not yet implemented")
         return devices
 
-    def connect(self, connection_type: str, address: str):
+    def connect(self, config: Dict[str, Any]) -> bool:
         """
         Connect to PMU-30 device.
 
         Args:
-            connection_type: Type of connection (USB, WiFi, Bluetooth)
-            address: Device address (COM port, IP, BT address)
+            config: Connection configuration dictionary with:
+                - type: Connection type (USB Serial, Emulator, WiFi, Bluetooth, CAN Bus)
+                - Additional type-specific parameters
+
+        Returns:
+            True if connection successful
         """
+        connection_type = config.get("type", "")
 
         try:
-            if connection_type == "USB":
-                self._connect_usb(address)
+            if connection_type == "USB Serial":
+                port = config.get("port", "")
+                baudrate = config.get("baudrate", 115200)
+                self._connect_usb(port, baudrate)
+            elif connection_type == "Emulator":
+                address = config.get("address", "localhost:9876")
+                self._connect_emulator(address)
             elif connection_type == "WiFi":
-                self._connect_wifi(address)
+                ip = config.get("ip", "")
+                port = config.get("port", 8080)
+                self._connect_wifi(f"{ip}:{port}")
             elif connection_type == "Bluetooth":
-                self._connect_bluetooth(address)
+                device = config.get("device", "")
+                self._connect_bluetooth(device)
+            elif connection_type == "CAN Bus":
+                interface = config.get("interface", "can0")
+                self._connect_can(interface, config)
             else:
                 raise ValueError(f"Unknown connection type: {connection_type}")
 
@@ -81,14 +98,16 @@ class DeviceController(QObject):
             self._is_connected = True
             self.connected.emit()
 
-            logger.info(f"Connected via {connection_type} to {address}")
+            logger.info(f"Connected via {connection_type}")
+            return True
 
         except Exception as e:
             error_msg = f"Connection failed: {str(e)}"
             logger.error(error_msg)
             self.error.emit(error_msg)
+            return False
 
-    def _connect_usb(self, port: str):
+    def _connect_usb(self, port: str, baudrate: int = 115200):
         """Connect via USB serial."""
 
         # Extract port name from selection string
@@ -96,14 +115,40 @@ class DeviceController(QObject):
 
         self._connection = serial.Serial(
             port=port_name,
-            baudrate=115200,
+            baudrate=baudrate,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
             timeout=1.0
         )
 
-        logger.debug(f"USB serial connection established: {port_name}")
+        logger.debug(f"USB serial connection established: {port_name} @ {baudrate}")
+
+    def _connect_emulator(self, address: str):
+        """Connect to PMU-30 emulator via TCP."""
+
+        # Parse address
+        if ":" in address:
+            host, port_str = address.split(":")
+            port = int(port_str)
+        else:
+            host = address
+            port = 9876  # Default emulator port
+
+        # Create TCP socket connection
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5.0)
+        sock.connect((host, port))
+
+        self._connection = sock
+        logger.info(f"Connected to emulator at {host}:{port}")
+
+    def _connect_can(self, interface: str, config: Dict[str, Any]):
+        """Connect via CAN bus."""
+
+        # TODO: Implement CAN bus connection
+        logger.warning("CAN bus connection not yet implemented")
+        raise NotImplementedError("CAN bus connection not yet implemented")
 
     def _connect_wifi(self, address: str):
         """Connect via WiFi."""
@@ -126,6 +171,8 @@ class DeviceController(QObject):
         if self._connection:
             try:
                 if isinstance(self._connection, serial.Serial):
+                    self._connection.close()
+                elif isinstance(self._connection, socket.socket):
                     self._connection.close()
 
                 self._connection = None
@@ -157,6 +204,11 @@ class DeviceController(QObject):
                 self._connection.write(command)
                 # Wait for response
                 response = self._connection.read(1024)
+                return response
+            elif isinstance(self._connection, socket.socket):
+                self._connection.sendall(command)
+                # Wait for response
+                response = self._connection.recv(4096)
                 return response
 
         except Exception as e:

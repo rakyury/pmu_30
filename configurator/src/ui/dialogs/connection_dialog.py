@@ -37,7 +37,7 @@ class ConnectionDialog(QDialog):
         type_layout = QFormLayout()
 
         self.connection_type_combo = QComboBox()
-        self.connection_type_combo.addItems(["USB Serial", "WiFi", "Bluetooth", "CAN Bus"])
+        self.connection_type_combo.addItems(["USB Serial", "Emulator", "WiFi", "Bluetooth", "CAN Bus"])
         self.connection_type_combo.currentTextChanged.connect(self._on_type_changed)
         type_layout.addRow("Type:", self.connection_type_combo)
 
@@ -92,6 +92,8 @@ class ConnectionDialog(QDialog):
 
         if connection_type == "USB Serial":
             self._setup_usb_params()
+        elif connection_type == "Emulator":
+            self._setup_emulator_params()
         elif connection_type == "WiFi":
             self._setup_wifi_params()
         elif connection_type == "Bluetooth":
@@ -123,6 +125,58 @@ class ConnectionDialog(QDialog):
         self.params_layout.addRow("", refresh_btn)
 
         self.status_label.setText("Select serial port and click Connect")
+
+    def _setup_emulator_params(self):
+        """Setup Emulator parameters."""
+        self.emu_host_edit = QLineEdit()
+        self.emu_host_edit.setPlaceholderText("localhost")
+        self.emu_host_edit.setText("localhost")
+        self.params_layout.addRow("Host:", self.emu_host_edit)
+
+        self.emu_port_spin = QSpinBox()
+        self.emu_port_spin.setRange(1, 65535)
+        self.emu_port_spin.setValue(9876)
+        self.params_layout.addRow("Port:", self.emu_port_spin)
+
+        # Emulator status indicator
+        self.emu_status_label = QLabel("Unknown")
+        self.emu_status_label.setStyleSheet("color: #888;")
+        self.params_layout.addRow("Emulator Status:", self.emu_status_label)
+
+        check_btn = QPushButton("Check Emulator")
+        check_btn.clicked.connect(self._check_emulator)
+        self.params_layout.addRow("", check_btn)
+
+        self.status_label.setText("Connect to PMU-30 hardware emulator")
+
+        # Auto-check emulator status
+        self._check_emulator()
+
+    def _check_emulator(self):
+        """Check if emulator is running."""
+        import socket
+
+        host = self.emu_host_edit.text() or "localhost"
+        port = self.emu_port_spin.value()
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1.0)
+            result = sock.connect_ex((host, port))
+            sock.close()
+
+            if result == 0:
+                self.emu_status_label.setText("ONLINE")
+                self.emu_status_label.setStyleSheet("color: #00aa00; font-weight: bold;")
+                self.status_label.setText(f"Emulator detected at {host}:{port}")
+            else:
+                self.emu_status_label.setText("OFFLINE")
+                self.emu_status_label.setStyleSheet("color: #aa0000; font-weight: bold;")
+                self.status_label.setText("Emulator not running. Start it first.")
+        except Exception as e:
+            self.emu_status_label.setText("ERROR")
+            self.emu_status_label.setStyleSheet("color: #aa0000;")
+            self.status_label.setText(f"Check failed: {e}")
 
     def _setup_wifi_params(self):
         """Setup WiFi parameters."""
@@ -224,6 +278,13 @@ class ConnectionDialog(QDialog):
         if connection_type == "USB Serial":
             config["port"] = self.port_combo.currentText()
             config["baudrate"] = int(self.baudrate_combo.currentText())
+
+        elif connection_type == "Emulator":
+            host = self.emu_host_edit.text() or "localhost"
+            port = self.emu_port_spin.value()
+            config["host"] = host
+            config["port"] = port
+            config["address"] = f"{host}:{port}"
 
         elif connection_type == "WiFi":
             config["ip"] = self.wifi_ip_edit.text()
