@@ -8,104 +8,104 @@
 
 ## Overview
 
-Универсальная система абстракции каналов (Universal Channel Abstraction) предоставляет единый API для работы со всеми типами входов и выходов PMU-30, независимо от их физической или виртуальной природы.
+The Universal Channel Abstraction provides a unified API for working with all types of PMU-30 inputs and outputs, regardless of their physical or virtual nature.
 
-### Ключевые преимущества
+### Key Benefits
 
-- **Единый интерфейс**: `PMU_Channel_GetValue()` и `PMU_Channel_SetValue()` для всех типов каналов
-- **Автоматическая маршрутизация**: Система сама определяет, какой драйвер использовать
-- **Виртуальные каналы**: Поддержка вычисляемых значений, CAN, функций, таблиц
-- **Поиск по имени**: Доступ к каналам по символьному имени
-- **Метаданные**: Каждый канал содержит информацию о типе, диапазоне, единицах измерения
-
----
-
-## Типы каналов
-
-### Физические входы (0x00-0x1F)
-
-| Тип | Код | Описание | Пример |
-|-----|-----|----------|--------|
-| `PMU_CHANNEL_INPUT_ANALOG` | 0x00 | Аналоговый вход (0-5V) | Датчик давления |
-| `PMU_CHANNEL_INPUT_DIGITAL` | 0x01 | Цифровой вход (вкл/выкл) | Концевик двери |
-| `PMU_CHANNEL_INPUT_SWITCH` | 0x02 | Переключатель | Тумблер на руле |
-| `PMU_CHANNEL_INPUT_ROTARY` | 0x03 | Поворотный переключатель | Многопозиционный селектор |
-| `PMU_CHANNEL_INPUT_FREQUENCY` | 0x04 | Частотный вход | Датчик скорости |
-
-### Виртуальные входы (0x20-0x3F)
-
-| Тип | Код | Описание | Пример |
-|-----|-----|----------|--------|
-| `PMU_CHANNEL_INPUT_CAN` | 0x20 | Вход с CAN шины | Обороты двигателя из ECU |
-| `PMU_CHANNEL_INPUT_CALCULATED` | 0x21 | Вычисляемое значение | Мощность (V × I) |
-| `PMU_CHANNEL_INPUT_SYSTEM` | 0x22 | Системное значение | Напряжение батареи |
-
-### Физические выходы (0x40-0x5F)
-
-| Тип | Код | Описание | Пример |
-|-----|-----|----------|--------|
-| `PMU_CHANNEL_OUTPUT_POWER` | 0x40 | Силовой выход (PROFET) | Реле топливного насоса |
-| `PMU_CHANNEL_OUTPUT_PWM` | 0x41 | ШИМ выход | Управление вентилятором |
-| `PMU_CHANNEL_OUTPUT_HBRIDGE` | 0x42 | H-мост | Стеклоподъемник |
-| `PMU_CHANNEL_OUTPUT_ANALOG` | 0x43 | Аналоговый выход (DAC) | 0-10V управление |
-
-### Виртуальные выходы (0x60-0x7F)
-
-| Тип | Код | Описание | Пример |
-|-----|-----|----------|--------|
-| `PMU_CHANNEL_OUTPUT_FUNCTION` | 0x60 | Логическая функция | AND/OR/NOT |
-| `PMU_CHANNEL_OUTPUT_TABLE` | 0x61 | Таблица преобразования | Кривая дроссельной заслонки |
-| `PMU_CHANNEL_OUTPUT_ENUM` | 0x62 | Перечисление | Режим работы (1=OFF, 2=ON, 3=AUTO) |
-| `PMU_CHANNEL_OUTPUT_NUMBER` | 0x63 | Константа | Уставка регулятора |
-| `PMU_CHANNEL_OUTPUT_CAN` | 0x64 | Выход в CAN | Отправка температуры на дисплей |
-| `PMU_CHANNEL_OUTPUT_PID` | 0x65 | PID регулятор | Контроллер температуры |
+- **Unified Interface**: `PMU_Channel_GetValue()` and `PMU_Channel_SetValue()` for all channel types
+- **Automatic Routing**: The system automatically determines which driver to use
+- **Virtual Channels**: Support for calculated values, CAN, functions, tables
+- **Name Lookup**: Access channels by symbolic name
+- **Metadata**: Each channel contains information about type, range, units
 
 ---
 
-## Диапазоны ID каналов
+## Channel Types
+
+### Physical Inputs (0x00-0x1F)
+
+| Type | Code | Description | Example |
+|------|------|-------------|---------|
+| `PMU_CHANNEL_INPUT_ANALOG` | 0x00 | Analog input (0-5V) | Pressure sensor |
+| `PMU_CHANNEL_INPUT_DIGITAL` | 0x01 | Digital input (on/off) | Door switch |
+| `PMU_CHANNEL_INPUT_SWITCH` | 0x02 | Switch | Steering wheel toggle |
+| `PMU_CHANNEL_INPUT_ROTARY` | 0x03 | Rotary switch | Multi-position selector |
+| `PMU_CHANNEL_INPUT_FREQUENCY` | 0x04 | Frequency input | Speed sensor |
+
+### Virtual Inputs (0x20-0x3F)
+
+| Type | Code | Description | Example |
+|------|------|-------------|---------|
+| `PMU_CHANNEL_INPUT_CAN` | 0x20 | CAN bus input | Engine RPM from ECU |
+| `PMU_CHANNEL_INPUT_CALCULATED` | 0x21 | Calculated value | Power (V × I) |
+| `PMU_CHANNEL_INPUT_SYSTEM` | 0x22 | System value | Battery voltage |
+
+### Physical Outputs (0x40-0x5F)
+
+| Type | Code | Description | Example |
+|------|------|-------------|---------|
+| `PMU_CHANNEL_OUTPUT_POWER` | 0x40 | Power output (PROFET) | Fuel pump relay |
+| `PMU_CHANNEL_OUTPUT_PWM` | 0x41 | PWM output | Fan control |
+| `PMU_CHANNEL_OUTPUT_HBRIDGE` | 0x42 | H-bridge | Power window |
+| `PMU_CHANNEL_OUTPUT_ANALOG` | 0x43 | Analog output (DAC) | 0-10V control |
+
+### Virtual Outputs (0x60-0x7F)
+
+| Type | Code | Description | Example |
+|------|------|-------------|---------|
+| `PMU_CHANNEL_OUTPUT_FUNCTION` | 0x60 | Logic function | AND/OR/NOT |
+| `PMU_CHANNEL_OUTPUT_TABLE` | 0x61 | Lookup table | Throttle curve |
+| `PMU_CHANNEL_OUTPUT_ENUM` | 0x62 | Enumeration | Operating mode (1=OFF, 2=ON, 3=AUTO) |
+| `PMU_CHANNEL_OUTPUT_NUMBER` | 0x63 | Constant | Regulator setpoint |
+| `PMU_CHANNEL_OUTPUT_CAN` | 0x64 | CAN output | Send temperature to display |
+| `PMU_CHANNEL_OUTPUT_PID` | 0x65 | PID controller | Temperature controller |
+
+---
+
+## Channel ID Ranges
 
 ```
-0-99:      Физические входы (ADC 0-19)
-100-199:   Физические выходы (PROFET 0-29, H-bridge 0-3)
-200-999:   Виртуальные каналы (CAN, функции, таблицы)
-1000-1023: Системные каналы (напряжение, температура, uptime)
+0-99:      Physical inputs (ADC 0-19)
+100-199:   Physical outputs (PROFET 0-29, H-bridge 0-3)
+200-999:   Virtual channels (CAN, functions, tables)
+1000-1023: System channels (voltage, temperature, uptime)
 ```
 
-### Предопределенные системные каналы
+### Predefined System Channels
 
-| ID | Имя | Описание | Единицы |
-|----|-----|----------|---------|
-| 1000 | Battery Voltage | Напряжение батареи | mV |
-| 1001 | Total Current | Общий ток потребления | mA |
-| 1002 | MCU Temperature | Температура MCU | °C |
-| 1003 | Board Temperature | Температура платы | °C |
-| 1004 | System Uptime | Время работы | секунды |
+| ID | Name | Description | Units |
+|----|------|-------------|-------|
+| 1000 | Battery Voltage | Battery voltage | mV |
+| 1001 | Total Current | Total current consumption | mA |
+| 1002 | MCU Temperature | MCU temperature | °C |
+| 1003 | Board Temperature | Board temperature | °C |
+| 1004 | System Uptime | Operating time | seconds |
 
 ---
 
-## Форматы значений
+## Value Formats
 
-| Формат | Описание | Диапазон |
-|--------|----------|----------|
-| `PMU_CHANNEL_FORMAT_RAW` | Сырое значение ADC/PWM | 0-1023 |
-| `PMU_CHANNEL_FORMAT_PERCENT` | Проценты | 0-1000 (0.0-100.0%) |
-| `PMU_CHANNEL_FORMAT_VOLTAGE` | Напряжение | мВ |
-| `PMU_CHANNEL_FORMAT_CURRENT` | Ток | мА |
-| `PMU_CHANNEL_FORMAT_BOOLEAN` | Логический | 0/1 |
-| `PMU_CHANNEL_FORMAT_ENUM` | Перечисление | 0-255 |
-| `PMU_CHANNEL_FORMAT_SIGNED` | Знаковое | -32768 до +32767 |
+| Format | Description | Range |
+|--------|-------------|-------|
+| `PMU_CHANNEL_FORMAT_RAW` | Raw ADC/PWM value | 0-1023 |
+| `PMU_CHANNEL_FORMAT_PERCENT` | Percentage | 0-1000 (0.0-100.0%) |
+| `PMU_CHANNEL_FORMAT_VOLTAGE` | Voltage | mV |
+| `PMU_CHANNEL_FORMAT_CURRENT` | Current | mA |
+| `PMU_CHANNEL_FORMAT_BOOLEAN` | Boolean | 0/1 |
+| `PMU_CHANNEL_FORMAT_ENUM` | Enumeration | 0-255 |
+| `PMU_CHANNEL_FORMAT_SIGNED` | Signed | -32768 to +32767 |
 
 ---
 
 ## API Reference
 
-### Инициализация
+### Initialization
 
 ```c
-// Инициализация системы каналов
+// Initialize channel system
 HAL_StatusTypeDef PMU_Channel_Init(void);
 
-// Регистрация нового канала
+// Register a new channel
 PMU_Channel_t channel = {
     .channel_id = 0,
     .type = PMU_CHANNEL_INPUT_ANALOG,
@@ -121,39 +121,39 @@ PMU_Channel_t channel = {
 PMU_Channel_Register(&channel);
 ```
 
-### Чтение значений
+### Reading Values
 
 ```c
-// Чтение по ID
-int32_t value = PMU_Channel_GetValue(0);  // Читаем канал 0
+// Read by ID
+int32_t value = PMU_Channel_GetValue(0);  // Read channel 0
 
-// Чтение по имени
+// Read by name
 const PMU_Channel_t* ch = PMU_Channel_GetByName("Brake Pressure");
 if (ch) {
     int32_t pressure = PMU_Channel_GetValue(ch->channel_id);
 }
 
-// Чтение системного значения
+// Read system value
 int32_t battery_mv = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
 ```
 
-### Запись значений
+### Writing Values
 
 ```c
-// Установка силового выхода на 50%
+// Set power output to 50%
 PMU_Channel_SetValue(100, 500);  // Channel 100, 50.0%
 
-// Установка H-моста на движение вперед с 70% мощности
-PMU_Channel_SetValue(150, 700);  // Положительное = вперед
+// Set H-bridge to forward motion at 70% power
+PMU_Channel_SetValue(150, 700);  // Positive = forward
 
-// Установка H-моста на движение назад
-PMU_Channel_SetValue(150, -700);  // Отрицательное = назад
+// Set H-bridge to reverse motion
+PMU_Channel_SetValue(150, -700);  // Negative = reverse
 ```
 
-### Информация о канале
+### Channel Information
 
 ```c
-// Получение метаданных
+// Get metadata
 const PMU_Channel_t* info = PMU_Channel_GetInfo(0);
 if (info) {
     printf("Channel: %s\n", info->name);
@@ -162,23 +162,23 @@ if (info) {
     printf("Range: %ld - %ld\n", info->min_value, info->max_value);
 }
 
-// Проверка типа
+// Check type
 if (PMU_Channel_IsInput(info->type)) {
-    // Это вход
+    // This is an input
 }
 if (PMU_Channel_IsVirtual(info->type)) {
-    // Это виртуальный канал
+    // This is a virtual channel
 }
 ```
 
-### Управление каналами
+### Channel Management
 
 ```c
-// Включение/выключение канала
-PMU_Channel_SetEnabled(0, true);   // Включить
-PMU_Channel_SetEnabled(0, false);  // Выключить
+// Enable/disable channel
+PMU_Channel_SetEnabled(0, true);   // Enable
+PMU_Channel_SetEnabled(0, false);  // Disable
 
-// Получение списка всех каналов
+// Get list of all channels
 PMU_Channel_t channels[100];
 uint16_t count = PMU_Channel_List(channels, 100);
 
@@ -190,7 +190,7 @@ for (uint16_t i = 0; i < count; i++) {
            channels[i].unit);
 }
 
-// Статистика
+// Statistics
 const PMU_ChannelStats_t* stats = PMU_Channel_GetStats();
 printf("Total: %d, Inputs: %d, Outputs: %d, Virtual: %d\n",
        stats->total_channels,
@@ -201,17 +201,17 @@ printf("Total: %d, Inputs: %d, Outputs: %d, Virtual: %d\n",
 
 ---
 
-## Примеры использования
+## Usage Examples
 
-### Пример 1: Регистрация физических каналов из конфигурации
+### Example 1: Registering Physical Channels from Configuration
 
 ```c
-// При загрузке конфигурации из JSON
+// When loading configuration from JSON
 void RegisterPhysicalChannels(void)
 {
     PMU_Channel_t channel;
 
-    // Регистрация всех физических входов (ADC 0-19)
+    // Register all physical inputs (ADC 0-19)
     for (uint8_t i = 0; i < 20; i++) {
         memset(&channel, 0, sizeof(channel));
         channel.channel_id = i;  // ID 0-19
@@ -229,7 +229,7 @@ void RegisterPhysicalChannels(void)
         PMU_Channel_Register(&channel);
     }
 
-    // Регистрация всех силовых выходов (PROFET 0-29)
+    // Register all power outputs (PROFET 0-29)
     for (uint8_t i = 0; i < 30; i++) {
         memset(&channel, 0, sizeof(channel));
         channel.channel_id = 100 + i;  // ID 100-129
@@ -249,10 +249,10 @@ void RegisterPhysicalChannels(void)
 }
 ```
 
-### Пример 2: Логическая функция с использованием каналов
+### Example 2: Logic Function Using Channels
 
 ```c
-// Включить вентилятор если температура > 80°C ИЛИ давление > 3 бар
+// Turn on fan if temperature > 80°C OR pressure > 3 bar
 void UpdateCoolingFan(void)
 {
     int32_t temp = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_MCU_TEMP);
@@ -260,15 +260,15 @@ void UpdateCoolingFan(void)
 
     bool fan_on = (temp > 80) || (pressure > 3000);
 
-    // Канал 105 = вентилятор (PROFET output 5)
-    PMU_Channel_SetValue(105, fan_on ? 1000 : 0);  // 100% или 0%
+    // Channel 105 = fan (PROFET output 5)
+    PMU_Channel_SetValue(105, fan_on ? 1000 : 0);  // 100% or 0%
 }
 ```
 
-### Пример 3: Виртуальный канал с вычислением
+### Example 3: Virtual Channel with Calculation
 
 ```c
-// Регистрация виртуального канала для мощности (P = V × I)
+// Register virtual channel for power (P = V × I)
 void RegisterPowerChannel(void)
 {
     PMU_Channel_t channel = {
@@ -288,24 +288,24 @@ void RegisterPowerChannel(void)
     PMU_Channel_Register(&channel);
 }
 
-// Обновление вычисляемого значения (вызывается периодически)
+// Update calculated value (called periodically)
 void UpdatePowerCalculation(void)
 {
     int32_t voltage = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
     int32_t current = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_TOTAL_I);
 
-    // P = V × I (в мВт, затем конвертируем в Вт)
+    // P = V × I (in mW, then convert to W)
     int32_t power_w = (voltage * current) / 1000000;
 
-    // Сохраняем в виртуальный канал через logic module
+    // Save to virtual channel through logic module
     PMU_Logic_SetVirtualChannel(0, power_w);
 }
 ```
 
-### Пример 4: CAN виртуальный вход
+### Example 4: CAN Virtual Input
 
 ```c
-// Регистрация CAN входа для оборотов двигателя
+// Register CAN input for engine RPM
 void RegisterEngineRPM(void)
 {
     PMU_Channel_t channel = {
@@ -324,7 +324,7 @@ void RegisterEngineRPM(void)
     PMU_Channel_Register(&channel);
 }
 
-// Чтение RPM из любого места в коде
+// Read RPM from anywhere in the code
 void DisplayEngineRPM(void)
 {
     int32_t rpm = PMU_Channel_GetValue(250);
@@ -334,31 +334,31 @@ void DisplayEngineRPM(void)
 
 ---
 
-## Интеграция с существующими модулями
+## Integration with Existing Modules
 
-### Обновление pmu_logging.c
+### Updating pmu_logging.c
 
 ```c
 static uint16_t Logging_GetChannelValue(PMU_LogChannel_t* channel)
 {
-    // Старый способ - множественные case statements
-    // Новый способ - один вызов:
+    // Old way - multiple case statements
+    // New way - single call:
     return (uint16_t)PMU_Channel_GetValue(channel->channel_id);
 }
 ```
 
-### Обновление pmu_logic.c
+### Updating pmu_logic.c
 
 ```c
-// Вместо прямого обращения к PMU_ADC_GetValue(), PMU_PROFET_GetState():
+// Instead of direct calls to PMU_ADC_GetValue(), PMU_PROFET_GetState():
 int32_t input_value = PMU_Channel_GetValue(input_channel_id);
 PMU_Channel_SetValue(output_channel_id, result);
 ```
 
-### Обновление pmu_protocol.c
+### Updating pmu_protocol.c
 
 ```c
-// Команда получения значения канала по имени
+// Command to get channel value by name
 static void Protocol_HandleGetChannelByName(const PMU_Protocol_Packet_t* packet)
 {
     const char* name = (const char*)packet->data;
@@ -380,30 +380,30 @@ static void Protocol_HandleGetChannelByName(const PMU_Protocol_Packet_t* packet)
 
 ## Performance
 
-- **Lookup time**: O(1) для доступа по ID (прямая индексация в массиве)
-- **Memory overhead**: ~80 байт на канал
+- **Lookup time**: O(1) for ID access (direct array indexing)
+- **Memory overhead**: ~80 bytes per channel
 - **Maximum channels**: 1024
-- **Total memory**: ~80 KB для полной регистрации
+- **Total memory**: ~80 KB for full registration
 
 ---
 
 ## Best Practices
 
-1. **Используйте осмысленные имена каналов**: `"Brake_Pressure"` вместо `"Input_5"`
-2. **Устанавливайте корректные диапазоны**: Помогает обнаружить ошибки
-3. **Указывайте единицы измерения**: Упрощает отладку и логирование
-4. **Регистрируйте каналы при инициализации**: Не создавайте динамически во время работы
-5. **Используйте системные каналы**: Вместо прямых вызовов `PMU_Protection_GetVoltage()`
+1. **Use meaningful channel names**: `"Brake_Pressure"` instead of `"Input_5"`
+2. **Set correct ranges**: Helps detect errors
+3. **Specify units**: Simplifies debugging and logging
+4. **Register channels at initialization**: Don't create dynamically during operation
+5. **Use system channels**: Instead of direct calls to `PMU_Protection_GetVoltage()`
 
 ---
 
 ## Future Enhancements
 
-- Callback-функции при изменении значения
-- Фильтрация значений (debounce, averaging)
-- Алиасы для каналов
-- Группы каналов
-- Сохранение/загрузка регистра каналов из flash
+- Callback functions on value change
+- Value filtering (debounce, averaging)
+- Channel aliases
+- Channel groups
+- Save/load channel registry from flash
 
 ---
 

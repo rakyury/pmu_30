@@ -417,7 +417,7 @@
 | **Total** | **$473,000** |
 | **Per Unit** | **$473** |
 
-**Target Retail Price:** $1,200 - $1,500 (competitive with ECUMaster PMU24)
+**Target Retail Price:** $1,200 - $1,500 (competitive with professional PDM solutions)
 
 ---
 

@@ -88,7 +88,7 @@ pmu_30/
     ├── launch.py                 # UI launcher
     ├── src/
     │   ├── main.py              # Classic UI entry point
-    │   ├── main_ecumaster.py    # ECUMaster UI entry point
+    │   ├── main_professional.py # Modern UI entry point
     │   └── ui/
     └── docs/
 ```
@@ -112,7 +112,7 @@ Select your preferred interface:
 Modern Style:
 ```bash
 cd configurator
-python src/main_ecumaster.py
+python src/main_professional.py
 ```
 
 Classic Style:
@@ -169,9 +169,8 @@ Project is in active development. See [docs/project_plan.md](docs/project_plan.m
 
 ## References
 
-This project is inspired by industry-leading PDMs:
-- ECUMaster PMU24 DL (logic system, data logging)
-- ECUMaster Dual H-Bridge (motor control)
+This project is inspired by industry-leading PDMs from various manufacturers, incorporating best practices in power distribution and motorsport electronics.
+
 - MaxxECU PDM (reliability, integration)
 - MoTec PDM32 (professional-grade features)
 - Link ECU PDM Razor (wiper/blinker control)

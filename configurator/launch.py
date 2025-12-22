@@ -38,7 +38,7 @@ def show_launcher():
             if choice == "1":
                 print("\nLaunching Modern Style...")
                 os.chdir(os.path.dirname(os.path.abspath(__file__)))
-                os.system("python src/main_ecumaster.py")
+                os.system("python src/main_professional.py")
                 break
 
             elif choice == "2":

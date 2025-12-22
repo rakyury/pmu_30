@@ -35,8 +35,8 @@ def main():
     app.setOrganizationDomain("r2msport.com")
 
     # Create and show main window
-    from ui.main_window_ecumaster import MainWindowECUMaster
-    window = MainWindowECUMaster()
+    from ui.main_window_professional import MainWindowProfessional
+    window = MainWindowProfessional()
     window.show()
 
     logger.info("Application started successfully (Modern Style)")

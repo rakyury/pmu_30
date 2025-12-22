@@ -5,7 +5,7 @@
  * @author         : R2 m-sport
  * @date           : 2025-12-21
  ******************************************************************************
- * ECUMaster-style real-time control protocol implementation
+ * Real-time control protocol implementation for PMU-30
  * Supports UART, WiFi (ESP32-C3), and CAN transports
  ******************************************************************************
  */

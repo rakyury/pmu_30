@@ -97,7 +97,7 @@
 - Remove: `configurator/src/ui/tabs/pid_tab.py`
 - Remove: `configurator/src/ui/dialogs/pid_controller_dialog.py`
 - Update: `configurator/src/ui/main.py` (remove PID tab)
-- Update: `configurator/src/ui/main_ecumaster.py`
+- Update: `configurator/src/ui/main_professional.py`
 
 **Priority:** MEDIUM
 
@@ -363,7 +363,7 @@ The following refactoring has been completed:
 - `config_manager.py` - Updated to use channel_type
 - `config_schema.py` - Uses channel_type field
 - `project_tree.py` - Uses ChannelType enum
-- `main_window_ecumaster.py` - Uses ChannelType
+- `main_window_professional.py` - Uses ChannelType
 
 **Firmware (C):**
 - `pmu_config.h` - PMU_ChannelType_t enum (with GPIO backward compat)

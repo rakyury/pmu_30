@@ -40,6 +40,8 @@
 #include "pmu_config_json.h"
 #include "pmu_channel.h"
 #include "pmu_logic_functions.h"
+#include "pmu_bootloader.h"
+#include "pmu_flash.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -110,6 +112,9 @@ int main(void)
     /* Initialize Independent Watchdog (IWDG) */
     IWDG_Init();
 
+    /* Initialize external SPI flash (W25Q512JV - 64MB) */
+    PMU_Flash_Init();
+
     /* Initialize PMU subsystems */
     PMU_Config_Init();
     PMU_PROFET_Init();
@@ -125,6 +130,14 @@ int main(void)
     PMU_Lua_Init();          /* Initialize Lua scripting engine */
     PMU_JSON_Init();         /* Initialize JSON configuration loader */
     PMU_Protocol_Init(PMU_TRANSPORT_WIFI);  /* Initialize protocol (WiFi via ESP32-C3) */
+
+    /* Notify bootloader that application started successfully
+     * This clears the boot attempt counter to prevent unnecessary rollbacks
+     */
+    PMU_Boot_SharedData_t* boot_data = PMU_Bootloader_GetSharedData();
+    if (boot_data != NULL) {
+        boot_data->app_boot_count = 0;  /* Clear boot failure counter */
+    }
 
     /* Create FreeRTOS tasks */
 

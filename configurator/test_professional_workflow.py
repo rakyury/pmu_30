@@ -1,5 +1,5 @@
 """
-Test ECUMaster UI workflow
+Test Professional UI workflow
 Verify that add, edit, save, load functionality works correctly
 """
 
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 def test_workflow():
     """Test complete workflow."""
-    print("Testing ECUMaster UI workflow...")
+    print("Testing Professional UI workflow...")
     print("=" * 60)
 
     # Create Qt application (required for widgets)
@@ -223,7 +223,7 @@ def test_workflow():
     print("\n" + "=" * 60)
     if all_passed:
         print("[PASS] All tests passed!")
-        print("ECUMaster UI workflow is working correctly.")
+        print("Professional UI workflow is working correctly.")
     else:
         print("[FAIL] Some tests failed!")
         print("Please review the output above.")

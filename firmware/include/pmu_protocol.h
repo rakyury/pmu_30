@@ -10,7 +10,7 @@
  * Copyright (c) 2025 R2 m-sport.
  * All rights reserved.
  *
- * This module implements a real-time control protocol similar to ECUMaster EMU
+ * This module implements a real-time control protocol
  * for monitoring and controlling the PMU-30 via UART, WiFi (ESP32), or CAN.
  *
  * Protocol Features:

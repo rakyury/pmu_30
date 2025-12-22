@@ -40,7 +40,7 @@ from utils.theme import ThemeManager
 logger = logging.getLogger(__name__)
 
 
-class MainWindowECUMaster(QMainWindow):
+class MainWindowProfessional(QMainWindow):
     """Main window with modern dock-based layout and unified Channel architecture."""
 
     # Signals

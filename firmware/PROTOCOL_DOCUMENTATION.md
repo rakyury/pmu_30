@@ -8,7 +8,7 @@
 
 ## Overview
 
-PMU-30 implements a real-time control protocol similar to ECUMaster EMU for remote monitoring, control, and configuration via UART, WiFi (ESP32-C3), or CAN bus.
+PMU-30 implements a real-time control protocol for remote monitoring, control, and configuration via UART, WiFi (ESP32-C3), or CAN bus.
 
 ### Key Features
 
