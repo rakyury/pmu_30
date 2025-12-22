@@ -10,6 +10,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "emu_protocol_server.h"
 #include "pmu_emulator.h"
+#include "pmu_config_json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -771,133 +772,63 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
 }
 
 /**
- * @brief Apply configuration JSON to emulator
+ * @brief Apply configuration JSON to emulator using firmware's JSON parser
  * @param json JSON string
  * @param len JSON length
  * @return 0 on success, -1 on error
  */
 static int Server_ApplyConfig(const char* json, size_t len)
 {
-    (void)len;
-
     if (!json || len == 0) {
         return -1;
     }
 
-    LOG_SERVER("Applying configuration (%zu bytes)...", len);
+    LOG_SERVER("Applying configuration (%zu bytes) using firmware parser...", len);
 
-    /* Simple JSON parsing - look for key fields */
-    /* Format: {"device":{...}, "channels":[...], "can_messages":[...]} */
+    /* Initialize JSON loader */
+    PMU_JSON_Init();
 
-    /* Parse device name */
-    const char* name_key = "\"name\"";
-    const char* name_start = strstr(json, name_key);
-    if (name_start) {
-        name_start = strchr(name_start + strlen(name_key), '"');
-        if (name_start) {
-            name_start++;
-            const char* name_end = strchr(name_start, '"');
-            if (name_end) {
-                char name[64] = {0};
-                size_t name_len = (name_end - name_start < 63) ? (name_end - name_start) : 63;
-                memcpy(name, name_start, name_len);
-                LOG_SERVER("Config name: %s", name);
-            }
-        }
-    }
+    /* Use firmware's JSON parser */
+    PMU_JSON_LoadStats_t stats = {0};
+    PMU_JSON_Status_t result = PMU_JSON_LoadFromString(json, (uint32_t)len, &stats);
 
-    /* Look for channels array and count */
-    const char* channels_key = "\"channels\"";
-    const char* channels_start = strstr(json, channels_key);
-    int channel_count = 0;
-    if (channels_start) {
-        /* Count objects in channels array */
-        const char* p = strchr(channels_start, '[');
-        if (p) {
-            int depth = 0;
-            while (*p) {
-                if (*p == '{') {
-                    if (depth == 0) channel_count++;
-                    depth++;
-                } else if (*p == '}') {
-                    depth--;
-                } else if (*p == ']' && depth == 0) {
-                    break;
-                }
-                p++;
-            }
-        }
-        LOG_SERVER("Found %d channels", channel_count);
-    }
-
-    /* Look for CAN messages */
-    const char* can_key = "\"can_messages\"";
-    const char* can_start = strstr(json, can_key);
-    int can_count = 0;
-    if (can_start) {
-        const char* p = strchr(can_start, '[');
-        if (p) {
-            int depth = 0;
-            while (*p) {
-                if (*p == '{') {
-                    if (depth == 0) can_count++;
-                    depth++;
-                } else if (*p == '}') {
-                    depth--;
-                } else if (*p == ']' && depth == 0) {
-                    break;
-                }
-                p++;
-            }
-        }
-        LOG_SERVER("Found %d CAN messages", can_count);
-    }
-
-    /* Look for protection settings */
-    const char* protection_key = "\"protection\"";
-    const char* protection_start = strstr(json, protection_key);
-    if (protection_start) {
-        /* Parse undervoltage_mV */
-        const char* uv_key = "\"undervoltage_mV\"";
-        const char* uv_start = strstr(protection_start, uv_key);
-        if (uv_start) {
-            uv_start = strchr(uv_start + strlen(uv_key), ':');
-            if (uv_start) {
-                int uv_mv = atoi(uv_start + 1);
-                if (uv_mv > 0) {
-                    LOG_SERVER("Protection undervoltage: %d mV", uv_mv);
-                }
-            }
-        }
-
-        /* Parse overvoltage_mV */
-        const char* ov_key = "\"overvoltage_mV\"";
-        const char* ov_start = strstr(protection_start, ov_key);
-        if (ov_start) {
-            ov_start = strchr(ov_start + strlen(ov_key), ':');
-            if (ov_start) {
-                int ov_mv = atoi(ov_start + 1);
-                if (ov_mv > 0) {
-                    LOG_SERVER("Protection overvoltage: %d mV", ov_mv);
-                }
-            }
-        }
+    if (result != PMU_JSON_OK) {
+        const char* error = PMU_JSON_GetLastError();
+        LOG_SERVER("JSON parse error: %s", error ? error : "unknown");
+        printf("\n");
+        printf("╔════════════════════════════════════════════════════════════╗\n");
+        printf("║          CONFIGURATION LOAD FAILED                         ║\n");
+        printf("╠════════════════════════════════════════════════════════════╣\n");
+        printf("║  Error: %-50s ║\n", error ? error : "Parse error");
+        printf("╚════════════════════════════════════════════════════════════╝\n");
+        printf("\n");
+        return -1;
     }
 
     /* Save config to file for reference */
     FILE* f = fopen("last_config.json", "w");
     if (f) {
-        fwrite(json, 1, strlen(json), f);
+        fwrite(json, 1, len, f);
         fclose(f);
         LOG_SERVER("Config saved to last_config.json");
     }
 
+    /* Print success with statistics */
     printf("\n");
     printf("╔════════════════════════════════════════════════════════════╗\n");
     printf("║          CONFIGURATION LOADED FROM CONFIGURATOR            ║\n");
     printf("╠════════════════════════════════════════════════════════════╣\n");
-    printf("║  Channels: %-5d    CAN Messages: %-5d                    ║\n", channel_count, can_count);
-    printf("║  Config saved to: last_config.json                         ║\n");
+    printf("║  Total Channels:    %-5lu                                  ║\n", (unsigned long)stats.total_channels);
+    printf("║  ├─ Digital Inputs: %-5lu                                  ║\n", (unsigned long)stats.digital_inputs);
+    printf("║  ├─ Analog Inputs:  %-5lu                                  ║\n", (unsigned long)stats.analog_inputs);
+    printf("║  ├─ Power Outputs:  %-5lu                                  ║\n", (unsigned long)stats.power_outputs);
+    printf("║  ├─ Logic Functions:%-5lu                                  ║\n", (unsigned long)stats.logic_functions);
+    printf("║  ├─ CAN RX:         %-5lu                                  ║\n", (unsigned long)stats.can_rx);
+    printf("║  └─ CAN TX:         %-5lu                                  ║\n", (unsigned long)stats.can_tx);
+    printf("║  CAN Messages:      %-5lu                                  ║\n", (unsigned long)stats.can_messages);
+    printf("║  CAN Stream:        %-5s                                  ║\n", stats.stream_enabled ? "ON" : "OFF");
+    printf("║  Parse Time:        %-5lu ms                               ║\n", (unsigned long)stats.parse_time_ms);
+    printf("║  Config saved to:   last_config.json                       ║\n");
     printf("╚════════════════════════════════════════════════════════════╝\n");
     printf("\n");
 
