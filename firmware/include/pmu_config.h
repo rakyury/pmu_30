@@ -22,6 +22,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "pmu_can_stream.h"
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -178,6 +179,7 @@ typedef enum {
 #define PMU_MAX_NUMBER_INPUTS       5
 #define PMU_MAX_OUTPUT_PINS         4
 #define PMU_CHANNEL_ID_LEN          32
+#define PMU_MAX_CAN_MESSAGES        32  /**< Max CAN message objects (Level 1) */
 
 /* Calibration Point */
 typedef struct {
@@ -401,34 +403,125 @@ typedef struct {
 } PMU_SwitchConfig_t;
 
 /* ============================================================================
- * CAN RX Channel
+ * CAN Message Object (Level 1 - v3.0)
  * ============================================================================ */
+
+/** CAN Message Types */
+typedef enum {
+    PMU_CAN_MSG_TYPE_NORMAL = 0,      /**< Standard single-frame message */
+    PMU_CAN_MSG_TYPE_COMPOUND,         /**< Multi-frame compound message */
+    PMU_CAN_MSG_TYPE_PMU1_RX,          /**< Ecumaster PMU 1 RX protocol */
+    PMU_CAN_MSG_TYPE_PMU2_RX,          /**< Ecumaster PMU 2 RX protocol */
+    PMU_CAN_MSG_TYPE_PMU3_RX           /**< Ecumaster PMU 3 RX protocol */
+} PMU_CanMessageType_t;
+
+/** CAN Message Object Configuration */
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];       /**< Unique message identifier */
+    char name[32];                      /**< Human-readable name */
+    uint8_t can_bus;                    /**< CAN bus (1-4) */
+    uint32_t base_id;                   /**< Base CAN ID */
+    bool is_extended;                   /**< Use 29-bit extended ID */
+    PMU_CanMessageType_t message_type;  /**< Message type */
+    uint8_t frame_count;                /**< Number of frames (for compound) */
+    uint8_t dlc;                        /**< Data length code */
+    uint16_t timeout_ms;                /**< Reception timeout */
+    bool enabled;                       /**< Message enabled */
+} PMU_CanMessageConfig_t;
+
+/* ============================================================================
+ * CAN RX Channel (Level 2 - v3.0)
+ * ============================================================================ */
+
+/** CAN Data Types */
+typedef enum {
+    PMU_CAN_DATA_TYPE_UNSIGNED = 0,
+    PMU_CAN_DATA_TYPE_SIGNED,
+    PMU_CAN_DATA_TYPE_FLOAT
+} PMU_CanDataType_t;
+
+/** CAN Data Formats */
+typedef enum {
+    PMU_CAN_DATA_FORMAT_8BIT = 0,
+    PMU_CAN_DATA_FORMAT_16BIT,
+    PMU_CAN_DATA_FORMAT_32BIT,
+    PMU_CAN_DATA_FORMAT_CUSTOM
+} PMU_CanDataFormat_t;
+
+/** CAN Timeout Behavior */
+typedef enum {
+    PMU_CAN_TIMEOUT_USE_DEFAULT = 0,   /**< Use default_value on timeout */
+    PMU_CAN_TIMEOUT_HOLD_LAST,         /**< Hold last received value */
+    PMU_CAN_TIMEOUT_SET_ZERO           /**< Set to zero on timeout */
+} PMU_CanTimeoutBehavior_t;
+
+/** CAN RX Channel Configuration (v3.0) */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    uint8_t can_bus;
-    uint32_t message_id;
-    bool is_extended;
-    uint8_t start_bit;
-    uint8_t length;
-    bool little_endian;
-    bool is_signed;
-    bool is_float;
-    float factor;
+    /* Message reference (v3.0 - two-level architecture) */
+    char message_ref[PMU_CHANNEL_ID_LEN];  /**< Reference to CAN message object */
+    uint8_t frame_offset;                   /**< Frame offset (compound messages) */
+    /* Data extraction */
+    PMU_CanDataType_t data_type;
+    PMU_CanDataFormat_t data_format;
+    bool little_endian;                     /**< Byte order */
+    uint8_t byte_offset;                    /**< Starting byte (0-7) */
+    uint8_t start_bit;                      /**< Start bit (custom format) */
+    uint8_t bit_length;                     /**< Bit length (custom format) */
+    /* Scaling */
+    float multiplier;
+    float divider;
     float offset;
-    uint16_t timeout_ms;
+    uint8_t decimal_places;
+    /* Timeout handling */
+    float default_value;
+    PMU_CanTimeoutBehavior_t timeout_behavior;
+    /* Legacy fields (v2.0 backwards compatibility) */
+    uint8_t can_bus;                        /**< Deprecated: use message_ref */
+    uint32_t message_id;                    /**< Deprecated: use message_ref */
+    bool is_extended;                       /**< Deprecated: use message_ref */
+    uint16_t timeout_ms;                    /**< Deprecated: use message timeout */
 } PMU_CanRxConfig_t;
 
 /* ============================================================================
- * CAN TX Channel
+ * CAN TX Channel (v3.0)
  * ============================================================================ */
+
+/** CAN TX Transmit Mode */
+typedef enum {
+    PMU_CAN_TX_MODE_CYCLE = 0,         /**< Periodic transmission */
+    PMU_CAN_TX_MODE_TRIGGERED          /**< Edge-triggered transmission */
+} PMU_CanTxMode_t;
+
+/** CAN TX Signal Configuration (v3.0) */
+typedef struct {
+    uint8_t byte_offset;                /**< Starting byte in frame */
+    PMU_CanDataType_t data_type;        /**< Data type */
+    PMU_CanDataFormat_t data_format;    /**< Data format */
+    bool little_endian;                 /**< Byte order */
+    char source_channel[PMU_CHANNEL_ID_LEN];  /**< Source channel ID */
+    float multiplier;                   /**< Scale multiplier */
+} PMU_CanTxSignalV3_t;
+
+/** CAN TX Channel Configuration (v3.0) */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    uint8_t can_bus;
-    uint32_t message_id;
-    bool is_extended;
-    uint16_t cycle_time_ms;
+    char name[32];                      /**< Human-readable name */
+    uint8_t can_bus;                    /**< CAN bus (1-2) */
+    uint32_t message_id;                /**< CAN ID */
+    bool is_extended;                   /**< Use 29-bit extended ID */
+    uint8_t dlc;                        /**< Data length code */
+    /* Transmission mode */
+    PMU_CanTxMode_t transmit_mode;      /**< Cycle or Triggered */
+    uint16_t cycle_frequency_hz;        /**< Cycle frequency (cycle mode) */
+    char trigger_channel[PMU_CHANNEL_ID_LEN];  /**< Trigger channel (triggered mode) */
+    PMU_EdgeType_t trigger_edge;        /**< Trigger edge */
+    /* Signals */
     uint8_t signal_count;
-    PMU_CanTxSignal_t signals[PMU_MAX_CAN_TX_SIGNALS];
+    PMU_CanTxSignalV3_t signals_v3[PMU_MAX_CAN_TX_SIGNALS];
+    /* Legacy (v2.0 compatibility) */
+    uint16_t cycle_time_ms;             /**< Deprecated: use cycle_frequency_hz */
+    PMU_CanTxSignal_t signals[PMU_MAX_CAN_TX_SIGNALS];  /**< Deprecated: use signals_v3 */
 } PMU_CanTxConfig_t;
 
 /* ============================================================================

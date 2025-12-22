@@ -13,28 +13,37 @@
  * This module loads JSON configuration files matching the format used by
  * the PMU-30 Configurator application.
  *
- * JSON Structure v2.0 (unified channels):
+ * JSON Structure v3.0 (two-level CAN architecture):
  * {
- *   "version": "2.0",
+ *   "version": "3.0",
  *   "device": { ... },
+ *   "can_messages": [
+ *     { "id": "msg_xxx", "can_bus": 1, "base_id": 256, ... }
+ *   ],
  *   "channels": [
  *     { "id": "...", "channel_type": "digital_input", ... },
- *     { "id": "...", "channel_type": "analog_input", ... },
- *     { "id": "...", "channel_type": "logic", ... },
+ *     { "id": "...", "channel_type": "can_rx", "message_ref": "msg_xxx", ... },
  *     ...
  *   ],
- *   "can_buses": [ ... ],
- *   "system": { ... }
+ *   "settings": {
+ *     "can_a": { ... },
+ *     "can_b": { ... },
+ *     "standard_can_stream": { ... },
+ *     "power": { ... },
+ *     "system": { ... },
+ *     "safety": { ... }
+ *   }
  * }
  *
  * Supported channel_type values:
  * - digital_input, analog_input, power_output
- * - can_rx, can_tx
+ * - can_rx (Level 2 - references can_messages)
+ * - can_tx (with cycle/triggered modes)
  * - logic, number, filter
  * - table_2d, table_3d
  * - switch, timer, enum
  *
- * Legacy v1.0 format is also supported for backwards compatibility.
+ * Legacy v1.0 and v2.0 formats are supported for backwards compatibility.
  *
  ******************************************************************************
  */
@@ -66,10 +75,12 @@ typedef enum {
 } PMU_JSON_Status_t;
 
 /**
- * @brief Configuration load statistics (v2.0)
+ * @brief Configuration load statistics (v3.0)
  */
 typedef struct {
-    uint32_t total_channels;      /**< Total channels loaded (v2.0) */
+    /* v3.0 fields */
+    uint32_t total_channels;      /**< Total channels loaded */
+    uint32_t can_messages;        /**< Number of CAN message objects (Level 1) */
     uint32_t digital_inputs;      /**< Number of digital inputs */
     uint32_t analog_inputs;       /**< Number of analog inputs */
     uint32_t power_outputs;       /**< Number of power outputs */
@@ -81,10 +92,11 @@ typedef struct {
     uint32_t tables_3d;           /**< Number of 3D tables */
     uint32_t switches;            /**< Number of switches */
     uint32_t enums;               /**< Number of enumerations */
-    uint32_t can_rx;              /**< Number of CAN RX channels */
+    uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
+    bool stream_enabled;          /**< Standard CAN Stream enabled */
     /* Legacy v1.0 fields (for backwards compatibility) */
     uint32_t inputs_loaded;       /**< Number of inputs loaded (v1.0) */
     uint32_t outputs_loaded;      /**< Number of outputs loaded (v1.0) */
@@ -97,8 +109,10 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 
 #define PMU_JSON_MAX_ERROR_LEN    256   /**< Maximum error message length */
-#define PMU_JSON_VERSION_1_0      "1.0" /**< Legacy configuration version */
-#define PMU_JSON_VERSION_2_0      "2.0" /**< Current configuration version */
+#define PMU_JSON_VERSION_1_0      "1.0" /**< Legacy configuration version (v1.0) */
+#define PMU_JSON_VERSION_2_0      "2.0" /**< Legacy configuration version (v2.0) */
+#define PMU_JSON_VERSION_3_0      "3.0" /**< Current configuration version */
+#define PMU_JSON_VERSION_CURRENT  PMU_JSON_VERSION_3_0
 
 /* Exported functions --------------------------------------------------------*/
 
