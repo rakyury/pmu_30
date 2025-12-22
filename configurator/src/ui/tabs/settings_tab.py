@@ -1,19 +1,19 @@
 """
 Settings Tab
-System and device configuration settings
+System and device configuration settings with tabbed interface
 """
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
-    QDoubleSpinBox, QTextEdit, QLabel, QScrollArea
+    QDoubleSpinBox, QLabel, QTabWidget, QScrollArea
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from typing import Dict, Any
 
 
 class SettingsTab(QWidget):
-    """System settings configuration tab."""
+    """System settings configuration tab with tabbed interface."""
 
     configuration_changed = pyqtSignal()
 
@@ -22,15 +22,30 @@ class SettingsTab(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        """Initialize user interface."""
-        # Create scroll area for settings
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        """Initialize user interface with tabs."""
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Container widget
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+
+        # Create tabs
+        self._create_device_tab()
+        self._create_can_tab()
+        self._create_power_tab()
+        self._create_system_tab()
+        self._create_safety_tab()
+        self._create_about_tab()
+
+        main_layout.addWidget(self.tab_widget)
+
+        # Legacy compatibility - keep old attribute for status bar
+        self.can_bitrate_combo = self.can_a_bitrate_combo
+
+    def _create_device_tab(self):
+        """Create Device Information tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
         # Device Information Group
         device_group = QGroupBox("Device Information")
@@ -59,6 +74,15 @@ class SettingsTab(QWidget):
 
         device_group.setLayout(device_layout)
         layout.addWidget(device_group)
+
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "Device")
+
+    def _create_can_tab(self):
+        """Create CAN Bus Settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
         # CAN A Bus Settings Group
         can_a_group = QGroupBox("CAN A Bus (FDCAN1)")
@@ -159,8 +183,60 @@ class SettingsTab(QWidget):
         can_general_group.setLayout(can_general_layout)
         layout.addWidget(can_general_group)
 
-        # Legacy compatibility - keep old attribute for status bar
-        self.can_bitrate_combo = self.can_a_bitrate_combo
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "CAN Bus")
+
+    def _create_power_tab(self):
+        """Create Power Settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        # Power Settings Group
+        power_group = QGroupBox("Power Settings")
+        power_layout = QFormLayout()
+
+        self.nominal_voltage_spin = QDoubleSpinBox()
+        self.nominal_voltage_spin.setRange(6.0, 36.0)
+        self.nominal_voltage_spin.setValue(12.0)
+        self.nominal_voltage_spin.setSingleStep(0.1)
+        self.nominal_voltage_spin.setDecimals(1)
+        self.nominal_voltage_spin.setSuffix(" V")
+        self.nominal_voltage_spin.valueChanged.connect(self._on_config_changed)
+        power_layout.addRow("Nominal Voltage:", self.nominal_voltage_spin)
+
+        self.low_voltage_warning_spin = QDoubleSpinBox()
+        self.low_voltage_warning_spin.setRange(6.0, 36.0)
+        self.low_voltage_warning_spin.setValue(10.5)
+        self.low_voltage_warning_spin.setSingleStep(0.1)
+        self.low_voltage_warning_spin.setDecimals(1)
+        self.low_voltage_warning_spin.setSuffix(" V")
+        self.low_voltage_warning_spin.setToolTip("Trigger warning when voltage drops below this level")
+        self.low_voltage_warning_spin.valueChanged.connect(self._on_config_changed)
+        power_layout.addRow("Low Voltage Warning:", self.low_voltage_warning_spin)
+
+        self.low_voltage_cutoff_spin = QDoubleSpinBox()
+        self.low_voltage_cutoff_spin.setRange(6.0, 36.0)
+        self.low_voltage_cutoff_spin.setValue(9.0)
+        self.low_voltage_cutoff_spin.setSingleStep(0.1)
+        self.low_voltage_cutoff_spin.setDecimals(1)
+        self.low_voltage_cutoff_spin.setSuffix(" V")
+        self.low_voltage_cutoff_spin.setToolTip("Disable all outputs when voltage drops below this level")
+        self.low_voltage_cutoff_spin.valueChanged.connect(self._on_config_changed)
+        power_layout.addRow("Low Voltage Cutoff:", self.low_voltage_cutoff_spin)
+
+        self.high_voltage_cutoff_spin = QDoubleSpinBox()
+        self.high_voltage_cutoff_spin.setRange(6.0, 40.0)
+        self.high_voltage_cutoff_spin.setValue(16.0)
+        self.high_voltage_cutoff_spin.setSingleStep(0.1)
+        self.high_voltage_cutoff_spin.setDecimals(1)
+        self.high_voltage_cutoff_spin.setSuffix(" V")
+        self.high_voltage_cutoff_spin.setToolTip("Disable all outputs when voltage exceeds this level")
+        self.high_voltage_cutoff_spin.valueChanged.connect(self._on_config_changed)
+        power_layout.addRow("High Voltage Cutoff:", self.high_voltage_cutoff_spin)
+
+        power_group.setLayout(power_layout)
+        layout.addWidget(power_group)
 
         # Standard CAN Stream Group
         stream_group = QGroupBox("Standard CAN Stream")
@@ -243,58 +319,21 @@ class SettingsTab(QWidget):
         # Initial state update
         self._on_stream_enabled_changed(False)
 
-        # Power Settings Group
-        power_group = QGroupBox("Power Settings")
-        power_layout = QFormLayout()
+        layout.addStretch()
 
-        self.nominal_voltage_spin = QDoubleSpinBox()
-        self.nominal_voltage_spin.setRange(6.0, 36.0)
-        self.nominal_voltage_spin.setValue(12.0)
-        self.nominal_voltage_spin.setSingleStep(0.1)
-        self.nominal_voltage_spin.setDecimals(1)
-        self.nominal_voltage_spin.setSuffix(" V")
-        self.nominal_voltage_spin.valueChanged.connect(self._on_config_changed)
-        power_layout.addRow("Nominal Voltage:", self.nominal_voltage_spin)
+        self.tab_widget.addTab(tab, "Power & Stream")
 
-        self.low_voltage_warning_spin = QDoubleSpinBox()
-        self.low_voltage_warning_spin.setRange(6.0, 36.0)
-        self.low_voltage_warning_spin.setValue(10.5)
-        self.low_voltage_warning_spin.setSingleStep(0.1)
-        self.low_voltage_warning_spin.setDecimals(1)
-        self.low_voltage_warning_spin.setSuffix(" V")
-        self.low_voltage_warning_spin.setToolTip("Trigger warning when voltage drops below this level")
-        self.low_voltage_warning_spin.valueChanged.connect(self._on_config_changed)
-        power_layout.addRow("Low Voltage Warning:", self.low_voltage_warning_spin)
-
-        self.low_voltage_cutoff_spin = QDoubleSpinBox()
-        self.low_voltage_cutoff_spin.setRange(6.0, 36.0)
-        self.low_voltage_cutoff_spin.setValue(9.0)
-        self.low_voltage_cutoff_spin.setSingleStep(0.1)
-        self.low_voltage_cutoff_spin.setDecimals(1)
-        self.low_voltage_cutoff_spin.setSuffix(" V")
-        self.low_voltage_cutoff_spin.setToolTip("Disable all outputs when voltage drops below this level")
-        self.low_voltage_cutoff_spin.valueChanged.connect(self._on_config_changed)
-        power_layout.addRow("Low Voltage Cutoff:", self.low_voltage_cutoff_spin)
-
-        self.high_voltage_cutoff_spin = QDoubleSpinBox()
-        self.high_voltage_cutoff_spin.setRange(6.0, 40.0)
-        self.high_voltage_cutoff_spin.setValue(16.0)
-        self.high_voltage_cutoff_spin.setSingleStep(0.1)
-        self.high_voltage_cutoff_spin.setDecimals(1)
-        self.high_voltage_cutoff_spin.setSuffix(" V")
-        self.high_voltage_cutoff_spin.setToolTip("Disable all outputs when voltage exceeds this level")
-        self.high_voltage_cutoff_spin.valueChanged.connect(self._on_config_changed)
-        power_layout.addRow("High Voltage Cutoff:", self.high_voltage_cutoff_spin)
-
-        power_group.setLayout(power_layout)
-        layout.addWidget(power_group)
+    def _create_system_tab(self):
+        """Create System Settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
         # System Settings Group
         system_group = QGroupBox("System Settings")
         system_layout = QFormLayout()
 
         self.units_combo = QComboBox()
-        self.units_combo.addItems(["Metric (°C, km/h)", "Imperial (°F, mph)"])
+        self.units_combo.addItems(["Metric (C, km/h)", "Imperial (F, mph)"])
         self.units_combo.setCurrentIndex(0)
         self.units_combo.currentTextChanged.connect(self._on_config_changed)
         system_layout.addRow("Units:", self.units_combo)
@@ -326,6 +365,15 @@ class SettingsTab(QWidget):
 
         system_group.setLayout(system_layout)
         layout.addWidget(system_group)
+
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "System")
+
+    def _create_safety_tab(self):
+        """Create Safety Settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
 
         # Safety Settings Group
         safety_group = QGroupBox("Safety Settings")
@@ -377,11 +425,11 @@ class SettingsTab(QWidget):
 
         calib_button_layout = QHBoxLayout()
 
-        self.read_calibration_btn = QPushButton("Read Calibration from Device")
+        self.read_calibration_btn = QPushButton("Read from Device")
         self.read_calibration_btn.setEnabled(False)
         calib_button_layout.addWidget(self.read_calibration_btn)
 
-        self.write_calibration_btn = QPushButton("Write Calibration to Device")
+        self.write_calibration_btn = QPushButton("Write to Device")
         self.write_calibration_btn.setEnabled(False)
         calib_button_layout.addWidget(self.write_calibration_btn)
 
@@ -393,6 +441,22 @@ class SettingsTab(QWidget):
         calibration_group.setLayout(calibration_layout)
         layout.addWidget(calibration_group)
 
+        layout.addStretch()
+
+        self.tab_widget.addTab(tab, "Safety")
+
+    def _create_about_tab(self):
+        """Create About tab with device specifications."""
+        tab = QWidget()
+
+        # Use scroll area for long content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
         # Device Specifications Group
         specs_group = QGroupBox("Device Specifications")
         specs_layout = QVBoxLayout()
@@ -403,47 +467,47 @@ class SettingsTab(QWidget):
             "<b>MCU:</b> STM32H723ZGT6 (Cortex-M7 @ 550MHz)<br>"
             "<br>"
             "<b>Power Outputs:</b><br>"
-            "• 30x High-Side Outputs (PROFET Smart Switches)<br>"
-            "• Per-channel current sensing and protection<br>"
-            "• PWM capable (1Hz - 20kHz)<br>"
-            "• Soft-start and inrush current handling<br>"
-            "• Automatic retry on overcurrent<br>"
+            "  30x High-Side Outputs (PROFET Smart Switches)<br>"
+            "  Per-channel current sensing and protection<br>"
+            "  PWM capable (1Hz - 20kHz)<br>"
+            "  Soft-start and inrush current handling<br>"
+            "  Automatic retry on overcurrent<br>"
             "<br>"
             "<b>H-Bridge Motor Drivers:</b><br>"
-            "• 4x Dual H-Bridge outputs<br>"
-            "• Bidirectional motor control<br>"
-            "• PWM speed control<br>"
+            "  4x Dual H-Bridge outputs<br>"
+            "  Bidirectional motor control<br>"
+            "  PWM speed control<br>"
             "<br>"
             "<b>Inputs:</b><br>"
-            "• 8x Digital Inputs (5-30V tolerant)<br>"
-            "• 20x Analog Inputs (0-5V, 12-bit ADC)<br>"
-            "• Configurable pull-up/pull-down resistors<br>"
-            "• Frequency measurement up to 20kHz<br>"
+            "  8x Digital Inputs (5-30V tolerant)<br>"
+            "  20x Analog Inputs (0-5V, 12-bit ADC)<br>"
+            "  Configurable pull-up/pull-down resistors<br>"
+            "  Frequency measurement up to 20kHz<br>"
             "<br>"
             "<b>CAN Bus:</b><br>"
-            "• 2x CAN FD interfaces (FDCAN1, FDCAN2)<br>"
-            "• Up to 8 Mbps data rate in FD mode<br>"
-            "• Software-selectable 120Ω termination<br>"
-            "• Isolated transceiver option<br>"
+            "  2x CAN FD interfaces (FDCAN1, FDCAN2)<br>"
+            "  Up to 8 Mbps data rate in FD mode<br>"
+            "  Software-selectable 120 termination<br>"
+            "  Isolated transceiver option<br>"
             "<br>"
             "<b>Logic Engine:</b><br>"
-            "• 256 Virtual Channels<br>"
-            "• Boolean operations (AND, OR, XOR, etc.)<br>"
-            "• Comparisons with hysteresis<br>"
-            "• Timers and delays<br>"
-            "• 2D/3D Lookup tables<br>"
-            "• Math operations<br>"
+            "  256 Virtual Channels<br>"
+            "  Boolean operations (AND, OR, XOR, etc.)<br>"
+            "  Comparisons with hysteresis<br>"
+            "  Timers and delays<br>"
+            "  2D/3D Lookup tables<br>"
+            "  Math operations<br>"
             "<br>"
             "<b>Advanced Features:</b><br>"
-            "• PID Controllers<br>"
-            "• Lua 5.4 Scripting engine<br>"
-            "• Real-time data logging<br>"
-            "• OTA firmware updates<br>"
+            "  PID Controllers<br>"
+            "  Lua 5.4 Scripting engine<br>"
+            "  Real-time data logging<br>"
+            "  OTA firmware updates<br>"
             "<br>"
             "<b>Environmental:</b><br>"
-            "• Operating voltage: 8-32V DC<br>"
-            "• Operating temperature: -40°C to +85°C<br>"
-            "• IP67 enclosure (optional)<br>"
+            "  Operating voltage: 8-32V DC<br>"
+            "  Operating temperature: -40C to +85C<br>"
+            "  IP67 enclosure (optional)<br>"
         )
         specs_text.setWordWrap(True)
         specs_text.setTextFormat(Qt.TextFormat.RichText)
@@ -460,7 +524,7 @@ class SettingsTab(QWidget):
             "<b>PMU-30 Configurator</b><br>"
             "Version: 2.0.0<br>"
             "<br>"
-            "© 2025 R2 m-sport. All rights reserved.<br>"
+            "2025 R2 m-sport. All rights reserved.<br>"
         )
         about_text.setWordWrap(True)
         about_text.setTextFormat(Qt.TextFormat.RichText)
@@ -471,13 +535,13 @@ class SettingsTab(QWidget):
 
         layout.addStretch()
 
-        # Set container as scroll widget
         scroll.setWidget(container)
 
-        # Main layout
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(scroll)
+        tab_layout = QVBoxLayout(tab)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+        tab_layout.addWidget(scroll)
+
+        self.tab_widget.addTab(tab, "About")
 
     def _on_config_changed(self):
         """Handle configuration change."""
@@ -556,7 +620,7 @@ class SettingsTab(QWidget):
 
         # System settings
         system = settings.get("system", {})
-        units = system.get("units", "Metric (°C, km/h)")
+        units = system.get("units", "Metric (C, km/h)")
         index = self.units_combo.findText(units)
         if index >= 0:
             self.units_combo.setCurrentIndex(index)
