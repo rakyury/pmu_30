@@ -59,10 +59,17 @@ class LogicOperation(Enum):
     GREATER = "greater"           # Channel > Constant
     LESS_EQUAL = "less_equal"     # Channel <= Constant
     GREATER_EQUAL = "greater_equal"  # Channel >= Constant
+    IN_RANGE = "in_range"         # min <= Channel <= max
     # Multi-input logic
     AND = "and"                   # Channel1 AND Channel2
     OR = "or"                     # Channel1 OR Channel2
     XOR = "xor"                   # Channel1 XOR Channel2
+    NOT = "not"                   # NOT Channel
+    NAND = "nand"                 # NOT (Channel1 AND Channel2)
+    NOR = "nor"                   # NOT (Channel1 OR Channel2)
+    # Edge detection
+    EDGE_RISING = "edge_rising"   # Rising edge (0->1)
+    EDGE_FALLING = "edge_falling" # Falling edge (1->0)
     # Advanced
     CHANGED = "changed"           # Value changed by threshold within time
     HYSTERESIS = "hysteresis"     # Upper/lower threshold with polarity
@@ -457,12 +464,31 @@ class LogicChannel(ChannelBase):
             data["true_delay_s"] = self.true_delay_s
             data["false_delay_s"] = self.false_delay_s
 
-        # AND, OR, XOR: two channels + delays
-        elif op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR]:
+        # IN_RANGE: channel + lower/upper values + delays
+        elif op == LogicOperation.IN_RANGE:
+            data["channel"] = self.channel
+            data["lower_value"] = self.lower_value
+            data["upper_value"] = self.upper_value
+            data["true_delay_s"] = self.true_delay_s
+            data["false_delay_s"] = self.false_delay_s
+
+        # NOT: single channel + delays
+        elif op == LogicOperation.NOT:
+            data["channel"] = self.channel
+            data["true_delay_s"] = self.true_delay_s
+            data["false_delay_s"] = self.false_delay_s
+
+        # AND, OR, XOR, NAND, NOR: two channels + delays
+        elif op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR,
+                    LogicOperation.NAND, LogicOperation.NOR]:
             data["channel"] = self.channel
             data["channel_2"] = self.channel_2
             data["true_delay_s"] = self.true_delay_s
             data["false_delay_s"] = self.false_delay_s
+
+        # EDGE_RISING, EDGE_FALLING: channel only
+        elif op in [LogicOperation.EDGE_RISING, LogicOperation.EDGE_FALLING]:
+            data["channel"] = self.channel
 
         # CHANGED: channel + threshold + time_on
         elif op == LogicOperation.CHANGED:
@@ -544,12 +570,15 @@ class LogicChannel(ChannelBase):
                   LogicOperation.EQUAL, LogicOperation.NOT_EQUAL,
                   LogicOperation.LESS, LogicOperation.GREATER,
                   LogicOperation.LESS_EQUAL, LogicOperation.GREATER_EQUAL,
+                  LogicOperation.IN_RANGE, LogicOperation.NOT,
+                  LogicOperation.EDGE_RISING, LogicOperation.EDGE_FALLING,
                   LogicOperation.CHANGED, LogicOperation.HYSTERESIS,
                   LogicOperation.FLASH]:
             if self.channel:
                 channels.append(self.channel)
 
-        elif op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR]:
+        elif op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR,
+                    LogicOperation.NAND, LogicOperation.NOR]:
             if self.channel:
                 channels.append(self.channel)
             if self.channel_2:
@@ -583,16 +612,23 @@ class LogicChannel(ChannelBase):
                   LogicOperation.EQUAL, LogicOperation.NOT_EQUAL,
                   LogicOperation.LESS, LogicOperation.GREATER,
                   LogicOperation.LESS_EQUAL, LogicOperation.GREATER_EQUAL,
+                  LogicOperation.IN_RANGE, LogicOperation.NOT,
+                  LogicOperation.EDGE_RISING, LogicOperation.EDGE_FALLING,
                   LogicOperation.CHANGED, LogicOperation.HYSTERESIS,
                   LogicOperation.FLASH, LogicOperation.PULSE]:
             if not self.channel:
                 errors.append("Channel is required")
 
-        if op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR]:
+        if op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR,
+                  LogicOperation.NAND, LogicOperation.NOR]:
             if not self.channel:
                 errors.append("Channel #1 is required")
             if not self.channel_2:
                 errors.append("Channel #2 is required")
+
+        if op == LogicOperation.IN_RANGE:
+            if self.lower_value >= self.upper_value:
+                errors.append("Lower value must be less than upper value")
 
         if op == LogicOperation.SET_RESET_LATCH:
             if not self.set_channel:

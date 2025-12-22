@@ -11,13 +11,13 @@
 #include <stdio.h>
 
 /**
- * Пример 1: Регистрация физических каналов
+ * Example 1: Register physical channels
  */
 void Example1_RegisterPhysicalChannels(void)
 {
     PMU_Channel_t channel;
 
-    /* Регистрация аналогового входа (датчик давления тормозов) */
+    /* Register analog input (brake pressure sensor) */
     channel = (PMU_Channel_t){
         .channel_id = 0,
         .type = PMU_CHANNEL_INPUT_ANALOG,
@@ -33,7 +33,7 @@ void Example1_RegisterPhysicalChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Регистрация цифрового входа (кнопка на руле) */
+    /* Register digital input (steering wheel button) */
     channel = (PMU_Channel_t){
         .channel_id = 5,
         .type = PMU_CHANNEL_INPUT_DIGITAL,
@@ -49,7 +49,7 @@ void Example1_RegisterPhysicalChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Регистрация силового выхода (топливный насос) */
+    /* Register power output (fuel pump) */
     channel = (PMU_Channel_t){
         .channel_id = 100,
         .type = PMU_CHANNEL_OUTPUT_POWER,
@@ -65,7 +65,7 @@ void Example1_RegisterPhysicalChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Регистрация PWM выхода (вентилятор) */
+    /* Register PWM output (cooling fan) */
     channel = (PMU_Channel_t){
         .channel_id = 105,
         .type = PMU_CHANNEL_OUTPUT_PWM,
@@ -81,7 +81,7 @@ void Example1_RegisterPhysicalChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Регистрация H-bridge (стеклоподъемник) */
+    /* Register H-bridge (window motor) */
     channel = (PMU_Channel_t){
         .channel_id = 150,
         .type = PMU_CHANNEL_OUTPUT_HBRIDGE,
@@ -99,13 +99,13 @@ void Example1_RegisterPhysicalChannels(void)
 }
 
 /**
- * Пример 2: Регистрация виртуальных каналов
+ * Example 2: Register virtual channels
  */
 void Example2_RegisterVirtualChannels(void)
 {
     PMU_Channel_t channel;
 
-    /* CAN вход - обороты двигателя */
+    /* CAN input - engine RPM */
     channel = (PMU_Channel_t){
         .channel_id = 250,
         .type = PMU_CHANNEL_INPUT_CAN,
@@ -121,7 +121,7 @@ void Example2_RegisterVirtualChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Вычисляемое значение - мощность */
+    /* Calculated value - power */
     channel = (PMU_Channel_t){
         .channel_id = 260,
         .type = PMU_CHANNEL_INPUT_CALCULATED,
@@ -137,7 +137,7 @@ void Example2_RegisterVirtualChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* Логическая функция - сигнализация перегрева */
+    /* Logic function - overheat warning */
     channel = (PMU_Channel_t){
         .channel_id = 300,
         .type = PMU_CHANNEL_OUTPUT_FUNCTION,
@@ -153,7 +153,7 @@ void Example2_RegisterVirtualChannels(void)
     };
     PMU_Channel_Register(&channel);
 
-    /* PID регулятор */
+    /* PID controller */
     channel = (PMU_Channel_t){
         .channel_id = 350,
         .type = PMU_CHANNEL_OUTPUT_PID,
@@ -171,22 +171,22 @@ void Example2_RegisterVirtualChannels(void)
 }
 
 /**
- * Пример 3: Чтение значений каналов
+ * Example 3: Read channel values
  */
 void Example3_ReadChannels(void)
 {
-    /* Чтение по ID */
+    /* Read by ID */
     int32_t brake_pressure = PMU_Channel_GetValue(0);
     printf("Brake pressure: %ld bar\n", brake_pressure);
 
-    /* Чтение по имени */
+    /* Read by name */
     const PMU_Channel_t* ch = PMU_Channel_GetByName("Engine_RPM");
     if (ch) {
         int32_t rpm = PMU_Channel_GetValue(ch->channel_id);
         printf("Engine RPM: %ld rpm\n", rpm);
     }
 
-    /* Чтение системных значений */
+    /* Read system values */
     int32_t battery_v = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
     int32_t total_i = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_TOTAL_I);
     int32_t temp = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_MCU_TEMP);
@@ -196,74 +196,74 @@ void Example3_ReadChannels(void)
 }
 
 /**
- * Пример 4: Управление выходами
+ * Example 4: Control outputs
  */
 void Example4_SetOutputs(void)
 {
-    /* Включить топливный насос на 100% */
+    /* Enable fuel pump at 100% */
     PMU_Channel_SetValue(100, 1000);  /* Fuel_Pump = 100% */
 
-    /* Установить вентилятор на 50% */
+    /* Set cooling fan to 50% */
     PMU_Channel_SetValue(105, 500);   /* Cooling_Fan = 50% */
 
-    /* Стеклоподъемник вверх (70%) */
+    /* Window motor up (70%) */
     PMU_Channel_SetValue(150, 700);   /* Window_Motor = +70% (forward) */
 
-    /* Стеклоподъемник вниз (70%) */
+    /* Window motor down (70%) */
     PMU_Channel_SetValue(150, -700);  /* Window_Motor = -70% (reverse) */
 
-    /* Остановить стеклоподъемник */
+    /* Stop window motor */
     PMU_Channel_SetValue(150, 0);     /* Window_Motor = 0% (coast) */
 }
 
 /**
- * Пример 5: Логическая функция с каналами
+ * Example 5: Logic function with channels
  */
 void Example5_LogicFunction(void)
 {
-    /* Включить вентилятор, если температура > 80°C ИЛИ давление > 3 бар */
+    /* Enable fan if temperature > 80°C OR pressure > 3 bar */
     int32_t temp = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_MCU_TEMP);
     int32_t pressure = PMU_Channel_GetValue(0);  /* Brake_Pressure */
 
     bool fan_on = (temp > 80) || (pressure > 3000);
 
-    /* Установить вентилятор */
+    /* Set cooling fan */
     PMU_Channel_SetValue(105, fan_on ? 1000 : 0);
 
-    /* Установить сигнализацию перегрева */
+    /* Set overheat warning */
     PMU_Channel_SetValue(300, temp > 100 ? 1 : 0);
 }
 
 /**
- * Пример 6: Автоматическое управление (PID)
+ * Example 6: Automatic control (PID)
  */
 void Example6_PIDControl(void)
 {
-    /* Целевая температура 75°C */
+    /* Target temperature 75°C */
     const int32_t target_temp = 75;
 
-    /* Текущая температура */
+    /* Current temperature */
     int32_t current_temp = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_MCU_TEMP);
 
-    /* Ошибка */
+    /* Error */
     int32_t error = target_temp - current_temp;
 
-    /* Простой P-регулятор (для примера) */
+    /* Simple P-controller (for example) */
     int32_t fan_speed = error * 10;  /* Kp = 10 */
 
-    /* Ограничение 0-100% */
+    /* Limit 0-100% */
     if (fan_speed < 0) fan_speed = 0;
     if (fan_speed > 1000) fan_speed = 1000;
 
-    /* Установить скорость вентилятора */
+    /* Set fan speed */
     PMU_Channel_SetValue(105, fan_speed);
 
-    /* Или использовать встроенный PID канал */
+    /* Or use built-in PID channel */
     PMU_Channel_SetValue(350, fan_speed);
 }
 
 /**
- * Пример 7: Получение информации о канале
+ * Example 7: Get channel information
  */
 void Example7_GetChannelInfo(void)
 {
@@ -283,7 +283,7 @@ void Example7_GetChannelInfo(void)
 }
 
 /**
- * Пример 8: Список всех каналов
+ * Example 8: List all channels
  */
 void Example8_ListAllChannels(void)
 {
@@ -312,7 +312,7 @@ void Example8_ListAllChannels(void)
                channels[i].unit);
     }
 
-    /* Статистика */
+    /* Statistics */
     const PMU_ChannelStats_t* stats = PMU_Channel_GetStats();
     printf("\nStatistics:\n");
     printf("  Total:    %d\n", stats->total_channels);
@@ -323,43 +323,43 @@ void Example8_ListAllChannels(void)
 }
 
 /**
- * Пример 9: Включение/выключение каналов
+ * Example 9: Enable/Disable channels
  */
 void Example9_EnableDisable(void)
 {
-    /* Отключить топливный насос */
+    /* Disable fuel pump */
     PMU_Channel_SetEnabled(100, false);
 
-    /* Проверка */
+    /* Check */
     int32_t value = PMU_Channel_GetValue(100);
-    printf("Fuel pump (disabled): %ld\n", value);  /* Вернет 0 */
+    printf("Fuel pump (disabled): %ld\n", value);  /* Returns 0 */
 
-    /* Снова включить */
+    /* Enable again */
     PMU_Channel_SetEnabled(100, true);
-    PMU_Channel_SetValue(100, 1000);  /* Теперь работает */
+    PMU_Channel_SetValue(100, 1000);  /* Now it works */
 }
 
 /**
- * Пример 10: Вычисление мощности из виртуального канала
+ * Example 10: Calculate power from virtual channel
  */
 void Example10_CalculatedPower(void)
 {
-    /* Напряжение и ток - системные каналы */
+    /* Voltage and current - system channels */
     int32_t voltage_mv = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
     int32_t current_ma = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_TOTAL_I);
 
-    /* P = V × I (в мВт, затем в Вт) */
+    /* P = V × I (in mW, then W) */
     int32_t power_w = (voltage_mv * current_ma) / 1000000;
 
-    /* Записать в виртуальный канал "Total_Power" */
-    /* (предполагается, что логика обновляет канал 260) */
+    /* Write to virtual channel "Total_Power" */
+    /* (assuming logic updates channel 260) */
 
     printf("Power: %ld W (V=%ld mV, I=%ld mA)\n",
            power_w, voltage_mv, current_ma);
 }
 
 /**
- * Главная функция примеров
+ * Main examples function
  */
 void RunChannelExamples(void)
 {

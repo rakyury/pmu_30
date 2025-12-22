@@ -19,17 +19,28 @@ class LogicDialog(BaseChannelDialog):
 
     # All operations with display names and descriptions
     OPERATIONS = [
+        # Basic logic
         (LogicOperation.IS_TRUE, "Is True", "Output = 1 if Channel != 0"),
         (LogicOperation.IS_FALSE, "Is False", "Output = 1 if Channel == 0"),
+        # Comparison
         (LogicOperation.EQUAL, "Equal", "Output = 1 if Channel == Constant"),
         (LogicOperation.NOT_EQUAL, "Not Equal", "Output = 1 if Channel != Constant"),
         (LogicOperation.LESS, "Less", "Output = 1 if Channel < Constant"),
         (LogicOperation.GREATER, "Greater", "Output = 1 if Channel > Constant"),
         (LogicOperation.LESS_EQUAL, "Less or Equal", "Output = 1 if Channel <= Constant"),
         (LogicOperation.GREATER_EQUAL, "Greater or Equal", "Output = 1 if Channel >= Constant"),
+        (LogicOperation.IN_RANGE, "In Range", "Output = 1 if min <= Channel <= max"),
+        # Multi-input logic
         (LogicOperation.AND, "And", "Output = 1 if Channel1 AND Channel2"),
         (LogicOperation.OR, "Or", "Output = 1 if Channel1 OR Channel2"),
         (LogicOperation.XOR, "Xor", "Output = 1 if Channel1 XOR Channel2 (one but not both)"),
+        (LogicOperation.NOT, "Not", "Output = 1 if Channel == 0 (inverts input)"),
+        (LogicOperation.NAND, "Nand", "Output = NOT (Channel1 AND Channel2)"),
+        (LogicOperation.NOR, "Nor", "Output = NOT (Channel1 OR Channel2)"),
+        # Edge detection
+        (LogicOperation.EDGE_RISING, "Rising Edge", "Output pulse on 0->1 transition"),
+        (LogicOperation.EDGE_FALLING, "Falling Edge", "Output pulse on 1->0 transition"),
+        # Advanced
         (LogicOperation.CHANGED, "Changed", "Output = 1 if value changed by threshold"),
         (LogicOperation.HYSTERESIS, "Hysteresis", "Output with upper/lower thresholds"),
         (LogicOperation.SET_RESET_LATCH, "Set-Reset Latch", "SR flip-flop"),
@@ -40,23 +51,39 @@ class LogicDialog(BaseChannelDialog):
 
     # Mapping operation to page index
     OPERATION_PAGE_MAP = {
+        # Page 0: Is True / Is False / NOT (single channel + delays)
         LogicOperation.IS_TRUE: 0,
         LogicOperation.IS_FALSE: 0,
+        LogicOperation.NOT: 0,
+        # Page 1: Comparison (channel + constant + delays)
         LogicOperation.EQUAL: 1,
         LogicOperation.NOT_EQUAL: 1,
         LogicOperation.LESS: 1,
         LogicOperation.GREATER: 1,
         LogicOperation.LESS_EQUAL: 1,
         LogicOperation.GREATER_EQUAL: 1,
+        # Page 2: And / Or / Xor / NAND / NOR (two channels + delays)
         LogicOperation.AND: 2,
         LogicOperation.OR: 2,
         LogicOperation.XOR: 2,
+        LogicOperation.NAND: 2,
+        LogicOperation.NOR: 2,
+        # Page 3: Changed
         LogicOperation.CHANGED: 3,
+        # Page 4: Hysteresis / IN_RANGE (channel + upper/lower)
         LogicOperation.HYSTERESIS: 4,
+        LogicOperation.IN_RANGE: 4,
+        # Page 5: Set-Reset Latch
         LogicOperation.SET_RESET_LATCH: 5,
+        # Page 6: Toggle
         LogicOperation.TOGGLE: 6,
+        # Page 7: Pulse
         LogicOperation.PULSE: 7,
+        # Page 8: Flash
         LogicOperation.FLASH: 8,
+        # Page 9: Edge detection (channel only)
+        LogicOperation.EDGE_RISING: 9,
+        LogicOperation.EDGE_FALLING: 9,
     }
 
     def __init__(self, parent=None,
@@ -130,6 +157,9 @@ class LogicDialog(BaseChannelDialog):
 
         # Page 8: Flash (channel + time_on + time_off)
         self._create_flash_page()
+
+        # Page 9: Edge detection (channel only)
+        self._create_edge_detection_page()
 
         params_layout.addWidget(self.params_stack)
         self.params_group.setLayout(params_layout)
@@ -458,6 +488,21 @@ class LogicDialog(BaseChannelDialog):
 
         self.params_stack.addWidget(page)
 
+    def _create_edge_detection_page(self):
+        """Page for Edge detection operations (Rising Edge / Falling Edge)"""
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Row 0: Channel (full width)
+        layout.addWidget(QLabel("Channel: *"), 0, 0)
+        self.edge_channel_widget, self.edge_channel_edit = self._create_channel_selector(
+            "Select channel..."
+        )
+        layout.addWidget(self.edge_channel_widget, 0, 1, 1, 3)
+
+        self.params_stack.addWidget(page)
+
     def _on_operation_changed(self):
         """Handle operation selection change - switch UI page"""
         op_value = self.operation_combo.currentData()
@@ -561,6 +606,9 @@ class LogicDialog(BaseChannelDialog):
             self.flash_time_on.setValue(config.get("time_on_s", 0.5))
             self.flash_time_off.setValue(config.get("time_off_s", 0.5))
 
+        elif page_index == 9:  # Edge detection
+            self.edge_channel_edit.setText(config.get("channel", ""))
+
     def _validate_specific(self) -> List[str]:
         """Validate type-specific fields"""
         errors = []
@@ -608,6 +656,10 @@ class LogicDialog(BaseChannelDialog):
 
         elif page_index == 8:  # Flash
             if not self.flash_channel_edit.text().strip():
+                errors.append("Channel is required")
+
+        elif page_index == 9:  # Edge detection
+            if not self.edge_channel_edit.text().strip():
                 errors.append("Channel is required")
 
         return errors
@@ -693,5 +745,8 @@ class LogicDialog(BaseChannelDialog):
             config["channel"] = self.flash_channel_edit.text().strip()
             config["time_on_s"] = self.flash_time_on.value()
             config["time_off_s"] = self.flash_time_off.value()
+
+        elif page_index == 9:  # Edge detection
+            config["channel"] = self.edge_channel_edit.text().strip()
 
         return config

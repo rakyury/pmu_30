@@ -113,9 +113,47 @@ CHANNEL_TYPE_SCHEMAS = {
     "logic": {
         "operation": {
             "type": "string",
-            "enum": ["and", "or", "not", "xor", "nand", "nor",
-                    "greater", "less", "equal", "not_equal", "greater_equal", "less_equal", "in_range"]
+            "enum": [
+                # Basic logic
+                "is_true", "is_false",
+                # Comparison
+                "equal", "not_equal", "less", "greater", "less_equal", "greater_equal", "in_range",
+                # Multi-input logic
+                "and", "or", "xor", "not", "nand", "nor",
+                # Edge detection
+                "edge_rising", "edge_falling",
+                # Advanced
+                "changed", "hysteresis", "set_reset_latch", "toggle", "pulse", "flash"
+            ]
         },
+        # Single input operations
+        "channel": {"type": "string"},
+        # Two-input operations
+        "channel_2": {"type": "string"},
+        # Delays (seconds)
+        "true_delay_s": {"type": "number", "minimum": 0},
+        "false_delay_s": {"type": "number", "minimum": 0},
+        # Comparison constant
+        "constant": {"type": "number"},
+        # Changed operation
+        "threshold": {"type": "number"},
+        "time_on_s": {"type": "number", "minimum": 0},
+        # Hysteresis/IN_RANGE
+        "polarity": {"type": "string", "enum": ["normal", "inverted"]},
+        "upper_value": {"type": "number"},
+        "lower_value": {"type": "number"},
+        # Set/Reset latch
+        "set_channel": {"type": "string"},
+        "reset_channel": {"type": "string"},
+        "default_state": {"type": "string", "enum": ["off", "on"]},
+        # Toggle/Pulse
+        "edge": {"type": "string", "enum": ["rising", "falling", "both"]},
+        "toggle_channel": {"type": "string"},
+        "pulse_count": {"type": "integer", "minimum": 1},
+        "retrigger": {"type": "boolean"},
+        # Flash
+        "time_off_s": {"type": "number", "minimum": 0},
+        # Legacy support
         "inputs": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
         "delay_on_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
         "delay_off_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
@@ -399,6 +437,17 @@ class ConfigValidator:
                     errors.append(error)
 
         elif channel_type == "logic":
+            # Validate channel references for logic operations
+            channel_fields = ["channel", "channel_2", "set_channel", "reset_channel", "toggle_channel"]
+            for field in channel_fields:
+                if field in channel and channel[field]:
+                    valid, error = ConfigValidator.validate_channel_reference(
+                        channel[field], all_channel_ids, f"{path}.{field}"
+                    )
+                    if not valid:
+                        errors.append(error)
+
+            # Legacy support: validate inputs array
             if "inputs" in channel:
                 inputs = channel["inputs"]
                 if not isinstance(inputs, list):
@@ -411,7 +460,7 @@ class ConfigValidator:
                         if not valid:
                             errors.append(error)
 
-            # Validate delay values
+            # Validate delay values (legacy)
             if "delay_on_ms" in channel:
                 delay = channel["delay_on_ms"]
                 if not isinstance(delay, int) or delay < 0 or delay > 60000:
@@ -505,6 +554,11 @@ class ConfigValidator:
 
             # Collect all channel references based on type
             if channel_type == "logic":
+                # New format channel references
+                for field in ["channel", "channel_2", "set_channel", "reset_channel", "toggle_channel"]:
+                    if ch.get(field):
+                        deps.add(ch[field])
+                # Legacy support
                 deps.update(ch.get("inputs", []))
             elif channel_type == "number":
                 deps.update(ch.get("inputs", []))
