@@ -1,23 +1,23 @@
 # PMU-30 Logic Functions & Lua Scripting
 
-**Version**: 1.0
+**Version**: 2.0
 **Author**: R2 m-sport
-**Date**: 2025-12-21
+**Date**: 2025-12-22
 
 ---
 
 ## Overview
 
-Система логических функций PMU-30 предоставляет мощные инструменты для создания сложной логики управления без необходимости перекомпиляции прошивки. Поддерживаются два подхода:
+The PMU-30 Logic Functions system provides powerful tools for creating complex control logic without recompiling firmware. Two approaches are supported:
 
-1. **C API** - регистрация логических функций в коде прошивки
-2. **Lua Scripting** - динамическое создание логики через скрипты
+1. **C API** - Register logic functions in firmware code
+2. **Lua Scripting** - Dynamically create logic through scripts
 
-Обе системы работают через **универсальную абстракцию каналов**, что обеспечивает единообразный доступ ко всем входам и выходам.
+Both systems work through the **Universal Channel Abstraction**, providing uniform access to all inputs and outputs.
 
 ---
 
-## Архитектура
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -27,7 +27,7 @@
                    │
 ┌──────────────────┴──────────────────────────────────────────┐
 │            Universal Channel Abstraction                     │
-│  PMU_Channel_GetValue() / PMU_Channel_SetValue()           │
+│  PMU_Channel_GetValue() / PMU_Channel_SetValue()            │
 └──────────────────┬──────────────────────────────────────────┘
                    │
         ┌──────────┴──────────┐
@@ -40,140 +40,150 @@
 
 ---
 
-## Типы логических функций
+## Logic Function Types
 
-### Математические операции (0x00-0x1F)
+### Mathematical Operations (0x00-0x1F)
 
-| Функция | Описание | Пример |
-|---------|----------|--------|
-| **ADD** | Сложение двух входов | `output = A + B` |
-| **SUBTRACT** | Вычитание | `output = A - B` |
-| **MULTIPLY** | Умножение (fixed-point) | `output = (A * B) / 1000` |
-| **DIVIDE** | Деление | `output = (A * 1000) / B` |
-| **MIN** | Минимум из N входов | `output = min(A, B, C, ...)` |
-| **MAX** | Максимум из N входов | `output = max(A, B, C, ...)` |
-| **AVERAGE** | Среднее значение | `output = (A + B + ...) / N` |
-| **ABS** | Абсолютное значение | `output = |A|` |
-| **SCALE** | Масштабирование | `output = (A * scale) + offset` |
-| **CLAMP** | Ограничение диапазона | `output = clamp(A, min, max)` |
+| Function | Description | Example |
+|----------|-------------|---------|
+| **ADD** | Sum of two inputs | `output = A + B` |
+| **SUBTRACT** | Subtraction | `output = A - B` |
+| **MULTIPLY** | Multiplication (fixed-point) | `output = (A * B) / 1000` |
+| **DIVIDE** | Division | `output = (A * 1000) / B` |
+| **MIN** | Minimum of N inputs | `output = min(A, B, C, ...)` |
+| **MAX** | Maximum of N inputs | `output = max(A, B, C, ...)` |
+| **AVERAGE** | Average value | `output = (A + B + ...) / N` |
+| **ABS** | Absolute value | `output = |A|` |
+| **SCALE** | Linear scaling | `output = (A * scale) + offset` |
+| **CLAMP** | Range limiting | `output = clamp(A, min, max)` |
 
-### Операции сравнения (0x20-0x3F)
+### Comparison Operations (0x20-0x3F)
 
-| Функция | Описание | Результат |
-|---------|----------|-----------|
-| **GREATER** | A > B | 1 или 0 |
-| **LESS** | A < B | 1 или 0 |
-| **EQUAL** | A == B | 1 или 0 |
-| **NOT_EQUAL** | A != B | 1 или 0 |
-| **GREATER_EQUAL** | A >= B | 1 или 0 |
-| **LESS_EQUAL** | A <= B | 1 или 0 |
-| **IN_RANGE** | min <= A <= max | 1 или 0 |
+| Function | Description | Result |
+|----------|-------------|--------|
+| **GREATER** | A > B | 1 or 0 |
+| **LESS** | A < B | 1 or 0 |
+| **EQUAL** | A == B | 1 or 0 |
+| **NOT_EQUAL** | A != B | 1 or 0 |
+| **GREATER_EQUAL** | A >= B | 1 or 0 |
+| **LESS_EQUAL** | A <= B | 1 or 0 |
+| **IN_RANGE** | min <= A <= max | 1 or 0 |
 
-### Логические операции (0x40-0x5F)
+### Logical Operations (0x40-0x5F)
 
-| Функция | Описание | Пример |
-|---------|----------|--------|
-| **AND** | Логическое И | Все входы != 0 |
-| **OR** | Логическое ИЛИ | Хотя бы один вход != 0 |
-| **NOT** | Логическое НЕ | Инверсия входа |
-| **XOR** | Исключающее ИЛИ | Нечетное число ненулевых входов |
-| **NAND** | НЕ-И | Инверсия AND |
-| **NOR** | НЕ-ИЛИ | Инверсия OR |
+| Function | Description | Example |
+|----------|-------------|---------|
+| **AND** | Logical AND | All inputs != 0 |
+| **OR** | Logical OR | At least one input != 0 |
+| **NOT** | Logical NOT | Input inversion |
+| **XOR** | Exclusive OR | Odd number of non-zero inputs |
+| **NAND** | NOT-AND | Inversion of AND |
+| **NOR** | NOT-OR | Inversion of OR |
 
-### Таблицы (0x60-0x7F)
+### Special Logic Operations
 
-| Функция | Описание | Применение |
-|---------|----------|------------|
-| **TABLE_1D** | 1D lookup с линейной интерполяцией | Кривая дросселя, температурная компенсация |
-| **TABLE_2D** | 2D lookup (карта) | Калибровочные карты, VE table |
+| Function | Description | Parameters |
+|----------|-------------|------------|
+| **HYSTERESIS** | Schmitt trigger | upper_value, lower_value |
+| **FLASH** | Blinking output | time_on_s, time_off_s |
+| **PULSE** | One-shot pulse | pulse_duration_s |
+| **TOGGLE** | Toggle on edge | trigger_channel |
+| **SET_RESET_LATCH** | SR latch | set_channel, reset_channel |
 
-### Фильтры (0x80-0x9F)
+### Tables (0x60-0x7F)
 
-| Функция | Описание | Применение |
-|---------|----------|------------|
-| **MOVING_AVG** | Скользящее среднее | Подавление шума |
-| **MIN_WINDOW** | Минимум за окно времени | Детектирование просадок |
-| **MAX_WINDOW** | Максимум за окно времени | Детектирование пиков |
-| **MEDIAN** | Медианный фильтр | Удаление выбросов |
-| **LOW_PASS** | Низкочастотный фильтр (RC) | Сглаживание сигналов |
+| Function | Description | Application |
+|----------|-------------|-------------|
+| **TABLE_1D** | 1D lookup with linear interpolation | Throttle curve, temperature compensation |
+| **TABLE_2D** | 2D lookup (map) | Calibration maps, VE tables |
 
-### Управление (0xA0-0xBF)
+### Filters (0x80-0x9F)
 
-| Функция | Описание | Параметры |
-|---------|----------|-----------|
-| **PID** | PID-регулятор | Kp, Ki, Kd, setpoint |
-| **HYSTERESIS** | Гистерезис (триггер Шмитта) | threshold_on, threshold_off |
-| **RATE_LIMIT** | Ограничитель скорости изменения | max_rate |
-| **DEBOUNCE** | Подавление дребезга | debounce_ms |
+| Function | Description | Application |
+|----------|-------------|-------------|
+| **MOVING_AVG** | Moving average | Noise suppression |
+| **MIN_WINDOW** | Minimum over time window | Dip detection |
+| **MAX_WINDOW** | Maximum over time window | Peak detection |
+| **MEDIAN** | Median filter | Outlier removal |
+| **LOW_PASS** | Low-pass filter (RC) | Signal smoothing |
+
+### Control (0xA0-0xBF)
+
+| Function | Description | Parameters |
+|----------|-------------|------------|
+| **PID** | PID controller | Kp, Ki, Kd, setpoint |
+| **HYSTERESIS** | Hysteresis (Schmitt trigger) | threshold_on, threshold_off |
+| **RATE_LIMIT** | Rate of change limiter | max_rate |
+| **DEBOUNCE** | Debounce filter | debounce_ms |
 
 ---
 
 ## C API
 
-### Инициализация
+### Initialization
 
 ```c
 #include "pmu_logic_functions.h"
 #include "pmu_channel.h"
 
-// Инициализация модуля
+// Initialize module
 PMU_LogicFunctions_Init();
 ```
 
-### Создание функций
+### Creating Functions
 
-#### Простые математические операции
+#### Simple Mathematical Operations
 
 ```c
-// Пример: Сложить два датчика давления
-uint16_t brake_front = 0;   // Канал переднего тормоза
-uint16_t brake_rear = 1;    // Канал заднего тормоза
-uint16_t brake_total = 200; // Виртуальный канал суммы
+// Example: Sum two pressure sensors
+uint16_t brake_front = 0;   // Front brake channel
+uint16_t brake_rear = 1;    // Rear brake channel
+uint16_t brake_total = 200; // Virtual channel for sum
 
 uint16_t func_id = PMU_LogicFunctions_CreateMath(
-    PMU_FUNC_ADD,       // Тип операции
-    brake_total,        // Выходной канал
-    brake_front,        // Вход A
-    brake_rear          // Вход B
+    PMU_FUNC_ADD,       // Operation type
+    brake_total,        // Output channel
+    brake_front,        // Input A
+    brake_rear          // Input B
 );
 ```
 
-#### PID контроллер
+#### PID Controller
 
 ```c
-// Пример: Управление бустом через PID
-uint16_t boost_sensor = 5;    // Датчик давления
-uint16_t wastegate = 105;     // PWM выход wastegate
+// Example: Boost control via PID
+uint16_t boost_sensor = 5;    // Pressure sensor
+uint16_t wastegate = 105;     // Wastegate PWM output
 
 uint16_t pid_id = PMU_LogicFunctions_CreatePID(
-    wastegate,          // Выходной канал
-    boost_sensor,       // Измеряемая величина (PV)
-    1500,               // Уставка (1.5 bar = 1500 mbar)
-    2.0f,               // Kp (пропорциональный коэффициент)
-    0.5f,               // Ki (интегральный коэффициент)
-    0.1f                // Kd (дифференциальный коэффициент)
+    wastegate,          // Output channel
+    boost_sensor,       // Process variable (PV)
+    1500,               // Setpoint (1.5 bar = 1500 mbar)
+    2.0f,               // Kp (proportional gain)
+    0.5f,               // Ki (integral gain)
+    0.1f                // Kd (derivative gain)
 );
 ```
 
-#### Гистерезис (вентилятор охлаждения)
+#### Hysteresis (Cooling Fan)
 
 ```c
-// Пример: Вентилятор с гистерезисом
-uint16_t temp_sensor = 10;    // Датчик температуры
-uint16_t fan = 110;           // Реле вентилятора
+// Example: Fan with hysteresis
+uint16_t temp_sensor = 10;    // Temperature sensor
+uint16_t fan = 110;           // Fan relay
 
 uint16_t hyst_id = PMU_LogicFunctions_CreateHysteresis(
-    fan,                // Выходной канал
-    temp_sensor,        // Входной канал (температура)
-    85,                 // Включить при 85°C
-    75                  // Выключить при 75°C
+    fan,                // Output channel
+    temp_sensor,        // Input channel (temperature)
+    85,                 // Turn ON at 85C
+    75                  // Turn OFF at 75C
 );
 ```
 
-### Ручная регистрация
+### Manual Registration
 
 ```c
-// Создание сложной функции вручную
+// Create complex function manually
 PMU_LogicFunction_t func = {0};
 func.type = PMU_FUNC_TABLE_1D;
 func.output_channel = 300;
@@ -181,7 +191,7 @@ func.input_channels[0] = 5;
 func.input_count = 1;
 func.enabled = 1;
 
-// Настройка таблицы (например, кривая дросселя)
+// Configure table (e.g., throttle curve)
 static int32_t throttle_x[] = {0, 250, 500, 750, 1000};
 static int32_t throttle_y[] = {0, 100, 300, 600, 1000};
 
@@ -192,10 +202,10 @@ func.params.table_1d.y_values = throttle_y;
 PMU_LogicFunctions_Register(&func);
 ```
 
-### Обновление функций
+### Updating Functions
 
 ```c
-// Вызывать периодически (например, в main loop на частоте 1 kHz)
+// Call periodically (e.g., in main loop at 1 kHz)
 void Control_Task(void) {
     PMU_LogicFunctions_Update();
 }
@@ -205,30 +215,30 @@ void Control_Task(void) {
 
 ## Lua API
 
-### Инициализация скрипта
+### Script Initialization
 
 ```lua
--- Lua скрипты автоматически имеют доступ к PMU API
+-- Lua scripts automatically have access to PMU API
 print("PMU-30 Lua Script Started")
 ```
 
-### Доступ к каналам
+### Channel Access
 
 ```lua
--- Чтение значения канала
-local rpm = channel.get(250)  -- Канал 250 = Engine RPM
+-- Read channel value
+local rpm = channel.get(250)  -- Channel 250 = Engine RPM
 
--- Запись значения
-channel.set(100, 1000)  -- Установить канал 100 на 100%
+-- Write value
+channel.set(100, 1000)  -- Set channel 100 to 100%
 
--- Поиск канала по имени
+-- Find channel by name
 local brake_ch = channel.find("Brake_Pressure")
 if brake_ch then
     local pressure = channel.get(brake_ch)
     print("Brake pressure: " .. pressure)
 end
 
--- Получить информацию о канале
+-- Get channel information
 local info = channel.info(250)
 if info then
     print("Name: " .. info.name)
@@ -237,10 +247,10 @@ if info then
 end
 ```
 
-### Создание логических функций
+### Creating Logic Functions
 
 ```lua
--- Математика
+-- Math operations
 local power_ch = 200
 local voltage_ch = 1000
 local current_ch = 1001
@@ -248,76 +258,76 @@ local current_ch = 1001
 -- P = V * I
 local func_id = logic.multiply(power_ch, voltage_ch, current_ch)
 
--- Сравнение
+-- Comparison
 local oil_pressure = channel.find("Oil_Pressure")
 local warning_led = channel.find("Oil_Warning")
 
--- Включить LED если давление < 20
+-- Turn on LED if pressure < 20
 logic.compare(warning_led, oil_pressure, 20, "<")
 
--- PID контроллер
+-- PID controller
 local boost_sensor = channel.find("Boost_Pressure")
 local wastegate = channel.find("Wastegate_PWM")
 
 logic.pid(
-    wastegate,      -- Выход
-    boost_sensor,   -- Вход
-    1500,           -- Уставка (1.5 bar)
+    wastegate,      -- Output
+    boost_sensor,   -- Input
+    1500,           -- Setpoint (1.5 bar)
     2.0,            -- Kp
     0.5,            -- Ki
     0.1             -- Kd
 )
 
--- Гистерезис
+-- Hysteresis
 local temp = channel.find("Engine_Temp")
 local fan = channel.find("Cooling_Fan")
 
-logic.hysteresis(fan, temp, 85, 75)  -- ON=85°C, OFF=75°C
+logic.hysteresis(fan, temp, 85, 75)  -- ON=85C, OFF=75C
 ```
 
-### Системные функции
+### System Functions
 
 ```lua
--- Получить напряжение батареи
+-- Get battery voltage
 local voltage = system.voltage()
 print("Battery: " .. voltage .. " mV")
 
--- Ток потребления
+-- Current consumption
 local current = system.current()
 print("Current: " .. current .. " mA")
 
--- Температура MCU
+-- MCU temperature
 local temp = system.temperature()
-print("MCU Temp: " .. temp .. " °C")
+print("MCU Temp: " .. temp .. " C")
 
--- Время работы
+-- Uptime
 local uptime = system.uptime()
 print("Uptime: " .. (uptime / 1000) .. " seconds")
 ```
 
-### Утилиты
+### Utilities
 
 ```lua
--- Вывод в лог
+-- Print to log
 print("Hello from Lua!")
 
--- Получить время в мс
+-- Get time in ms
 local now = millis()
 
--- Задержка
+-- Delay
 sleep(100)  -- 100 ms
 ```
 
 ---
 
-## Примеры применения
+## Practical Examples
 
-### 1. Launch Control (Контроль старта)
+### 1. Launch Control
 
 ```c
-// C API версия
+// C API version
 void Setup_LaunchControl(void) {
-    // Условие: RPM > 4000 И скорость < 5 км/ч И кнопка нажата
+    // Condition: RPM > 4000 AND speed < 5 km/h AND button pressed
     uint16_t rpm_ch = PMU_Channel_GetByName("Engine_RPM")->channel_id;
     uint16_t speed_ch = PMU_Channel_GetByName("Vehicle_Speed")->channel_id;
     uint16_t button_ch = PMU_Channel_GetByName("Launch_Button")->channel_id;
@@ -346,7 +356,7 @@ void Setup_LaunchControl(void) {
 ```
 
 ```lua
--- Lua версия
+-- Lua version
 function launch_control()
     local rpm = channel.get(channel.find("Engine_RPM"))
     local speed = channel.get(channel.find("Vehicle_Speed"))
@@ -361,11 +371,11 @@ function launch_control()
 end
 ```
 
-### 2. Traction Control (Контроль тяги)
+### 2. Traction Control
 
 ```lua
 function traction_control()
-    -- Сравнить скорости передних и задних колес
+    -- Compare front and rear wheel speeds
     local fl = channel.get(channel.find("Wheel_FL"))
     local fr = channel.get(channel.find("Wheel_FR"))
     local rl = channel.get(channel.find("Wheel_RL"))
@@ -374,16 +384,16 @@ function traction_control()
     local front_avg = (fl + fr) / 2
     local rear_avg = (rl + rr) / 2
 
-    -- Если задние колеса буксуют (на 10% быстрее передних)
+    -- If rear wheels are spinning (10% faster than front)
     if rear_avg > front_avg * 1.1 then
-        -- Уменьшить мощность на 20%
+        -- Reduce power by 20%
         local throttle = channel.get(channel.find("Throttle"))
         channel.set(channel.find("Throttle_Output"), throttle * 0.8)
 
-        -- Включить индикатор
+        -- Turn on indicator
         channel.set(channel.find("TC_Light"), 1)
     else
-        -- Без вмешательства
+        -- No intervention
         local throttle = channel.get(channel.find("Throttle"))
         channel.set(channel.find("Throttle_Output"), throttle)
         channel.set(channel.find("TC_Light"), 0)
@@ -391,10 +401,10 @@ function traction_control()
 end
 ```
 
-### 3. Boost Control (Управление турбиной)
+### 3. Boost Control
 
 ```c
-// PID контроллер для wastegate
+// PID controller for wastegate
 void Setup_BoostControl(void) {
     uint16_t boost_sensor = 5;
     uint16_t wastegate = 105;
@@ -411,10 +421,10 @@ void Setup_BoostControl(void) {
 }
 ```
 
-### 4. Cooling Fan Control (Управление вентилятором)
+### 4. Cooling Fan Control
 
 ```c
-// Гистерезис: ON=85°C, OFF=75°C
+// Hysteresis: ON=85C, OFF=75C
 void Setup_FanControl(void) {
     uint16_t temp = 10;
     uint16_t fan = 110;
@@ -427,18 +437,18 @@ void Setup_FanControl(void) {
 
 ## Best Practices
 
-### 1. Именование каналов
-Используйте осмысленные имена для простоты работы с Lua:
+### 1. Channel Naming
+Use meaningful names for easy Lua integration:
 
 ```c
-// Хорошо
+// Good
 PMU_Channel_t ch = {
     .channel_id = 0,
     .name = "Brake_Pressure_Front",
     ...
 };
 
-// Плохо
+// Bad
 PMU_Channel_t ch = {
     .channel_id = 0,
     .name = "CH0",
@@ -446,68 +456,76 @@ PMU_Channel_t ch = {
 };
 ```
 
-### 2. Виртуальные каналы для промежуточных результатов
+### 2. Virtual Channels for Intermediate Results
 
 ```lua
--- Использовать виртуальные каналы (200-999) для промежуточных вычислений
+-- Use virtual channels (200-999) for intermediate calculations
 local rpm_limit_ch = 300
 logic.compare(rpm_limit_ch, rpm_ch, 9000, ">")
 
 local speed_ok_ch = 301
 logic.compare(speed_ok_ch, speed_ch, 5, "<")
 
--- Затем объединить результаты
+-- Then combine results
 logic.and(cut_ch, rpm_limit_ch, speed_ok_ch, button_ch)
 ```
 
-### 3. Обработка ошибок в Lua
+### 3. Error Handling in Lua
 
 ```lua
 function safe_channel_access()
     local ch = channel.find("Some_Channel")
     if ch then
         local value = channel.get(ch)
-        -- Используем value
+        -- Use value
     else
         print("ERROR: Channel not found")
     end
 end
 ```
 
-### 4. Оптимизация производительности
+### 4. Performance Optimization
 
-- Используйте C API для критичных по времени функций
-- Lua скрипты для настраиваемой логики
-- Избегайте тяжелых вычислений в каждом цикле
+- Use C API for time-critical functions
+- Use Lua scripts for configurable logic
+- Avoid heavy computations in every cycle
 
 ---
 
 ## Performance Considerations
 
-- **C API**: Выполнение ~2-5 µs на функцию
-- **Lua API**: Выполнение ~50-200 µs на вызов
-- **Рекомендуемая частота обновления**: 100-1000 Hz
-- **Максимум функций**: 64 одновременно
+- **C API**: Execution ~2-5 us per function
+- **Lua API**: Execution ~50-200 us per call
+- **Recommended update rate**: 100-1000 Hz (500 Hz typical)
+- **Maximum functions**: 100 simultaneous
 
 ---
 
 ## Troubleshooting
 
-### Функция не выполняется
-- Проверьте `func->enabled == 1`
-- Убедитесь, что `PMU_LogicFunctions_Update()` вызывается периодически
-- Проверьте корректность ID каналов
+### Function Not Executing
+- Check `func->enabled == 1`
+- Ensure `PMU_LogicFunctions_Update()` is called periodically
+- Verify channel IDs are correct
 
-### Lua скрипт не работает
-- Проверьте синтаксис через `PMU_Lua_LoadScript()`
-- Убедитесь, что скрипт зарегистрирован и включен
-- Проверьте лог ошибок через `PMU_Lua_GetStats()`
+### Lua Script Not Working
+- Check syntax via `PMU_Lua_LoadScript()`
+- Ensure script is registered and enabled
+- Check error log via `PMU_Lua_GetStats()`
 
-### Неправильные значения
-- Проверьте форматы каналов (RAW, PERCENT, VOLTAGE, etc.)
-- Убедитесь в корректности масштабирования
-- Проверьте диапазоны min/max
+### Incorrect Values
+- Check channel formats (RAW, PERCENT, VOLTAGE, etc.)
+- Verify scaling is correct
+- Check min/max ranges
 
 ---
 
-**© 2025 R2 m-sport. All rights reserved.**
+## See Also
+
+- [JSON_CONFIG.md](JSON_CONFIG.md) - JSON configuration format
+- [examples/lua_examples.lua](examples/lua_examples.lua) - Lua script examples
+- [examples/config_examples.json](examples/config_examples.json) - Configuration examples
+
+---
+
+**Copyright 2025 R2 m-sport. All rights reserved.**

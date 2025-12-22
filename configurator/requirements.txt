@@ -8,6 +8,7 @@ PyQt6-sip>=13.6.0
 
 # Serial Communication
 pyserial>=3.5
+pyserial-asyncio>=0.6
 
 # USB Communication (cross-platform)
 pyusb>=1.2.1

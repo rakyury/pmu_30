@@ -16,7 +16,8 @@
       "Bash(echo:*)",
       "Bash(python -m pytest:*)",
       "Bash(python -m unittest:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(cat:*)"
     ]
   }
 }
