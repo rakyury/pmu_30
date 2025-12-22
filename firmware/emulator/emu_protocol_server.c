@@ -41,6 +41,12 @@ typedef struct {
     uint32_t last_telemetry_tick;
     uint8_t rx_buffer[EMU_SERVER_BUFFER_SIZE];
     size_t rx_len;
+    /* Config upload state */
+    uint8_t* config_buffer;
+    size_t config_buffer_size;
+    size_t config_received;
+    uint16_t config_chunks_received;
+    uint16_t config_total_chunks;
 } EMU_Client_t;
 
 /* Private define ------------------------------------------------------------*/
@@ -76,6 +82,7 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
 static int Server_SendResponse(int client_idx, uint8_t msg_type, const uint8_t* payload, uint16_t len);
 static uint16_t Server_CRC16(const uint8_t* data, size_t len);
 static void Server_BuildTelemetry(uint8_t* buffer, size_t* len);
+static int Server_ApplyConfig(const char* json, size_t len);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -168,6 +175,11 @@ void EMU_Server_Stop(void)
             close(server.clients[i].socket);
             server.clients[i].active = false;
             server.clients[i].socket = -1;
+        }
+        /* Free config buffer if allocated */
+        if (server.clients[i].config_buffer) {
+            free(server.clients[i].config_buffer);
+            server.clients[i].config_buffer = NULL;
         }
     }
 
@@ -376,6 +388,11 @@ static void Server_ProcessClient(int client_idx)
         close(client->socket);
         client->socket = -1;
         client->active = false;
+        /* Free config buffer if allocated */
+        if (client->config_buffer) {
+            free(client->config_buffer);
+            client->config_buffer = NULL;
+        }
         server.stats.connections_active--;
         return;
     }
@@ -557,11 +574,79 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
         }
 
         case EMU_MSG_SET_CONFIG: {
-            /* Accept config */
-            resp[0] = 1;  /* Success */
-            resp[1] = 0;  /* Error code low */
-            resp[2] = 0;  /* Error code high */
-            Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+            /* Parse chunk header */
+            if (len < 4) {
+                resp[0] = 0;  /* Failure */
+                resp[1] = 1;  /* Error code: invalid length */
+                resp[2] = 0;
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+                break;
+            }
+
+            uint16_t chunk_idx = payload[0] | (payload[1] << 8);
+            uint16_t total_chunks = payload[2] | (payload[3] << 8);
+            uint8_t* chunk_data = payload + 4;
+            uint16_t chunk_len = len - 4;
+
+            EMU_Client_t* client = &server.clients[client_idx];
+
+            LOG_SERVER("SET_CONFIG chunk %d/%d, %d bytes", chunk_idx + 1, total_chunks, chunk_len);
+
+            /* First chunk - allocate buffer */
+            if (chunk_idx == 0) {
+                /* Free previous buffer if any */
+                if (client->config_buffer) {
+                    free(client->config_buffer);
+                }
+                /* Allocate generous buffer (100KB max) */
+                client->config_buffer_size = 100 * 1024;
+                client->config_buffer = (uint8_t*)malloc(client->config_buffer_size);
+                client->config_received = 0;
+                client->config_chunks_received = 0;
+                client->config_total_chunks = total_chunks;
+
+                if (!client->config_buffer) {
+                    LOG_SERVER("Failed to allocate config buffer");
+                    resp[0] = 0;  /* Failure */
+                    resp[1] = 2;  /* Error: out of memory */
+                    resp[2] = 0;
+                    Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+                    break;
+                }
+            }
+
+            /* Store chunk data */
+            if (client->config_buffer &&
+                client->config_received + chunk_len <= client->config_buffer_size) {
+                memcpy(client->config_buffer + client->config_received, chunk_data, chunk_len);
+                client->config_received += chunk_len;
+                client->config_chunks_received++;
+            }
+
+            /* All chunks received? */
+            if (client->config_chunks_received >= client->config_total_chunks) {
+                /* Null-terminate for JSON parsing */
+                if (client->config_received < client->config_buffer_size) {
+                    client->config_buffer[client->config_received] = '\0';
+                }
+
+                LOG_SERVER("Config complete: %zu bytes", client->config_received);
+
+                /* Apply configuration */
+                int result = Server_ApplyConfig((char*)client->config_buffer, client->config_received);
+
+                /* Send ACK */
+                resp[0] = (result == 0) ? 1 : 0;
+                resp[1] = (result != 0) ? 3 : 0;  /* Error: parse error */
+                resp[2] = 0;
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_ACK, resp, 3);
+
+                /* Free buffer */
+                free(client->config_buffer);
+                client->config_buffer = NULL;
+                client->config_buffer_size = 0;
+                client->config_received = 0;
+            }
             break;
         }
 
@@ -683,6 +768,140 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     }
 
     *len = offset;
+}
+
+/**
+ * @brief Apply configuration JSON to emulator
+ * @param json JSON string
+ * @param len JSON length
+ * @return 0 on success, -1 on error
+ */
+static int Server_ApplyConfig(const char* json, size_t len)
+{
+    (void)len;
+
+    if (!json || len == 0) {
+        return -1;
+    }
+
+    LOG_SERVER("Applying configuration (%zu bytes)...", len);
+
+    /* Simple JSON parsing - look for key fields */
+    /* Format: {"device":{...}, "channels":[...], "can_messages":[...]} */
+
+    /* Parse device name */
+    const char* name_key = "\"name\"";
+    const char* name_start = strstr(json, name_key);
+    if (name_start) {
+        name_start = strchr(name_start + strlen(name_key), '"');
+        if (name_start) {
+            name_start++;
+            const char* name_end = strchr(name_start, '"');
+            if (name_end) {
+                char name[64] = {0};
+                size_t name_len = (name_end - name_start < 63) ? (name_end - name_start) : 63;
+                memcpy(name, name_start, name_len);
+                LOG_SERVER("Config name: %s", name);
+            }
+        }
+    }
+
+    /* Look for channels array and count */
+    const char* channels_key = "\"channels\"";
+    const char* channels_start = strstr(json, channels_key);
+    int channel_count = 0;
+    if (channels_start) {
+        /* Count objects in channels array */
+        const char* p = strchr(channels_start, '[');
+        if (p) {
+            int depth = 0;
+            while (*p) {
+                if (*p == '{') {
+                    if (depth == 0) channel_count++;
+                    depth++;
+                } else if (*p == '}') {
+                    depth--;
+                } else if (*p == ']' && depth == 0) {
+                    break;
+                }
+                p++;
+            }
+        }
+        LOG_SERVER("Found %d channels", channel_count);
+    }
+
+    /* Look for CAN messages */
+    const char* can_key = "\"can_messages\"";
+    const char* can_start = strstr(json, can_key);
+    int can_count = 0;
+    if (can_start) {
+        const char* p = strchr(can_start, '[');
+        if (p) {
+            int depth = 0;
+            while (*p) {
+                if (*p == '{') {
+                    if (depth == 0) can_count++;
+                    depth++;
+                } else if (*p == '}') {
+                    depth--;
+                } else if (*p == ']' && depth == 0) {
+                    break;
+                }
+                p++;
+            }
+        }
+        LOG_SERVER("Found %d CAN messages", can_count);
+    }
+
+    /* Look for protection settings */
+    const char* protection_key = "\"protection\"";
+    const char* protection_start = strstr(json, protection_key);
+    if (protection_start) {
+        /* Parse undervoltage_mV */
+        const char* uv_key = "\"undervoltage_mV\"";
+        const char* uv_start = strstr(protection_start, uv_key);
+        if (uv_start) {
+            uv_start = strchr(uv_start + strlen(uv_key), ':');
+            if (uv_start) {
+                int uv_mv = atoi(uv_start + 1);
+                if (uv_mv > 0) {
+                    LOG_SERVER("Protection undervoltage: %d mV", uv_mv);
+                }
+            }
+        }
+
+        /* Parse overvoltage_mV */
+        const char* ov_key = "\"overvoltage_mV\"";
+        const char* ov_start = strstr(protection_start, ov_key);
+        if (ov_start) {
+            ov_start = strchr(ov_start + strlen(ov_key), ':');
+            if (ov_start) {
+                int ov_mv = atoi(ov_start + 1);
+                if (ov_mv > 0) {
+                    LOG_SERVER("Protection overvoltage: %d mV", ov_mv);
+                }
+            }
+        }
+    }
+
+    /* Save config to file for reference */
+    FILE* f = fopen("last_config.json", "w");
+    if (f) {
+        fwrite(json, 1, strlen(json), f);
+        fclose(f);
+        LOG_SERVER("Config saved to last_config.json");
+    }
+
+    printf("\n");
+    printf("╔════════════════════════════════════════════════════════════╗\n");
+    printf("║          CONFIGURATION LOADED FROM CONFIGURATOR            ║\n");
+    printf("╠════════════════════════════════════════════════════════════╣\n");
+    printf("║  Channels: %-5d    CAN Messages: %-5d                    ║\n", channel_count, can_count);
+    printf("║  Config saved to: last_config.json                         ║\n");
+    printf("╚════════════════════════════════════════════════════════════╝\n");
+    printf("\n");
+
+    return 0;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
