@@ -1,0 +1,29 @@
+{
+    "name": "Basic Functionality Test",
+    "description": "Tests basic ADC, CAN, and protection system functionality",
+    "version": "1.0",
+
+    "adc": [512, 512, 512, 512, 512, 512, 512, 512, 512, 512,
+            512, 512, 512, 512, 512, 512, 512, 512, 512, 512],
+
+    "voltage_mV": 12000,
+    "temperature_C": 25,
+
+    "profet_loads": [
+        {"channel": 0, "resistance_ohm": 12.0},
+        {"channel": 1, "resistance_ohm": 6.0},
+        {"channel": 2, "resistance_ohm": 24.0}
+    ],
+
+    "hbridge_motors": [
+        {"bridge": 0, "speed": 100, "inertia": 1.0},
+        {"bridge": 1, "speed": 50, "inertia": 2.0}
+    ],
+
+    "comments": [
+        "This scenario sets up a basic test environment",
+        "ADC channels are at mid-scale (1.65V)",
+        "Battery voltage is 12V nominal",
+        "Temperature is 25C ambient"
+    ]
+}
