@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "PMU30")(type "KiCad")(uri "${KIPRJMOD}/libs/PMU30.pretty")(options "")(descr "PMU30 custom footprints - Deutsch DTM connectors, PROFET, H-Bridge"))
+)

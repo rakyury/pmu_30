@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "PMU30_symbols")(type "KiCad")(uri "${KIPRJMOD}/libs/PMU30_symbols.kicad_sym")(options "")(descr "PMU30 custom symbols - PROFET, H-Bridge, CAN, connectors"))
+)

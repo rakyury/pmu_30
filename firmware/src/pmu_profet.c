@@ -52,6 +52,7 @@ static PMU_OutputConfig_t* channel_configs[PMU30_NUM_OUTPUTS];
 static TIM_HandleTypeDef* htim_pwm;
 static ADC_HandleTypeDef* hadc_current;
 static ADC_HandleTypeDef* hadc_status;
+static uint8_t spi_diag_enabled = 0;  /* SPI diagnostics enabled flag */
 
 /* GPIO pin mapping for PROFET control (example - adjust to actual hardware) */
 typedef struct {
@@ -223,6 +224,11 @@ void PMU_PROFET_Update(void)
     static uint32_t tick_1khz = 0;
     tick_1khz++;
 
+    /* Update SPI diagnostics if enabled (at 100Hz rate) */
+    if (spi_diag_enabled && (tick_1khz % 10) == 0) {
+        PMU_SPI_Update();
+    }
+
     for (uint8_t ch = 0; ch < PMU30_NUM_OUTPUTS; ch++) {
         /* Update on-time counter */
         if (channels[ch].state == PMU_PROFET_STATE_ON ||
@@ -231,7 +237,13 @@ void PMU_PROFET_Update(void)
         }
 
         /* Update current sensing every cycle (1kHz) */
-        PROFET_UpdateCurrentSensing(ch);
+        if (spi_diag_enabled) {
+            /* Use high-precision SPI-based current sensing */
+            PROFET_UpdateCurrentSensingSPI(ch);
+        } else {
+            /* Use internal ADC current sensing */
+            PROFET_UpdateCurrentSensing(ch);
+        }
 
         /* Update diagnostics every 10ms (100Hz) */
         if ((tick_1khz % 10) == 0) {
@@ -645,6 +657,91 @@ static uint16_t PROFET_ReadStatusADC(uint8_t channel)
 
     return (uint16_t)((1000 * 4095UL) / 3300);  /* Default 1.0V = 25°C */
 #endif
+}
+
+/**
+ * @brief Enable SPI-based diagnostics (high precision mode)
+ * @param enable 1=enable, 0=disable
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_EnableSPIDiag(uint8_t enable)
+{
+    if (enable && !spi_diag_enabled) {
+        /* Initialize SPI diagnostic interface */
+        if (PMU_SPI_Init() != HAL_OK) {
+            return HAL_ERROR;
+        }
+        spi_diag_enabled = 1;
+    } else if (!enable && spi_diag_enabled) {
+        /* Deinitialize SPI diagnostic interface */
+        PMU_SPI_DeInit();
+        spi_diag_enabled = 0;
+    }
+
+    return HAL_OK;
+}
+
+/**
+ * @brief Get SPI diagnostic data for all channels
+ * @retval Pointer to SPI diagnostic data
+ */
+PMU_SPI_DiagData_t* PMU_PROFET_GetSPIDiagData(void)
+{
+    if (!spi_diag_enabled) {
+        return NULL;
+    }
+    return PMU_SPI_GetDiagData();
+}
+
+/**
+ * @brief Calibrate current sensing (zero offset)
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_CalibrateCurrent(void)
+{
+    if (!spi_diag_enabled) {
+        return HAL_ERROR;
+    }
+
+    /* Turn off all outputs for calibration */
+    for (uint8_t ch = 0; ch < PMU30_NUM_OUTPUTS; ch++) {
+        if (channels[ch].state != PMU_PROFET_STATE_OFF) {
+            /* Cannot calibrate while outputs are active */
+            return HAL_ERROR;
+        }
+    }
+
+    /* Calibrate SPI ADC offset */
+    HAL_StatusTypeDef status;
+
+    status = PMU_SPI_CalibrateOffset(PMU_SPI_DEV_ADC_CURRENT);
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    status = PMU_SPI_CalibrateOffset(PMU_SPI_DEV_ADC_STATUS);
+    if (status != HAL_OK) {
+        return status;
+    }
+
+    return HAL_OK;
+}
+
+/**
+ * @brief Update current sensing for a channel using SPI ADC
+ * @param channel Channel number
+ * @retval None
+ */
+static void PROFET_UpdateCurrentSensingSPI(uint8_t channel)
+{
+    /* Get current from SPI diagnostic interface */
+    uint32_t current_mA = PMU_SPI_GetCurrent(channel);
+
+    /* Apply moving average filter (4 samples) */
+    channels[channel].current_mA = (uint16_t)((channels[channel].current_mA * 3 + current_mA) / 4);
+
+    /* Get temperature from SPI diagnostic interface */
+    channels[channel].temperature_C = PMU_SPI_GetTemperature(channel);
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

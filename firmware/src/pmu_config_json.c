@@ -17,6 +17,7 @@
 #include "pmu_logic.h"
 #include "pmu_logic_functions.h"
 #include "pmu_channel.h"
+#include "pmu_can_stream.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -66,6 +67,7 @@ static bool JSON_ParsePIDControllers(cJSON* pid_array);
 /* Common */
 static bool JSON_ParseCANBuses(cJSON* can_array);
 static bool JSON_ParseSystem(cJSON* system_obj);
+static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats);
 static PMU_InputType_t JSON_ParseInputType(const char* type_str);
 static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
 static uint16_t JSON_ResolveChannel(cJSON* channel_obj);
@@ -243,6 +245,15 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
     cJSON* system = cJSON_GetObjectItem(root, "system");
     if (system && cJSON_IsObject(system)) {
         if (!JSON_ParseSystem(system)) {
+            cJSON_Delete(root);
+            return PMU_JSON_ERROR_VALIDATION;
+        }
+    }
+
+    /* Parse settings (v3.0 - includes standard_can_stream, can_a, can_b, power, safety) */
+    cJSON* settings = cJSON_GetObjectItem(root, "settings");
+    if (settings && cJSON_IsObject(settings)) {
+        if (!JSON_ParseSettings(settings, &local_stats)) {
             cJSON_Delete(root);
             return PMU_JSON_ERROR_VALIDATION;
         }
@@ -796,6 +807,87 @@ static bool JSON_ParseSystem(cJSON* system_obj)
 {
     /* TODO: Implement system settings parsing */
     (void)system_obj;
+    return true;
+}
+
+/**
+ * @brief Parse settings section from JSON (v3.0)
+ *
+ * Handles: can_a, can_b, standard_can_stream, power, safety, system
+ */
+static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
+{
+#ifndef UNIT_TEST
+    /* Parse Standard CAN Stream configuration */
+    cJSON* stream = cJSON_GetObjectItem(settings_obj, "standard_can_stream");
+    if (stream && cJSON_IsObject(stream)) {
+        PMU_CanStreamConfig_t stream_config = {0};
+
+        stream_config.enabled = JSON_GetBool(stream, "enabled", false);
+        stream_config.can_bus = (uint8_t)JSON_GetInt(stream, "can_bus", 1);
+
+        /* Parse base_id (can be hex string "0x600" or integer 1536) */
+        cJSON* base_id = cJSON_GetObjectItem(stream, "base_id");
+        if (base_id) {
+            if (cJSON_IsString(base_id)) {
+                /* Parse hex string like "0x600" */
+                stream_config.base_id = (uint32_t)strtoul(base_id->valuestring, NULL, 0);
+            } else if (cJSON_IsNumber(base_id)) {
+                stream_config.base_id = (uint32_t)base_id->valueint;
+            } else {
+                stream_config.base_id = PMU_CAN_STREAM_DEFAULT_BASE_ID;
+            }
+        } else {
+            stream_config.base_id = PMU_CAN_STREAM_DEFAULT_BASE_ID;
+        }
+
+        stream_config.is_extended = JSON_GetBool(stream, "is_extended", false);
+        stream_config.include_extended = JSON_GetBool(stream, "include_extended", true);
+
+        /* Apply configuration */
+        PMU_CanStream_Configure(&stream_config);
+        PMU_CanStream_SetEnabled(stream_config.enabled);
+
+        if (stats) {
+            stats->stream_enabled = stream_config.enabled;
+        }
+    }
+
+    /* Parse CAN A bus configuration */
+    cJSON* can_a = cJSON_GetObjectItem(settings_obj, "can_a");
+    if (can_a && cJSON_IsObject(can_a)) {
+        PMU_CAN_BusConfig_t bus_config = {0};
+
+        bus_config.bitrate = (uint32_t)JSON_GetInt(can_a, "bitrate", 500000);
+        bus_config.fd_bitrate = (uint32_t)JSON_GetInt(can_a, "fd_bitrate", 2000000);
+        bus_config.enable_fd = JSON_GetBool(can_a, "fd_enabled", false) ? 1 : 0;
+        bus_config.enable_termination = JSON_GetBool(can_a, "termination", true) ? 1 : 0;
+
+        PMU_CAN_ConfigureBus(PMU_CAN_BUS_1, &bus_config);
+    }
+
+    /* Parse CAN B bus configuration */
+    cJSON* can_b = cJSON_GetObjectItem(settings_obj, "can_b");
+    if (can_b && cJSON_IsObject(can_b)) {
+        PMU_CAN_BusConfig_t bus_config = {0};
+
+        bus_config.bitrate = (uint32_t)JSON_GetInt(can_b, "bitrate", 500000);
+        bus_config.fd_bitrate = (uint32_t)JSON_GetInt(can_b, "fd_bitrate", 2000000);
+        bus_config.enable_fd = JSON_GetBool(can_b, "fd_enabled", false) ? 1 : 0;
+        bus_config.enable_termination = JSON_GetBool(can_b, "termination", true) ? 1 : 0;
+
+        PMU_CAN_ConfigureBus(PMU_CAN_BUS_2, &bus_config);
+    }
+
+    /* TODO: Parse power settings */
+    /* TODO: Parse safety settings */
+    /* TODO: Parse system settings */
+
+#else
+    (void)settings_obj;
+    (void)stats;
+#endif
+
     return true;
 }
 

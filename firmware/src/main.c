@@ -42,6 +42,7 @@
 #include "pmu_logic_functions.h"
 #include "pmu_bootloader.h"
 #include "pmu_flash.h"
+#include "pmu_can_stream.h"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -130,6 +131,21 @@ int main(void)
     PMU_Lua_Init();          /* Initialize Lua scripting engine */
     PMU_JSON_Init();         /* Initialize JSON configuration loader */
     PMU_Protocol_Init(PMU_TRANSPORT_WIFI);  /* Initialize protocol (WiFi via ESP32-C3) */
+
+    /* Initialize Standard CAN Stream (Ecumaster-compatible)
+     * Configuration is loaded from JSON config via PMU_Config
+     * Default: disabled, configured via settings.standard_can_stream
+     */
+    {
+        PMU_CanStreamConfig_t stream_config = {
+            .enabled = false,           /* Disabled by default */
+            .can_bus = 1,               /* CAN A */
+            .base_id = PMU_CAN_STREAM_DEFAULT_BASE_ID,  /* 0x600 */
+            .is_extended = false,       /* Standard 11-bit IDs */
+            .include_extended = true    /* Include PMU-30 extended frames */
+        };
+        PMU_CanStream_Init(&stream_config);
+    }
 
     /* Notify bootloader that application started successfully
      * This clears the boot attempt counter to prevent unnecessary rollbacks
@@ -279,6 +295,12 @@ static void vCANTask(void *pvParameters)
     {
         /* Process CAN messages and transmit periodic data */
         PMU_CAN_Update();
+
+        /* Process Standard CAN Stream (20 Hz and 62.5 Hz frames)
+         * This broadcasts PMU status, output states, currents, voltages
+         * and analog inputs in Ecumaster-compatible format
+         */
+        PMU_CanStream_Process();
 
         /* Delay to prevent task from hogging CPU */
         vTaskDelay(pdMS_TO_TICKS(10));
