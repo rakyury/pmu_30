@@ -1,6 +1,6 @@
 """
 JSON Schema for PMU-30 Configuration Validation
-Version 2.0 - Unified GPIO Channel Architecture
+Version 2.0 - Unified Channel Architecture
 """
 
 from typing import Dict, Any, List, Tuple
@@ -33,11 +33,10 @@ PMU_CONFIG_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["id", "name", "gpio_type"],
+                "required": ["id", "channel_type"],
                 "properties": {
                     "id": {"type": "string", "minLength": 1, "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$"},
-                    "name": {"type": "string", "minLength": 1},
-                    "gpio_type": {
+                    "channel_type": {
                         "type": "string",
                         "enum": [
                             "digital_input", "analog_input", "power_output",
@@ -63,8 +62,8 @@ PMU_CONFIG_SCHEMA = {
     }
 }
 
-# GPIO Type specific schemas
-GPIO_TYPE_SCHEMAS = {
+# Channel Type specific schemas
+CHANNEL_TYPE_SCHEMAS = {
     "digital_input": {
         "subtype": {
             "type": "string",
@@ -339,7 +338,7 @@ class ConfigValidator:
         errors = []
 
         # Required fields
-        for field in ["id", "name", "gpio_type"]:
+        for field in ["id", "channel_type"]:
             if field not in channel:
                 errors.append(f"{path}.{field} is required")
 
@@ -348,44 +347,44 @@ class ConfigValidator:
             if not valid:
                 errors.append(error)
 
-        if "gpio_type" in channel:
-            gpio_type = channel["gpio_type"]
+        if "channel_type" in channel:
+            channel_type = channel["channel_type"]
             allowed_types = [
                 "digital_input", "analog_input", "power_output",
                 "can_rx", "can_tx", "logic", "number",
                 "table_2d", "table_3d", "switch", "timer",
                 "filter", "enum"
             ]
-            if gpio_type not in allowed_types:
-                errors.append(f"{path}.gpio_type: '{gpio_type}' is not valid")
+            if channel_type not in allowed_types:
+                errors.append(f"{path}.channel_type: '{channel_type}' is not valid")
             else:
                 # Validate type-specific fields
-                type_errors = ConfigValidator._validate_gpio_type_fields(
-                    channel, gpio_type, path, all_channel_ids
+                type_errors = ConfigValidator._validate_channel_type_fields(
+                    channel, channel_type, path, all_channel_ids
                 )
                 errors.extend(type_errors)
 
         return errors
 
     @staticmethod
-    def _validate_gpio_type_fields(channel: Dict[str, Any], gpio_type: str,
-                                    path: str, all_channel_ids: set) -> List[str]:
-        """Validate GPIO type-specific fields"""
+    def _validate_channel_type_fields(channel: Dict[str, Any], channel_type: str,
+                                       path: str, all_channel_ids: set) -> List[str]:
+        """Validate channel type-specific fields"""
         errors = []
 
-        if gpio_type == "digital_input":
+        if channel_type == "digital_input":
             if "input_pin" in channel:
                 pin = channel["input_pin"]
                 if not isinstance(pin, int) or not (0 <= pin <= 7):
                     errors.append(f"{path}.input_pin must be between 0 and 7")
 
-        elif gpio_type == "analog_input":
+        elif channel_type == "analog_input":
             if "input_pin" in channel:
                 pin = channel["input_pin"]
                 if not isinstance(pin, int) or not (0 <= pin <= 19):
                     errors.append(f"{path}.input_pin must be between 0 and 19")
 
-        elif gpio_type == "power_output":
+        elif channel_type == "power_output":
             if "output_pins" in channel:
                 pins = channel["output_pins"]
                 if not isinstance(pins, list):
@@ -399,7 +398,7 @@ class ConfigValidator:
                 if not valid:
                     errors.append(error)
 
-        elif gpio_type == "logic":
+        elif channel_type == "logic":
             if "inputs" in channel:
                 inputs = channel["inputs"]
                 if not isinstance(inputs, list):
@@ -422,7 +421,7 @@ class ConfigValidator:
                 if not isinstance(delay, int) or delay < 0 or delay > 60000:
                     errors.append(f"{path}.delay_off_ms must be between 0 and 60000")
 
-        elif gpio_type == "timer":
+        elif channel_type == "timer":
             if "start_channel" in channel:
                 valid, error = ConfigValidator.validate_channel_reference(
                     channel["start_channel"], all_channel_ids, f"{path}.start_channel"
@@ -436,7 +435,7 @@ class ConfigValidator:
                 if not valid:
                     errors.append(error)
 
-        elif gpio_type == "filter":
+        elif channel_type == "filter":
             if "input_channel" in channel:
                 valid, error = ConfigValidator.validate_channel_reference(
                     channel["input_channel"], all_channel_ids, f"{path}.input_channel"
@@ -444,21 +443,21 @@ class ConfigValidator:
                 if not valid:
                     errors.append(error)
 
-        elif gpio_type in ["table_2d", "table_3d"]:
+        elif channel_type in ["table_2d", "table_3d"]:
             if "x_axis_channel" in channel:
                 valid, error = ConfigValidator.validate_channel_reference(
                     channel["x_axis_channel"], all_channel_ids, f"{path}.x_axis_channel"
                 )
                 if not valid:
                     errors.append(error)
-            if gpio_type == "table_3d" and "y_axis_channel" in channel:
+            if channel_type == "table_3d" and "y_axis_channel" in channel:
                 valid, error = ConfigValidator.validate_channel_reference(
                     channel["y_axis_channel"], all_channel_ids, f"{path}.y_axis_channel"
                 )
                 if not valid:
                     errors.append(error)
 
-        elif gpio_type == "switch":
+        elif channel_type == "switch":
             for field in ["input_up_channel", "input_down_channel"]:
                 if field in channel and channel[field]:
                     valid, error = ConfigValidator.validate_channel_reference(
@@ -467,7 +466,7 @@ class ConfigValidator:
                     if not valid:
                         errors.append(error)
 
-        elif gpio_type == "can_tx":
+        elif channel_type == "can_tx":
             if "signals" in channel:
                 signals = channel["signals"]
                 if isinstance(signals, list):
@@ -502,37 +501,37 @@ class ConfigValidator:
                 continue
 
             deps = set()
-            gpio_type = ch.get("gpio_type", "")
+            channel_type = ch.get("channel_type", "")
 
             # Collect all channel references based on type
-            if gpio_type == "logic":
+            if channel_type == "logic":
                 deps.update(ch.get("inputs", []))
-            elif gpio_type == "number":
+            elif channel_type == "number":
                 deps.update(ch.get("inputs", []))
-            elif gpio_type == "timer":
+            elif channel_type == "timer":
                 if ch.get("start_channel"):
                     deps.add(ch["start_channel"])
                 if ch.get("stop_channel"):
                     deps.add(ch["stop_channel"])
-            elif gpio_type == "filter":
+            elif channel_type == "filter":
                 if ch.get("input_channel"):
                     deps.add(ch["input_channel"])
-            elif gpio_type == "power_output":
+            elif channel_type == "power_output":
                 if ch.get("source_channel"):
                     deps.add(ch["source_channel"])
                 if ch.get("duty_channel"):
                     deps.add(ch["duty_channel"])
-            elif gpio_type in ["table_2d", "table_3d"]:
+            elif channel_type in ["table_2d", "table_3d"]:
                 if ch.get("x_axis_channel"):
                     deps.add(ch["x_axis_channel"])
                 if ch.get("y_axis_channel"):
                     deps.add(ch["y_axis_channel"])
-            elif gpio_type == "switch":
+            elif channel_type == "switch":
                 if ch.get("input_up_channel"):
                     deps.add(ch["input_up_channel"])
                 if ch.get("input_down_channel"):
                     deps.add(ch["input_down_channel"])
-            elif gpio_type == "can_tx":
+            elif channel_type == "can_tx":
                 for sig in ch.get("signals", []):
                     if isinstance(sig, dict) and sig.get("source_channel"):
                         deps.add(sig["source_channel"])

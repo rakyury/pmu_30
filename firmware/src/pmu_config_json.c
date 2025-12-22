@@ -971,24 +971,24 @@ static bool JSON_GetBool(cJSON* obj, const char* key, bool default_val)
 }
 
 /**
- * @brief Parse GPIO type string to enum
+ * @brief Parse channel type string to enum
  */
-static PMU_GPIOType_t JSON_ParseGPIOType(const char* type_str)
+static PMU_ChannelType_t JSON_ParseChannelType(const char* type_str)
 {
-    if (strcmp(type_str, "digital_input") == 0) return PMU_GPIO_TYPE_DIGITAL_INPUT;
-    if (strcmp(type_str, "analog_input") == 0) return PMU_GPIO_TYPE_ANALOG_INPUT;
-    if (strcmp(type_str, "power_output") == 0) return PMU_GPIO_TYPE_POWER_OUTPUT;
-    if (strcmp(type_str, "can_rx") == 0) return PMU_GPIO_TYPE_CAN_RX;
-    if (strcmp(type_str, "can_tx") == 0) return PMU_GPIO_TYPE_CAN_TX;
-    if (strcmp(type_str, "logic") == 0) return PMU_GPIO_TYPE_LOGIC;
-    if (strcmp(type_str, "number") == 0) return PMU_GPIO_TYPE_NUMBER;
-    if (strcmp(type_str, "table_2d") == 0) return PMU_GPIO_TYPE_TABLE_2D;
-    if (strcmp(type_str, "table_3d") == 0) return PMU_GPIO_TYPE_TABLE_3D;
-    if (strcmp(type_str, "switch") == 0) return PMU_GPIO_TYPE_SWITCH;
-    if (strcmp(type_str, "timer") == 0) return PMU_GPIO_TYPE_TIMER;
-    if (strcmp(type_str, "filter") == 0) return PMU_GPIO_TYPE_FILTER;
-    if (strcmp(type_str, "enum") == 0) return PMU_GPIO_TYPE_ENUM;
-    return PMU_GPIO_TYPE_COUNT; /* Invalid */
+    if (strcmp(type_str, "digital_input") == 0) return PMU_CHANNEL_TYPE_DIGITAL_INPUT;
+    if (strcmp(type_str, "analog_input") == 0) return PMU_CHANNEL_TYPE_ANALOG_INPUT;
+    if (strcmp(type_str, "power_output") == 0) return PMU_CHANNEL_TYPE_POWER_OUTPUT;
+    if (strcmp(type_str, "can_rx") == 0) return PMU_CHANNEL_TYPE_CAN_RX;
+    if (strcmp(type_str, "can_tx") == 0) return PMU_CHANNEL_TYPE_CAN_TX;
+    if (strcmp(type_str, "logic") == 0) return PMU_CHANNEL_TYPE_LOGIC;
+    if (strcmp(type_str, "number") == 0) return PMU_CHANNEL_TYPE_NUMBER;
+    if (strcmp(type_str, "table_2d") == 0) return PMU_CHANNEL_TYPE_TABLE_2D;
+    if (strcmp(type_str, "table_3d") == 0) return PMU_CHANNEL_TYPE_TABLE_3D;
+    if (strcmp(type_str, "switch") == 0) return PMU_CHANNEL_TYPE_SWITCH;
+    if (strcmp(type_str, "timer") == 0) return PMU_CHANNEL_TYPE_TIMER;
+    if (strcmp(type_str, "filter") == 0) return PMU_CHANNEL_TYPE_FILTER;
+    if (strcmp(type_str, "enum") == 0) return PMU_CHANNEL_TYPE_ENUM;
+    return PMU_CHANNEL_TYPE_COUNT; /* Invalid */
 }
 
 /* ============================================================================
@@ -1011,85 +1011,89 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
 
         /* Get channel ID and type */
         const char* id = JSON_GetString(channel, "id", "");
-        const char* gpio_type_str = JSON_GetString(channel, "gpio_type", "");
+        /* Support both "channel_type" (v2.0) and "gpio_type" (legacy) */
+        const char* channel_type_str = JSON_GetString(channel, "channel_type", "");
+        if (strlen(channel_type_str) == 0) {
+            channel_type_str = JSON_GetString(channel, "gpio_type", "");  /* Fallback */
+        }
 
-        if (strlen(id) == 0 || strlen(gpio_type_str) == 0) {
-            JSON_SetError("Channel %d: missing id or gpio_type", i);
+        if (strlen(id) == 0 || strlen(channel_type_str) == 0) {
+            JSON_SetError("Channel %d: missing id or channel_type", i);
             continue;
         }
 
-        PMU_GPIOType_t gpio_type = JSON_ParseGPIOType(gpio_type_str);
+        PMU_ChannelType_t channel_type = JSON_ParseChannelType(channel_type_str);
         bool success = false;
 
         /* Dispatch to type-specific parser */
-        switch (gpio_type) {
-            case PMU_GPIO_TYPE_DIGITAL_INPUT:
+        switch (channel_type) {
+            case PMU_CHANNEL_TYPE_DIGITAL_INPUT:
                 success = JSON_ParseDigitalInput(channel);
                 if (success && stats) stats->digital_inputs++;
                 break;
 
-            case PMU_GPIO_TYPE_ANALOG_INPUT:
+            case PMU_CHANNEL_TYPE_ANALOG_INPUT:
                 success = JSON_ParseAnalogInput(channel);
                 if (success && stats) stats->analog_inputs++;
                 break;
 
-            case PMU_GPIO_TYPE_POWER_OUTPUT:
+            case PMU_CHANNEL_TYPE_POWER_OUTPUT:
                 success = JSON_ParsePowerOutput(channel);
                 if (success && stats) stats->power_outputs++;
                 break;
 
-            case PMU_GPIO_TYPE_LOGIC:
+            case PMU_CHANNEL_TYPE_LOGIC:
                 success = JSON_ParseLogic(channel);
                 if (success && stats) stats->logic_functions++;
                 break;
 
-            case PMU_GPIO_TYPE_NUMBER:
+            case PMU_CHANNEL_TYPE_NUMBER:
                 success = JSON_ParseNumber(channel);
                 if (success && stats) stats->numbers++;
                 break;
 
-            case PMU_GPIO_TYPE_TIMER:
+            case PMU_CHANNEL_TYPE_TIMER:
                 success = JSON_ParseTimer(channel);
                 if (success && stats) stats->timers++;
                 break;
 
-            case PMU_GPIO_TYPE_FILTER:
+            case PMU_CHANNEL_TYPE_FILTER:
                 success = JSON_ParseFilter(channel);
                 if (success && stats) stats->filters++;
                 break;
 
-            case PMU_GPIO_TYPE_TABLE_2D:
+            case PMU_CHANNEL_TYPE_TABLE_2D:
                 success = JSON_ParseTable2D(channel);
                 if (success && stats) stats->tables_2d++;
                 break;
 
-            case PMU_GPIO_TYPE_TABLE_3D:
+            case PMU_CHANNEL_TYPE_TABLE_3D:
                 success = JSON_ParseTable3D(channel);
                 if (success && stats) stats->tables_3d++;
                 break;
 
-            case PMU_GPIO_TYPE_SWITCH:
+            case PMU_CHANNEL_TYPE_SWITCH:
                 success = JSON_ParseSwitch(channel);
                 if (success && stats) stats->switches++;
                 break;
 
-            case PMU_GPIO_TYPE_ENUM:
+            case PMU_CHANNEL_TYPE_ENUM:
                 success = JSON_ParseEnum(channel);
                 if (success && stats) stats->enums++;
                 break;
 
-            case PMU_GPIO_TYPE_CAN_RX:
+            case PMU_CHANNEL_TYPE_CAN_RX:
                 success = JSON_ParseCanRx(channel);
                 if (success && stats) stats->can_rx++;
                 break;
 
-            case PMU_GPIO_TYPE_CAN_TX:
+            case PMU_CHANNEL_TYPE_CAN_TX:
                 success = JSON_ParseCanTx(channel);
                 if (success && stats) stats->can_tx++;
                 break;
 
             default:
-                JSON_SetError("Channel %s: unknown gpio_type '%s'", id, gpio_type_str);
+                JSON_SetError("Channel %s: unknown channel_type '%s'", id, channel_type_str);
                 continue;
         }
 

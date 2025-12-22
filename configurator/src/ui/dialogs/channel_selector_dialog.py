@@ -78,10 +78,10 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.NUMBER: "numbers",
         ChannelType.TABLE_2D: "tables_2d",
         ChannelType.TABLE_3D: "tables_3d",
-        GPIOType.SWITCH: "switches",
-        GPIOType.TIMER: "timers",
-        GPIOType.FILTER: "filters",
-        GPIOType.ENUM: "enums",
+        ChannelType.SWITCH: "switches",
+        ChannelType.TIMER: "timers",
+        ChannelType.FILTER: "filters",
+        ChannelType.ENUM: "enums",
     }
 
     def __init__(self, parent=None, current_channel: str = "",
@@ -100,7 +100,7 @@ class ChannelSelectorDialog(QDialog):
         self.selected_channel = current_channel
         self.channels_data = channels_data or {}
         self.show_tree = show_tree
-        self.all_channels: List[tuple] = []  # (gpio_type, channel_id, display_name)
+        self.all_channels: List[tuple] = []  # (channel_type, channel_id, display_name)
 
         self.setWindowTitle("Select Channel")
         self.setModal(True)
@@ -197,46 +197,46 @@ class ChannelSelectorDialog(QDialog):
         """Populate channel list with all available channels."""
         self.all_channels = []
 
-        # Map old keys to new GPIO types for backwards compatibility
+        # Map old keys to new channel types for backwards compatibility
         key_mapping = {
             # Old format
-            "inputs_physical": GPIOType.ANALOG_INPUT,
-            "inputs_virtual": GPIOType.ANALOG_INPUT,
-            "outputs_physical": GPIOType.POWER_OUTPUT,
-            "outputs_virtual": GPIOType.POWER_OUTPUT,
-            "functions": GPIOType.LOGIC,
-            "tables": GPIOType.TABLE_2D,
-            "numbers": GPIOType.NUMBER,
-            "switches": GPIOType.SWITCH,
-            "timers": GPIOType.TIMER,
-            "enums": GPIOType.ENUM,
-            "can_signals": GPIOType.CAN_RX,
-            "pid_controllers": GPIOType.NUMBER,  # Map PID to number
-            "hbridge": GPIOType.POWER_OUTPUT,  # Map H-Bridge to output
-            # New GPIO format keys
-            "digital_inputs": GPIOType.DIGITAL_INPUT,
-            "analog_inputs": GPIOType.ANALOG_INPUT,
-            "power_outputs": GPIOType.POWER_OUTPUT,
-            "can_rx": GPIOType.CAN_RX,
-            "can_tx": GPIOType.CAN_TX,
-            "logic": GPIOType.LOGIC,
-            "tables_2d": GPIOType.TABLE_2D,
-            "tables_3d": GPIOType.TABLE_3D,
-            "filters": GPIOType.FILTER,
+            "inputs_physical": ChannelType.ANALOG_INPUT,
+            "inputs_virtual": ChannelType.ANALOG_INPUT,
+            "outputs_physical": ChannelType.POWER_OUTPUT,
+            "outputs_virtual": ChannelType.POWER_OUTPUT,
+            "functions": ChannelType.LOGIC,
+            "tables": ChannelType.TABLE_2D,
+            "numbers": ChannelType.NUMBER,
+            "switches": ChannelType.SWITCH,
+            "timers": ChannelType.TIMER,
+            "enums": ChannelType.ENUM,
+            "can_signals": ChannelType.CAN_RX,
+            "pid_controllers": ChannelType.NUMBER,  # Map PID to number
+            "hbridge": ChannelType.POWER_OUTPUT,  # Map H-Bridge to output
+            # New channel format keys
+            "digital_inputs": ChannelType.DIGITAL_INPUT,
+            "analog_inputs": ChannelType.ANALOG_INPUT,
+            "power_outputs": ChannelType.POWER_OUTPUT,
+            "can_rx": ChannelType.CAN_RX,
+            "can_tx": ChannelType.CAN_TX,
+            "logic": ChannelType.LOGIC,
+            "tables_2d": ChannelType.TABLE_2D,
+            "tables_3d": ChannelType.TABLE_3D,
+            "filters": ChannelType.FILTER,
         }
 
         # Process channels from data
         for key, channels in self.channels_data.items():
-            gpio_type = key_mapping.get(key)
-            if gpio_type and channels:
-                prefix = GPIO_TYPE_PREFIXES.get(gpio_type, "")
+            channel_type = key_mapping.get(key)
+            if channel_type and channels:
+                prefix = CHANNEL_PREFIX_MAP.get(channel_type, "")
                 for ch in channels:
                     # Ensure channel has prefix
                     if prefix and not ch.startswith(prefix):
                         channel_id = f"{prefix}{ch}"
                     else:
                         channel_id = ch
-                    self.all_channels.append((gpio_type, channel_id, ch))
+                    self.all_channels.append((channel_type, channel_id, ch))
 
         self._update_display()
 

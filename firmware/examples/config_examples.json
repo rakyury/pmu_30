@@ -9,7 +9,7 @@
   "channels": [
     {
       "id": "di_ignition",
-      "gpio_type": "digital_input",
+      "channel_type": "digital_input",
       "subtype": "switch_active_low",
       "input_pin": 0,
       "enable_pullup": true,
@@ -18,7 +18,7 @@
     },
     {
       "id": "di_launch_btn",
-      "gpio_type": "digital_input",
+      "channel_type": "digital_input",
       "subtype": "switch_active_high",
       "input_pin": 1,
       "enable_pullup": false,
@@ -27,7 +27,7 @@
     },
     {
       "id": "di_engine_rpm",
-      "gpio_type": "digital_input",
+      "channel_type": "digital_input",
       "subtype": "rpm",
       "input_pin": 2,
       "enable_pullup": false,
@@ -40,7 +40,7 @@
     },
     {
       "id": "di_wheel_speed",
-      "gpio_type": "digital_input",
+      "channel_type": "digital_input",
       "subtype": "frequency",
       "input_pin": 3,
       "enable_pullup": true,
@@ -52,7 +52,7 @@
     },
     {
       "id": "ai_throttle",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "linear",
       "input_pin": 0,
       "pullup_option": "1m_down",
@@ -64,7 +64,7 @@
     },
     {
       "id": "ai_brake_pressure",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "linear",
       "input_pin": 1,
       "pullup_option": "1m_down",
@@ -76,7 +76,7 @@
     },
     {
       "id": "ai_coolant_temp",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "calibrated",
       "input_pin": 2,
       "pullup_option": "10k_up",
@@ -92,7 +92,7 @@
     },
     {
       "id": "ai_oil_temp",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "calibrated",
       "input_pin": 3,
       "pullup_option": "10k_up",
@@ -107,7 +107,7 @@
     },
     {
       "id": "ai_oil_pressure",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "linear",
       "input_pin": 4,
       "pullup_option": "1m_down",
@@ -119,7 +119,7 @@
     },
     {
       "id": "ai_map_selector",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "rotary_switch",
       "input_pin": 5,
       "pullup_option": "10k_down",
@@ -128,7 +128,7 @@
     },
     {
       "id": "ai_rain_sensor",
-      "gpio_type": "analog_input",
+      "channel_type": "analog_input",
       "subtype": "switch_active_high",
       "input_pin": 6,
       "pullup_option": "1m_down",
@@ -140,7 +140,7 @@
 
     {
       "id": "l_engine_running",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "greater",
       "channel": "di_engine_rpm",
       "constant": 500,
@@ -149,7 +149,7 @@
     },
     {
       "id": "l_launch_armed",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "and",
       "channel": "di_ignition",
       "channel_2": "di_launch_btn",
@@ -158,7 +158,7 @@
     },
     {
       "id": "l_rpm_limit_active",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "greater",
       "channel": "di_engine_rpm",
       "constant": 7500,
@@ -167,7 +167,7 @@
     },
     {
       "id": "l_overheat_warning",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "hysteresis",
       "channel": "ai_coolant_temp",
       "polarity": "normal",
@@ -176,7 +176,7 @@
     },
     {
       "id": "l_low_oil_pressure",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "hysteresis",
       "channel": "ai_oil_pressure",
       "polarity": "inverted",
@@ -185,7 +185,7 @@
     },
     {
       "id": "l_fan_control",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "hysteresis",
       "channel": "ai_coolant_temp",
       "polarity": "normal",
@@ -194,14 +194,14 @@
     },
     {
       "id": "l_any_warning",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "or",
       "channel": "l_overheat_warning",
       "channel_2": "l_low_oil_pressure"
     },
     {
       "id": "l_warning_flash",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "flash",
       "channel": "l_any_warning",
       "time_on_s": 0.3,
@@ -209,7 +209,7 @@
     },
     {
       "id": "l_fuel_pump_latch",
-      "gpio_type": "logic",
+      "channel_type": "logic",
       "operation": "set_reset_latch",
       "set_channel": "di_ignition",
       "reset_channel": "l_engine_running",
@@ -218,7 +218,7 @@
 
     {
       "id": "n_max_temp",
-      "gpio_type": "number",
+      "channel_type": "number",
       "operation": "max",
       "inputs": ["ai_coolant_temp", "ai_oil_temp"],
       "input_multipliers": ["*1", "*1"],
@@ -226,7 +226,7 @@
     },
     {
       "id": "n_throttle_clamped",
-      "gpio_type": "number",
+      "channel_type": "number",
       "operation": "clamp",
       "inputs": ["ai_throttle"],
       "input_multipliers": ["*1"],
@@ -236,7 +236,7 @@
     },
     {
       "id": "n_boost_target",
-      "gpio_type": "number",
+      "channel_type": "number",
       "operation": "lookup3",
       "inputs": ["ai_map_selector"],
       "input_multipliers": ["*1"],
@@ -246,14 +246,14 @@
 
     {
       "id": "flt_throttle_smooth",
-      "gpio_type": "filter",
+      "channel_type": "filter",
       "filter_type": "moving_avg",
       "input_channel": "ai_throttle",
       "window_size": 10
     },
     {
       "id": "flt_brake_filtered",
-      "gpio_type": "filter",
+      "channel_type": "filter",
       "filter_type": "low_pass",
       "input_channel": "ai_brake_pressure",
       "time_constant": 0.05
@@ -261,7 +261,7 @@
 
     {
       "id": "tm_engine_run_time",
-      "gpio_type": "timer",
+      "channel_type": "timer",
       "start_channel": "l_engine_running",
       "start_edge": "rising",
       "stop_channel": "",
@@ -274,7 +274,7 @@
 
     {
       "id": "t2d_fan_pwm",
-      "gpio_type": "table_2d",
+      "channel_type": "table_2d",
       "x_axis_channel": "ai_coolant_temp",
       "x_min": 70,
       "x_max": 110,
@@ -285,7 +285,7 @@
     },
     {
       "id": "t2d_fuel_pressure_target",
-      "gpio_type": "table_2d",
+      "channel_type": "table_2d",
       "x_axis_channel": "ai_throttle",
       "x_min": 0,
       "x_max": 100,
@@ -297,7 +297,7 @@
 
     {
       "id": "sw_driving_mode",
-      "gpio_type": "switch",
+      "channel_type": "switch",
       "switch_type": "latching",
       "input_up_channel": "di_launch_btn",
       "input_up_edge": "rising",
@@ -310,7 +310,7 @@
 
     {
       "id": "e_gear",
-      "gpio_type": "enum",
+      "channel_type": "enum",
       "is_bitfield": false,
       "items": [
         {"value": 0, "text": "N", "color": "#FFFFFF"},
@@ -325,7 +325,7 @@
     },
     {
       "id": "e_driving_mode",
-      "gpio_type": "enum",
+      "channel_type": "enum",
       "is_bitfield": false,
       "items": [
         {"value": 0, "text": "Normal", "color": "#00FF00"},
@@ -337,7 +337,7 @@
 
     {
       "id": "crx_ecu_rpm",
-      "gpio_type": "can_rx",
+      "channel_type": "can_rx",
       "can_bus": 1,
       "message_id": 256,
       "is_extended": false,
@@ -351,7 +351,7 @@
     },
     {
       "id": "crx_ecu_tps",
-      "gpio_type": "can_rx",
+      "channel_type": "can_rx",
       "can_bus": 1,
       "message_id": 256,
       "is_extended": false,
@@ -366,7 +366,7 @@
 
     {
       "id": "ctx_pmu_status",
-      "gpio_type": "can_tx",
+      "channel_type": "can_tx",
       "can_bus": 1,
       "message_id": 768,
       "is_extended": false,
@@ -409,7 +409,7 @@
 
     {
       "id": "out_fuel_pump",
-      "gpio_type": "power_output",
+      "channel_type": "power_output",
       "output_pins": [0],
       "source_channel": "l_fuel_pump_latch",
       "pwm_enabled": false,
@@ -421,7 +421,7 @@
     },
     {
       "id": "out_ignition_cut",
-      "gpio_type": "power_output",
+      "channel_type": "power_output",
       "output_pins": [1],
       "source_channel": "l_rpm_limit_active",
       "pwm_enabled": false,
@@ -429,7 +429,7 @@
     },
     {
       "id": "out_fan",
-      "gpio_type": "power_output",
+      "channel_type": "power_output",
       "output_pins": [2],
       "source_channel": "l_fan_control",
       "pwm_enabled": true,
@@ -440,7 +440,7 @@
     },
     {
       "id": "out_warning_light",
-      "gpio_type": "power_output",
+      "channel_type": "power_output",
       "output_pins": [3],
       "source_channel": "l_warning_flash",
       "pwm_enabled": false,
@@ -448,7 +448,7 @@
     },
     {
       "id": "out_headlights",
-      "gpio_type": "power_output",
+      "channel_type": "power_output",
       "output_pins": [4, 5],
       "source_channel": "di_ignition",
       "pwm_enabled": true,

@@ -18,16 +18,16 @@
  *   "version": "2.0",
  *   "device": { ... },
  *   "channels": [
- *     { "id": "...", "gpio_type": "digital_input", ... },
- *     { "id": "...", "gpio_type": "analog_input", ... },
- *     { "id": "...", "gpio_type": "logic", ... },
+ *     { "id": "...", "channel_type": "digital_input", ... },
+ *     { "id": "...", "channel_type": "analog_input", ... },
+ *     { "id": "...", "channel_type": "logic", ... },
  *     ...
  *   ],
  *   "can_buses": [ ... ],
  *   "system": { ... }
  * }
  *
- * Supported gpio_type values:
+ * Supported channel_type values:
  * - digital_input, analog_input, power_output
  * - can_rx, can_tx
  * - logic, number, filter

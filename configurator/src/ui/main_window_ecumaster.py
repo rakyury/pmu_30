@@ -1,7 +1,7 @@
 """
 Main Window - Modern Style
 Dock-based layout with project tree and monitoring panels
-Unified GPIO architecture support
+Unified Channel architecture support
 """
 
 import logging
@@ -14,7 +14,7 @@ from PyQt6.QtGui import QAction, QActionGroup
 
 from .widgets import ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector
 
-# New GPIO dialogs
+# Channel dialogs
 from .dialogs.digital_input_dialog import DigitalInputDialog
 from .dialogs.analog_input_dialog import AnalogInputDialog
 from .dialogs.logic_dialog import LogicDialog
@@ -34,14 +34,14 @@ from .dialogs.connection_dialog import ConnectionDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
-from models.gpio import GPIOType
+from models.channel import ChannelType
 from utils.theme import ThemeManager
 
 logger = logging.getLogger(__name__)
 
 
 class MainWindowECUMaster(QMainWindow):
-    """Main window with modern dock-based layout and unified GPIO architecture."""
+    """Main window with modern dock-based layout and unified Channel architecture."""
 
     # Signals
     configuration_changed = pyqtSignal()
@@ -70,7 +70,7 @@ class MainWindowECUMaster(QMainWindow):
         # Restore window geometry and state
         self._restore_layout()
 
-        logger.info("Main window initialized with GPIO architecture")
+        logger.info("Main window initialized with Channel architecture")
 
     def _init_ui(self):
         """Initialize user interface."""
@@ -334,189 +334,189 @@ class MainWindowECUMaster(QMainWindow):
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
 
-    def _on_item_add_requested(self, gpio_type_str: str):
-        """Handle request to add new item by GPIO type."""
+    def _on_item_add_requested(self, channel_type_str: str):
+        """Handle request to add new item by Channel type."""
         try:
-            gpio_type = GPIOType(gpio_type_str)
+            channel_type = ChannelType(channel_type_str)
         except ValueError:
             return
 
         available_channels = self._get_available_channels()
 
-        if gpio_type == GPIOType.DIGITAL_INPUT:
+        if channel_type == ChannelType.DIGITAL_INPUT:
             dialog = DigitalInputDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.ANALOG_INPUT:
+        elif channel_type == ChannelType.ANALOG_INPUT:
             dialog = AnalogInputDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.POWER_OUTPUT:
+        elif channel_type == ChannelType.POWER_OUTPUT:
             dialog = OutputConfigDialog(self, None, [], available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.LOGIC:
+        elif channel_type == ChannelType.LOGIC:
             dialog = LogicDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.NUMBER:
+        elif channel_type == ChannelType.NUMBER:
             dialog = NumberDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.TIMER:
+        elif channel_type == ChannelType.TIMER:
             dialog = TimerDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.SWITCH:
+        elif channel_type == ChannelType.SWITCH:
             dialog = SwitchDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.TABLE_2D:
+        elif channel_type == ChannelType.TABLE_2D:
             dialog = Table2DDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.TABLE_3D:
+        elif channel_type == ChannelType.TABLE_3D:
             dialog = Table3DDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.ENUM:
+        elif channel_type == ChannelType.ENUM:
             dialog = EnumDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.FILTER:
+        elif channel_type == ChannelType.FILTER:
             dialog = FilterDialog(self, None, available_channels)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-        elif gpio_type == GPIOType.CAN_RX or gpio_type == GPIOType.CAN_TX:
+        elif channel_type == ChannelType.CAN_RX or channel_type == ChannelType.CAN_TX:
             dialog = CANMessageDialog(self, None)
             if dialog.exec():
                 config = dialog.get_config()
-                self.project_tree.add_channel(gpio_type, config)
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
-    def _on_item_edit_requested(self, gpio_type_str: str, data: dict):
-        """Handle request to edit item by GPIO type."""
+    def _on_item_edit_requested(self, channel_type_str: str, data: dict):
+        """Handle request to edit item by Channel type."""
         try:
-            gpio_type = GPIOType(gpio_type_str)
+            channel_type = ChannelType(channel_type_str)
         except ValueError:
             return
 
         item_data = data.get("data", {})
         available_channels = self._get_available_channels()
 
-        if gpio_type == GPIOType.DIGITAL_INPUT:
+        if channel_type == ChannelType.DIGITAL_INPUT:
             dialog = DigitalInputDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.ANALOG_INPUT:
+        elif channel_type == ChannelType.ANALOG_INPUT:
             dialog = AnalogInputDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
                 self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
 
-        elif gpio_type == GPIOType.POWER_OUTPUT:
+        elif channel_type == ChannelType.POWER_OUTPUT:
             dialog = OutputConfigDialog(self, item_data, [], available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
                 self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
 
-        elif gpio_type == GPIOType.LOGIC:
+        elif channel_type == ChannelType.LOGIC:
             dialog = LogicDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.NUMBER:
+        elif channel_type == ChannelType.NUMBER:
             dialog = NumberDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.TIMER:
+        elif channel_type == ChannelType.TIMER:
             dialog = TimerDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.SWITCH:
+        elif channel_type == ChannelType.SWITCH:
             dialog = SwitchDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.TABLE_2D:
+        elif channel_type == ChannelType.TABLE_2D:
             dialog = Table2DDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.TABLE_3D:
+        elif channel_type == ChannelType.TABLE_3D:
             dialog = Table3DDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.ENUM:
+        elif channel_type == ChannelType.ENUM:
             dialog = EnumDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.FILTER:
+        elif channel_type == ChannelType.FILTER:
             dialog = FilterDialog(self, item_data, available_channels)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
-        elif gpio_type == GPIOType.CAN_RX or gpio_type == GPIOType.CAN_TX:
+        elif channel_type == ChannelType.CAN_RX or channel_type == ChannelType.CAN_TX:
             dialog = CANMessageDialog(self, item_data)
             if dialog.exec():
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
     def _get_available_channels(self) -> dict:
-        """Get all available channels for selection organized by GPIO type."""
+        """Get all available channels for selection organized by Channel type."""
         channels = {
-            # New GPIO format
+            # Channel format
             "digital_inputs": [],
             "analog_inputs": [],
             "power_outputs": [],
@@ -536,43 +536,43 @@ class MainWindowECUMaster(QMainWindow):
         }
 
         # Add channels from project tree
-        for ch in self.project_tree.get_channels_by_type(GPIOType.DIGITAL_INPUT):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.DIGITAL_INPUT):
             channels["digital_inputs"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.ANALOG_INPUT):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.ANALOG_INPUT):
             channels["analog_inputs"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.POWER_OUTPUT):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.POWER_OUTPUT):
             channels["power_outputs"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.LOGIC):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.LOGIC):
             channels["logic"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.NUMBER):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.NUMBER):
             channels["numbers"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.TABLE_2D):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.TABLE_2D):
             channels["tables_2d"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.TABLE_3D):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.TABLE_3D):
             channels["tables_3d"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.SWITCH):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.SWITCH):
             channels["switches"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.TIMER):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.TIMER):
             channels["timers"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.FILTER):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.FILTER):
             channels["filters"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.ENUM):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.ENUM):
             channels["enums"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.CAN_RX):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.CAN_RX):
             channels["can_rx"].append(ch.get("id", ""))
 
-        for ch in self.project_tree.get_channels_by_type(GPIOType.CAN_TX):
+        for ch in self.project_tree.get_channels_by_type(ChannelType.CAN_TX):
             channels["can_tx"].append(ch.get("id", ""))
 
         return channels
@@ -773,7 +773,7 @@ class MainWindowECUMaster(QMainWindow):
             self, "About PMU-30 Configurator",
             "<b>PMU-30 Power Management Unit Configurator</b><br><br>"
             "Version: 2.0.0<br>"
-            "GPIO Architecture: Unified Channels<br><br>"
+            "Architecture: Unified Channels<br><br>"
             "© 2025 R2 m-sport. All rights reserved."
         )
 

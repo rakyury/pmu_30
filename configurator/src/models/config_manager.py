@@ -1,6 +1,6 @@
 """
 PMU-30 Configuration Manager
-Version 2.0 - Unified GPIO Channel Architecture
+Version 2.0 - Unified Channel Architecture
 
 Owner: R2 m-sport
 """
@@ -12,13 +12,13 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 from .config_schema import ConfigValidator, create_default_config
-from .gpio import GPIOBase, GPIOType, GPIOFactory
+from .channel import ChannelBase, ChannelType, ChannelFactory
 
 logger = logging.getLogger(__name__)
 
 
 class ConfigManager:
-    """Manages PMU-30 configuration files (JSON format) with unified GPIO channels"""
+    """Manages PMU-30 configuration files (JSON format) with unified channels"""
 
     def __init__(self):
         self.config: Dict[str, Any] = create_default_config()
@@ -152,16 +152,16 @@ class ConfigManager:
             logger.error(f"Failed to save configuration: {e}")
             return False
 
-    # ========== GPIO Channel Methods ==========
+    # ========== Channel Methods ==========
 
     def get_all_channels(self) -> List[Dict[str, Any]]:
-        """Get all GPIO channels"""
+        """Get all channels"""
         return self.config.get("channels", [])
 
-    def get_channels_by_type(self, gpio_type: GPIOType) -> List[Dict[str, Any]]:
+    def get_channels_by_type(self, channel_type: ChannelType) -> List[Dict[str, Any]]:
         """Get channels of specific type"""
         channels = self.config.get("channels", [])
-        return [ch for ch in channels if ch.get("gpio_type") == gpio_type.value]
+        return [ch for ch in channels if ch.get("channel_type") == channel_type.value]
 
     def get_channel_by_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
         """Get channel by ID"""
@@ -179,7 +179,7 @@ class ConfigManager:
 
     def add_channel(self, channel_config: Dict[str, Any]) -> bool:
         """
-        Add new GPIO channel
+        Add new channel
 
         Args:
             channel_config: Channel configuration dict
@@ -203,7 +203,7 @@ class ConfigManager:
 
     def update_channel(self, channel_id: str, channel_config: Dict[str, Any]) -> bool:
         """
-        Update existing GPIO channel
+        Update existing channel
 
         Args:
             channel_id: ID of channel to update
@@ -225,7 +225,7 @@ class ConfigManager:
 
     def remove_channel(self, channel_id: str) -> bool:
         """
-        Remove GPIO channel
+        Remove channel
 
         Args:
             channel_id: ID of channel to remove
@@ -291,31 +291,31 @@ class ConfigManager:
         for ch in self.config.get("channels", []):
             ch_id = ch.get("id", "")
             if ch_id and ch_id != exclude_id:
-                gpio_type = ch.get("gpio_type", "")
-                category = type_to_category.get(gpio_type)
+                channel_type = ch.get("channel_type", "")
+                category = type_to_category.get(channel_type)
                 if category:
                     available[category].append(ch_id)
 
         # Remove empty categories
         return {k: v for k, v in available.items() if v}
 
-    def get_channel_ids_of_type(self, gpio_type: GPIOType) -> List[str]:
+    def get_channel_ids_of_type(self, channel_type: ChannelType) -> List[str]:
         """Get list of channel IDs of specific type"""
         return [
             ch.get("id", "")
             for ch in self.config.get("channels", [])
-            if ch.get("gpio_type") == gpio_type.value
+            if ch.get("channel_type") == channel_type.value
         ]
 
     def channel_exists(self, channel_id: str) -> bool:
         """Check if channel with given ID exists"""
         return self.get_channel_by_id(channel_id) is not None
 
-    def get_channel_count(self, gpio_type: Optional[GPIOType] = None) -> int:
+    def get_channel_count(self, channel_type: Optional[ChannelType] = None) -> int:
         """Get count of channels, optionally filtered by type"""
         channels = self.config.get("channels", [])
-        if gpio_type:
-            return sum(1 for ch in channels if ch.get("gpio_type") == gpio_type.value)
+        if channel_type:
+            return sum(1 for ch in channels if ch.get("channel_type") == channel_type.value)
         return len(channels)
 
     # ========== System Settings ==========
@@ -377,39 +377,39 @@ class ConfigManager:
 
         for ch in self.config.get("channels", []):
             ch_id = ch.get("id", "unknown")
-            gpio_type = ch.get("gpio_type", "")
+            channel_type = ch.get("channel_type", "")
 
             # Check references based on type
             refs_to_check = []
 
-            if gpio_type == "logic":
+            if channel_type == "logic":
                 refs_to_check = ch.get("inputs", [])
-            elif gpio_type == "number":
+            elif channel_type == "number":
                 refs_to_check = ch.get("inputs", [])
-            elif gpio_type == "timer":
+            elif channel_type == "timer":
                 if ch.get("start_channel"):
                     refs_to_check.append(ch["start_channel"])
                 if ch.get("stop_channel"):
                     refs_to_check.append(ch["stop_channel"])
-            elif gpio_type == "filter":
+            elif channel_type == "filter":
                 if ch.get("input_channel"):
                     refs_to_check.append(ch["input_channel"])
-            elif gpio_type == "power_output":
+            elif channel_type == "power_output":
                 if ch.get("source_channel"):
                     refs_to_check.append(ch["source_channel"])
                 if ch.get("duty_channel"):
                     refs_to_check.append(ch["duty_channel"])
-            elif gpio_type in ["table_2d", "table_3d"]:
+            elif channel_type in ["table_2d", "table_3d"]:
                 if ch.get("x_axis_channel"):
                     refs_to_check.append(ch["x_axis_channel"])
                 if ch.get("y_axis_channel"):
                     refs_to_check.append(ch["y_axis_channel"])
-            elif gpio_type == "switch":
+            elif channel_type == "switch":
                 if ch.get("input_up_channel"):
                     refs_to_check.append(ch["input_up_channel"])
                 if ch.get("input_down_channel"):
                     refs_to_check.append(ch["input_down_channel"])
-            elif gpio_type == "can_tx":
+            elif channel_type == "can_tx":
                 for sig in ch.get("signals", []):
                     if sig.get("source_channel"):
                         refs_to_check.append(sig["source_channel"])
@@ -463,21 +463,21 @@ class ConfigManager:
 
         type_counts = {}
         for ch in self.config.get("channels", []):
-            gpio_type = ch.get("gpio_type", "unknown")
-            type_counts[gpio_type] = type_counts.get(gpio_type, 0) + 1
+            channel_type = ch.get("channel_type", "unknown")
+            type_counts[channel_type] = type_counts.get(channel_type, 0) + 1
 
         lines.append(f"Total channels: {len(self.config.get('channels', []))}")
         lines.append("")
         lines.append("By type:")
-        for gpio_type, count in sorted(type_counts.items()):
-            lines.append(f"  {gpio_type}: {count}")
+        for channel_type, count in sorted(type_counts.items()):
+            lines.append(f"  {channel_type}: {count}")
 
         lines.append("")
         lines.append("Channel list:")
         for ch in self.config.get("channels", []):
             ch_id = ch.get("id", "?")
             ch_name = ch.get("name", "?")
-            ch_type = ch.get("gpio_type", "?")
+            ch_type = ch.get("channel_type", "?")
             enabled = "enabled" if ch.get("enabled", True) else "disabled"
             lines.append(f"  [{ch_type}] {ch_id}: {ch_name} ({enabled})")
 

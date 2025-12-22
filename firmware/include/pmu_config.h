@@ -26,25 +26,42 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 
 /* ============================================================================
- * GPIO Type Enumeration (v2.0)
- * All channels are GPIO with different types
+ * Channel Type Enumeration (v2.0)
+ * Unified channel architecture
  * ============================================================================ */
 typedef enum {
-    PMU_GPIO_TYPE_DIGITAL_INPUT = 0,
-    PMU_GPIO_TYPE_ANALOG_INPUT,
-    PMU_GPIO_TYPE_POWER_OUTPUT,
-    PMU_GPIO_TYPE_CAN_RX,
-    PMU_GPIO_TYPE_CAN_TX,
-    PMU_GPIO_TYPE_LOGIC,
-    PMU_GPIO_TYPE_NUMBER,
-    PMU_GPIO_TYPE_TABLE_2D,
-    PMU_GPIO_TYPE_TABLE_3D,
-    PMU_GPIO_TYPE_SWITCH,
-    PMU_GPIO_TYPE_TIMER,
-    PMU_GPIO_TYPE_FILTER,
-    PMU_GPIO_TYPE_ENUM,
-    PMU_GPIO_TYPE_COUNT
-} PMU_GPIOType_t;
+    PMU_CHANNEL_TYPE_DIGITAL_INPUT = 0,
+    PMU_CHANNEL_TYPE_ANALOG_INPUT,
+    PMU_CHANNEL_TYPE_POWER_OUTPUT,
+    PMU_CHANNEL_TYPE_CAN_RX,
+    PMU_CHANNEL_TYPE_CAN_TX,
+    PMU_CHANNEL_TYPE_LOGIC,
+    PMU_CHANNEL_TYPE_NUMBER,
+    PMU_CHANNEL_TYPE_TABLE_2D,
+    PMU_CHANNEL_TYPE_TABLE_3D,
+    PMU_CHANNEL_TYPE_SWITCH,
+    PMU_CHANNEL_TYPE_TIMER,
+    PMU_CHANNEL_TYPE_FILTER,
+    PMU_CHANNEL_TYPE_ENUM,
+    PMU_CHANNEL_TYPE_COUNT
+} PMU_ChannelType_t;
+
+/* Backwards compatibility alias */
+typedef PMU_ChannelType_t PMU_GPIOType_t;
+#define PMU_GPIO_TYPE_DIGITAL_INPUT  PMU_CHANNEL_TYPE_DIGITAL_INPUT
+#define PMU_GPIO_TYPE_ANALOG_INPUT   PMU_CHANNEL_TYPE_ANALOG_INPUT
+#define PMU_GPIO_TYPE_POWER_OUTPUT   PMU_CHANNEL_TYPE_POWER_OUTPUT
+#define PMU_GPIO_TYPE_CAN_RX         PMU_CHANNEL_TYPE_CAN_RX
+#define PMU_GPIO_TYPE_CAN_TX         PMU_CHANNEL_TYPE_CAN_TX
+#define PMU_GPIO_TYPE_LOGIC          PMU_CHANNEL_TYPE_LOGIC
+#define PMU_GPIO_TYPE_NUMBER         PMU_CHANNEL_TYPE_NUMBER
+#define PMU_GPIO_TYPE_TABLE_2D       PMU_CHANNEL_TYPE_TABLE_2D
+#define PMU_GPIO_TYPE_TABLE_3D       PMU_CHANNEL_TYPE_TABLE_3D
+#define PMU_GPIO_TYPE_SWITCH         PMU_CHANNEL_TYPE_SWITCH
+#define PMU_GPIO_TYPE_TIMER          PMU_CHANNEL_TYPE_TIMER
+#define PMU_GPIO_TYPE_FILTER         PMU_CHANNEL_TYPE_FILTER
+#define PMU_GPIO_TYPE_ENUM           PMU_CHANNEL_TYPE_ENUM
+#define PMU_GPIO_TYPE_COUNT          PMU_CHANNEL_TYPE_COUNT
 
 /* Digital Input Subtypes */
 typedef enum {
@@ -150,7 +167,7 @@ typedef enum {
 } PMU_DefaultState_t;
 
 /* ============================================================================
- * GPIO Channel Structures (v2.0)
+ * Channel Structures (v2.0)
  * ============================================================================ */
 
 /* Maximum calibration points */
@@ -186,7 +203,7 @@ typedef struct {
 } PMU_CanTxSignal_t;
 
 /* ============================================================================
- * Digital Input GPIO
+ * Digital Input Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -204,7 +221,7 @@ typedef struct {
 } PMU_DigitalInputConfig_t;
 
 /* ============================================================================
- * Analog Input GPIO
+ * Analog Input Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -231,7 +248,7 @@ typedef struct {
 } PMU_AnalogInputConfig_t;
 
 /* ============================================================================
- * Power Output GPIO
+ * Power Output Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -253,7 +270,7 @@ typedef struct {
 } PMU_PowerOutputConfig_t;
 
 /* ============================================================================
- * Logic Function GPIO
+ * Logic Function Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -287,7 +304,7 @@ typedef struct {
 } PMU_LogicConfig_t;
 
 /* ============================================================================
- * Number/Math GPIO
+ * Number/Math Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -302,7 +319,7 @@ typedef struct {
 } PMU_NumberConfig_t;
 
 /* ============================================================================
- * Timer GPIO
+ * Timer Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -317,7 +334,7 @@ typedef struct {
 } PMU_TimerConfig_t;
 
 /* ============================================================================
- * Filter GPIO
+ * Filter Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -328,7 +345,7 @@ typedef struct {
 } PMU_FilterConfig_t;
 
 /* ============================================================================
- * Enum GPIO
+ * Enum Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -338,7 +355,7 @@ typedef struct {
 } PMU_EnumConfig_t;
 
 /* ============================================================================
- * 2D Table GPIO
+ * 2D Table Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -353,7 +370,7 @@ typedef struct {
 } PMU_Table2DConfig_t;
 
 /* ============================================================================
- * 3D Table GPIO
+ * 3D Table Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -369,7 +386,7 @@ typedef struct {
 } PMU_Table3DConfig_t;
 
 /* ============================================================================
- * Switch GPIO
+ * Switch Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -384,7 +401,7 @@ typedef struct {
 } PMU_SwitchConfig_t;
 
 /* ============================================================================
- * CAN RX GPIO
+ * CAN RX Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
@@ -402,7 +419,7 @@ typedef struct {
 } PMU_CanRxConfig_t;
 
 /* ============================================================================
- * CAN TX GPIO
+ * CAN TX Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
