@@ -8,10 +8,10 @@
 
 ## Priority Legend
 
-- **P0 - CRITICAL**: Блокирует базовую функциональность, требует немедленного внимания
-- **P1 - HIGH**: Важная функциональность, необходима для production
-- **P2 - MEDIUM**: Желательная функциональность, улучшает систему
-- **P3 - LOW**: Оптимизации и улучшения, не критично
+- **P0 - CRITICAL**: Blocks basic functionality, requires immediate attention
+- **P1 - HIGH**: Important functionality, required for production
+- **P2 - MEDIUM**: Desirable functionality, improves system
+- **P3 - LOW**: Optimizations and improvements, not critical
 
 ---
 
@@ -45,7 +45,7 @@
 ## P0 - CRITICAL (Must Do First)
 
 ### 1. FreeRTOS Integration [P0]
-**Impact**: Блокирует запуск системы на реальном железе
+**Impact**: Blocks system startup on real hardware
 **Files**: `lib/FreeRTOS/*`
 **Effort**: 2-4 hours
 
@@ -67,7 +67,7 @@ lib_deps =
 ---
 
 ### 2. ADC Initialization [P0]
-**Impact**: Без ADC нет чтения входов, напряжения, температуры
+**Impact**: Without ADC, no reading of inputs, voltage, temperature
 **Files**: `pmu_adc.c`, `pmu_protection.c`
 **Effort**: 3-4 hours
 
@@ -94,7 +94,7 @@ lib_deps =
 ---
 
 ### 3. PROFET PWM Control [P0]
-**Impact**: Без PWM нет управления выходами
+**Impact**: Without PWM, no output control
 **Files**: `pmu_profet.c`
 **Effort**: 2-3 hours
 
@@ -118,7 +118,7 @@ lib_deps =
 ---
 
 ### 4. H-Bridge PWM Control [P0]
-**Impact**: Блокирует управление моторами
+**Impact**: Blocks motor control
 **Files**: `pmu_hbridge.c`
 **Effort**: 2-3 hours
 
@@ -141,7 +141,7 @@ lib_deps =
 ---
 
 ### 5. CAN FDCAN Initialization [P0]
-**Impact**: Нет CAN коммуникации
+**Impact**: No CAN communication
 **Files**: `pmu_can.c`
 **Effort**: 3-4 hours
 
@@ -167,7 +167,7 @@ lib_deps =
 ## P1 - HIGH (Important Features)
 
 ### 6. Flash Logging Implementation [P1]
-**Impact**: Критичная функциональность для data logging
+**Impact**: Critical functionality for data logging
 **Files**: `pmu_logging.c`
 **Effort**: 6-8 hours
 
@@ -206,7 +206,7 @@ lib_deps =
 ---
 
 ### 7. Lua Library Integration [P1]
-**Impact**: Разблокирует scripting функциональность
+**Impact**: Unlocks scripting functionality
 **Files**: `pmu_lua.c`, `platformio.ini`
 **Effort**: 4-6 hours
 
@@ -240,7 +240,7 @@ lib_deps =
 ---
 
 ### 8. Load Shedding Implementation [P1]
-**Impact**: Критично для fault recovery
+**Impact**: Critical for fault recovery
 **Files**: `pmu_protection.c`
 **Effort**: 2-3 hours
 
@@ -296,7 +296,7 @@ static void Protection_HandleLoadShedding(void)
 ---
 
 ### 9. Configuration Persistence [P1]
-**Impact**: Сохранение настроек между перезагрузками
+**Impact**: Saving settings between reboots
 **Files**: `pmu_config.c`
 **Effort**: 3-4 hours
 
@@ -349,7 +349,7 @@ HAL_IWDG_Refresh(&hiwdg);
 ## P2 - MEDIUM (Desirable Features)
 
 ### 11. CAN Motorola Byte Order [P2]
-**Impact**: Поддержка big-endian CAN сигналов
+**Impact**: Support for big-endian CAN signals
 **Files**: `pmu_can.c`
 **Effort**: 2 hours
 
@@ -383,7 +383,7 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ---
 
 ### 12. UI System GPIO [P2]
-**Impact**: LED и buzzer control
+**Impact**: LED and buzzer control
 **Files**: `pmu_ui.c`
 **Effort**: 2-3 hours
 
@@ -407,7 +407,7 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ---
 
 ### 13. Virtual Channel System Enhancement [P2]
-**Impact**: Улучшенная поддержка virtual channels
+**Impact**: Improved virtual channel support
 **Files**: `pmu_logic.c`
 **Effort**: 2 hours
 
@@ -448,7 +448,7 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ## P3 - LOW (Optimizations)
 
 ### 15. Documentation TODOs [P3]
-**Impact**: Улучшение документации
+**Impact**: Documentation improvements
 **Files**: Various markdown files
 **Effort**: 1-2 hours
 
@@ -471,12 +471,12 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ### Phase 1: Core Hardware (Week 1) - P0
 **Goal**: Get basic system running on hardware
 
-1. ✅ FreeRTOS Integration (3h)
-2. ✅ ADC Initialization (4h)
-3. ✅ PROFET PWM Control (3h)
-4. ✅ H-Bridge PWM Control (3h)
-5. ✅ CAN FDCAN Init (4h)
-6. ✅ Watchdog (1h)
+1. FreeRTOS Integration (3h)
+2. ADC Initialization (4h)
+3. PROFET PWM Control (3h)
+4. H-Bridge PWM Control (3h)
+5. CAN FDCAN Init (4h)
+6. Watchdog (1h)
 
 **Total**: ~18 hours (3-4 days)
 
@@ -485,10 +485,10 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ### Phase 2: Critical Features (Week 2) - P1
 **Goal**: Essential functionality
 
-1. ✅ Flash Logging (8h)
-2. ✅ Lua Integration (5h)
-3. ✅ Load Shedding (3h)
-4. ✅ Config Persistence (4h)
+1. Flash Logging (8h)
+2. Lua Integration (5h)
+3. Load Shedding (3h)
+4. Config Persistence (4h)
 
 **Total**: ~20 hours (4-5 days)
 
@@ -497,10 +497,10 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ### Phase 3: Enhancements (Week 3) - P2
 **Goal**: Complete feature set
 
-1. ✅ CAN Motorola (2h)
-2. ✅ UI GPIO (3h)
-3. ✅ Virtual Channels (2h)
-4. ✅ Misc improvements (2h)
+1. CAN Motorola (2h)
+2. UI GPIO (3h)
+3. Virtual Channels (2h)
+4. Misc improvements (2h)
 
 **Total**: ~9 hours (2 days)
 
@@ -509,9 +509,9 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ### Phase 4: Polish (Week 4) - P3
 **Goal**: Final touches
 
-1. ✅ Documentation updates (1h)
-2. ✅ Testing and validation (8h)
-3. ✅ Performance optimization (4h)
+1. Documentation updates (1h)
+2. Testing and validation (8h)
+3. Performance optimization (4h)
 
 **Total**: ~13 hours (2-3 days)
 
@@ -520,20 +520,20 @@ if (signal->byte_order == 0) {  // Intel (LSB first)
 ## Tracking Progress
 
 ### Status Legend
-- ⏳ Not Started
-- 🔄 In Progress
-- ✅ Completed
-- ⚠️ Blocked
-- ❌ Cancelled
+- Not Started
+- In Progress
+- Completed
+- Blocked
+- Cancelled
 
 ### Current Status (2025-12-21)
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| Phase 1: Core Hardware | ⏳ | 0% |
-| Phase 2: Critical Features | ⏳ | 0% |
-| Phase 3: Enhancements | ⏳ | 0% |
-| Phase 4: Polish | ⏳ | 0% |
+| Phase 1: Core Hardware | Not Started | 0% |
+| Phase 2: Critical Features | Not Started | 0% |
+| Phase 3: Enhancements | Not Started | 0% |
+| Phase 4: Polish | Not Started | 0% |
 
 ---
 
@@ -621,4 +621,4 @@ python -m platformio run -e pmu30_debug
 
 ---
 
-**Ready to start?** Let's tackle Phase 1! 🚀
+**Ready to start?** Let's tackle Phase 1!

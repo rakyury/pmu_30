@@ -1,147 +1,147 @@
 # Qt6 Built-in Styles
 
-## Доступные стили в PyQt6
+## Available Styles in PyQt6
 
-PMU-30 Configurator поддерживает переключение между различными стилями через меню **View → Application Style**.
+PMU-30 Configurator supports switching between different styles via the **View → Application Style** menu.
 
-### 1. Fluent Design (Custom) ⭐ **По умолчанию**
+### 1. Fluent Design (Custom) - **Default**
 
-Наша кастомная тема на основе Microsoft Fluent Design для Windows 11:
-- **Основа**: Qt Fusion style
-- **Цветовая схема**: Dark theme (#202020 background, #0078d4 accent)
-- **Особенности**:
-  - Acrylic Material эффекты
-  - Закругленные углы (4px контролы, 8px карточки)
-  - Reveal Highlight при hover
-  - Профессиональный внешний вид Windows 11
-  - Оптимизирована для темной темы
+Our custom theme based on Microsoft Fluent Design for Windows 11:
+- **Base**: Qt Fusion style
+- **Color Scheme**: Dark theme (#202020 background, #0078d4 accent)
+- **Features**:
+  - Acrylic Material effects
+  - Rounded corners (4px controls, 8px cards)
+  - Reveal Highlight on hover
+  - Professional Windows 11 appearance
+  - Optimized for dark theme
 
 ### 2. Fusion
 
-Современный кросс-платформенный стиль Qt:
-- **Платформа**: Все платформы
-- **Внешний вид**: Современный, плоский дизайн
-- **Особенности**:
-  - Одинаково выглядит на всех платформах
-  - Хорошая поддержка темной темы
-  - Рекомендуется для кросс-платформенных приложений
-- **Использование**: Базовый стиль для нашей Fluent Design темы
+Modern cross-platform Qt style:
+- **Platform**: All platforms
+- **Appearance**: Modern, flat design
+- **Features**:
+  - Looks the same on all platforms
+  - Good dark theme support
+  - Recommended for cross-platform applications
+- **Usage**: Base style for our Fluent Design theme
 
 ### 3. Windows
 
-Нативный стиль Windows:
-- **Платформа**: Windows
-- **Внешний вид**: Классический Windows стиль
-- **Особенности**:
-  - Интегрируется с системной темой Windows
-  - Автоматически адаптируется под настройки ОС
-  - Легкий и быстрый
+Native Windows style:
+- **Platform**: Windows
+- **Appearance**: Classic Windows style
+- **Features**:
+  - Integrates with Windows system theme
+  - Automatically adapts to OS settings
+  - Lightweight and fast
 
 ### 4. WindowsVista
 
-Стиль Windows Vista/7:
-- **Платформа**: Windows
-- **Внешний вид**: Aero Glass стиль
-- **Особенности**:
-  - Более современный чем базовый Windows
-  - Gradient кнопки и контролы
-  - Поддержка прозрачности
+Windows Vista/7 style:
+- **Platform**: Windows
+- **Appearance**: Aero Glass style
+- **Features**:
+  - More modern than basic Windows
+  - Gradient buttons and controls
+  - Transparency support
 
-### 5. Windows11 (если доступен)
+### 5. Windows11 (if available)
 
-Нативный стиль Windows 11:
-- **Платформа**: Windows 11
-- **Внешний вид**: Современный WinUI 3
-- **Особенности**:
-  - Закругленные углы
-  - Mica материал
-  - Современная цветовая палитра
-- **Примечание**: Доступен только на Windows 11
+Native Windows 11 style:
+- **Platform**: Windows 11
+- **Appearance**: Modern WinUI 3
+- **Features**:
+  - Rounded corners
+  - Mica material
+  - Modern color palette
+- **Note**: Only available on Windows 11
 
-## Как переключить стиль
+## How to Switch Styles
 
-### Через меню:
-1. Откройте **View** → **Application Style**
-2. Выберите желаемый стиль из списка
-3. Стиль применится немедленно
+### Via Menu:
+1. Open **View** → **Application Style**
+2. Select desired style from list
+3. Style applies immediately
 
-### Доступные опции:
-- ✅ **Fluent Design (Custom)** - Рекомендуется
+### Available Options:
+- **Fluent Design (Custom)** - Recommended
 - Fusion
 - Windows
 - WindowsVista
-- Windows11 (на Windows 11)
-- macOS (на macOS)
+- Windows11 (on Windows 11)
+- macOS (on macOS)
 
-## Рекомендации
+## Recommendations
 
-### Для разработки:
-**Fluent Design (Custom)** - лучший выбор для:
-- Профессионального внешнего вида
-- Консистентности на всех платформах
-- Оптимизированной темной темы
-- Современного UI/UX
+### For Development:
+**Fluent Design (Custom)** - best choice for:
+- Professional appearance
+- Consistency across all platforms
+- Optimized dark theme
+- Modern UI/UX
 
-### Для отладки:
-**Fusion** или нативные стили (Windows/Windows11) могут быть полезны для:
-- Проверки совместимости
-- Тестирования на разных стилях
-- Сравнения производительности
+### For Debugging:
+**Fusion** or native styles (Windows/Windows11) may be useful for:
+- Compatibility checking
+- Testing on different styles
+- Performance comparison
 
-### Для интеграции с ОС:
-**Windows** или **Windows11** для:
-- Максимальной интеграции с системой
-- Автоматической адаптации под системную тему
-- Минимального потребления ресурсов
+### For OS Integration:
+**Windows** or **Windows11** for:
+- Maximum system integration
+- Automatic adaptation to system theme
+- Minimal resource consumption
 
-## Программное переключение
+## Programmatic Switching
 
-Стили также можно переключать программно:
+Styles can also be switched programmatically:
 
 ```python
 from PyQt6.QtWidgets import QApplication, QStyleFactory
 
-# Получить список доступных стилей
+# Get list of available styles
 available_styles = QStyleFactory.keys()
 print(f"Available styles: {available_styles}")
 
-# Применить стиль
+# Apply style
 app = QApplication.instance()
 app.setStyle("Fusion")
 
-# Применить кастомную тему
+# Apply custom theme
 from utils.theme import ThemeManager
 ThemeManager.toggle_theme(app, dark_mode=True)
 ```
 
 ## Dark Mode
 
-**Dark Mode** (темная тема) работает только с **Fluent Design (Custom)** стилем:
-- Переключается через **View** → **Dark Mode**
-- По умолчанию включена
-- Оптимизирована для длительной работы
+**Dark Mode** works only with **Fluent Design (Custom)** style:
+- Toggle via **View** → **Dark Mode**
+- Enabled by default
+- Optimized for extended use
 
-**Примечание**: Нативные Qt стили (Windows, Fusion и т.д.) используют собственную цветовую схему и не поддерживают наше переключение темы.
+**Note**: Native Qt styles (Windows, Fusion, etc.) use their own color schemes and don't support our theme toggle.
 
-## Известные особенности
+## Known Features
 
 ### Fluent Design (Custom):
-- ✅ Полная поддержка всех контролов
-- ✅ Оптимизированные цвета для темной темы
-- ✅ Консистентный внешний вид
-- ⚠️ Может выглядеть иначе на non-Windows платформах
+- Full support for all controls
+- Optimized colors for dark theme
+- Consistent appearance
+- May look different on non-Windows platforms
 
 ### Qt Native Styles:
-- ✅ Быстрые и легкие
-- ✅ Нативная интеграция с ОС
-- ⚠️ Могут игнорировать кастомные цвета
-- ⚠️ Разный внешний вид на разных платформах
+- Fast and lightweight
+- Native OS integration
+- May ignore custom colors
+- Different appearance on different platforms
 
-## Производительность
+## Performance
 
-Все стили оптимизированы и не влияют заметно на производительность:
-- **Fluent Design**: ~10-15ms для применения stylesheet
-- **Fusion**: ~5ms нативный рендеринг
-- **Windows**: ~3ms нативный рендеринг
+All styles are optimized and don't noticeably affect performance:
+- **Fluent Design**: ~10-15ms to apply stylesheet
+- **Fusion**: ~5ms native rendering
+- **Windows**: ~3ms native rendering
 
-Переключение между стилями происходит мгновенно без перезапуска приложения.
+Switching between styles happens instantly without restarting the application.

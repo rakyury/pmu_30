@@ -4,9 +4,9 @@
 
 ### 1. Fluent Design (Windows 11) Theme Applied
 
-Применена тема Microsoft Fluent Design для Windows 11 с современным и профессиональным внешним видом.
+Applied Microsoft Fluent Design theme for Windows 11 with modern and professional appearance.
 
-**Цветовая палитра Windows 11:**
+**Windows 11 Color Palette:**
 - Background: `#202020` (App Background)
 - Surface: `#2c2c2c` (Card Background)
 - Text: `#ffffff` (Primary Text)
@@ -15,48 +15,48 @@
 - Borders: `#3d3d3d` (Subtle)
 - Disabled: `#7a7a7a`
 
-**Ключевые особенности Fluent Design:**
-- **Acrylic Material**: Полупрозрачные фоны для QGroupBox - `rgba(44, 44, 44, 180)`
-- **Rounded Corners**: Закругленные углы 8px для карточек, 4px для контролов
-- **Reveal Highlight**: Subtle hover эффекты с `rgba(255, 255, 255, 0.05-0.08)`
-- **Depth & Shadows**: Визуальная глубина через градации фона
-- **Accent Color**: Windows Blue (#0078d4) для интерактивных элементов
+**Key Fluent Design Features:**
+- **Acrylic Material**: Semi-transparent backgrounds for QGroupBox - `rgba(44, 44, 44, 180)`
+- **Rounded Corners**: 8px for cards, 4px for controls
+- **Reveal Highlight**: Subtle hover effects with `rgba(255, 255, 255, 0.05-0.08)`
+- **Depth & Shadows**: Visual depth through background gradations
+- **Accent Color**: Windows Blue (#0078d4) for interactive elements
 
-**Компоненты:**
+**Components:**
 - **QPushButton**: Windows Blue (#0078d4), hover: #1a86d9, pressed: #005a9e
-- **QGroupBox**: Acrylic фон с закруглением 8px, padding 16px
-- **QCheckBox**: Индикаторы 20x20px с Windows Blue заливкой при выборе
+- **QGroupBox**: Acrylic background with 8px rounding, 16px padding
+- **QCheckBox**: 20x20px indicators with Windows Blue fill when selected
 - **QLineEdit/QSpinBox/QComboBox**:
-  - Темный фон (#2c2c2c) с нижней границей
-  - Hover: подсветка нижней границы
-  - Focus: нижняя граница Windows Blue
-  - Стрелки: серые (#a0a0a0), белые при hover
+  - Dark background (#2c2c2c) with bottom border
+  - Hover: bottom border highlight
+  - Focus: Windows Blue bottom border
+  - Arrows: gray (#a0a0a0), white on hover
 - **QMenuBar/QMenu**:
-  - Темный фон с subtle hover эффектами
-  - Закругленные углы 8px для меню
-  - Separator линии между элементами
+  - Dark background with subtle hover effects
+  - 8px rounded corners for menus
+  - Separator lines between items
 - **QTabBar**:
-  - Прозрачный фон
-  - Активная вкладка: 3px синее подчеркивание снизу
-  - Subtle hover эффект
+  - Transparent background
+  - Active tab: 3px blue underline at bottom
+  - Subtle hover effect
 - **QScrollBar**:
-  - Прозрачный track
-  - Закругленные handle серого цвета
-  - Минимальный размер 12px
+  - Transparent track
+  - Gray rounded handle
+  - Minimum size 12px
 - **QTableWidget**:
-  - Альтернативные строки (#2c2c2c / #282828)
-  - Selection: полупрозрачный Windows Blue
-  - Hover: subtle подсветка строки
+  - Alternating rows (#2c2c2c / #282828)
+  - Selection: semi-transparent Windows Blue
+  - Hover: subtle row highlight
 
-**Размеры и отступы:**
-- Окно по умолчанию: 40% от размера экрана, центрировано
-- Padding контролов: 8px
-- Border radius: 4px (контролы), 8px (карточки)
-- Font size: 14px (основной), 13px (вторичный)
+**Sizes and Spacing:**
+- Default window: 40% of screen size, centered
+- Control padding: 8px
+- Border radius: 4px (controls), 8px (cards)
+- Font size: 14px (primary), 13px (secondary)
 
 ### 2. Toolbar Removed - All Functions in Menu
 
-Убран toolbar для чистого интерфейса. Все функции перенесены в меню:
+Removed toolbar for clean interface. All functions moved to menu:
 
 **File Menu:**
 - New Configuration (Ctrl+N)
@@ -124,38 +124,38 @@ Tests verify:
 **File:** [hbridge_tab.py](../src/ui/tabs/hbridge_tab.py)
 **Dialog:** [hbridge_dialog.py](../src/ui/dialogs/hbridge_dialog.py)
 
-Полноценная конфигурация 4 каналов H-Bridge для управления DC моторами:
+Full-featured configuration of 4 H-Bridge channels for DC motor control:
 
-**Основные возможности:**
-- 4 независимых канала H-Bridge
-- Режимы работы: Disabled, Forward Only, Reverse Only, Bidirectional
-- PWM управление скоростью (0-100%)
-- Настраиваемая частота PWM: 100 Hz, 500 Hz, 1 kHz, 5 kHz, 10 kHz, 20 kHz
-- Входы управления: Physical Input, Virtual Channel, CAN Signal, Manual
-- Раздельные входы для Forward, Reverse и Speed control
+**Main Features:**
+- 4 independent H-Bridge channels
+- Operating modes: Disabled, Forward Only, Reverse Only, Bidirectional
+- PWM speed control (0-100%)
+- Configurable PWM frequency: 100 Hz, 500 Hz, 1 kHz, 5 kHz, 10 kHz, 20 kHz
+- Control inputs: Physical Input, Virtual Channel, CAN Signal, Manual
+- Separate inputs for Forward, Reverse and Speed control
 
-**Защита и безопасность:**
-- Ограничение тока (0.1-50.0 A)
+**Protection and Safety:**
+- Current limiting (0.1-50.0 A)
 - Thermal protection
-- Действие при перегрузке: Disable Output, Reduce Power, Log Only
+- Overload action: Disable Output, Reduce Power, Log Only
 
-**Расширенные функции:**
+**Advanced Features:**
 - Soft Start/Stop time (0-5000 ms)
-- Active Braking (короткое замыкание для торможения)
+- Active Braking (short circuit for braking)
 - Invert Direction
-- Min/Max duty cycle ограничения
+- Min/Max duty cycle limits
 
-**UI особенности:**
-- Таблица с отображением всех 4 каналов
-- Копирование конфигурации между каналами
-- Индивидуальный сброс или сброс всех каналов
-- Статистика: включенные каналы и общий лимит тока
+**UI Features:**
+- Table showing all 4 channels
+- Copy configuration between channels
+- Individual reset or reset all channels
+- Statistics: enabled channels and total current limit
 
 ### 7. Settings Tab - System Configuration
 
 **File:** [settings_tab.py](../src/ui/tabs/settings_tab.py)
 
-Комплексные настройки системы с прокруткой:
+Comprehensive system settings with scrolling:
 
 **Device Information:**
 - Device Name, Description, Serial Number
@@ -164,15 +164,15 @@ Tests verify:
 **CAN Bus Settings:**
 - Bitrate: 125/250/500/1000 kbps
 - Node ID (0-127)
-- 120Ω Terminator enable/disable
+- 120 Terminator enable/disable
 - Listen Only Mode
 - Automatic Retransmission
 
 **Power Settings:**
 - Nominal Voltage (6.0-36.0 V)
 - Low Voltage Warning threshold
-- Low Voltage Cutoff (защита)
-- High Voltage Cutoff (защита)
+- Low Voltage Cutoff (protection)
+- High Voltage Cutoff (protection)
 
 **System Settings:**
 - Units: Metric (°C, km/h) / Imperial (°F, mph)
@@ -190,23 +190,23 @@ Tests verify:
 - Reset to Factory calibration
 
 **About Section:**
-- Версия конфигуратора: 1.0.0
+- Configurator version: 1.0.0
 - © 2025 R2 m-sport
-- Спецификации устройства
-- Список возможностей
+- Device specifications
+- Feature list
 
 ### 8. All Major Tabs Completed
 
-Полный комплект функциональных вкладок:
-- ✅ **Monitor** - Real-time monitoring
-- ✅ **Outputs (30)** - PROFET High-Side outputs
-- ✅ **H-Bridge (4x)** - DC Motor control
-- ✅ **Inputs (20)** - Analog/Digital inputs
-- ✅ **CAN Bus** - Message/Signal configuration, DBC import/export
-- ✅ **Logic Engine** - 256 virtual channels, 16 operations
-- ✅ **PID Controllers** - Closed-loop control with anti-windup
-- ✅ **Lua Scripts** - LUA 5.4 scripting with API access
-- ✅ **Settings** - System, CAN, Power, Safety configuration
+Full set of functional tabs:
+- **Monitor** - Real-time monitoring
+- **Outputs (30)** - PROFET High-Side outputs
+- **H-Bridge (4x)** - DC Motor control
+- **Inputs (20)** - Analog/Digital inputs
+- **CAN Bus** - Message/Signal configuration, DBC import/export
+- **Logic Engine** - 256 virtual channels, 16 operations
+- **PID Controllers** - Closed-loop control with anti-windup
+- **Lua Scripts** - LUA 5.4 scripting with API access
+- **Settings** - System, CAN, Power, Safety configuration
 
 ### 9. User Experience Improvements
 

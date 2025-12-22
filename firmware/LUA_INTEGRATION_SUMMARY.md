@@ -8,80 +8,80 @@
 
 ## Overview
 
-Полная интеграция Lua 5.4 scripting engine в прошивку PMU-30 для создания гибкой логики управления без перекомпиляции.
+Complete integration of Lua 5.4 scripting engine into PMU-30 firmware for flexible control logic without recompilation.
 
 ---
 
-## Созданные Файлы
+## Created Files
 
-### 1. Модуль Lua Scripting
+### 1. Lua Scripting Module
 
-**[include/pmu_lua.h](c:\Projects\pmu_30\firmware\include\pmu_lua.h)** (320 строк)
-- Определения API для Lua scripting
-- Типы данных: `PMU_Lua_Status_t`, `PMU_Lua_ScriptInfo_t`, `PMU_Lua_Stats_t`
-- 16 публичных функций
-- Константы: максимум 8 скриптов, 32KB на скрипт, 128KB памяти
+**[include/pmu_lua.h](include/pmu_lua.h)** (320 lines)
+- API definitions for Lua scripting
+- Data types: `PMU_Lua_Status_t`, `PMU_Lua_ScriptInfo_t`, `PMU_Lua_Stats_t`
+- 16 public functions
+- Constants: max 8 scripts, 32KB per script, 128KB memory
 
-**[src/pmu_lua.c](c:\Projects\pmu_30\firmware\src\pmu_lua.c)** (680 строк)
-- Полная реализация Lua engine wrapper
-- Управление жизненным циклом скриптов
-- 9 Lua API функций (setOutput, getInput, getVirtual, и т.д.)
-- Sandboxing и timeout protection
-- Статистика выполнения
-- Готово для интеграции с Lua 5.4 библиотекой
+**[src/pmu_lua.c](src/pmu_lua.c)** (680 lines)
+- Complete Lua engine wrapper implementation
+- Script lifecycle management
+- 9 Lua API functions (setOutput, getInput, getVirtual, etc.)
+- Sandboxing and timeout protection
+- Execution statistics
+- Ready for Lua 5.4 library integration
 
-### 2. Примеры Lua Скриптов
+### 2. Lua Script Examples
 
-**[scripts/example_basic.lua](c:\Projects\pmu_30\firmware\scripts\example_basic.lua)**
-- Простой пример чтения входов и управления выходами
-- Использование virtual channels
-- Базовое логирование
+**[scripts/example_basic.lua](scripts/example_basic.lua)**
+- Simple example of reading inputs and controlling outputs
+- Virtual channel usage
+- Basic logging
 
-**[scripts/example_pwm_control.lua](c:\Projects\pmu_30\firmware\scripts\example_pwm_control.lua)**
-- Управление PWM на основе температуры
-- Линейная интерполяция
-- Автоматическое управление вентилятором
+**[scripts/example_pwm_control.lua](scripts/example_pwm_control.lua)**
+- PWM control based on temperature
+- Linear interpolation
+- Automatic fan control
 
-**[scripts/example_state_machine.lua](c:\Projects\pmu_30\firmware\scripts\example_state_machine.lua)**
-- Сложная state machine для запуска двигателя
-- Последовательная активация выходов
+**[scripts/example_state_machine.lua](scripts/example_state_machine.lua)**
+- Complex state machine for engine start
+- Sequential output activation
 - Safety interlocks
-- Обработка таймаутов
+- Timeout handling
 
-**[scripts/example_can_processing.lua](c:\Projects\pmu_30\firmware\scripts\example_can_processing.lua)**
-- Обработка CAN сигналов
+**[scripts/example_can_processing.lua](scripts/example_can_processing.lua)**
+- CAN signal processing
 - Shift light control
 - Launch control (2-step)
 - Traction control logic
 
-### 3. Документация
+### 3. Documentation
 
-**[LUA_SCRIPTING_GUIDE.md](c:\Projects\pmu_30\firmware\LUA_SCRIPTING_GUIDE.md)** (800+ строк)
-- Полное руководство пользователя
+**[LUA_SCRIPTING_GUIDE.md](LUA_SCRIPTING_GUIDE.md)** (800+ lines)
+- Complete user guide
 - API Reference
 - Best practices
 - Performance guidelines
 - Troubleshooting
-- Примеры кода
+- Code examples
 - Safety and sandboxing
 
 ---
 
-## Интеграция с Основной Прошивкой
+## Integration with Main Firmware
 
-### Изменения в [main.c](c:\Projects\pmu_30\firmware\src\main.c)
+### Changes in [main.c](src/main.c)
 
-1. **Добавлен include:**
+1. **Added include:**
 ```c
 #include "pmu_lua.h"
 ```
 
-2. **Инициализация в main():**
+2. **Initialization in main():**
 ```c
 PMU_Lua_Init();  /* Initialize Lua scripting engine */
 ```
 
-3. **Обновление в Control Task (500Hz):**
+3. **Update in Control Task (500Hz):**
 ```c
 if (++logic_counter >= 2) {
     logic_counter = 0;
@@ -92,9 +92,9 @@ if (++logic_counter >= 2) {
 
 ---
 
-## Архитектура
+## Architecture
 
-### Компоненты
+### Components
 
 ```
 ┌─────────────────────────────────────┐
@@ -141,7 +141,7 @@ if (++logic_counter >= 2) {
                └─► PMU_UI (logging)
 ```
 
-### Поток Выполнения
+### Execution Flow
 
 ```
 System Boot
@@ -177,26 +177,26 @@ Update Statistics
 
 ---
 
-## Функциональность
+## Functionality
 
-### Поддерживаемые Возможности
+### Supported Features
 
-✅ **Управление Скриптами**
-- Загрузка из строки (RAM)
-- Загрузка из файла (SD card - TODO)
-- Выгрузка скриптов
+**Script Management**
+- Load from string (RAM)
+- Load from file (SD card - TODO)
+- Unload scripts
 - Enable/disable
-- Auto-run флаг
-- До 8 одновременных скриптов
+- Auto-run flag
+- Up to 8 concurrent scripts
 
-✅ **Выполнение**
+**Execution**
 - Periodic execution @ 500Hz
 - Manual trigger
 - Timeout protection (10ms)
 - Sandboxing (restricted stdlib)
 - Error handling
 
-✅ **PMU API (9 функций)**
+**PMU API (9 functions)**
 - I/O control (setOutput, getInput)
 - Virtual channels (getVirtual, setVirtual)
 - System info (getVoltage, getTemperature)
@@ -204,7 +204,7 @@ Update Statistics
 - Logging (log)
 - Timing (delay - discouraged)
 
-✅ **Статистика**
+**Statistics**
 - Total scripts loaded
 - Active scripts
 - Memory usage
@@ -212,7 +212,7 @@ Update Statistics
 - Error count
 - Max execution time
 
-✅ **Safety Features**
+**Safety Features**
 - Execution timeout (10ms)
 - Memory limits (128KB)
 - Script size limits (32KB)
@@ -221,51 +221,51 @@ Update Statistics
 
 ---
 
-## API Функции
+## API Functions
 
 ### Lua API Summary
 
-| Функция | Параметры | Возврат | Описание |
-|---------|-----------|---------|----------|
-| `setOutput` | channel, state, pwm | - | Управление выходом |
-| `getInput` | channel | value (0-4095) | Чтение ADC |
-| `getVirtual` | channel | value (int32) | Чтение virtual channel |
-| `setVirtual` | channel, value | - | Запись virtual channel |
-| `getVoltage` | - | voltage (mV) | Напряжение батареи |
-| `getTemperature` | - | temp (°C) | Температура платы |
-| `log` | message | - | Логирование |
-| `delay` | milliseconds | - | Задержка (избегать!) |
-| `sendCAN` | bus, id, data | - | Отправка CAN |
+| Function | Parameters | Return | Description |
+|----------|------------|--------|-------------|
+| `setOutput` | channel, state, pwm | - | Output control |
+| `getInput` | channel | value (0-4095) | Read ADC |
+| `getVirtual` | channel | value (int32) | Read virtual channel |
+| `setVirtual` | channel, value | - | Write virtual channel |
+| `getVoltage` | - | voltage (mV) | Battery voltage |
+| `getTemperature` | - | temp (°C) | Board temperature |
+| `log` | message | - | Logging |
+| `delay` | milliseconds | - | Delay (avoid!) |
+| `sendCAN` | bus, id, data | - | Send CAN |
 
 ### C API Summary
 
-| Функция | Описание |
-|---------|----------|
-| `PMU_Lua_Init()` | Инициализация Lua engine |
-| `PMU_Lua_Deinit()` | Деинициализация |
-| `PMU_Lua_LoadScript()` | Загрузка из строки |
-| `PMU_Lua_LoadScriptFromFile()` | Загрузка из файла |
-| `PMU_Lua_UnloadScript()` | Выгрузка скрипта |
-| `PMU_Lua_ExecuteScript()` | Выполнение по имени |
-| `PMU_Lua_ExecuteCode()` | Выполнение кода напрямую |
+| Function | Description |
+|----------|-------------|
+| `PMU_Lua_Init()` | Initialize Lua engine |
+| `PMU_Lua_Deinit()` | Deinitialize |
+| `PMU_Lua_LoadScript()` | Load from string |
+| `PMU_Lua_LoadScriptFromFile()` | Load from file |
+| `PMU_Lua_UnloadScript()` | Unload script |
+| `PMU_Lua_ExecuteScript()` | Execute by name |
+| `PMU_Lua_ExecuteCode()` | Execute code directly |
 | `PMU_Lua_Update()` | Periodic update (500Hz) |
 | `PMU_Lua_SetScriptEnabled()` | Enable/disable |
-| `PMU_Lua_SetScriptAutoRun()` | Auto-run флаг |
-| `PMU_Lua_GetScriptInfo()` | Информация о скрипте |
-| `PMU_Lua_GetStats()` | Статистика |
-| `PMU_Lua_ListScripts()` | Список скриптов |
-| `PMU_Lua_ClearErrors()` | Очистка ошибок |
-| `PMU_Lua_GetLastError()` | Последняя ошибка |
-| `PMU_Lua_RegisterFunction()` | Регистрация C функции |
+| `PMU_Lua_SetScriptAutoRun()` | Auto-run flag |
+| `PMU_Lua_GetScriptInfo()` | Script information |
+| `PMU_Lua_GetStats()` | Statistics |
+| `PMU_Lua_ListScripts()` | List scripts |
+| `PMU_Lua_ClearErrors()` | Clear errors |
+| `PMU_Lua_GetLastError()` | Last error |
+| `PMU_Lua_RegisterFunction()` | Register C function |
 
 ---
 
-## Примеры Использования
+## Usage Examples
 
-### Базовый Пример
+### Basic Example
 
 ```lua
--- Управление LED по кнопке
+-- LED control by button
 local button = getInput(0)
 if button > 2048 then
     setOutput(5, 1, 0)  -- LED ON
@@ -274,10 +274,10 @@ else
 end
 ```
 
-### PWM Управление
+### PWM Control
 
 ```lua
--- Вентилятор по температуре
+-- Fan by temperature
 local temp = getTemperature()
 local pwm = 0
 
@@ -312,39 +312,39 @@ end
 
 ---
 
-## Требования для Завершения Интеграции
+## Requirements for Integration Completion
 
-### TODO: Добавить Lua Library
+### TODO: Add Lua Library
 
-**Шаги:**
+**Steps:**
 
-1. **Добавить Lua 5.4 в проект:**
+1. **Add Lua 5.4 to project:**
 ```ini
 # platformio.ini
 lib_deps =
     Lua=https://github.com/lua/lua.git#v5.4.6
 ```
 
-2. **Раскомментировать includes в pmu_lua.c:**
+2. **Uncomment includes in pmu_lua.c:**
 ```c
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
 ```
 
-3. **Раскомментировать Lua API calls:**
+3. **Uncomment Lua API calls:**
 - `lua_newstate()`
 - `luaL_openlibs()`
 - `lua_register()`
 - `luaL_loadbuffer()`
 - `lua_pcall()`
-- и т.д.
+- etc.
 
-4. **Имплементировать custom allocator для 128KB pool**
+4. **Implement custom allocator for 128KB pool**
 
-5. **Тестирование:**
-   - Загрузка скриптов
-   - Выполнение
+5. **Testing:**
+   - Script loading
+   - Execution
    - Timeout protection
    - Memory management
 
@@ -354,7 +354,7 @@ lib_deps =
 
 ### Timing
 
-- **Update Rate**: 500Hz (2ms период)
+- **Update Rate**: 500Hz (2ms period)
 - **Max Execution Time**: 10ms per cycle
 - **Typical Execution**: 0.5-2ms for simple scripts
 - **Timeout Protection**: Scripts terminated after 10ms
@@ -402,44 +402,9 @@ lib_deps =
 
 ---
 
-## Использование с Configurator
-
-### UI Features (Planned)
-
-```
-┌─────────────────────────────────────┐
-│  PMU Configurator - Scripts Tab     │
-├─────────────────────────────────────┤
-│                                     │
-│  [Script Editor]                    │
-│  ┌────────────────────────────────┐ │
-│  │ function main()                │ │
-│  │     local input = getInput(0)  │ │
-│  │     ...                        │ │
-│  └────────────────────────────────┘ │
-│                                     │
-│  [Syntax Check] [Upload] [Test]    │
-│                                     │
-│  Virtual Channels Monitor:         │
-│  ┌────────────────────────────────┐ │
-│  │ CH 0: 1234  (counter)          │ │
-│  │ CH 1: 5678  (state)            │ │
-│  │ CH 100: 6500 (CAN RPM)         │ │
-│  └────────────────────────────────┘ │
-│                                     │
-│  Performance:                       │
-│  Exec Time: 1.2ms / 10ms            │
-│  Memory: 12KB / 128KB               │
-│  Scripts: 3 / 8                     │
-└─────────────────────────────────────┘
-```
-
----
-
 ## Best Practices
 
-### ✅ DO
-
+### DO
 - Use virtual channels for state
 - Keep scripts under 10ms
 - Use counter-based timing
@@ -447,8 +412,7 @@ lib_deps =
 - Log important events
 - Profile performance
 
-### ❌ DON'T
-
+### DON'T
 - Use global variables
 - Call delay() in loops
 - Do heavy math
@@ -505,27 +469,27 @@ lib_deps =
 
 ## Conclusion
 
-Lua scripting integration полностью готов на уровне framework. Для завершения требуется:
+Lua scripting integration is complete at framework level. To finish:
 
-1. ✅ API дизайн - Завершено
-2. ✅ C wrapper - Завершено
-3. ✅ Примеры - Завершено
-4. ✅ Документация - Завершено
-5. ✅ Интеграция в main - Завершено
-6. ⏳ Lua library - Требуется добавить
-7. ⏳ Тестирование - После добавления library
+1. API design - Complete
+2. C wrapper - Complete
+3. Examples - Complete
+4. Documentation - Complete
+5. Main integration - Complete
+6. Lua library - Needs to be added
+7. Testing - After library addition
 
-**Следующий шаг**: Добавить Lua 5.4 library в проект и раскомментировать TODO блоки.
+**Next step**: Add Lua 5.4 library to project and uncomment TODO blocks.
 
 ---
 
-**Файлы проекта:**
-- [pmu_lua.h](c:\Projects\pmu_30\firmware\include\pmu_lua.h) - 320 строк
-- [pmu_lua.c](c:\Projects\pmu_30\firmware\src\pmu_lua.c) - 680 строк
-- [example_basic.lua](c:\Projects\pmu_30\firmware\scripts\example_basic.lua)
-- [example_pwm_control.lua](c:\Projects\pmu_30\firmware\scripts\example_pwm_control.lua)
-- [example_state_machine.lua](c:\Projects\pmu_30\firmware\scripts\example_state_machine.lua)
-- [example_can_processing.lua](c:\Projects\pmu_30\firmware\scripts\example_can_processing.lua)
-- [LUA_SCRIPTING_GUIDE.md](c:\Projects\pmu_30\firmware\LUA_SCRIPTING_GUIDE.md) - 800+ строк
+**Project files:**
+- [pmu_lua.h](include/pmu_lua.h) - 320 lines
+- [pmu_lua.c](src/pmu_lua.c) - 680 lines
+- [example_basic.lua](scripts/example_basic.lua)
+- [example_pwm_control.lua](scripts/example_pwm_control.lua)
+- [example_state_machine.lua](scripts/example_state_machine.lua)
+- [example_can_processing.lua](scripts/example_can_processing.lua)
+- [LUA_SCRIPTING_GUIDE.md](LUA_SCRIPTING_GUIDE.md) - 800+ lines
 
-**Общий объем работы**: ~2800 строк кода и документации 🚀
+**Total work**: ~2800 lines of code and documentation
