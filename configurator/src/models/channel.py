@@ -122,6 +122,41 @@ class EdgeType(Enum):
     BOTH = "both"
 
 
+# ============================================================================
+# CAN Message/Input Types (Two-Level Architecture)
+# ============================================================================
+
+class CanMessageType(Enum):
+    """CAN Message types"""
+    NORMAL = "normal"           # Standard single-frame message
+    COMPOUND = "compound"       # Multiplexed message (multiple IDs)
+    PMU1_RX = "pmu1_rx"        # Predefined PMU1 receive format
+    PMU2_RX = "pmu2_rx"        # Predefined PMU2 receive format
+    PMU3_RX = "pmu3_rx"        # Predefined PMU3 receive format
+
+
+class CanTimeoutBehavior(Enum):
+    """Timeout behavior for CAN inputs"""
+    USE_DEFAULT = "use_default"
+    HOLD_LAST = "hold_last"
+    SET_ZERO = "set_zero"
+
+
+class CanDataType(Enum):
+    """CAN signal data types"""
+    UNSIGNED = "unsigned"
+    SIGNED = "signed"
+    FLOAT = "float"
+
+
+class CanDataFormat(Enum):
+    """Predefined data formats"""
+    BIT_8 = "8bit"
+    BIT_16 = "16bit"
+    BIT_32 = "32bit"
+    CUSTOM = "custom"
+
+
 class TimerMode(Enum):
     """Timer counting modes"""
     COUNT_UP = "count_up"
@@ -1081,55 +1116,261 @@ class SwitchChannel(ChannelBase):
         return channels
 
 
+# ============================================================================
+# CAN Message Object (Level 1 - Container)
+# ============================================================================
+
+@dataclass
+class CanMessage:
+    """CAN Message Object - defines CAN frame structure (Level 1)
+
+    This is NOT a channel, but a container for CAN frame properties.
+    Multiple CanRxChannels (CAN Inputs) can reference the same CanMessage.
+    """
+    id: str                                    # Unique message ID (e.g., "msg_ecu_base")
+    name: str = ""                             # Human-readable name
+    can_bus: int = 1                           # CAN bus (1-4)
+    base_id: int = 0                           # Base CAN ID (11-bit or 29-bit)
+    is_extended: bool = False                  # Extended (29-bit) ID
+    message_type: CanMessageType = CanMessageType.NORMAL
+    frame_count: int = 1                       # 1-8 for compound messages
+    dlc: int = 8                               # Data Length Code (0-64)
+    timeout_ms: int = 500                      # Reception timeout
+    enabled: bool = True
+    description: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "can_bus": self.can_bus,
+            "base_id": self.base_id,
+            "is_extended": self.is_extended,
+            "message_type": self.message_type.value,
+            "frame_count": self.frame_count,
+            "dlc": self.dlc,
+            "timeout_ms": self.timeout_ms,
+            "enabled": self.enabled,
+            "description": self.description
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CanMessage':
+        """Create from dictionary"""
+        msg_type_str = data.get("message_type", "normal")
+        try:
+            msg_type = CanMessageType(msg_type_str)
+        except ValueError:
+            msg_type = CanMessageType.NORMAL
+
+        return cls(
+            id=data.get("id", ""),
+            name=data.get("name", ""),
+            can_bus=data.get("can_bus", 1),
+            base_id=data.get("base_id", 0),
+            is_extended=data.get("is_extended", False),
+            message_type=msg_type,
+            frame_count=data.get("frame_count", 1),
+            dlc=data.get("dlc", 8),
+            timeout_ms=data.get("timeout_ms", 500),
+            enabled=data.get("enabled", True),
+            description=data.get("description", "")
+        )
+
+    def validate(self) -> List[str]:
+        """Validate configuration, return list of errors"""
+        errors = []
+        if not self.id:
+            errors.append("Message ID is required")
+        if not self.id.replace("_", "").isalnum():
+            errors.append("Message ID must contain only letters, numbers, and underscores")
+        if self.can_bus < 1 or self.can_bus > 4:
+            errors.append("CAN bus must be between 1 and 4")
+        if self.is_extended:
+            if self.base_id < 0 or self.base_id > 0x1FFFFFFF:
+                errors.append("Extended CAN ID must be between 0 and 0x1FFFFFFF")
+        else:
+            if self.base_id < 0 or self.base_id > 0x7FF:
+                errors.append("Standard CAN ID must be between 0 and 0x7FF")
+        if self.frame_count < 1 or self.frame_count > 8:
+            errors.append("Frame count must be between 1 and 8")
+        if self.dlc < 0 or self.dlc > 64:
+            errors.append("DLC must be between 0 and 64")
+        if self.timeout_ms < 0 or self.timeout_ms > 65535:
+            errors.append("Timeout must be between 0 and 65535 ms")
+        return errors
+
+    def get_id_string(self) -> str:
+        """Get formatted CAN ID string (hex)"""
+        if self.is_extended:
+            return f"0x{self.base_id:08X}"
+        return f"0x{self.base_id:03X}"
+
+
+# ============================================================================
+# CAN Input Channel (Level 2 - Signal Extraction)
+# ============================================================================
+
 @dataclass
 class CanRxChannel(ChannelBase):
-    """CAN receive channel"""
-    can_bus: int = 1  # 1 or 2
-    message_id: int = 0
-    is_extended: bool = False
+    """CAN Input (Signal) - extracts data from CAN Message Object (Level 2)
+
+    New architecture: References a CanMessage by message_ref.
+    Legacy fields (can_bus, message_id, is_extended) kept for backwards compatibility.
+    """
+    # New fields - Message reference
+    message_ref: str = ""                      # Reference to CanMessage.id
+
+    # Frame offset (for compound/multiplexed messages)
+    frame_offset: int = 0                      # +0 to +7 for compound messages
+
+    # Data extraction
+    data_type: CanDataType = CanDataType.UNSIGNED
+    data_format: CanDataFormat = CanDataFormat.BIT_16
+    byte_order: str = "little_endian"          # little_endian or big_endian
+    byte_offset: int = 0                       # 0-7 byte position
+
+    # Custom bitfield (when data_format == CUSTOM)
     start_bit: int = 0
-    length: int = 8
-    byte_order: str = "little_endian"
-    value_type: str = "unsigned"  # unsigned, signed, float
-    factor: float = 1.0
+    bit_length: int = 16
+
+    # Scaling (Ecumaster style: multiplier/divider instead of factor)
+    multiplier: float = 1.0
+    divider: float = 1.0
     offset: float = 0.0
-    timeout_ms: int = 1000
+    decimal_places: int = 0
+
+    # Units/Quantity
+    quantity: str = ""                         # e.g., "Temperature", "Pressure"
+    unit: str = ""                             # e.g., "degC", "bar"
+
+    # Timeout behavior
+    default_value: float = 0.0
+    timeout_behavior: CanTimeoutBehavior = CanTimeoutBehavior.USE_DEFAULT
+
+    # Legacy fields (kept for backwards compatibility / migration)
+    can_bus: int = 1                           # Deprecated - use message_ref
+    message_id: int = 0                        # Deprecated - use message_ref
+    is_extended: bool = False                  # Deprecated - use message_ref
+    length: int = 8                            # Deprecated - use bit_length
+    value_type: str = "unsigned"               # Deprecated - use data_type
+    factor: float = 1.0                        # Deprecated - use multiplier
+    timeout_ms: int = 1000                     # Deprecated - use CanMessage.timeout_ms
 
     def __post_init__(self):
         self.channel_type = ChannelType.CAN_RX
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
+
+        # New architecture fields (always saved)
         data.update({
-            "can_bus": self.can_bus,
-            "message_id": self.message_id,
-            "is_extended": self.is_extended,
-            "start_bit": self.start_bit,
-            "length": self.length,
+            "message_ref": self.message_ref,
+            "frame_offset": self.frame_offset,
+            "data_type": self.data_type.value if isinstance(self.data_type, CanDataType) else self.data_type,
+            "data_format": self.data_format.value if isinstance(self.data_format, CanDataFormat) else self.data_format,
             "byte_order": self.byte_order,
-            "value_type": self.value_type,
-            "factor": self.factor,
+            "byte_offset": self.byte_offset,
+            "start_bit": self.start_bit,
+            "bit_length": self.bit_length,
+            "multiplier": self.multiplier,
+            "divider": self.divider,
             "offset": self.offset,
-            "timeout_ms": self.timeout_ms
+            "decimal_places": self.decimal_places,
+            "quantity": self.quantity,
+            "unit": self.unit,
+            "default_value": self.default_value,
+            "timeout_behavior": self.timeout_behavior.value if isinstance(self.timeout_behavior, CanTimeoutBehavior) else self.timeout_behavior,
         })
+
+        # Legacy fields (for backwards compatibility)
+        if not self.message_ref:
+            # Only include legacy fields if message_ref is not set
+            data.update({
+                "can_bus": self.can_bus,
+                "message_id": self.message_id,
+                "is_extended": self.is_extended,
+                "length": self.length,
+                "value_type": self.value_type,
+                "factor": self.factor,
+                "timeout_ms": self.timeout_ms
+            })
+
         return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CanRxChannel':
+        # Parse data_type
+        data_type_str = data.get("data_type", data.get("value_type", "unsigned"))
+        try:
+            data_type = CanDataType(data_type_str)
+        except ValueError:
+            data_type = CanDataType.UNSIGNED
+
+        # Parse data_format
+        data_format_str = data.get("data_format", "16bit")
+        try:
+            data_format = CanDataFormat(data_format_str)
+        except ValueError:
+            data_format = CanDataFormat.BIT_16
+
+        # Parse timeout_behavior
+        timeout_beh_str = data.get("timeout_behavior", "use_default")
+        try:
+            timeout_behavior = CanTimeoutBehavior(timeout_beh_str)
+        except ValueError:
+            timeout_behavior = CanTimeoutBehavior.USE_DEFAULT
+
         return cls(
             id=data.get("id", ""),
             channel_type=ChannelType.CAN_RX,
+            # New fields
+            message_ref=data.get("message_ref", ""),
+            frame_offset=data.get("frame_offset", 0),
+            data_type=data_type,
+            data_format=data_format,
+            byte_order=data.get("byte_order", "little_endian"),
+            byte_offset=data.get("byte_offset", 0),
+            start_bit=data.get("start_bit", 0),
+            bit_length=data.get("bit_length", data.get("length", 16)),
+            multiplier=data.get("multiplier", data.get("factor", 1.0)),
+            divider=data.get("divider", 1.0),
+            offset=data.get("offset", 0.0),
+            decimal_places=data.get("decimal_places", 0),
+            quantity=data.get("quantity", ""),
+            unit=data.get("unit", ""),
+            default_value=data.get("default_value", 0.0),
+            timeout_behavior=timeout_behavior,
+            # Legacy fields
             can_bus=data.get("can_bus", 1),
             message_id=data.get("message_id", 0),
             is_extended=data.get("is_extended", False),
-            start_bit=data.get("start_bit", 0),
             length=data.get("length", 8),
-            byte_order=data.get("byte_order", "little_endian"),
             value_type=data.get("value_type", "unsigned"),
             factor=data.get("factor", 1.0),
-            offset=data.get("offset", 0.0),
             timeout_ms=data.get("timeout_ms", 1000)
         )
+
+    def validate(self) -> List[str]:
+        """Validate configuration, return list of errors"""
+        errors = super().validate()
+
+        # New architecture validation
+        if self.message_ref:
+            if self.frame_offset < 0 or self.frame_offset > 7:
+                errors.append("Frame offset must be between 0 and 7")
+            if self.byte_offset < 0 or self.byte_offset > 7:
+                errors.append("Byte offset must be between 0 and 7")
+            if self.data_format == CanDataFormat.CUSTOM:
+                if self.start_bit < 0 or self.start_bit > 63:
+                    errors.append("Start bit must be between 0 and 63")
+                if self.bit_length < 1 or self.bit_length > 64:
+                    errors.append("Bit length must be between 1 and 64")
+            if self.divider == 0:
+                errors.append("Divider cannot be zero")
+
+        return errors
 
 
 @dataclass

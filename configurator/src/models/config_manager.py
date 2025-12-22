@@ -1,6 +1,6 @@
 """
 PMU-30 Configuration Manager
-Version 2.0 - Unified Channel Architecture
+Version 3.0 - Unified Channel Architecture with CAN Message/Input Two-Level
 
 Owner: R2 m-sport
 """
@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
 from .config_schema import ConfigValidator, create_default_config
-from .channel import ChannelBase, ChannelType, ChannelFactory
+from .channel import ChannelBase, ChannelType, ChannelFactory, CanMessage
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,11 @@ class ConfigManager:
                 )
                 logger.error(error_msg)
                 return False, error_msg
+
+            # Migrate from v2.0 to v3.0 if needed
+            if version.startswith("2."):
+                loaded_config = self._migrate_v2_to_v3(loaded_config)
+                logger.info(f"Migrated configuration from v{version} to v3.0")
 
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
@@ -482,3 +487,182 @@ class ConfigManager:
             lines.append(f"  [{ch_type}] {ch_id}: {ch_name} ({enabled})")
 
         return "\n".join(lines)
+
+    # ========== CAN Message Methods (Level 1) ==========
+
+    def get_all_can_messages(self) -> List[Dict[str, Any]]:
+        """Get all CAN messages"""
+        return self.config.get("can_messages", [])
+
+    def get_can_message_by_id(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Get CAN message by ID"""
+        for msg in self.config.get("can_messages", []):
+            if msg.get("id") == message_id:
+                return msg
+        return None
+
+    def get_can_message_index(self, message_id: str) -> int:
+        """Get CAN message index by ID, returns -1 if not found"""
+        for i, msg in enumerate(self.config.get("can_messages", [])):
+            if msg.get("id") == message_id:
+                return i
+        return -1
+
+    def add_can_message(self, message_config: Dict[str, Any]) -> bool:
+        """Add new CAN message"""
+        if "can_messages" not in self.config:
+            self.config["can_messages"] = []
+
+        message_id = message_config.get("id", "")
+        if self.get_can_message_by_id(message_id):
+            logger.error(f"CAN message with ID '{message_id}' already exists")
+            return False
+
+        self.config["can_messages"].append(message_config)
+        self.modified = True
+        logger.info(f"Added CAN message: {message_id}")
+        return True
+
+    def update_can_message(self, message_id: str, message_config: Dict[str, Any]) -> bool:
+        """Update existing CAN message"""
+        index = self.get_can_message_index(message_id)
+        if index < 0:
+            logger.error(f"CAN message '{message_id}' not found")
+            return False
+
+        self.config["can_messages"][index] = message_config
+        self.modified = True
+        logger.info(f"Updated CAN message: {message_id}")
+        return True
+
+    def remove_can_message(self, message_id: str) -> bool:
+        """Remove CAN message"""
+        index = self.get_can_message_index(message_id)
+        if index < 0:
+            logger.error(f"CAN message '{message_id}' not found")
+            return False
+
+        self.config["can_messages"].pop(index)
+        self.modified = True
+        logger.info(f"Removed CAN message: {message_id}")
+        return True
+
+    def get_can_inputs_for_message(self, message_id: str) -> List[Dict[str, Any]]:
+        """Get all CAN RX channels that reference a specific message"""
+        can_inputs = []
+        for ch in self.config.get("channels", []):
+            if ch.get("channel_type") == "can_rx" and ch.get("message_ref") == message_id:
+                can_inputs.append(ch)
+        return can_inputs
+
+    def get_can_message_ids(self) -> List[str]:
+        """Get list of all CAN message IDs"""
+        return [msg.get("id", "") for msg in self.config.get("can_messages", [])]
+
+    def can_message_exists(self, message_id: str) -> bool:
+        """Check if CAN message with given ID exists"""
+        return self.get_can_message_by_id(message_id) is not None
+
+    # ========== Migration ==========
+
+    def _migrate_v2_to_v3(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Migrate v2.0 configuration to v3.0 (two-level CAN architecture)
+
+        Creates CAN message objects from existing can_rx channels and
+        updates can_rx channels to reference the new messages.
+        """
+        # Create can_messages array if not exists
+        if "can_messages" not in config:
+            config["can_messages"] = []
+
+        # Track unique messages (can_bus, message_id, is_extended) -> new_message_id
+        message_map = {}
+
+        channels = config.get("channels", [])
+
+        # First pass: collect unique CAN message combinations from can_rx channels
+        for ch in channels:
+            if ch.get("channel_type") == "can_rx" and not ch.get("message_ref"):
+                can_bus = ch.get("can_bus", 1)
+                old_msg_id = ch.get("message_id", 0)
+                is_extended = ch.get("is_extended", False)
+
+                key = (can_bus, old_msg_id, is_extended)
+
+                if key not in message_map:
+                    # Create new message ID
+                    new_msg_id = f"msg_can{can_bus}_{old_msg_id:03X}"
+
+                    # Ensure unique ID
+                    base_id = new_msg_id
+                    counter = 1
+                    while any(m.get("id") == new_msg_id for m in config["can_messages"]):
+                        new_msg_id = f"{base_id}_{counter}"
+                        counter += 1
+
+                    message_map[key] = new_msg_id
+
+                    # Create CAN message object
+                    can_message = {
+                        "id": new_msg_id,
+                        "name": f"CAN{can_bus} 0x{old_msg_id:03X}",
+                        "can_bus": can_bus,
+                        "base_id": old_msg_id,
+                        "is_extended": is_extended,
+                        "message_type": "normal",
+                        "frame_count": 1,
+                        "dlc": 8,
+                        "timeout_ms": ch.get("timeout_ms", 500),
+                        "enabled": True,
+                        "description": f"Auto-migrated from v2.0"
+                    }
+                    config["can_messages"].append(can_message)
+
+        # Second pass: update can_rx channels to reference messages
+        for ch in channels:
+            if ch.get("channel_type") == "can_rx" and not ch.get("message_ref"):
+                can_bus = ch.get("can_bus", 1)
+                old_msg_id = ch.get("message_id", 0)
+                is_extended = ch.get("is_extended", False)
+
+                key = (can_bus, old_msg_id, is_extended)
+
+                if key in message_map:
+                    # Add new fields
+                    ch["message_ref"] = message_map[key]
+                    ch["frame_offset"] = 0
+
+                    # Convert value_type to data_type if present
+                    if "value_type" in ch:
+                        ch["data_type"] = ch["value_type"]
+
+                    # Convert factor to multiplier if present
+                    if "factor" in ch and "multiplier" not in ch:
+                        ch["multiplier"] = ch["factor"]
+                        ch["divider"] = 1.0
+
+                    # Guess data_format from length
+                    length = ch.get("length", 16)
+                    if length == 8:
+                        ch["data_format"] = "8bit"
+                    elif length == 16:
+                        ch["data_format"] = "16bit"
+                    elif length == 32:
+                        ch["data_format"] = "32bit"
+                    else:
+                        ch["data_format"] = "custom"
+                        ch["bit_length"] = length
+
+                    # Calculate byte_offset from start_bit
+                    start_bit = ch.get("start_bit", 0)
+                    ch["byte_offset"] = start_bit // 8
+
+                    # Set default timeout behavior
+                    if "timeout_behavior" not in ch:
+                        ch["timeout_behavior"] = "use_default"
+
+        # Update version
+        config["version"] = "3.0"
+
+        return config

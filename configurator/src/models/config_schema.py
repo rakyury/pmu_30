@@ -8,7 +8,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# JSON Schema for PMU-30 Configuration v2.0
+# JSON Schema for PMU-30 Configuration v3.0
+# Updated to support two-level CAN Message/Input architecture
 PMU_CONFIG_SCHEMA = {
     "type": "object",
     "required": ["version", "device", "channels"],
@@ -27,6 +28,30 @@ PMU_CONFIG_SCHEMA = {
                 "hardware_revision": {"type": "string"},
                 "created": {"type": "string"},
                 "modified": {"type": "string"}
+            }
+        },
+        # CAN Messages (Level 1 - Message Objects)
+        "can_messages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "can_bus", "base_id"],
+                "properties": {
+                    "id": {"type": "string", "minLength": 1, "pattern": "^[a-zA-Z][a-zA-Z0-9_]*$"},
+                    "name": {"type": "string"},
+                    "can_bus": {"type": "integer", "minimum": 1, "maximum": 4},
+                    "base_id": {"type": "integer", "minimum": 0},
+                    "is_extended": {"type": "boolean"},
+                    "message_type": {
+                        "type": "string",
+                        "enum": ["normal", "compound", "pmu1_rx", "pmu2_rx", "pmu3_rx"]
+                    },
+                    "frame_count": {"type": "integer", "minimum": 1, "maximum": 8},
+                    "dlc": {"type": "integer", "minimum": 0, "maximum": 64},
+                    "timeout_ms": {"type": "integer", "minimum": 0, "maximum": 65535},
+                    "enabled": {"type": "boolean"},
+                    "description": {"type": "string"}
+                }
             }
         },
         "channels": {
@@ -232,15 +257,30 @@ CHANNEL_TYPE_SCHEMAS = {
         "state_default": {"type": "integer"}
     },
     "can_rx": {
-        "can_bus": {"type": "integer", "enum": [1, 2]},
+        # New architecture fields (v3.0)
+        "message_ref": {"type": "string"},  # Reference to can_messages[].id
+        "frame_offset": {"type": "integer", "minimum": 0, "maximum": 7},
+        "data_type": {"type": "string", "enum": ["unsigned", "signed", "float"]},
+        "data_format": {"type": "string", "enum": ["8bit", "16bit", "32bit", "custom"]},
+        "byte_order": {"type": "string", "enum": ["little_endian", "big_endian"]},
+        "byte_offset": {"type": "integer", "minimum": 0, "maximum": 7},
+        "start_bit": {"type": "integer", "minimum": 0, "maximum": 63},
+        "bit_length": {"type": "integer", "minimum": 1, "maximum": 64},
+        "multiplier": {"type": "number"},
+        "divider": {"type": "number"},
+        "offset": {"type": "number"},
+        "decimal_places": {"type": "integer", "minimum": 0, "maximum": 6},
+        "quantity": {"type": "string"},
+        "unit": {"type": "string"},
+        "default_value": {"type": "number"},
+        "timeout_behavior": {"type": "string", "enum": ["use_default", "hold_last", "set_zero"]},
+        # Legacy fields (v2.0 backwards compatibility)
+        "can_bus": {"type": "integer", "enum": [1, 2, 3, 4]},
         "message_id": {"type": "integer", "minimum": 0},
         "is_extended": {"type": "boolean"},
-        "start_bit": {"type": "integer", "minimum": 0, "maximum": 63},
         "length": {"type": "integer", "minimum": 1, "maximum": 64},
-        "byte_order": {"type": "string", "enum": ["little_endian", "big_endian"]},
         "value_type": {"type": "string", "enum": ["unsigned", "signed", "float"]},
         "factor": {"type": "number"},
-        "offset": {"type": "number"},
         "timeout_ms": {"type": "integer"}
     },
     "can_tx": {
@@ -341,6 +381,29 @@ class ConfigValidator:
             elif not device["name"]:
                 errors.append("device.name cannot be empty")
 
+        # Validate can_messages (Level 1)
+        can_messages = config.get("can_messages", [])
+        all_message_ids = set()
+        if isinstance(can_messages, list):
+            for i, msg in enumerate(can_messages):
+                if isinstance(msg, dict):
+                    msg_id = msg.get("id", "")
+                    if msg_id:
+                        if msg_id in all_message_ids:
+                            errors.append(f"Duplicate CAN message ID: '{msg_id}'")
+                        all_message_ids.add(msg_id)
+
+                    # Validate required fields
+                    path = f"can_messages[{i}]"
+                    if not msg_id:
+                        errors.append(f"{path}.id is required")
+                    if "can_bus" not in msg:
+                        errors.append(f"{path}.can_bus is required")
+                    elif not isinstance(msg["can_bus"], int) or not (1 <= msg["can_bus"] <= 4):
+                        errors.append(f"{path}.can_bus must be between 1 and 4")
+                    if "base_id" not in msg:
+                        errors.append(f"{path}.base_id is required")
+
         # Validate channels
         channels = config.get("channels", [])
         if not isinstance(channels, list):
@@ -355,7 +418,9 @@ class ConfigValidator:
             # Validate each channel
             for i, channel in enumerate(channels):
                 path = f"channels[{i}]"
-                channel_errors = ConfigValidator._validate_channel(channel, path, all_channel_ids)
+                channel_errors = ConfigValidator._validate_channel(
+                    channel, path, all_channel_ids, all_message_ids
+                )
                 errors.extend(channel_errors)
 
             # Check for duplicate IDs
@@ -371,9 +436,12 @@ class ConfigValidator:
         return is_valid, errors
 
     @staticmethod
-    def _validate_channel(channel: Dict[str, Any], path: str, all_channel_ids: set) -> List[str]:
+    def _validate_channel(channel: Dict[str, Any], path: str, all_channel_ids: set,
+                          all_message_ids: set = None) -> List[str]:
         """Validate a single channel configuration"""
         errors = []
+        if all_message_ids is None:
+            all_message_ids = set()
 
         # Required fields
         for field in ["id", "channel_type"]:
@@ -398,7 +466,7 @@ class ConfigValidator:
             else:
                 # Validate type-specific fields
                 type_errors = ConfigValidator._validate_channel_type_fields(
-                    channel, channel_type, path, all_channel_ids
+                    channel, channel_type, path, all_channel_ids, all_message_ids
                 )
                 errors.extend(type_errors)
 
@@ -406,9 +474,12 @@ class ConfigValidator:
 
     @staticmethod
     def _validate_channel_type_fields(channel: Dict[str, Any], channel_type: str,
-                                       path: str, all_channel_ids: set) -> List[str]:
+                                       path: str, all_channel_ids: set,
+                                       all_message_ids: set = None) -> List[str]:
         """Validate channel type-specific fields"""
         errors = []
+        if all_message_ids is None:
+            all_message_ids = set()
 
         if channel_type == "digital_input":
             if "input_pin" in channel:
@@ -514,6 +585,17 @@ class ConfigValidator:
                     )
                     if not valid:
                         errors.append(error)
+
+        elif channel_type == "can_rx":
+            # Validate message_ref reference (new architecture)
+            if "message_ref" in channel and channel["message_ref"]:
+                msg_ref = channel["message_ref"]
+                if msg_ref not in all_message_ids:
+                    errors.append(f"{path}.message_ref: references undefined CAN message '{msg_ref}'")
+
+            # Validate divider is not zero
+            if "divider" in channel and channel["divider"] == 0:
+                errors.append(f"{path}.divider cannot be zero")
 
         elif channel_type == "can_tx":
             if "signals" in channel:
@@ -645,7 +727,7 @@ def create_default_config() -> Dict[str, Any]:
     from datetime import datetime
 
     return {
-        "version": "2.0",
+        "version": "3.0",
         "device": {
             "name": "PMU-30",
             "serial_number": "",
@@ -654,6 +736,7 @@ def create_default_config() -> Dict[str, Any]:
             "created": datetime.now().isoformat(),
             "modified": datetime.now().isoformat()
         },
+        "can_messages": [],  # Level 1 - CAN Message Objects
         "channels": [],
         "system": {
             "control_frequency_hz": 1000,

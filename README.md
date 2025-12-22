@@ -65,15 +65,43 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - **OTA Updates**: Over-the-air firmware updates
 - **Web Interface**: Full monitoring and configuration via WiFi
 
+## Documentation
+
+### Quick Start
+- [Quick Start Guide](docs/QUICKSTART.md) - Get running in 5 minutes
+
+### Architecture
+- [Unified Channel System](docs/architecture/unified-channel-system.md) - Channel abstraction layer
+- [Logic Functions Framework](docs/architecture/logic-functions-framework.md) - 64 logic functions
+
+### API Reference
+- [Channel API](docs/api/channel-api.md) - Channel read/write operations
+- [Logic Functions API](docs/api/logic-functions-reference.md) - Logic function programming
+- [Channel Types](docs/api/channel-types.md) - All channel type specifications
+
+### Guides
+- [Getting Started with Channels](docs/guides/getting-started-channels.md) - Channel basics
+- [Logic Functions Integration](docs/guides/logic-functions-integration.md) - Using logic functions
+
+### Examples
+- [Channel Examples](docs/examples/channel-examples.md) - Code examples for channels
+- [Logic Function Examples](docs/examples/logic-function-examples.md) - Logic function examples
+
+### Hardware
+- [PCB Design Specification](docs/PCB_DESIGN_SPECIFICATION.md) - PCB engineering spec
+
 ## Project Structure
 
 ```
 pmu_30/
 ├── docs/                           # Documentation
+│   ├── architecture/              # System architecture docs
+│   ├── api/                       # API reference docs
+│   ├── guides/                    # How-to guides
+│   ├── examples/                  # Code examples
 │   ├── technical_specification.md # Hardware TZ
 │   ├── reference_analysis.md      # Reference PDM analysis
-│   ├── user_manual.md            # User documentation
-│   └── api_reference.md          # Software API docs
+│   └── PCB_DESIGN_SPECIFICATION.md # PCB engineering spec
 ├── hardware/                      # Hardware design files
 │   ├── bom.md                    # Bill of Materials
 │   ├── schematic/                # Schematic files
