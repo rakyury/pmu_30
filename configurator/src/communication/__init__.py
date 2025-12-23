@@ -35,6 +35,7 @@ from .transport_base import TransportBase, TransportError
 from .serial_transport import SerialTransport
 from .comm_manager import CommManager, ConnectionState
 from .telemetry import TelemetryPacket, ChannelState, FaultFlags
+from .device_simulator import DeviceSimulator, VirtualSerialPort
 
 __all__ = [
     # Protocol
@@ -54,6 +55,9 @@ __all__ = [
     "TelemetryPacket",
     "ChannelState",
     "FaultFlags",
+    # Simulator
+    "DeviceSimulator",
+    "VirtualSerialPort",
 ]
 
 __version__ = "1.0.0"

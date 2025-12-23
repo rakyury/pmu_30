@@ -12,7 +12,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
 
-from .widgets import ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector
+from .widgets import (
+    ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector,
+    PMUMonitorWidget, ConnectionBar
+)
 
 # Channel dialogs
 from .dialogs.digital_input_dialog import DigitalInputDialog
@@ -107,54 +110,83 @@ class MainWindowProfessional(QMainWindow):
         self._create_dock_widgets()
 
     def _create_dock_widgets(self):
-        """Create dock widgets for monitoring."""
+        """Create dock widgets for monitoring.
 
-        # Project Tree Dock
-        self.project_tree_dock = QDockWidget("Project Tree", self)
+        Layout:
+        +------------------+------------------------+
+        |                  |                        |
+        |  Project Tree    |     PMU Monitor        |
+        |  (Config)        |     (Real-time)        |
+        |                  |                        |
+        +------------------+------------------------+
+        |     Connection Bar (Telemetry)            |
+        +-------------------------------------------+
+        """
+
+        # === LEFT SIDE: Project Tree ===
+        self.project_tree_dock = QDockWidget("Configuration", self)
         self.project_tree_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea |
             Qt.DockWidgetArea.RightDockWidgetArea
         )
+        self.project_tree_dock.setMinimumWidth(280)
         self.project_tree = ProjectTree()
         self.project_tree_dock.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
 
-        # Output Monitor Dock
-        self.output_dock = QDockWidget("Output Monitor", self)
-        self.output_dock.setAllowedAreas(
+        # === RIGHT SIDE: PMU Monitor (main view) ===
+        self.pmu_monitor_dock = QDockWidget("PMU Monitor", self)
+        self.pmu_monitor_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea |
             Qt.DockWidgetArea.RightDockWidgetArea
         )
+        self.pmu_monitor = PMUMonitorWidget()
+        self.pmu_monitor_dock.setWidget(self.pmu_monitor)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
+
+        # === BOTTOM: Connection Bar ===
+        self.connection_dock = QDockWidget("Connection", self)
+        self.connection_dock.setAllowedAreas(
+            Qt.DockWidgetArea.TopDockWidgetArea |
+            Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        self.connection_dock.setMaximumHeight(50)
+        self.connection_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.connection_bar = ConnectionBar()
+        self.connection_dock.setWidget(self.connection_bar)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.connection_dock)
+
+        # For backwards compatibility
+        self.telemetry_dock = self.connection_dock
+        self.telemetry_widget = self.connection_bar
+
+        # === Create but hide secondary monitors (can be shown via View menu) ===
+        # Output Monitor (legacy)
+        self.output_dock = QDockWidget("Output Table", self)
         self.output_monitor = OutputMonitor()
         self.output_dock.setWidget(self.output_monitor)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.output_dock)
+        self.output_dock.hide()
 
-        # Analog Monitor Dock
-        self.analog_dock = QDockWidget("Analog Monitor", self)
-        self.analog_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea |
-            Qt.DockWidgetArea.RightDockWidgetArea
-        )
+        # Analog Monitor (legacy)
+        self.analog_dock = QDockWidget("Analog Table", self)
         self.analog_monitor = AnalogMonitor()
         self.analog_dock.setWidget(self.analog_monitor)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.analog_dock)
+        self.analog_dock.hide()
 
-        # Variables Inspector Dock
-        self.variables_dock = QDockWidget("Variables Inspector", self)
-        self.variables_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea |
-            Qt.DockWidgetArea.RightDockWidgetArea
-        )
+        # Variables Inspector (legacy)
+        self.variables_dock = QDockWidget("Variables", self)
         self.variables_inspector = VariablesInspector()
         self.variables_dock.setWidget(self.variables_inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.variables_dock)
+        self.variables_dock.hide()
 
-        # Stack monitors vertically on the right
-        self.tabifyDockWidget(self.output_dock, self.analog_dock)
-        self.tabifyDockWidget(self.analog_dock, self.variables_dock)
-
-        # Show output monitor by default
-        self.output_dock.raise_()
+        # For backwards compatibility
+        self.pmu_output_dock = self.pmu_monitor_dock
 
     def _setup_menubar(self):
         """Setup menu bar."""
@@ -238,27 +270,45 @@ class MainWindowProfessional(QMainWindow):
         # Windows menu
         windows_menu = menubar.addMenu("Windows")
 
-        project_tree_action = self.project_tree_dock.toggleViewAction()
-        project_tree_action.setText("Project Tree")
-        project_tree_action.setShortcut("Shift+F7")
-        windows_menu.addAction(project_tree_action)
+        # Main panels
+        config_action = self.project_tree_dock.toggleViewAction()
+        config_action.setText("Configuration Panel")
+        config_action.setShortcut("F7")
+        windows_menu.addAction(config_action)
+
+        pmu_monitor_action = self.pmu_monitor_dock.toggleViewAction()
+        pmu_monitor_action.setText("PMU Monitor")
+        pmu_monitor_action.setShortcut("F8")
+        windows_menu.addAction(pmu_monitor_action)
+
+        telemetry_action = self.telemetry_dock.toggleViewAction()
+        telemetry_action.setText("Connection Bar")
+        telemetry_action.setShortcut("F9")
+        windows_menu.addAction(telemetry_action)
 
         windows_menu.addSeparator()
 
+        # Secondary panels (hidden by default)
+        windows_menu.addAction(QAction("--- Additional Panels ---", self))
+
         output_monitor_action = self.output_dock.toggleViewAction()
-        output_monitor_action.setText("Output Monitor")
-        output_monitor_action.setShortcut("Shift+F8")
+        output_monitor_action.setText("Output Table")
         windows_menu.addAction(output_monitor_action)
 
         analog_monitor_action = self.analog_dock.toggleViewAction()
-        analog_monitor_action.setText("Analog Monitor")
-        analog_monitor_action.setShortcut("Shift+F10")
+        analog_monitor_action.setText("Analog Table")
         windows_menu.addAction(analog_monitor_action)
 
         variables_action = self.variables_dock.toggleViewAction()
         variables_action.setText("Variables Inspector")
-        variables_action.setShortcut("Shift+F11")
         windows_menu.addAction(variables_action)
+
+        windows_menu.addSeparator()
+
+        # Reset layout
+        reset_layout_action = QAction("Reset Layout", self)
+        reset_layout_action.triggered.connect(self._reset_layout)
+        windows_menu.addAction(reset_layout_action)
 
         # View menu
         view_menu = menubar.addMenu("View")
@@ -343,6 +393,90 @@ class MainWindowProfessional(QMainWindow):
         self.project_tree.item_added.connect(self._on_item_add_requested)
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
+
+        # Telemetry connections
+        self.telemetry_widget.connection_requested.connect(self._on_connect_requested)
+        self.telemetry_widget.disconnection_requested.connect(self._on_disconnect_requested)
+
+    def _on_connect_requested(self, port: str):
+        """Handle connection request from telemetry widget."""
+        if port == "SIMULATOR":
+            # Connect to simulator
+            self._connect_to_simulator()
+        else:
+            # Connect to real device
+            self._connect_to_device(port)
+
+    def _on_disconnect_requested(self):
+        """Handle disconnection request."""
+        self.device_controller.disconnect()
+        self.telemetry_widget.set_connected(False)
+        self.pmu_monitor.set_connected(False)
+
+    def _connect_to_simulator(self):
+        """Connect to device simulator."""
+        try:
+            from communication import DeviceSimulator, VirtualSerialPort
+            import asyncio
+
+            self._simulator = DeviceSimulator()
+            self._virtual_port = VirtualSerialPort(self._simulator)
+
+            # Start simulator
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(self._virtual_port.open())
+
+            self.telemetry_widget.set_connected(True, "PMU-30 Simulator")
+            self.pmu_monitor.set_connected(True)
+
+            # Start telemetry updates
+            self._start_simulator_telemetry()
+
+            logger.info("Connected to simulator")
+
+        except Exception as e:
+            logger.error(f"Failed to connect to simulator: {e}")
+            QMessageBox.warning(self, "Connection Error", f"Failed to connect to simulator:\n{e}")
+
+    def _connect_to_device(self, port: str):
+        """Connect to real device."""
+        try:
+            self.device_controller.connect(port)
+            self.telemetry_widget.set_connected(True, f"PMU-30 ({port})")
+            self.pmu_monitor.set_connected(True)
+            logger.info(f"Connected to device on {port}")
+        except Exception as e:
+            logger.error(f"Failed to connect to {port}: {e}")
+            QMessageBox.warning(self, "Connection Error", f"Failed to connect:\n{e}")
+
+    def _start_simulator_telemetry(self):
+        """Start receiving telemetry from simulator."""
+        self._sim_timer = QTimer(self)
+        self._sim_timer.timeout.connect(self._update_simulator_telemetry)
+        self._sim_timer.start(50)  # 20Hz
+
+    def _update_simulator_telemetry(self):
+        """Update telemetry from simulator."""
+        if not hasattr(self, '_simulator'):
+            return
+
+        # Generate telemetry data
+        packet = self._simulator._generate_telemetry()
+
+        # Convert to dict for PMU monitor
+        data = {
+            'voltage_v': packet.input_voltage,
+            'current_a': packet.total_current_a,
+            'temperature_c': packet.temperature_c,
+            'uptime_ms': packet.timestamp_ms,
+            'channel_states': [s.value for s in packet.channel_states],
+            'channel_currents': packet.output_currents,
+            'analog_values': packet.analog_values,
+            'fault_flags': packet.fault_flags.value,
+        }
+
+        # Update PMU monitor
+        self.pmu_monitor.update_from_telemetry(data)
 
     def _on_item_add_requested(self, channel_type_str: str):
         """Handle request to add new item by Channel type."""
@@ -871,6 +1005,28 @@ class MainWindowProfessional(QMainWindow):
         state = self.settings.value("windowState")
         if state:
             self.restoreState(state)
+
+    def _reset_layout(self):
+        """Reset dock layout to default."""
+        # Clear saved state
+        self.settings.remove("windowState")
+
+        # Show main panels
+        self.project_tree_dock.show()
+        self.pmu_monitor_dock.show()
+        self.telemetry_dock.show()
+
+        # Hide secondary panels
+        self.output_dock.hide()
+        self.analog_dock.hide()
+        self.variables_dock.hide()
+
+        # Reset positions
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.telemetry_dock)
+
+        logger.info("Layout reset to default")
 
     def apply_theme(self):
         """Apply light theme by default."""

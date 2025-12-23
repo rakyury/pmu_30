@@ -313,6 +313,10 @@ class TelemetryWidget(QWidget):
             ports = SerialTransport.list_ports()
 
             self.port_combo.clear()
+
+            # Add simulator option first
+            self.port_combo.addItem("* SIMULATOR - Virtual PMU-30", "SIMULATOR")
+
             for port in ports:
                 display = f"{port.port} - {port.description}"
                 if port.is_pmu30:
@@ -320,6 +324,9 @@ class TelemetryWidget(QWidget):
                 self.port_combo.addItem(display, port.port)
         except Exception as e:
             logger.error(f"Failed to list ports: {e}")
+            # Still add simulator even if port listing fails
+            self.port_combo.clear()
+            self.port_combo.addItem("* SIMULATOR - Virtual PMU-30", "SIMULATOR")
 
     def _toggle_connection(self):
         """Toggle connection state."""
