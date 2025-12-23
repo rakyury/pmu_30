@@ -82,6 +82,11 @@ extern void PMU_HBridge_Update(void);
 extern void PMU_Protection_Update(void);
 extern void PMU_Channel_Update(void);
 
+/* Emulator UI functions */
+extern void EMU_UI_PrintState(void);
+extern void EMU_UI_PrintChannelDetails(uint8_t channel);
+extern void EMU_UI_SetVisualization(uint8_t enabled);
+
 /* CAN TX callback */
 static void OnCanTx(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len);
 
@@ -255,6 +260,12 @@ static void PrintHelp(void)
     printf("  Scenario Commands:\n");
     printf("    load <file>           - Load scenario from JSON file\n");
     printf("    save <file>           - Save current state to JSON\n");
+    printf("\n");
+    printf("  UI Visualization:\n");
+    printf("    ui                    - Show channel state grid\n");
+    printf("    ui <ch>               - Show detailed info for channel\n");
+    printf("    ui on                 - Enable auto visualization\n");
+    printf("    ui off                - Disable auto visualization\n");
     printf("\n");
     printf("  General:\n");
     printf("    help                  - Show this help\n");
@@ -610,6 +621,27 @@ static void ProcessCommand(const char* cmd)
             }
         } else {
             printf("Usage: save <filename>\n");
+        }
+    }
+    /* UI visualization */
+    else if (strcmp(token, "ui") == 0) {
+        char subarg[32];
+        int ch;
+        /* Check for subcommand */
+        if (sscanf(args, "%31s", subarg) == 1) {
+            if (strcmp(subarg, "on") == 0) {
+                EMU_UI_SetVisualization(1);
+            } else if (strcmp(subarg, "off") == 0) {
+                EMU_UI_SetVisualization(0);
+            } else if (sscanf(subarg, "%d", &ch) == 1) {
+                /* Channel number specified */
+                EMU_UI_PrintChannelDetails((uint8_t)ch);
+            } else {
+                printf("Usage: ui [on|off|<channel>]\n");
+            }
+        } else {
+            /* No subarg - print state grid */
+            EMU_UI_PrintState();
         }
     }
     /* Unknown command */
