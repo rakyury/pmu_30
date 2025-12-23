@@ -796,11 +796,11 @@ static int Server_ApplyConfig(const char* json, size_t len)
         const char* error = PMU_JSON_GetLastError();
         LOG_SERVER("JSON parse error: %s", error ? error : "unknown");
         printf("\n");
-        printf("╔════════════════════════════════════════════════════════════╗\n");
-        printf("║          CONFIGURATION LOAD FAILED                         ║\n");
-        printf("╠════════════════════════════════════════════════════════════╣\n");
-        printf("║  Error: %-50s ║\n", error ? error : "Parse error");
-        printf("╚════════════════════════════════════════════════════════════╝\n");
+        printf("+============================================================+\n");
+        printf("|          CONFIGURATION LOAD FAILED                         |\n");
+        printf("+============================================================+\n");
+        printf("|  Error: %-50s |\n", error ? error : "Parse error");
+        printf("+============================================================+\n");
         printf("\n");
         return -1;
     }
@@ -815,21 +815,21 @@ static int Server_ApplyConfig(const char* json, size_t len)
 
     /* Print success with statistics */
     printf("\n");
-    printf("╔════════════════════════════════════════════════════════════╗\n");
-    printf("║          CONFIGURATION LOADED FROM CONFIGURATOR            ║\n");
-    printf("╠════════════════════════════════════════════════════════════╣\n");
-    printf("║  Total Channels:    %-5lu                                  ║\n", (unsigned long)stats.total_channels);
-    printf("║  ├─ Digital Inputs: %-5lu                                  ║\n", (unsigned long)stats.digital_inputs);
-    printf("║  ├─ Analog Inputs:  %-5lu                                  ║\n", (unsigned long)stats.analog_inputs);
-    printf("║  ├─ Power Outputs:  %-5lu                                  ║\n", (unsigned long)stats.power_outputs);
-    printf("║  ├─ Logic Functions:%-5lu                                  ║\n", (unsigned long)stats.logic_functions);
-    printf("║  ├─ CAN RX:         %-5lu                                  ║\n", (unsigned long)stats.can_rx);
-    printf("║  └─ CAN TX:         %-5lu                                  ║\n", (unsigned long)stats.can_tx);
-    printf("║  CAN Messages:      %-5lu                                  ║\n", (unsigned long)stats.can_messages);
-    printf("║  CAN Stream:        %-5s                                  ║\n", stats.stream_enabled ? "ON" : "OFF");
-    printf("║  Parse Time:        %-5lu ms                               ║\n", (unsigned long)stats.parse_time_ms);
-    printf("║  Config saved to:   last_config.json                       ║\n");
-    printf("╚════════════════════════════════════════════════════════════╝\n");
+    printf("+============================================================+\n");
+    printf("|          CONFIGURATION LOADED FROM CONFIGURATOR            |\n");
+    printf("+============================================================+\n");
+    printf("|  Total Channels:    %-5lu                                  |\n", (unsigned long)stats.total_channels);
+    printf("|    - Digital Inputs: %-5lu                                 |\n", (unsigned long)stats.digital_inputs);
+    printf("|    - Analog Inputs:  %-5lu                                 |\n", (unsigned long)stats.analog_inputs);
+    printf("|    - Power Outputs:  %-5lu                                 |\n", (unsigned long)stats.power_outputs);
+    printf("|    - Logic Functions:%-5lu                                 |\n", (unsigned long)stats.logic_functions);
+    printf("|    - CAN RX:         %-5lu                                 |\n", (unsigned long)stats.can_rx);
+    printf("|    - CAN TX:         %-5lu                                 |\n", (unsigned long)stats.can_tx);
+    printf("|  CAN Messages:      %-5lu                                  |\n", (unsigned long)stats.can_messages);
+    printf("|  CAN Stream:        %-5s                                  |\n", stats.stream_enabled ? "ON" : "OFF");
+    printf("|  Parse Time:        %-5lu ms                               |\n", (unsigned long)stats.parse_time_ms);
+    printf("|  Config saved to:   last_config.json                       |\n");
+    printf("+============================================================+\n");
     printf("\n");
 
     return 0;

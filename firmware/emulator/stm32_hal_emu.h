@@ -633,6 +633,9 @@ uint32_t HAL_GetTick(void);
 void HAL_Delay(uint32_t Delay);
 void HAL_IncTick(void);
 
+/* Device UID */
+uint32_t HAL_GetUIDw0(void);
+
 /* Initialization */
 HAL_StatusTypeDef HAL_Init(void);
 HAL_StatusTypeDef HAL_DeInit(void);

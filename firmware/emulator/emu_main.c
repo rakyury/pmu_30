@@ -41,6 +41,21 @@
 #include <pthread.h>
 #endif
 
+/* Enable ANSI colors on Windows console */
+#ifdef _WIN32
+static void EnableAnsiColors(void)
+{
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+}
+#endif
+
 /* Private typedef -----------------------------------------------------------*/
 
 typedef enum {
@@ -59,8 +74,15 @@ typedef enum {
 /* Private variables ---------------------------------------------------------*/
 
 static volatile bool g_running = true;
+static volatile bool g_tick_thread_running = false;
 static EmuMode_t g_mode = EMU_MODE_INTERACTIVE;
 static char g_scenario_file[256] = {0};
+
+#ifdef _WIN32
+static HANDLE g_tick_thread = NULL;
+#else
+static pthread_t g_tick_thread;
+#endif
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -73,6 +95,8 @@ static void RunScenarioMode(const char* filename);
 static void ProcessCommand(const char* cmd);
 static int KeyboardHit(void);
 static int GetChar(void);
+static void StartTickThread(void);
+static void StopTickThread(void);
 
 /* External firmware functions (to be called from emulator) */
 extern void PMU_ADC_Update(void);
@@ -133,6 +157,11 @@ int main(int argc, char* argv[])
     /* Setup signal handler */
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
+
+#ifdef _WIN32
+    /* Enable ANSI escape codes on Windows */
+    EnableAnsiColors();
+#endif
 
     /* Print banner */
     PrintBanner();
@@ -204,19 +233,19 @@ int main(int argc, char* argv[])
 static void PrintBanner(void)
 {
     printf("\n");
-    printf("╔═══════════════════════════════════════════════════════════════╗\n");
-    printf("║               PMU-30 Firmware Emulator v%s                ║\n", EMU_VERSION);
-    printf("║                   R2 m-sport (c) 2025                         ║\n");
-    printf("╠═══════════════════════════════════════════════════════════════╣\n");
-    printf("║  Hardware Emulation Layer for STM32H743 PMU Development       ║\n");
-    printf("║                                                               ║\n");
-    printf("║  Emulated Components:                                         ║\n");
-    printf("║    - 20 ADC Inputs (analog/digital/frequency)                 ║\n");
-    printf("║    - 4 CAN Buses (2x CAN FD + 2x CAN 2.0)                      ║\n");
-    printf("║    - 30 PROFET Power Outputs                                  ║\n");
-    printf("║    - 4 H-Bridge Motor Outputs                                 ║\n");
-    printf("║    - Protection System (voltage, temp, current)               ║\n");
-    printf("╚═══════════════════════════════════════════════════════════════╝\n");
+    printf("+===============================================================+\n");
+    printf("|               PMU-30 Firmware Emulator v%s                |\n", EMU_VERSION);
+    printf("|                   R2 m-sport (c) 2025                         |\n");
+    printf("+===============================================================+\n");
+    printf("|  Hardware Emulation Layer for STM32H743 PMU Development       |\n");
+    printf("|                                                               |\n");
+    printf("|  Emulated Components:                                         |\n");
+    printf("|    - 20 ADC Inputs (analog/digital/frequency)                 |\n");
+    printf("|    - 4 CAN Buses (2x CAN FD + 2x CAN 2.0)                      |\n");
+    printf("|    - 30 PROFET Power Outputs                                  |\n");
+    printf("|    - 4 H-Bridge Motor Outputs                                 |\n");
+    printf("|    - Protection System (voltage, temp, current)               |\n");
+    printf("+===============================================================+\n");
     printf("\n");
 }
 
@@ -296,12 +325,97 @@ static void SignalHandler(int sig)
     printf("\nShutting down...\n");
 }
 
+/* Background tick thread function */
+#define EMU_THREAD_SLEEP_MS  10  /* Sleep interval for thread */
+
+#ifdef _WIN32
+static DWORD WINAPI TickThreadFunc(LPVOID param)
+{
+    (void)param;
+    DWORD last_tick = GetTickCount();
+
+    while (g_tick_thread_running && g_running) {
+        DWORD now = GetTickCount();
+        DWORD delta = now - last_tick;
+        last_tick = now;
+
+        /* Update with actual elapsed time */
+        if (delta > 0 && delta < 1000) {
+            PMU_Emu_Tick(delta);
+        }
+
+        /* Process server with short timeout */
+        EMU_Server_Process(1);
+
+        /* Sleep */
+        Sleep(EMU_THREAD_SLEEP_MS);
+    }
+    return 0;
+}
+#else
+static void* TickThreadFunc(void* param)
+{
+    (void)param;
+    struct timespec last_time, now;
+    clock_gettime(CLOCK_MONOTONIC, &last_time);
+
+    while (g_tick_thread_running && g_running) {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        uint32_t delta = (now.tv_sec - last_time.tv_sec) * 1000 +
+                        (now.tv_nsec - last_time.tv_nsec) / 1000000;
+        last_time = now;
+
+        if (delta > 0 && delta < 1000) {
+            PMU_Emu_Tick(delta);
+        }
+
+        EMU_Server_Process(1);
+        usleep(EMU_THREAD_SLEEP_MS * 1000);
+    }
+    return NULL;
+}
+#endif
+
+static void StartTickThread(void)
+{
+    g_tick_thread_running = true;
+#ifdef _WIN32
+    g_tick_thread = CreateThread(NULL, 0, TickThreadFunc, NULL, 0, NULL);
+    if (g_tick_thread == NULL) {
+        printf("Warning: Failed to create tick thread\n");
+        g_tick_thread_running = false;
+    }
+#else
+    if (pthread_create(&g_tick_thread, NULL, TickThreadFunc, NULL) != 0) {
+        printf("Warning: Failed to create tick thread\n");
+        g_tick_thread_running = false;
+    }
+#endif
+}
+
+static void StopTickThread(void)
+{
+    g_tick_thread_running = false;
+#ifdef _WIN32
+    if (g_tick_thread != NULL) {
+        WaitForSingleObject(g_tick_thread, 1000);
+        CloseHandle(g_tick_thread);
+        g_tick_thread = NULL;
+    }
+#else
+    pthread_join(g_tick_thread, NULL);
+#endif
+}
+
 static void RunInteractiveMode(void)
 {
     char cmd[256];
 
     printf("Interactive mode. Type 'help' for commands, 'quit' to exit.\n\n");
     PrintHelp();
+
+    /* Start background tick thread */
+    StartTickThread();
 
     while (g_running) {
         printf("EMU> ");
@@ -323,11 +437,10 @@ static void RunInteractiveMode(void)
 
         /* Process command */
         ProcessCommand(cmd);
-
-        /* Run emulator tick and server */
-        PMU_Emu_Tick(10);  /* 10ms per command cycle */
-        EMU_Server_Process(1);
     }
+
+    /* Stop background tick thread */
+    StopTickThread();
 }
 
 static void RunScenarioMode(const char* filename)

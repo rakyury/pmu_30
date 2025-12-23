@@ -73,7 +73,7 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     /* Battery voltage */
     memset(&sys_channel, 0, sizeof(sys_channel));
     sys_channel.channel_id = PMU_CHANNEL_SYSTEM_BATTERY_V;
-    sys_channel.type = PMU_CHANNEL_INPUT_SYSTEM;
+    sys_channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SYSTEM;
     sys_channel.direction = PMU_CHANNEL_DIR_INPUT;
     sys_channel.format = PMU_CHANNEL_FORMAT_VOLTAGE;
     sys_channel.physical_index = 0;
@@ -145,13 +145,13 @@ HAL_StatusTypeDef PMU_Channel_Register(const PMU_Channel_t* channel)
     /* Update statistics */
     channel_stats.total_channels++;
 
-    if (PMU_Channel_IsInput(channel->type)) {
+    if (PMU_Channel_IsInput(channel->hw_class)) {
         channel_stats.input_channels++;
     } else {
         channel_stats.output_channels++;
     }
 
-    if (PMU_Channel_IsVirtual(channel->type)) {
+    if (PMU_Channel_IsVirtual(channel->hw_class)) {
         channel_stats.virtual_channels++;
     } else {
         channel_stats.physical_channels++;
@@ -180,13 +180,13 @@ HAL_StatusTypeDef PMU_Channel_Unregister(uint16_t channel_id)
 
     channel_stats.total_channels--;
 
-    if (PMU_Channel_IsInput(ch->type)) {
+    if (PMU_Channel_IsInput(ch->hw_class)) {
         channel_stats.input_channels--;
     } else {
         channel_stats.output_channels--;
     }
 
-    if (PMU_Channel_IsVirtual(ch->type)) {
+    if (PMU_Channel_IsVirtual(ch->hw_class)) {
         channel_stats.virtual_channels--;
     } else {
         channel_stats.physical_channels--;
@@ -221,8 +221,8 @@ int32_t PMU_Channel_GetValue(uint16_t channel_id)
     int32_t value = 0;
 
     /* Read based on channel type */
-    if (PMU_Channel_IsInput(ch->type)) {
-        if (PMU_Channel_IsPhysical(ch->type)) {
+    if (PMU_Channel_IsInput(ch->hw_class)) {
+        if (PMU_Channel_IsPhysical(ch->hw_class)) {
             value = Channel_ReadPhysicalInput(ch);
         } else {
             value = Channel_ReadVirtualInput(ch);
@@ -265,7 +265,7 @@ HAL_StatusTypeDef PMU_Channel_SetValue(uint16_t channel_id, int32_t value)
     }
 
     /* Can only set outputs */
-    if (PMU_Channel_IsInput(ch->type)) {
+    if (PMU_Channel_IsInput(ch->hw_class)) {
         return HAL_ERROR;
     }
 
@@ -284,7 +284,7 @@ HAL_StatusTypeDef PMU_Channel_SetValue(uint16_t channel_id, int32_t value)
     /* Write to physical or virtual output */
     HAL_StatusTypeDef status;
 
-    if (PMU_Channel_IsPhysical(ch->type)) {
+    if (PMU_Channel_IsPhysical(ch->hw_class)) {
         status = Channel_WritePhysicalOutput(ch, value);
     } else {
         status = Channel_WriteVirtualOutput(ch, value);
@@ -433,7 +433,7 @@ HAL_StatusTypeDef PMU_Channel_SetEnabled(uint16_t channel_id, bool enabled)
 static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel)
 {
 #ifndef UNIT_TEST
-    switch (channel->type) {
+    switch (channel->hw_class) {
         case PMU_CHANNEL_INPUT_ANALOG:
         case PMU_CHANNEL_INPUT_DIGITAL:
         case PMU_CHANNEL_INPUT_SWITCH:
@@ -459,7 +459,7 @@ static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel)
 static int32_t Channel_ReadVirtualInput(const PMU_Channel_t* channel)
 {
 #ifndef UNIT_TEST
-    switch (channel->type) {
+    switch (channel->hw_class) {
         case PMU_CHANNEL_INPUT_CAN:
             /* Read from CAN module */
             /* TODO: Implement CAN input reading */
@@ -491,7 +491,7 @@ static int32_t Channel_ReadVirtualInput(const PMU_Channel_t* channel)
 static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channel, int32_t value)
 {
 #ifndef UNIT_TEST
-    switch (channel->type) {
+    switch (channel->hw_class) {
         case PMU_CHANNEL_OUTPUT_POWER:
         case PMU_CHANNEL_OUTPUT_PWM:
             /* Write to PROFET module */
@@ -544,7 +544,7 @@ static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channe
 static HAL_StatusTypeDef Channel_WriteVirtualOutput(const PMU_Channel_t* channel, int32_t value)
 {
 #ifndef UNIT_TEST
-    switch (channel->type) {
+    switch (channel->hw_class) {
         case PMU_CHANNEL_OUTPUT_FUNCTION:
         case PMU_CHANNEL_OUTPUT_TABLE:
         case PMU_CHANNEL_OUTPUT_ENUM:

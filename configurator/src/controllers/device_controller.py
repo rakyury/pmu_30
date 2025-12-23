@@ -1,7 +1,7 @@
 """
 Device Controller for PMU-30
 
-Handles communication with PMU-30 device via USB, WiFi, Bluetooth, or Emulator.
+Handles communication with PMU-30 device via USB, Emulator, WiFi, Bluetooth, or CAN Bus.
 
 Owner: R2 m-sport
 © 2025 R2 m-sport. All rights reserved.

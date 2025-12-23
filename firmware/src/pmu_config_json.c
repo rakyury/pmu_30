@@ -70,7 +70,7 @@ static bool JSON_ParsePIDControllers(cJSON* pid_array);
 static bool JSON_ParseCANBuses(cJSON* can_array);
 static bool JSON_ParseSystem(cJSON* system_obj);
 static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats);
-static PMU_InputType_t JSON_ParseInputType(const char* type_str);
+static PMU_LegacyInputType_t JSON_ParseInputType(const char* type_str);
 static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
 static uint16_t JSON_ResolveChannel(cJSON* channel_obj);
 static void JSON_SetError(const char* format, ...);
@@ -137,12 +137,13 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
         return PMU_JSON_ERROR_VALIDATION;
     }
 
+    bool is_v3 = (strcmp(version->valuestring, PMU_JSON_VERSION_3_0) == 0);
     bool is_v2 = (strcmp(version->valuestring, PMU_JSON_VERSION_2_0) == 0);
     bool is_v1 = (strcmp(version->valuestring, PMU_JSON_VERSION_1_0) == 0);
 
-    if (!is_v1 && !is_v2) {
-        JSON_SetError("Unsupported version: %s (expected %s or %s)",
-                      version->valuestring, PMU_JSON_VERSION_1_0, PMU_JSON_VERSION_2_0);
+    if (!is_v1 && !is_v2 && !is_v3) {
+        JSON_SetError("Unsupported version: %s (expected %s, %s, or %s)",
+                      version->valuestring, PMU_JSON_VERSION_1_0, PMU_JSON_VERSION_2_0, PMU_JSON_VERSION_3_0);
         cJSON_Delete(root);
         return PMU_JSON_ERROR_VERSION;
     }
@@ -157,9 +158,9 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
     }
 
     /* ========================================
-     * v2.0 Format: Unified channels array
+     * v2.0/v3.0 Format: Unified channels array
      * ======================================== */
-    if (is_v2) {
+    if (is_v2 || is_v3) {
         cJSON* channels = cJSON_GetObjectItem(root, "channels");
         if (channels && cJSON_IsArray(channels)) {
             if (!JSON_ParseChannels(channels, &local_stats)) {
@@ -445,7 +446,7 @@ static bool JSON_ParseInputs(cJSON* inputs_array)
             continue;
         }
 
-        PMU_InputType_t input_type = JSON_ParseInputType(type->valuestring);
+        PMU_LegacyInputType_t input_type = JSON_ParseInputType(type->valuestring);
 
         /* Get name */
         cJSON* name = cJSON_GetObjectItem(input, "name");
@@ -894,25 +895,25 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
 }
 
 /**
- * @brief Parse input type string to enum
+ * @brief Parse input type string to enum (legacy format)
  */
-static PMU_InputType_t JSON_ParseInputType(const char* type_str)
+static PMU_LegacyInputType_t JSON_ParseInputType(const char* type_str)
 {
     if (strcmp(type_str, "Switch Active Low") == 0) {
-        return PMU_INPUT_SWITCH_ACTIVE_LOW;
+        return PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW;
     } else if (strcmp(type_str, "Switch Active High") == 0) {
-        return PMU_INPUT_SWITCH_ACTIVE_HIGH;
+        return PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH;
     } else if (strcmp(type_str, "Rotary Switch") == 0) {
-        return PMU_INPUT_ROTARY_SWITCH;
+        return PMU_LEGACY_INPUT_ROTARY_SWITCH;
     } else if (strcmp(type_str, "Linear Analog") == 0) {
-        return PMU_INPUT_LINEAR_ANALOG;
+        return PMU_LEGACY_INPUT_LINEAR_ANALOG;
     } else if (strcmp(type_str, "Calibrated Analog") == 0) {
-        return PMU_INPUT_CALIBRATED_ANALOG;
+        return PMU_LEGACY_INPUT_CALIBRATED_ANALOG;
     } else if (strcmp(type_str, "Frequency Input") == 0) {
-        return PMU_INPUT_FREQUENCY;
+        return PMU_LEGACY_INPUT_FREQUENCY;
     }
 
-    return PMU_INPUT_LINEAR_ANALOG;  /* Default */
+    return PMU_LEGACY_INPUT_LINEAR_ANALOG;  /* Default */
 }
 
 /**
@@ -1325,6 +1326,10 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
 
 /**
  * @brief Parse power output channel
+ *
+ * Supports both schema format and dialog format:
+ * Schema: output_pins, source_channel, pwm_enabled, duty_fixed
+ * Dialog: pins, control_function, pwm.enabled, pwm.duty_value
  */
 static bool JSON_ParsePowerOutput(cJSON* channel_obj)
 {
@@ -1332,10 +1337,17 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
     PMU_PowerOutputConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
+    if (strlen(id) == 0) {
+        /* Try to use name as id if id is not present */
+        id = JSON_GetString(channel_obj, "name", "unnamed");
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
-    /* Parse output pins array */
+    /* Parse output pins array - try "output_pins" first, then "pins" */
     cJSON* pins = cJSON_GetObjectItem(channel_obj, "output_pins");
+    if (!pins || !cJSON_IsArray(pins)) {
+        pins = cJSON_GetObjectItem(channel_obj, "pins");
+    }
     if (pins && cJSON_IsArray(pins)) {
         int pin_count = cJSON_GetArraySize(pins);
         config.output_pin_count = (pin_count > PMU_MAX_OUTPUT_PINS) ?
@@ -1348,27 +1360,87 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         }
     }
 
-    /* Source channel */
+    /* Source channel - try "source_channel" then "control_function" */
     const char* source = JSON_GetString(channel_obj, "source_channel", "");
+    if (strlen(source) == 0) {
+        source = JSON_GetString(channel_obj, "control_function", "");
+    }
     strncpy(config.source_channel, source, PMU_CHANNEL_ID_LEN - 1);
 
-    /* PWM settings */
-    config.pwm_enabled = JSON_GetBool(channel_obj, "pwm_enabled", false);
-    config.pwm_frequency_hz = (uint16_t)JSON_GetInt(channel_obj, "pwm_frequency_hz", 1000);
-    const char* duty_ch = JSON_GetString(channel_obj, "duty_channel", "");
-    strncpy(config.duty_channel, duty_ch, PMU_CHANNEL_ID_LEN - 1);
-    config.duty_fixed = JSON_GetFloat(channel_obj, "duty_fixed", 100.0f);
-    config.soft_start_ms = (uint16_t)JSON_GetInt(channel_obj, "soft_start_ms", 0);
+    /* PWM settings - try flat format first, then nested "pwm" object */
+    cJSON* pwm_obj = cJSON_GetObjectItem(channel_obj, "pwm");
+    if (pwm_obj && cJSON_IsObject(pwm_obj)) {
+        /* Dialog nested format: pwm.enabled, pwm.frequency, pwm.duty_value */
+        config.pwm_enabled = JSON_GetBool(pwm_obj, "enabled", false);
+        config.pwm_frequency_hz = (uint16_t)JSON_GetInt(pwm_obj, "frequency", 1000);
+        config.duty_fixed = JSON_GetFloat(pwm_obj, "duty_value", 100.0f);
+        config.soft_start_ms = JSON_GetBool(pwm_obj, "soft_start_enabled", false) ?
+                               (uint16_t)JSON_GetInt(pwm_obj, "soft_start_duration_ms", 0) : 0;
+        const char* duty_ch = JSON_GetString(pwm_obj, "duty_function", "");
+        strncpy(config.duty_channel, duty_ch, PMU_CHANNEL_ID_LEN - 1);
+    } else {
+        /* Schema flat format: pwm_enabled, pwm_frequency_hz, duty_fixed */
+        config.pwm_enabled = JSON_GetBool(channel_obj, "pwm_enabled", false);
+        config.pwm_frequency_hz = (uint16_t)JSON_GetInt(channel_obj, "pwm_frequency_hz", 1000);
+        config.duty_fixed = JSON_GetFloat(channel_obj, "duty_fixed", 100.0f);
+        config.soft_start_ms = (uint16_t)JSON_GetInt(channel_obj, "soft_start_ms", 0);
+        const char* duty_ch = JSON_GetString(channel_obj, "duty_channel", "");
+        strncpy(config.duty_channel, duty_ch, PMU_CHANNEL_ID_LEN - 1);
+    }
 
-    /* Protection settings */
-    config.current_limit_a = JSON_GetFloat(channel_obj, "current_limit_a", 25.0f);
-    config.inrush_current_a = JSON_GetFloat(channel_obj, "inrush_current_a", 50.0f);
-    config.inrush_time_ms = (uint16_t)JSON_GetInt(channel_obj, "inrush_time_ms", 100);
-    config.retry_count = (uint8_t)JSON_GetInt(channel_obj, "retry_count", 3);
-    config.retry_forever = JSON_GetBool(channel_obj, "retry_forever", false);
+    /* Protection settings - try flat format first, then nested "protection" object */
+    cJSON* prot_obj = cJSON_GetObjectItem(channel_obj, "protection");
+    if (prot_obj && cJSON_IsObject(prot_obj)) {
+        /* Dialog nested format */
+        config.current_limit_a = JSON_GetFloat(prot_obj, "current_limit", 25.0f);
+        config.inrush_current_a = JSON_GetFloat(prot_obj, "inrush_current", 50.0f);
+        config.inrush_time_ms = (uint16_t)JSON_GetInt(prot_obj, "inrush_time_ms", 100);
+        config.retry_count = (uint8_t)JSON_GetInt(prot_obj, "retry_count", 3);
+        config.retry_forever = JSON_GetBool(prot_obj, "retry_forever", false);
+    } else {
+        /* Schema flat format */
+        config.current_limit_a = JSON_GetFloat(channel_obj, "current_limit_a", 25.0f);
+        config.inrush_current_a = JSON_GetFloat(channel_obj, "inrush_current_a", 50.0f);
+        config.inrush_time_ms = (uint16_t)JSON_GetInt(channel_obj, "inrush_time_ms", 100);
+        config.retry_count = (uint8_t)JSON_GetInt(channel_obj, "retry_count", 3);
+        config.retry_forever = JSON_GetBool(channel_obj, "retry_forever", false);
+    }
 
-    /* TODO: Register power output channel */
-    (void)config;
+    /* Check if output is enabled (for "always on" mode) */
+    bool enabled = JSON_GetBool(channel_obj, "enabled", false);
+
+    /* Apply configuration to PROFET channels */
+    for (int i = 0; i < config.output_pin_count; i++) {
+        uint8_t pin = config.output_pins[i];
+        if (pin < 30) {
+            /* Set channel state based on enabled flag */
+            /* When source_channel is empty and enabled=true, it means "always on" */
+            if (enabled && (strlen(config.source_channel) == 0)) {
+                PMU_PROFET_SetState(pin, 1);
+            } else if (!enabled) {
+                PMU_PROFET_SetState(pin, 0);
+            }
+
+            /* Set PWM duty cycle */
+            if (config.pwm_enabled) {
+                /* duty_fixed is 0-100%, convert to 0-1000 per-mille */
+                uint16_t duty_permille = (uint16_t)(config.duty_fixed * 10.0f);
+                PMU_PROFET_SetPWM(pin, duty_permille);
+            } else {
+                /* No PWM, full duty (100%) */
+                PMU_PROFET_SetPWM(pin, 1000);
+            }
+        }
+    }
+
+    /* Print debug info */
+    printf("[JSON] Power output '%s': pins=[", id);
+    for (int i = 0; i < config.output_pin_count; i++) {
+        printf("%d%s", config.output_pins[i], (i < config.output_pin_count - 1) ? "," : "");
+    }
+    printf("], enabled=%d, source='%s', pwm=%d, duty=%.1f%%\n",
+           enabled, config.source_channel, config.pwm_enabled, config.duty_fixed);
+
 #else
     (void)channel_obj;
 #endif
@@ -1826,16 +1898,21 @@ static bool JSON_ParseCanRx(cJSON* channel_obj)
     config.message_id = (uint32_t)JSON_GetInt(channel_obj, "message_id", 0);
     config.is_extended = JSON_GetBool(channel_obj, "is_extended", false);
     config.start_bit = (uint8_t)JSON_GetInt(channel_obj, "start_bit", 0);
-    config.length = (uint8_t)JSON_GetInt(channel_obj, "length", 8);
+    config.bit_length = (uint8_t)JSON_GetInt(channel_obj, "length", 8);
 
     const char* order = JSON_GetString(channel_obj, "byte_order", "little_endian");
     config.little_endian = (strcmp(order, "little_endian") == 0);
 
     const char* vtype = JSON_GetString(channel_obj, "value_type", "unsigned");
-    config.is_signed = (strcmp(vtype, "signed") == 0);
-    config.is_float = (strcmp(vtype, "float") == 0);
+    if (strcmp(vtype, "float") == 0) {
+        config.data_type = PMU_CAN_DATA_TYPE_FLOAT;
+    } else if (strcmp(vtype, "signed") == 0) {
+        config.data_type = PMU_CAN_DATA_TYPE_SIGNED;
+    } else {
+        config.data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
+    }
 
-    config.factor = JSON_GetFloat(channel_obj, "factor", 1.0f);
+    config.multiplier = JSON_GetFloat(channel_obj, "factor", 1.0f);
     config.offset = JSON_GetFloat(channel_obj, "offset", 0.0f);
     config.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", 1000);
 

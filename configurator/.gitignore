@@ -1,0 +1,38 @@
+# Build artifacts
+build/
+dist/
+*.spec.bak
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+*.manifest
+*.spec.tmp
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

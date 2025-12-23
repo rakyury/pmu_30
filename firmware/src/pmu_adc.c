@@ -303,27 +303,27 @@ void PMU_ADC_Update(void)
         /* Process based on configured input type */
         if (input_configs[i] != NULL) {
             switch (input_configs[i]->type) {
-                case PMU_INPUT_SWITCH_ACTIVE_LOW:
+                case PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW:
                     ADC_ProcessSwitchActiveLow(i);
                     break;
 
-                case PMU_INPUT_SWITCH_ACTIVE_HIGH:
+                case PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH:
                     ADC_ProcessSwitchActiveHigh(i);
                     break;
 
-                case PMU_INPUT_ROTARY_SWITCH:
+                case PMU_LEGACY_INPUT_ROTARY_SWITCH:
                     ADC_ProcessRotarySwitch(i);
                     break;
 
-                case PMU_INPUT_LINEAR_ANALOG:
+                case PMU_LEGACY_INPUT_LINEAR_ANALOG:
                     ADC_ProcessLinearAnalog(i);
                     break;
 
-                case PMU_INPUT_CALIBRATED_ANALOG:
+                case PMU_LEGACY_INPUT_CALIBRATED_ANALOG:
                     ADC_ProcessCalibratedAnalog(i);
                     break;
 
-                case PMU_INPUT_FREQUENCY:
+                case PMU_LEGACY_INPUT_FREQUENCY:
                     ADC_ProcessFrequencyInput(i);
                     break;
 
@@ -656,7 +656,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     /* Determine which input channel triggered the interrupt */
     for (uint8_t i = 0; i < PMU30_NUM_ADC_INPUTS; i++) {
         if (input_configs[i] != NULL &&
-            input_configs[i]->type == PMU_INPUT_FREQUENCY) {
+            input_configs[i]->type == PMU_LEGACY_INPUT_FREQUENCY) {
 
             /* Increment edge counter */
             inputs[i].edge_count++;

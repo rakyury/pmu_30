@@ -25,6 +25,7 @@ class ChannelType(Enum):
     TIMER = "timer"
     FILTER = "filter"
     ENUM = "enum"
+    LUA_SCRIPT = "lua_script"
 
 
 class DigitalInputSubtype(Enum):

@@ -1,0 +1,19 @@
+{
+  "version": "3.0",
+  "device": {
+    "name": "PMU-30",
+    "serial_number": "",
+    "firmware_version": "",
+    "hardware_revision": "",
+    "created": "2025-12-23T12:42:07.238311",
+    "modified": "2025-12-23T12:42:07.238326"
+  },
+  "can_messages": [],
+  "channels": [],
+  "system": {
+    "control_frequency_hz": 1000,
+    "logic_frequency_hz": 500,
+    "can1_baudrate": 500000,
+    "can2_baudrate": 500000
+  }
+}

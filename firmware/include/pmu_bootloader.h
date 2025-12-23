@@ -375,6 +375,15 @@ PMU_Boot_Status_t PMU_Bootloader_EraseFlashSector(uint32_t sector_address);
 PMU_Boot_Status_t PMU_Bootloader_WriteFlash(uint32_t address, const uint8_t* data, uint32_t length);
 
 /**
+ * @brief Read from flash memory
+ * @param address Flash address
+ * @param data Buffer to read into
+ * @param length Data length
+ * @retval Boot status
+ */
+PMU_Boot_Status_t PMU_Bootloader_ReadFlash(uint32_t address, uint8_t* data, uint32_t length);
+
+/**
  * @brief Get firmware version string
  * @param header Firmware header
  * @param buffer Output buffer

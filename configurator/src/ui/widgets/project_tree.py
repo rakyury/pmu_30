@@ -553,7 +553,7 @@ class ProjectTree(QWidget):
         return True
 
     def get_channels_by_type(self, channel_type: ChannelType) -> List[Dict[str, Any]]:
-        """Get all channels of specified type."""
+        """Get all channels of specified type with channel_type field included."""
         channels = []
         folder = self._get_folder_for_type(channel_type)
         if folder:
@@ -561,7 +561,10 @@ class ProjectTree(QWidget):
                 child = folder.child(i)
                 data = child.data(0, Qt.ItemDataRole.UserRole)
                 if data and data.get("type") == "channel":
-                    channels.append(data.get("data", {}))
+                    channel_data = data.get("data", {}).copy()
+                    # Ensure channel_type is included in the channel data
+                    channel_data["channel_type"] = channel_type.value
+                    channels.append(channel_data)
         return channels
 
     def get_all_channels(self) -> List[Dict[str, Any]]:

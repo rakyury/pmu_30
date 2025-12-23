@@ -72,22 +72,22 @@ class PMUMonitorWidget(QWidget):
         # Header
         header_layout = QHBoxLayout()
 
-        self.title_label = QLabel("PMU")
+        self.title_label = QLabel("PMU", self)
         self.title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
         header_layout.addWidget(self.title_label)
 
         header_layout.addStretch()
 
-        self.status_label = QLabel("Disconnected")
+        self.status_label = QLabel("Disconnected", self)
         self.status_label.setStyleSheet("color: #888;")
         header_layout.addWidget(self.status_label)
 
         layout.addLayout(header_layout)
 
         # Tree widget
-        self.tree = QTreeWidget()
+        self.tree = QTreeWidget(self)
         self.tree.setHeaderLabels(["Name", "Value", "Unit"])
-        self.tree.setAlternatingRowColors(True)
+        self.tree.setAlternatingRowColors(False)
         self.tree.setRootIsDecorated(True)
         self.tree.setIndentation(15)
 
@@ -331,15 +331,15 @@ class PMUMonitorWidget(QWidget):
             voltage = (val / 4095.0) * 3.3 if isinstance(val, (int, float)) else "?"
             self.set_value(f"ain_{i+1}", voltage)
 
-        # Fault flags
+        # Fault flags - display as OK/FAULT
         fault_flags = data.get("fault_flags", 0)
-        self.set_value("fault_overvoltage", bool(fault_flags & 0x01), fault_flags & 0x01)
-        self.set_value("fault_undervoltage", bool(fault_flags & 0x02), fault_flags & 0x02)
-        self.set_value("fault_overtemp", bool(fault_flags & 0x04), fault_flags & 0x04)
-        self.set_value("fault_can1", bool(fault_flags & 0x08), fault_flags & 0x08)
-        self.set_value("fault_can2", bool(fault_flags & 0x10), fault_flags & 0x10)
-        self.set_value("fault_config", bool(fault_flags & 0x40), fault_flags & 0x40)
-        self.set_value("fault_watchdog", bool(fault_flags & 0x80), fault_flags & 0x80)
+        self.set_value("fault_overvoltage", "FAULT" if fault_flags & 0x01 else "OK", bool(fault_flags & 0x01))
+        self.set_value("fault_undervoltage", "FAULT" if fault_flags & 0x02 else "OK", bool(fault_flags & 0x02))
+        self.set_value("fault_overtemp", "FAULT" if fault_flags & 0x04 else "OK", bool(fault_flags & 0x04))
+        self.set_value("fault_can1", "FAULT" if fault_flags & 0x08 else "OK", bool(fault_flags & 0x08))
+        self.set_value("fault_can2", "FAULT" if fault_flags & 0x10 else "OK", bool(fault_flags & 0x10))
+        self.set_value("fault_config", "FAULT" if fault_flags & 0x40 else "OK", bool(fault_flags & 0x40))
+        self.set_value("fault_watchdog", "FAULT" if fault_flags & 0x80 else "OK", bool(fault_flags & 0x80))
 
     def update_device_info(self, info: dict):
         """Update device info values."""

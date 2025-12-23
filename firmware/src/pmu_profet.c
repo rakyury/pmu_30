@@ -103,6 +103,7 @@ static const PROFET_GPIO_Map_t profet_gpio[PMU30_NUM_OUTPUTS] = {
 
 /* Private function prototypes -----------------------------------------------*/
 static void PROFET_UpdateCurrentSensing(uint8_t channel);
+static void PROFET_UpdateCurrentSensingSPI(uint8_t channel);
 static void PROFET_UpdateDiagnostics(uint8_t channel);
 static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault);
 static uint16_t PROFET_ReadCurrentADC(uint8_t channel);

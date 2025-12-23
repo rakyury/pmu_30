@@ -22,74 +22,22 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "pmu_types.h"
 
 /* Exported types ------------------------------------------------------------*/
 
-/**
- * @brief CAN bus identifier
+/* CAN types are defined in pmu_types.h:
+ * - PMU_CAN_Bus_t
+ * - PMU_CAN_MessageType_t
+ * - PMU_CAN_TimeoutBehavior_t
+ * - PMU_CAN_DataType_t
+ * - PMU_CAN_DataFormat_t
+ * - PMU_CAN_FrameType_t
+ * - PMU_CAN_IdType_t
  */
-typedef enum {
-    PMU_CAN_BUS_1 = 0,      /* CAN FD 1 */
-    PMU_CAN_BUS_2,          /* CAN FD 2 */
-    PMU_CAN_BUS_3,          /* CAN 2.0 A/B */
-    PMU_CAN_BUS_4,          /* CAN 2.0 A/B */
-    PMU_CAN_BUS_COUNT
-} PMU_CAN_Bus_t;
 
-/**
- * @brief CAN Message type (Level 1)
- */
-typedef enum {
-    PMU_CAN_MSG_TYPE_NORMAL = 0,    /* Normal single-frame message */
-    PMU_CAN_MSG_TYPE_COMPOUND,      /* Compound/multiplexed message */
-    PMU_CAN_MSG_TYPE_PMU1_RX,       /* PMU1 RX format */
-    PMU_CAN_MSG_TYPE_PMU2_RX,       /* PMU2 RX format */
-    PMU_CAN_MSG_TYPE_PMU3_RX        /* PMU3 RX format */
-} PMU_CAN_MessageType_t;
-
-/**
- * @brief CAN Input timeout behavior (Level 2)
- */
-typedef enum {
-    PMU_CAN_TIMEOUT_USE_DEFAULT = 0,    /* Use configured default value */
-    PMU_CAN_TIMEOUT_HOLD_LAST,          /* Hold last received value */
-    PMU_CAN_TIMEOUT_SET_ZERO            /* Set value to zero */
-} PMU_CAN_TimeoutBehavior_t;
-
-/**
- * @brief CAN Input data type (Level 2)
- */
-typedef enum {
-    PMU_CAN_DATA_TYPE_UNSIGNED = 0,     /* Unsigned integer */
-    PMU_CAN_DATA_TYPE_SIGNED,           /* Signed integer */
-    PMU_CAN_DATA_TYPE_FLOAT             /* IEEE 754 float */
-} PMU_CAN_DataType_t;
-
-/**
- * @brief CAN Input data format (Level 2)
- */
-typedef enum {
-    PMU_CAN_DATA_FORMAT_8BIT = 0,       /* 8-bit value */
-    PMU_CAN_DATA_FORMAT_16BIT,          /* 16-bit value */
-    PMU_CAN_DATA_FORMAT_32BIT,          /* 32-bit value */
-    PMU_CAN_DATA_FORMAT_CUSTOM          /* Custom bit field */
-} PMU_CAN_DataFormat_t;
-
-/**
- * @brief CAN frame type
- */
-typedef enum {
-    PMU_CAN_FRAME_CLASSIC = 0,  /* CAN 2.0 frame */
-    PMU_CAN_FRAME_FD            /* CAN FD frame */
-} PMU_CAN_FrameType_t;
-
-/**
- * @brief CAN ID type
- */
-typedef enum {
-    PMU_CAN_ID_STANDARD = 0,    /* 11-bit ID */
-    PMU_CAN_ID_EXTENDED         /* 29-bit ID */
-} PMU_CAN_IDType_t;
+/* Alias for ID type compatibility */
+typedef PMU_CAN_IdType_t PMU_CAN_IDType_t;
 
 /**
  * @brief CAN message structure

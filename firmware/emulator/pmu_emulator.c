@@ -712,13 +712,18 @@ void PMU_Emu_PrintState(void)
     }
 
     printf("\n--- PROFET Outputs ---\n");
+    int active_count = 0;
     for (int i = 0; i < PMU_EMU_PROFET_CHANNELS; i++) {
         if (emulator.profet[i].state != 0 || emulator.profet[i].pwm_duty != 0) {
             printf("PROFET[%02d]: state=%d, duty=%d%%, current=%dmA\n", i,
                    emulator.profet[i].state,
                    emulator.profet[i].pwm_duty / 10,
                    emulator.profet[i].current_mA);
+            active_count++;
         }
+    }
+    if (active_count == 0) {
+        printf("(All %d channels OFF)\n", PMU_EMU_PROFET_CHANNELS);
     }
 
     printf("\n--- H-Bridge Outputs ---\n");

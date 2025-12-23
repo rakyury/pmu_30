@@ -98,12 +98,12 @@ typedef enum {
 #define ANSI_DIM        "\033[2m"
 #define ANSI_BLINK      "\033[5m"
 
-/* LED symbols */
-#define LED_OFF_SYMBOL      "○"
-#define LED_ON_GREEN        "●"
-#define LED_ON_RED          "●"
-#define LED_ON_ORANGE       "◉"
-#define LED_BLINK_SYMBOL    "◐"
+/* LED symbols (ASCII for Windows console compatibility) */
+#define LED_OFF_SYMBOL      "o"
+#define LED_ON_GREEN        "O"
+#define LED_ON_RED          "X"
+#define LED_ON_ORANGE       "@"
+#define LED_BLINK_SYMBOL    "*"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -171,9 +171,9 @@ HAL_StatusTypeDef PMU_UI_Init(void)
     initialized = 1;
 
     printf("\n");
-    printf(ANSI_CYAN "╔════════════════════════════════════════════════════════════════╗\n" ANSI_RESET);
-    printf(ANSI_CYAN "║" ANSI_RESET ANSI_BOLD "           PMU-30 Emulator - Channel Visualization           " ANSI_RESET ANSI_CYAN "║\n" ANSI_RESET);
-    printf(ANSI_CYAN "╚════════════════════════════════════════════════════════════════╝\n" ANSI_RESET);
+    printf(ANSI_CYAN "+==================================================================+\n" ANSI_RESET);
+    printf(ANSI_CYAN "|" ANSI_RESET ANSI_BOLD "           PMU-30 Emulator - Channel Visualization           " ANSI_RESET ANSI_CYAN "|\n" ANSI_RESET);
+    printf(ANSI_CYAN "+==================================================================+\n" ANSI_RESET);
     printf("\n");
 
     PMU_UI_StartupAnimation();
@@ -337,7 +337,7 @@ void PMU_UI_PlayBuzzer(PMU_Buzzer_Pattern_t pattern)
     }
 
     if (pattern != PMU_BUZZER_OFF) {
-        printf(ANSI_YELLOW "🔔 [BUZZER] %s" ANSI_RESET "\n", pattern_name);
+        printf(ANSI_YELLOW "[BUZZER] %s" ANSI_RESET "\n", pattern_name);
     }
 }
 
@@ -379,7 +379,7 @@ uint8_t PMU_UI_ButtonReleased(uint8_t button)
  */
 void PMU_UI_StartupAnimation(void)
 {
-    printf(ANSI_GREEN "✓ UI initialized with %d channels\n" ANSI_RESET, PMU_UI_NUM_CHANNEL_LEDS);
+    printf(ANSI_GREEN "[OK] UI initialized with %d channels\n" ANSI_RESET, PMU_UI_NUM_CHANNEL_LEDS);
     printf("\n");
 
     /* Print initial grid */
@@ -447,13 +447,13 @@ static const char* UI_GetStatusName(EMU_Status_LED_t status)
  */
 static void UI_PrintChannelGrid(void)
 {
-    printf("\n" ANSI_CYAN "┌─────────────────────────────────────────────────────────┐\n" ANSI_RESET);
-    printf(ANSI_CYAN "│" ANSI_RESET "                   CHANNEL STATUS                        " ANSI_CYAN "│\n" ANSI_RESET);
-    printf(ANSI_CYAN "├─────────────────────────────────────────────────────────┤\n" ANSI_RESET);
+    printf("\n" ANSI_CYAN "+---------------------------------------------------------+\n" ANSI_RESET);
+    printf(ANSI_CYAN "|" ANSI_RESET "                   CHANNEL STATUS                        " ANSI_CYAN "|\n" ANSI_RESET);
+    printf(ANSI_CYAN "+---------------------------------------------------------+\n" ANSI_RESET);
 
     /* Print channels in rows */
     for (uint8_t row = 0; row < 3; row++) {
-        printf(ANSI_CYAN "│ " ANSI_RESET);
+        printf(ANSI_CYAN "| " ANSI_RESET);
 
         /* Channel numbers */
         for (uint8_t col = 0; col < EMU_UI_COLUMNS; col++) {
@@ -464,10 +464,10 @@ static void UI_PrintChannelGrid(void)
                 printf("   ");
             }
         }
-        printf("    " ANSI_CYAN "│\n" ANSI_RESET);
+        printf("    " ANSI_CYAN "|\n" ANSI_RESET);
 
         /* LED symbols */
-        printf(ANSI_CYAN "│ " ANSI_RESET);
+        printf(ANSI_CYAN "| " ANSI_RESET);
         for (uint8_t col = 0; col < EMU_UI_COLUMNS; col++) {
             uint8_t ch = row * EMU_UI_COLUMNS + col;
             if (ch < PMU_UI_NUM_CHANNEL_LEDS) {
@@ -479,14 +479,14 @@ static void UI_PrintChannelGrid(void)
                 printf("   ");
             }
         }
-        printf("    " ANSI_CYAN "│\n" ANSI_RESET);
+        printf("    " ANSI_CYAN "|\n" ANSI_RESET);
 
         if (row < 2) {
-            printf(ANSI_CYAN "│" ANSI_RESET "                                                         " ANSI_CYAN "│\n" ANSI_RESET);
+            printf(ANSI_CYAN "|" ANSI_RESET "                                                         " ANSI_CYAN "|\n" ANSI_RESET);
         }
     }
 
-    printf(ANSI_CYAN "└─────────────────────────────────────────────────────────┘\n" ANSI_RESET);
+    printf(ANSI_CYAN "+---------------------------------------------------------+\n" ANSI_RESET);
 
     /* Legend */
     printf(ANSI_DIM "  Legend: " ANSI_RESET);
@@ -516,7 +516,7 @@ static void UI_PrintStatusBar(void)
         }
     }
 
-    printf(ANSI_CYAN "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" ANSI_RESET);
+    printf(ANSI_CYAN "-----------------------------------------------------------\n" ANSI_RESET);
     printf("  Status: %s%s%s  |  ",
            UI_GetColorCode(status_led.color),
            UI_GetStatusName(prev_status),
@@ -607,7 +607,7 @@ void EMU_UI_PrintChannelDetails(uint8_t channel)
         return;
     }
 
-    printf("\n" ANSI_CYAN "═══ Channel %d Details ═══\n" ANSI_RESET, channel);
+    printf("\n" ANSI_CYAN "=== Channel %d Details ===\n" ANSI_RESET, channel);
     printf("  State:       ");
     switch (ch->state) {
         case PMU_PROFET_STATE_OFF:   printf(ANSI_DIM "OFF\n" ANSI_RESET); break;

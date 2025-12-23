@@ -14,7 +14,7 @@ from PyQt6.QtGui import QAction, QActionGroup
 
 from .widgets import (
     ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector,
-    PMUMonitorWidget, ConnectionBar
+    PMUMonitorWidget
 )
 
 # Channel dialogs
@@ -144,25 +144,6 @@ class MainWindowProfessional(QMainWindow):
         self.pmu_monitor_dock.setWidget(self.pmu_monitor)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
 
-        # === BOTTOM: Connection Bar ===
-        self.connection_dock = QDockWidget("Connection", self)
-        self.connection_dock.setAllowedAreas(
-            Qt.DockWidgetArea.TopDockWidgetArea |
-            Qt.DockWidgetArea.BottomDockWidgetArea
-        )
-        self.connection_dock.setMaximumHeight(50)
-        self.connection_dock.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetMovable |
-            QDockWidget.DockWidgetFeature.DockWidgetFloatable
-        )
-        self.connection_bar = ConnectionBar()
-        self.connection_dock.setWidget(self.connection_bar)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.connection_dock)
-
-        # For backwards compatibility
-        self.telemetry_dock = self.connection_dock
-        self.telemetry_widget = self.connection_bar
-
         # === Create but hide secondary monitors (can be shown via View menu) ===
         # Output Monitor (legacy)
         self.output_dock = QDockWidget("Output Table", self)
@@ -281,11 +262,6 @@ class MainWindowProfessional(QMainWindow):
         pmu_monitor_action.setShortcut("F8")
         windows_menu.addAction(pmu_monitor_action)
 
-        telemetry_action = self.telemetry_dock.toggleViewAction()
-        telemetry_action.setText("Connection Bar")
-        telemetry_action.setShortcut("F9")
-        windows_menu.addAction(telemetry_action)
-
         windows_menu.addSeparator()
 
         # Secondary panels (hidden by default)
@@ -393,90 +369,6 @@ class MainWindowProfessional(QMainWindow):
         self.project_tree.item_added.connect(self._on_item_add_requested)
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
-
-        # Telemetry connections
-        self.telemetry_widget.connection_requested.connect(self._on_connect_requested)
-        self.telemetry_widget.disconnection_requested.connect(self._on_disconnect_requested)
-
-    def _on_connect_requested(self, port: str):
-        """Handle connection request from telemetry widget."""
-        if port == "SIMULATOR":
-            # Connect to simulator
-            self._connect_to_simulator()
-        else:
-            # Connect to real device
-            self._connect_to_device(port)
-
-    def _on_disconnect_requested(self):
-        """Handle disconnection request."""
-        self.device_controller.disconnect()
-        self.telemetry_widget.set_connected(False)
-        self.pmu_monitor.set_connected(False)
-
-    def _connect_to_simulator(self):
-        """Connect to device simulator."""
-        try:
-            from communication import DeviceSimulator, VirtualSerialPort
-            import asyncio
-
-            self._simulator = DeviceSimulator()
-            self._virtual_port = VirtualSerialPort(self._simulator)
-
-            # Start simulator
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._virtual_port.open())
-
-            self.telemetry_widget.set_connected(True, "PMU-30 Simulator")
-            self.pmu_monitor.set_connected(True)
-
-            # Start telemetry updates
-            self._start_simulator_telemetry()
-
-            logger.info("Connected to simulator")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to simulator: {e}")
-            QMessageBox.warning(self, "Connection Error", f"Failed to connect to simulator:\n{e}")
-
-    def _connect_to_device(self, port: str):
-        """Connect to real device."""
-        try:
-            self.device_controller.connect(port)
-            self.telemetry_widget.set_connected(True, f"PMU-30 ({port})")
-            self.pmu_monitor.set_connected(True)
-            logger.info(f"Connected to device on {port}")
-        except Exception as e:
-            logger.error(f"Failed to connect to {port}: {e}")
-            QMessageBox.warning(self, "Connection Error", f"Failed to connect:\n{e}")
-
-    def _start_simulator_telemetry(self):
-        """Start receiving telemetry from simulator."""
-        self._sim_timer = QTimer(self)
-        self._sim_timer.timeout.connect(self._update_simulator_telemetry)
-        self._sim_timer.start(50)  # 20Hz
-
-    def _update_simulator_telemetry(self):
-        """Update telemetry from simulator."""
-        if not hasattr(self, '_simulator'):
-            return
-
-        # Generate telemetry data
-        packet = self._simulator._generate_telemetry()
-
-        # Convert to dict for PMU monitor
-        data = {
-            'voltage_v': packet.input_voltage,
-            'current_a': packet.total_current_a,
-            'temperature_c': packet.temperature_c,
-            'uptime_ms': packet.timestamp_ms,
-            'channel_states': [s.value for s in packet.channel_states],
-            'channel_currents': packet.output_currents,
-            'analog_values': packet.analog_values,
-            'fault_flags': packet.fault_flags.value,
-        }
-
-        # Update PMU monitor
-        self.pmu_monitor.update_from_telemetry(data)
 
     def _on_item_add_requested(self, channel_type_str: str):
         """Handle request to add new item by Channel type."""
@@ -1091,7 +983,6 @@ class MainWindowProfessional(QMainWindow):
         # Show main panels
         self.project_tree_dock.show()
         self.pmu_monitor_dock.show()
-        self.telemetry_dock.show()
 
         # Hide secondary panels
         self.output_dock.hide()
@@ -1101,7 +992,6 @@ class MainWindowProfessional(QMainWindow):
         # Reset positions
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.telemetry_dock)
 
         logger.info("Layout reset to default")
 
