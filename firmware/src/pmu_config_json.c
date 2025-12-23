@@ -23,8 +23,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-#ifndef UNIT_TEST
+/* Enable cJSON for real hardware and emulator, but not unit tests */
+#if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
 #include "cJSON.h"
+#define JSON_PARSING_ENABLED 1
 #endif
 
 /* Private typedef -----------------------------------------------------------*/
@@ -95,7 +97,7 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
                                            uint32_t length,
                                            PMU_JSON_LoadStats_t* stats)
 {
-#ifdef UNIT_TEST
+#ifndef JSON_PARSING_ENABLED
     (void)json_string;
     (void)length;
     if (stats) {
@@ -302,7 +304,7 @@ bool PMU_JSON_Validate(const char* json_string,
                         char* error_msg,
                         uint32_t error_msg_len)
 {
-#ifdef UNIT_TEST
+#ifndef JSON_PARSING_ENABLED
     (void)json_string;
     (void)length;
     (void)error_msg;
@@ -360,7 +362,7 @@ bool PMU_JSON_GetVersion(const char* json_string,
                           char* version_buf,
                           uint32_t version_buf_len)
 {
-#ifdef UNIT_TEST
+#ifndef JSON_PARSING_ENABLED
     (void)json_string;
     (void)length;
     if (version_buf && version_buf_len > 0) {
@@ -417,7 +419,7 @@ HAL_StatusTypeDef PMU_JSON_ClearConfig(void)
  */
 static bool JSON_ParseInputs(cJSON* inputs_array)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     int count = cJSON_GetArraySize(inputs_array);
 
     for (int i = 0; i < count && i < 20; i++) {
@@ -468,7 +470,7 @@ static bool JSON_ParseInputs(cJSON* inputs_array)
  */
 static bool JSON_ParseOutputs(cJSON* outputs_array)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     int count = cJSON_GetArraySize(outputs_array);
 
     for (int i = 0; i < count && i < 30; i++) {
@@ -531,7 +533,7 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
  */
 static bool JSON_ParseLogicFunctions(cJSON* logic_array)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     int count = cJSON_GetArraySize(logic_array);
 
     for (int i = 0; i < count && i < PMU_MAX_LOGIC_FUNCTIONS; i++) {
@@ -817,7 +819,7 @@ static bool JSON_ParseSystem(cJSON* system_obj)
  */
 static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     /* Parse Standard CAN Stream configuration */
     cJSON* stream = cJSON_GetObjectItem(settings_obj, "standard_can_stream");
     if (stream && cJSON_IsObject(stream)) {
@@ -1092,7 +1094,7 @@ static PMU_ChannelType_t JSON_ParseChannelType(const char* type_str)
  */
 static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stats)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     int count = cJSON_GetArraySize(channels_array);
 
     for (int i = 0; i < count; i++) {
@@ -1206,7 +1208,7 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
  */
 static bool JSON_ParseDigitalInput(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_DigitalInputConfig_t config = {0};
 
     /* Copy ID */
@@ -1253,7 +1255,7 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
  */
 static bool JSON_ParseAnalogInput(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_AnalogInputConfig_t config = {0};
 
     /* Copy ID */
@@ -1326,7 +1328,7 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
  */
 static bool JSON_ParsePowerOutput(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_PowerOutputConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1378,7 +1380,7 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
  */
 static bool JSON_ParseLogic(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_LogicConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1462,7 +1464,7 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
  */
 static bool JSON_ParseNumber(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_NumberConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1529,7 +1531,7 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
  */
 static bool JSON_ParseTimer(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_TimerConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1571,7 +1573,7 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
  */
 static bool JSON_ParseFilter(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_FilterConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1603,7 +1605,7 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
  */
 static bool JSON_ParseTable2D(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_Table2DConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1654,7 +1656,7 @@ static bool JSON_ParseTable2D(cJSON* channel_obj)
  */
 static bool JSON_ParseTable3D(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_Table3DConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1728,7 +1730,7 @@ static bool JSON_ParseTable3D(cJSON* channel_obj)
  */
 static bool JSON_ParseSwitch(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_SwitchConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1770,7 +1772,7 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
  */
 static bool JSON_ParseEnum(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_EnumConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1814,7 +1816,7 @@ static bool JSON_ParseEnum(cJSON* channel_obj)
  */
 static bool JSON_ParseCanRx(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_CanRxConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
@@ -1850,7 +1852,7 @@ static bool JSON_ParseCanRx(cJSON* channel_obj)
  */
 static bool JSON_ParseCanTx(cJSON* channel_obj)
 {
-#ifndef UNIT_TEST
+#ifdef JSON_PARSING_ENABLED
     PMU_CanTxConfig_t config = {0};
 
     const char* id = JSON_GetString(channel_obj, "id", "");
