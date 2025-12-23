@@ -269,7 +269,9 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
     if (telemetry_config.temps_enabled && index < TELEMETRY_BUFFER_SIZE - 4) {
         PMU_Protection_State_t* prot = PMU_Protection_GetState();
         int16_t mcu_temp = prot->temperature.mcu_temp_C;
-        int16_t board_temp = prot->temperature.board_temp_C;
+        /* Use max of L/R board temps for backward compatibility */
+        int16_t board_temp = (prot->temperature.board_temp_L_C > prot->temperature.board_temp_R_C) ?
+                              prot->temperature.board_temp_L_C : prot->temperature.board_temp_R_C;
         memcpy(&telemetry_data[index], &mcu_temp, sizeof(mcu_temp));
         index += sizeof(mcu_temp);
         memcpy(&telemetry_data[index], &board_temp, sizeof(board_temp));
@@ -585,7 +587,7 @@ static void Protocol_HandleGetSerial(const PMU_Protocol_Packet_t* packet)
 {
     (void)packet;
     uint8_t serial[32];
-    snprintf((char*)serial, sizeof(serial), "PMU30-%08lX", HAL_GetUIDw0());
+    snprintf((char*)serial, sizeof(serial), "PMU30-%08X", (unsigned int)HAL_GetUIDw0());
     Protocol_SendData(PMU_CMD_GET_SERIAL, serial, strlen((char*)serial));
 }
 
@@ -687,8 +689,8 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
     if (status == PMU_JSON_OK) {
         uint8_t response[32];
         snprintf((char*)response, sizeof(response),
-                 "Loaded: %lu inputs, %lu outputs",
-                 stats.inputs_loaded, stats.outputs_loaded);
+                 "Loaded: %u inputs, %u outputs",
+                 (unsigned int)stats.inputs_loaded, (unsigned int)stats.outputs_loaded);
         Protocol_SendData(PMU_CMD_LOAD_CONFIG, response, strlen((char*)response));
     } else {
         Protocol_SendNACK(PMU_CMD_LOAD_CONFIG, PMU_JSON_GetLastError());

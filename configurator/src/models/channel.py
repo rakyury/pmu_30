@@ -390,21 +390,50 @@ class PowerOutputChannel(ChannelBase):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PowerOutputChannel':
+        # Support both flat format (from channel.py) and nested format (from dialog)
+        # Pins: try "output_pins" first, then "pins"
+        output_pins = data.get("output_pins", data.get("pins", [0]))
+
+        # Source channel: try "source_channel" first, then "control_function"
+        source_channel = data.get("source_channel", data.get("control_function", ""))
+
+        # PWM settings: try flat format first, then nested "pwm" object
+        pwm_obj = data.get("pwm", {})
+        pwm_enabled = data.get("pwm_enabled", pwm_obj.get("enabled", False))
+        pwm_frequency_hz = data.get("pwm_frequency_hz", pwm_obj.get("frequency", 1000))
+        duty_channel = data.get("duty_channel", pwm_obj.get("duty_function", ""))
+        duty_fixed = data.get("duty_fixed", pwm_obj.get("duty_value", 100.0))
+        soft_start_enabled = pwm_obj.get("soft_start_enabled", False)
+        soft_start_ms = data.get("soft_start_ms", pwm_obj.get("soft_start_duration_ms", 0) if soft_start_enabled else 0)
+
+        # Protection settings: try flat format first, then nested "protection" object
+        prot_obj = data.get("protection", {})
+        current_limit_a = data.get("current_limit_a", prot_obj.get("current_limit", 25.0))
+        inrush_current_a = data.get("inrush_current_a", prot_obj.get("inrush_current", 50.0))
+        inrush_time_ms = data.get("inrush_time_ms", prot_obj.get("inrush_time_ms", 100))
+        retry_count = data.get("retry_count", prot_obj.get("retry_count", 3))
+        retry_forever = data.get("retry_forever", prot_obj.get("retry_forever", False))
+
+        # ID: use "id" first, fall back to "name"
+        channel_id = data.get("id", "")
+        if not channel_id:
+            channel_id = f"out_{data.get('name', 'unnamed')}"
+
         return cls(
-            id=data.get("id", ""),
+            id=channel_id,
             channel_type=ChannelType.POWER_OUTPUT,
-            output_pins=data.get("output_pins", [0]),
-            source_channel=data.get("source_channel", ""),
-            pwm_enabled=data.get("pwm_enabled", False),
-            pwm_frequency_hz=data.get("pwm_frequency_hz", 1000),
-            duty_channel=data.get("duty_channel", ""),
-            duty_fixed=data.get("duty_fixed", 100.0),
-            soft_start_ms=data.get("soft_start_ms", 0),
-            current_limit_a=data.get("current_limit_a", 25.0),
-            inrush_current_a=data.get("inrush_current_a", 50.0),
-            inrush_time_ms=data.get("inrush_time_ms", 100),
-            retry_count=data.get("retry_count", 3),
-            retry_forever=data.get("retry_forever", False)
+            output_pins=output_pins,
+            source_channel=source_channel,
+            pwm_enabled=pwm_enabled,
+            pwm_frequency_hz=pwm_frequency_hz,
+            duty_channel=duty_channel,
+            duty_fixed=duty_fixed,
+            soft_start_ms=soft_start_ms,
+            current_limit_a=current_limit_a,
+            inrush_current_a=inrush_current_a,
+            inrush_time_ms=inrush_time_ms,
+            retry_count=retry_count,
+            retry_forever=retry_forever
         )
 
     def get_input_channels(self) -> List[str]:

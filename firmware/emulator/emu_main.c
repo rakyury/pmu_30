@@ -25,6 +25,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_emulator.h"
 #include "emu_protocol_server.h"
+#include "emu_webui.h"
 #include "stm32_hal_emu.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,7 @@
 #include <signal.h>
 
 #ifdef _WIN32
+#define _WIN32_WINNT 0x0600  /* Windows Vista+ */
 #include <windows.h>
 #include <conio.h>
 #else
@@ -98,6 +100,12 @@ static int GetChar(void);
 static void StartTickThread(void);
 static void StopTickThread(void);
 
+#ifdef _WIN32
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep);
+#else
+static void CrashSignalHandler(int sig);
+#endif
+
 /* External firmware functions (to be called from emulator) */
 extern void PMU_ADC_Update(void);
 extern void PMU_CAN_Update(void);
@@ -154,13 +162,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    /* Setup signal handler */
+    /* Setup signal handlers */
     signal(SIGINT, SignalHandler);
     signal(SIGTERM, SignalHandler);
 
 #ifdef _WIN32
+    /* Setup crash handler on Windows */
+    SetUnhandledExceptionFilter(CrashHandler);
     /* Enable ANSI escape codes on Windows */
     EnableAnsiColors();
+#else
+    /* Setup crash handlers on Unix */
+    signal(SIGSEGV, CrashSignalHandler);
+    signal(SIGABRT, CrashSignalHandler);
+    signal(SIGFPE, CrashSignalHandler);
+    signal(SIGBUS, CrashSignalHandler);
 #endif
 
     /* Print banner */
@@ -199,6 +215,18 @@ int main(int argc, char* argv[])
     /* Try to load last saved configuration */
     EMU_Server_LoadConfig(NULL);  /* Uses default "last_config.json" */
 
+    /* Initialize and start Web UI server */
+    EMU_WebUI_Config_t webui_cfg = {
+        .http_port = 8080,
+        .auto_open_browser = false,  /* Don't auto-open, user can do manually */
+        .verbose = false
+    };
+    if (EMU_WebUI_Init(&webui_cfg) != 0) {
+        fprintf(stderr, "Warning: Failed to initialize Web UI\n");
+    } else if (EMU_WebUI_Start() != 0) {
+        fprintf(stderr, "Warning: Failed to start Web UI\n");
+    }
+
     /* Run appropriate mode */
     switch (g_mode) {
         case EMU_MODE_INTERACTIVE:
@@ -211,19 +239,30 @@ int main(int argc, char* argv[])
 
         case EMU_MODE_HEADLESS:
             printf("Running in headless mode. Press Ctrl+C to stop.\n");
-            while (g_running) {
-                PMU_Emu_Tick(EMU_TICK_RATE_MS);
-                EMU_Server_Process(EMU_TICK_RATE_MS);
+            {
+                uint32_t telem_counter = 0;
+                while (g_running) {
+                    PMU_Emu_Tick(EMU_TICK_RATE_MS);
+                    EMU_Server_Process(EMU_TICK_RATE_MS);
+                    EMU_WebUI_Process(EMU_TICK_RATE_MS);
+
+                    telem_counter += EMU_TICK_RATE_MS;
+                    if (telem_counter >= 100) {
+                        EMU_WebUI_SendTelemetry();
+                        telem_counter = 0;
+                    }
 #ifdef _WIN32
-                Sleep(EMU_TICK_RATE_MS);
+                    Sleep(EMU_TICK_RATE_MS);
 #else
-                usleep(EMU_TICK_RATE_MS * 1000);
+                    usleep(EMU_TICK_RATE_MS * 1000);
 #endif
+                }
             }
             break;
     }
 
     /* Cleanup */
+    EMU_WebUI_Stop();
     EMU_Server_Stop();
     PMU_Emu_Deinit();
     printf("\nEmulator terminated.\n");
@@ -299,6 +338,12 @@ static void PrintHelp(void)
     printf("    ui on                 - Enable auto visualization\n");
     printf("    ui off                - Disable auto visualization\n");
     printf("\n");
+    printf("  Web UI:\n");
+    printf("    webui / web           - Open Web UI in browser\n");
+    printf("\n");
+    printf("  Config Commands:\n");
+    printf("    clearconfig / cc      - Clear saved configuration\n");
+    printf("\n");
     printf("  General:\n");
     printf("    help                  - Show this help\n");
     printf("    quit / exit           - Exit emulator\n");
@@ -319,6 +364,8 @@ static void PrintUsage(void)
     printf("  pmu30_emulator -s test_can.json     Run CAN test scenario\n");
     printf("  pmu30_emulator --headless           Background mode\n");
     printf("\n");
+    printf("Web UI: http://localhost:8080 (use 'Clear Config' button to reset)\n");
+    printf("\n");
 }
 
 static void SignalHandler(int sig)
@@ -328,14 +375,79 @@ static void SignalHandler(int sig)
     printf("\nShutting down...\n");
 }
 
+#ifdef _WIN32
+/* Windows crash handler */
+static LONG WINAPI CrashHandler(EXCEPTION_POINTERS* ep)
+{
+    const char* exception_name = "UNKNOWN";
+    switch (ep->ExceptionRecord->ExceptionCode) {
+        case EXCEPTION_ACCESS_VIOLATION:     exception_name = "ACCESS_VIOLATION"; break;
+        case EXCEPTION_STACK_OVERFLOW:       exception_name = "STACK_OVERFLOW"; break;
+        case EXCEPTION_ARRAY_BOUNDS_EXCEEDED: exception_name = "ARRAY_BOUNDS"; break;
+        case EXCEPTION_ILLEGAL_INSTRUCTION:  exception_name = "ILLEGAL_INSTRUCTION"; break;
+        case EXCEPTION_FLT_DIVIDE_BY_ZERO:   exception_name = "FLT_DIV_ZERO"; break;
+        case EXCEPTION_INT_DIVIDE_BY_ZERO:   exception_name = "INT_DIV_ZERO"; break;
+    }
+
+    FILE* f = fopen("emu_crash.log", "a");
+    if (f) {
+        fprintf(f, "\n=== CRASH at %s ===\n", __DATE__ " " __TIME__);
+        fprintf(f, "Exception: %s (0x%08lX)\n", exception_name, ep->ExceptionRecord->ExceptionCode);
+        fprintf(f, "Address: 0x%p\n", ep->ExceptionRecord->ExceptionAddress);
+        if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2) {
+            fprintf(f, "Fault address: 0x%p (%s)\n",
+                    (void*)ep->ExceptionRecord->ExceptionInformation[1],
+                    ep->ExceptionRecord->ExceptionInformation[0] ? "write" : "read");
+        }
+        fclose(f);
+    }
+
+    fprintf(stderr, "\n\n");
+    fprintf(stderr, "!!! EMULATOR CRASHED !!!\n");
+    fprintf(stderr, "Exception: %s (0x%08lX)\n", exception_name, ep->ExceptionRecord->ExceptionCode);
+    fprintf(stderr, "Address: 0x%p\n", ep->ExceptionRecord->ExceptionAddress);
+    fprintf(stderr, "See emu_crash.log for details.\n");
+    fprintf(stderr, "\n");
+
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#else
+/* Unix crash handler */
+static void CrashSignalHandler(int sig)
+{
+    const char* sig_name = "UNKNOWN";
+    switch (sig) {
+        case SIGSEGV: sig_name = "SIGSEGV (Segmentation fault)"; break;
+        case SIGABRT: sig_name = "SIGABRT (Abort)"; break;
+        case SIGFPE:  sig_name = "SIGFPE (Floating point error)"; break;
+        case SIGBUS:  sig_name = "SIGBUS (Bus error)"; break;
+    }
+
+    FILE* f = fopen("emu_crash.log", "a");
+    if (f) {
+        fprintf(f, "\n=== CRASH ===\n");
+        fprintf(f, "Signal: %s (%d)\n", sig_name, sig);
+        fclose(f);
+    }
+
+    fprintf(stderr, "\n\n!!! EMULATOR CRASHED !!!\n");
+    fprintf(stderr, "Signal: %s (%d)\n", sig_name, sig);
+    fprintf(stderr, "See emu_crash.log for details.\n\n");
+
+    exit(1);
+}
+#endif
+
 /* Background tick thread function */
 #define EMU_THREAD_SLEEP_MS  10  /* Sleep interval for thread */
+#define EMU_WEBUI_TELEM_INTERVAL_MS  100  /* WebSocket telemetry update interval */
 
 #ifdef _WIN32
 static DWORD WINAPI TickThreadFunc(LPVOID param)
 {
     (void)param;
     DWORD last_tick = GetTickCount();
+    DWORD last_webui_telem = GetTickCount();
 
     while (g_tick_thread_running && g_running) {
         DWORD now = GetTickCount();
@@ -347,8 +459,17 @@ static DWORD WINAPI TickThreadFunc(LPVOID param)
             PMU_Emu_Tick(delta);
         }
 
-        /* Process server with short timeout */
+        /* Process protocol server with short timeout */
         EMU_Server_Process(1);
+
+        /* Process Web UI server */
+        EMU_WebUI_Process(1);
+
+        /* Send WebSocket telemetry at regular interval */
+        if (now - last_webui_telem >= EMU_WEBUI_TELEM_INTERVAL_MS) {
+            EMU_WebUI_SendTelemetry();
+            last_webui_telem = now;
+        }
 
         /* Sleep */
         Sleep(EMU_THREAD_SLEEP_MS);
@@ -361,6 +482,7 @@ static void* TickThreadFunc(void* param)
     (void)param;
     struct timespec last_time, now;
     clock_gettime(CLOCK_MONOTONIC, &last_time);
+    uint32_t webui_telem_accum = 0;
 
     while (g_tick_thread_running && g_running) {
         clock_gettime(CLOCK_MONOTONIC, &now);
@@ -370,9 +492,18 @@ static void* TickThreadFunc(void* param)
 
         if (delta > 0 && delta < 1000) {
             PMU_Emu_Tick(delta);
+            webui_telem_accum += delta;
         }
 
         EMU_Server_Process(1);
+        EMU_WebUI_Process(1);
+
+        /* Send WebSocket telemetry at regular interval */
+        if (webui_telem_accum >= EMU_WEBUI_TELEM_INTERVAL_MS) {
+            EMU_WebUI_SendTelemetry();
+            webui_telem_accum = 0;
+        }
+
         usleep(EMU_THREAD_SLEEP_MS * 1000);
     }
     return NULL;
@@ -758,6 +889,24 @@ static void ProcessCommand(const char* cmd)
         } else {
             /* No subarg - print state grid */
             EMU_UI_PrintState();
+        }
+    }
+    /* Web UI */
+    else if (strcmp(token, "webui") == 0 || strcmp(token, "web") == 0) {
+        if (EMU_WebUI_IsRunning()) {
+            EMU_WebUI_OpenBrowser();
+        } else {
+            printf("Web UI is not running.\n");
+        }
+    }
+    /* Clear config */
+    else if (strcmp(token, "clearconfig") == 0 || strcmp(token, "cc") == 0) {
+        if (remove("last_config.json") == 0) {
+            printf("Cleared saved configuration (last_config.json)\n");
+            PMU_Emu_Reset();
+            printf("Emulator reset to defaults.\n");
+        } else {
+            printf("No saved configuration to clear.\n");
         }
     }
     /* Unknown command */

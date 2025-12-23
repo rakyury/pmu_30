@@ -9,9 +9,11 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "emu_protocol_server.h"
+#include "emu_webui.h"
 #include "pmu_emulator.h"
 #include "pmu_config_json.h"
 #include "pmu_channel.h"
+#include "pmu_profet.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,6 +75,12 @@ static const char* DEVICE_NAME = "PMU-30 Emulator";
 static const char* SERIAL_NUMBER = "EMU-00000001";
 static const uint8_t FW_VERSION[3] = {1, 0, 0};
 static const uint8_t HW_REVISION = 0xFF;  /* Emulator */
+
+/* Config statistics (updated on each config load) */
+static PMU_JSON_LoadStats_t last_config_stats = {0};
+static bool config_loaded = false;
+static char* last_config_json = NULL;
+static size_t last_config_size = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -471,6 +479,13 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
 
     LOG_SERVER("RX msg 0x%02X, len %d", msg_type, len);
 
+    /* Send protocol command to WebUI log */
+    {
+        char log_msg[128];
+        snprintf(log_msg, sizeof(log_msg), "CMD 0x%02X len=%d", msg_type, len);
+        EMU_WebUI_SendLog(0, "protocol", log_msg);
+    }
+
     switch (msg_type) {
         case EMU_MSG_PING:
             /* Respond with PONG */
@@ -526,20 +541,30 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
 
                 LOG_SERVER("SET_CHANNEL %d = %.2f", channel_id, value);
 
+                /* Send to WebUI log */
+                {
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "SET_CHANNEL %d = %.2f", channel_id, value);
+                    EMU_WebUI_SendLog(1, "cmd", log_msg);
+                }
+
                 /* Apply to firmware channel system */
                 HAL_StatusTypeDef result = PMU_Channel_SetValue(channel_id, (int32_t)value);
 
-                /* Also update emulator state for outputs */
+                /* Also update emulator and firmware state for outputs */
                 if (channel_id >= 100 && channel_id < 130) {
-                    /* PROFET output - update emulator state */
+                    /* PROFET output - update both emulator and firmware state */
                     uint8_t profet_idx = channel_id - 100;
-                    if (value > 0) {
-                        emu->profet[profet_idx].state = 1;  /* ON */
-                        emu->profet[profet_idx].pwm_duty = (uint16_t)value;
-                    } else {
-                        emu->profet[profet_idx].state = 0;  /* OFF */
-                        emu->profet[profet_idx].pwm_duty = 0;
-                    }
+                    uint8_t new_state = (value > 0) ? 1 : 0;
+
+                    /* Update firmware PROFET state */
+                    PMU_PROFET_SetState(profet_idx, new_state);
+
+                    /* Also update emulator state */
+                    emu->profet[profet_idx].state = new_state;
+                    emu->profet[profet_idx].pwm_duty = (value > 0) ? (uint16_t)value : 0;
+
+                    LOG_SERVER("PROFET[%d] state=%d duty=%d", profet_idx, new_state, (int)value);
                 } else if (channel_id < 20) {
                     /* Input channel - update emulator ADC */
                     PMU_Emu_ADC_SetRaw(channel_id, (uint16_t)value);
@@ -583,14 +608,89 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
         }
 
         case EMU_MSG_GET_CONFIG: {
-            /* Send empty config for now */
-            resp[0] = 0;  /* Chunk index low */
-            resp[1] = 0;  /* Chunk index high */
-            resp[2] = 1;  /* Total chunks low */
-            resp[3] = 0;  /* Total chunks high */
-            resp[4] = '{';
-            resp[5] = '}';
-            Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, resp, 6);
+            /* Read config from last_config.json and send it */
+            const char* config_file = "last_config.json";
+            FILE* f = fopen(config_file, "rb");
+
+            if (!f) {
+                /* No config file - send empty config */
+                LOG_SERVER("GET_CONFIG: No config file found, sending empty config");
+                resp[0] = 0;  /* Chunk index low */
+                resp[1] = 0;  /* Chunk index high */
+                resp[2] = 1;  /* Total chunks low */
+                resp[3] = 0;  /* Total chunks high */
+                resp[4] = '{';
+                resp[5] = '}';
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, resp, 6);
+                break;
+            }
+
+            /* Get file size */
+            fseek(f, 0, SEEK_END);
+            long file_size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+
+            if (file_size <= 0 || file_size > 100 * 1024) {
+                fclose(f);
+                LOG_SERVER("GET_CONFIG: Invalid config file size %ld", file_size);
+                resp[0] = 0; resp[1] = 0; resp[2] = 1; resp[3] = 0;
+                resp[4] = '{'; resp[5] = '}';
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, resp, 6);
+                break;
+            }
+
+            /* Allocate and read config */
+            char* config_data = (char*)malloc(file_size + 1);
+            if (!config_data) {
+                fclose(f);
+                LOG_SERVER("GET_CONFIG: Failed to allocate memory");
+                resp[0] = 0; resp[1] = 0; resp[2] = 1; resp[3] = 0;
+                resp[4] = '{'; resp[5] = '}';
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, resp, 6);
+                break;
+            }
+
+            size_t bytes_read = fread(config_data, 1, file_size, f);
+            fclose(f);
+            config_data[bytes_read] = '\0';
+
+            LOG_SERVER("GET_CONFIG: Sending config (%zu bytes)", bytes_read);
+
+            /* Send config in chunks (max 500 bytes payload per chunk to fit in buffer) */
+            const size_t MAX_CHUNK_DATA = 500;
+            uint16_t total_chunks = (uint16_t)((bytes_read + MAX_CHUNK_DATA - 1) / MAX_CHUNK_DATA);
+            if (total_chunks == 0) total_chunks = 1;
+
+            /* Allocate chunk buffer (header + data) */
+            uint8_t* chunk_buf = (uint8_t*)malloc(MAX_CHUNK_DATA + 4);
+            if (!chunk_buf) {
+                LOG_SERVER("GET_CONFIG: Failed to allocate chunk buffer");
+                free(config_data);
+                resp[0] = 0; resp[1] = 0; resp[2] = 1; resp[3] = 0;
+                resp[4] = '{'; resp[5] = '}';
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, resp, 6);
+                break;
+            }
+
+            size_t offset = 0;
+            for (uint16_t chunk_idx = 0; chunk_idx < total_chunks; chunk_idx++) {
+                size_t chunk_size = bytes_read - offset;
+                if (chunk_size > MAX_CHUNK_DATA) chunk_size = MAX_CHUNK_DATA;
+
+                /* Build response: header + data */
+                chunk_buf[0] = (uint8_t)(chunk_idx & 0xFF);
+                chunk_buf[1] = (uint8_t)(chunk_idx >> 8);
+                chunk_buf[2] = (uint8_t)(total_chunks & 0xFF);
+                chunk_buf[3] = (uint8_t)(total_chunks >> 8);
+                memcpy(chunk_buf + 4, config_data + offset, chunk_size);
+
+                LOG_SERVER("GET_CONFIG: Sending chunk %d/%d (%zu bytes)", chunk_idx + 1, total_chunks, chunk_size);
+                Server_SendResponse(client_idx, EMU_MSG_CONFIG_DATA, chunk_buf, 4 + chunk_size);
+                offset += chunk_size;
+            }
+
+            free(chunk_buf);
+            free(config_data);
             break;
         }
 
@@ -612,6 +712,13 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
             EMU_Client_t* client = &server.clients[client_idx];
 
             LOG_SERVER("SET_CONFIG chunk %d/%d, %d bytes", chunk_idx + 1, total_chunks, chunk_len);
+
+            /* Send to WebUI log */
+            {
+                char log_msg[64];
+                snprintf(log_msg, sizeof(log_msg), "Config chunk %d/%d (%d bytes)", chunk_idx + 1, total_chunks, chunk_len);
+                EMU_WebUI_SendLog(1, "config", log_msg);
+            }
 
             /* First chunk - allocate buffer */
             if (chunk_idx == 0) {
@@ -652,6 +759,13 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
                 }
 
                 LOG_SERVER("Config complete: %zu bytes", client->config_received);
+
+                /* Send to WebUI log */
+                {
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Config upload complete: %zu bytes", client->config_received);
+                    EMU_WebUI_SendLog(1, "config", log_msg);
+                }
 
                 /* Apply configuration */
                 int result = Server_ApplyConfig((char*)client->config_buffer, client->config_received);
@@ -771,9 +885,9 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     PMU_Emulator_t* emu = PMU_Emu_GetState();
     size_t offset = 0;
 
-    /* Timestamp (4 bytes) */
-    uint32_t tick = emu->tick_ms;
-    memcpy(buffer + offset, &tick, 4);
+    /* Timestamp/Uptime (4 bytes) - use uptime_seconds * 1000 for more accurate display */
+    uint32_t uptime_ms = emu->uptime_seconds * 1000 + (emu->tick_ms % 1000);
+    memcpy(buffer + offset, &uptime_ms, 4);
     offset += 4;
 
     /* Voltage (2 bytes) - from system channel or emulator */
@@ -782,9 +896,9 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     memcpy(buffer + offset, &voltage, 2);
     offset += 2;
 
-    /* Temperature (2 bytes, signed) - from system channel or emulator */
-    int32_t temp_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP);
-    int16_t temp = (temp_val != 0) ? (int16_t)temp_val : emu->protection.board_temp_C;
+    /* Temperature (2 bytes, signed) - Board temp Left from emulator */
+    int32_t temp_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP_L);
+    int16_t temp = (temp_val != 0) ? (int16_t)temp_val : emu->protection.board_temp_L_C;
     memcpy(buffer + offset, &temp, 2);
     offset += 2;
 
@@ -802,22 +916,22 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
         offset += 2;
     }
 
-    /* PROFET states (30 x 1 byte) - from firmware channels if available */
+    /* PROFET states (30 x 1 byte) - from firmware PROFET module */
     for (int i = 0; i < 30; i++) {
-        int32_t ch_val = PMU_Channel_GetValue(100 + i);  /* Channels 100-129 are outputs */
-        if (ch_val != 0) {
-            buffer[offset++] = (ch_val > 0) ? 1 : 0;  /* ON if value > 0 */
+        PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
+        if (profet) {
+            buffer[offset++] = profet->state;
         } else {
             buffer[offset++] = emu->profet[i].state;
         }
     }
 
-    /* PROFET duties (30 x 2 bytes) - from firmware channels if available */
+    /* PROFET duties (30 x 2 bytes) - from firmware PROFET module */
     for (int i = 0; i < 30; i++) {
-        int32_t ch_val = PMU_Channel_GetValue(100 + i);  /* Get PWM duty from channel */
+        PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
         uint16_t duty;
-        if (ch_val != 0) {
-            duty = (uint16_t)ch_val;  /* Channel value is already duty (0-1000) */
+        if (profet) {
+            duty = profet->pwm_duty;
         } else {
             duty = emu->profet[i].pwm_duty;
         }
@@ -842,13 +956,44 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
         offset += 2;
     }
 
-    /* Channel count (2 bytes) */
-    const PMU_ChannelStats_t* ch_stats = PMU_Channel_GetStats();
-    uint16_t channel_count = ch_stats ? ch_stats->total_channels : 0;
-    memcpy(buffer + offset, &channel_count, 2);
+    /* Extended system fields (16 bytes) */
+
+    /* Board temperature Right (2 bytes, signed) - ECUMaster: boardTemperatureR */
+    int16_t temp_r = emu->protection.board_temp_R_C;
+    memcpy(buffer + offset, &temp_r, 2);
     offset += 2;
 
-    *len = offset;
+    /* 5V output (2 bytes) - from emulator state */
+    uint16_t v5_out = emu->protection.output_5v_mV;
+    memcpy(buffer + offset, &v5_out, 2);
+    offset += 2;
+
+    /* 3.3V output (2 bytes) - from emulator state */
+    uint16_t v33_out = emu->protection.output_3v3_mV;
+    memcpy(buffer + offset, &v33_out, 2);
+    offset += 2;
+
+    /* Flash temperature (2 bytes, signed) - simulate as board_temp_L - 5 */
+    int16_t flash_temp = emu->protection.board_temp_L_C - 5;
+    memcpy(buffer + offset, &flash_temp, 2);
+    offset += 2;
+
+    /* System status (4 bytes) - bit flags (ECUMaster compatible) */
+    uint32_t sys_status = emu->protection.system_status;
+    /* Bit 0: reset detector */
+    /* Bit 1: user error */
+    sys_status |= (emu->protection.user_error ? 0x02 : 0);
+    /* Bit 2: is turning off */
+    sys_status |= (emu->protection.is_turning_off ? 0x04 : 0);
+    memcpy(buffer + offset, &sys_status, 4);
+    offset += 4;
+
+    /* Fault flags (4 bytes) - from emulator protection state */
+    uint32_t faults = emu->protection.fault_flags;
+    memcpy(buffer + offset, &faults, 4);
+    offset += 4;
+
+    *len = offset;  /* Should be 170 bytes */
 }
 
 /**
@@ -875,6 +1020,7 @@ static int Server_ApplyConfig(const char* json, size_t len)
     if (result != PMU_JSON_OK) {
         const char* error = PMU_JSON_GetLastError();
         LOG_SERVER("JSON parse error: %s", error ? error : "unknown");
+        EMU_WebUI_SendLog(3, "config", error ? error : "JSON parse error");
         printf("\n");
         printf("+============================================================+\n");
         printf("|          CONFIGURATION LOAD FAILED                         |\n");
@@ -883,6 +1029,29 @@ static int Server_ApplyConfig(const char* json, size_t len)
         printf("+============================================================+\n");
         printf("\n");
         return -1;
+    }
+
+    /* Store stats globally */
+    memcpy(&last_config_stats, &stats, sizeof(PMU_JSON_LoadStats_t));
+    config_loaded = true;
+
+    /* Store config JSON for download */
+    if (last_config_json) {
+        free(last_config_json);
+    }
+    last_config_json = (char*)malloc(len + 1);
+    if (last_config_json) {
+        memcpy(last_config_json, json, len);
+        last_config_json[len] = '\0';
+        last_config_size = len;
+    }
+
+    /* Send success to WebUI log */
+    {
+        char log_msg[128];
+        snprintf(log_msg, sizeof(log_msg), "Config loaded: %lu channels, %lu CAN msgs, %lu Lua scripts",
+                 (unsigned long)stats.total_channels, (unsigned long)stats.can_messages, (unsigned long)stats.lua_scripts);
+        EMU_WebUI_SendLog(1, "config", log_msg);
     }
 
     /* Save config to file for reference */
@@ -1027,6 +1196,25 @@ void EMU_Server_SendLog(uint8_t level, const char* source, const char* message)
             Server_SendResponse(i, EMU_MSG_LOG, buffer, (uint16_t)offset);
         }
     }
+}
+
+/* Accessor functions for config stats */
+bool EMU_Server_IsConfigLoaded(void)
+{
+    return config_loaded;
+}
+
+const PMU_JSON_LoadStats_t* EMU_Server_GetConfigStats(void)
+{
+    return config_loaded ? &last_config_stats : NULL;
+}
+
+const char* EMU_Server_GetConfigJSON(size_t* out_size)
+{
+    if (out_size) {
+        *out_size = last_config_size;
+    }
+    return last_config_json;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

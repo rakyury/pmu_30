@@ -92,7 +92,14 @@ class TelemetryPacket:
     # H-Bridge positions (4 bridges)
     hbridge_positions: list[int] = field(default_factory=lambda: [0] * 4)
 
-    # Legacy compatibility fields (derived)
+    # Extended system values
+    board_temp_2: int = 0       # Second temperature sensor (°C)
+    output_5v_mv: int = 5000    # 5V rail voltage (mV)
+    output_3v3_mv: int = 3300   # 3.3V rail voltage (mV)
+    flash_temp: int = 0         # Flash temperature (°C)
+    system_status: int = 0      # System status flags (bitfield)
+
+    # Fault flags
     fault_flags: FaultFlags = FaultFlags.NONE
 
     @property
@@ -198,7 +205,7 @@ class TelemetryPacket:
 
 
 # Telemetry packet format string for struct.unpack
-# Total size: 154 bytes (matching emulator format)
+# Total size: 170 bytes (extended format with system fields)
 TELEMETRY_FORMAT = "<" + "".join([
     "I",      # timestamp_ms (4 bytes)
     "H",      # voltage_mv (2 bytes)
@@ -209,9 +216,16 @@ TELEMETRY_FORMAT = "<" + "".join([
     "30H",    # profet_duties (60 bytes)
     "4B",     # hbridge_states (4 bytes)
     "4H",     # hbridge_positions (8 bytes)
+    # Extended system fields (16 bytes)
+    "h",      # board_temp_2 (2 bytes, signed)
+    "H",      # 5v_output_mv (2 bytes)
+    "H",      # 3v3_output_mv (2 bytes)
+    "h",      # flash_temp (2 bytes, signed)
+    "I",      # system_status (4 bytes) - bit flags
+    "I",      # fault_flags (4 bytes) - FaultFlags bitmask
 ])
 
-TELEMETRY_PACKET_SIZE = 154
+TELEMETRY_PACKET_SIZE = 170
 
 
 def parse_telemetry(data: bytes) -> TelemetryPacket:
@@ -260,6 +274,25 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     idx += 4
 
     hbridge_positions = list(values[idx:idx + 4])
+    idx += 4
+
+    # Extended system fields
+    board_temp_2 = values[idx]
+    idx += 1
+
+    output_5v_mv = values[idx]
+    idx += 1
+
+    output_3v3_mv = values[idx]
+    idx += 1
+
+    flash_temp = values[idx]
+    idx += 1
+
+    system_status = values[idx]
+    idx += 1
+
+    fault_flags_raw = values[idx]
 
     return TelemetryPacket(
         timestamp_ms=timestamp_ms,
@@ -271,6 +304,12 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
         profet_duties=profet_duties,
         hbridge_states=hbridge_states,
         hbridge_positions=hbridge_positions,
+        board_temp_2=board_temp_2,
+        output_5v_mv=output_5v_mv,
+        output_3v3_mv=output_3v3_mv,
+        flash_temp=flash_temp,
+        system_status=system_status,
+        fault_flags=FaultFlags(fault_flags_raw),
     )
 
 
@@ -297,6 +336,13 @@ def create_telemetry_bytes(packet: TelemetryPacket) -> bytes:
         *packet.profet_duties,
         *packet.hbridge_states,
         *packet.hbridge_positions,
+        # Extended fields
+        packet.board_temp_2,
+        packet.output_5v_mv,
+        packet.output_3v3_mv,
+        packet.flash_temp,
+        packet.system_status,
+        packet.fault_flags.value if isinstance(packet.fault_flags, FaultFlags) else packet.fault_flags,
     )
 
 

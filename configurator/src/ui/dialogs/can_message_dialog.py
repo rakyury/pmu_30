@@ -25,6 +25,75 @@ class CANMessageDialog(QDialog):
         ("PMU3 RX Format", "pmu3_rx"),
     ]
 
+    # CAN Message Templates
+    TEMPLATES = {
+        "Link ECU Generic Dashboard": {
+            "id": "msg_link_dash",
+            "name": "Link ECU Generic Dashboard",
+            "can_bus": 1,
+            "base_id": 0x3E8,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 200,
+            "enabled": True,
+            "description": "Link ECU Generic Dashboard stream (frames 0-7). Compound message with frame index in byte 0."
+        },
+        "Link ECU Generic Dashboard 2": {
+            "id": "msg_link_dash2",
+            "name": "Link ECU Generic Dashboard 2",
+            "can_bus": 1,
+            "base_id": 0x3E8,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 200,
+            "enabled": True,
+            "description": "Link ECU Generic Dashboard 2 stream (frames 8-15). Extended data including oil temp/press, wheel speeds, knock levels."
+        },
+        "ECUMaster PMU Status": {
+            "id": "msg_pmu_status",
+            "name": "ECUMaster PMU Status",
+            "can_bus": 1,
+            "base_id": 0x600,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 100,
+            "enabled": True,
+            "description": "ECUMaster PMU Standard CAN Stream - status, outputs, currents, voltages."
+        },
+        "AEM CD-7 Dash": {
+            "id": "msg_aem_cd7",
+            "name": "AEM CD-7 Dashboard",
+            "can_bus": 1,
+            "base_id": 0x1F0,
+            "is_extended": False,
+            "message_type": "normal",
+            "frame_count": 1,
+            "dlc": 8,
+            "timeout_ms": 100,
+            "enabled": True,
+            "description": "AEM CD-7 Dashboard input message."
+        },
+        "MoTeC M1 Series": {
+            "id": "msg_motec_m1",
+            "name": "MoTeC M1 Telemetry",
+            "can_bus": 1,
+            "base_id": 0x640,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 50,
+            "enabled": True,
+            "description": "MoTeC M1 Series ECU telemetry stream."
+        },
+    }
+
     def __init__(self, parent=None, message_config: Optional[Dict[str, Any]] = None,
                  existing_ids: Optional[List[str]] = None):
         """
@@ -52,6 +121,23 @@ class CANMessageDialog(QDialog):
     def _init_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout()
+
+        # Template selection (only for new messages)
+        if not self.message_config:
+            template_group = QGroupBox("Quick Start from Template")
+            template_layout = QHBoxLayout()
+
+            template_layout.addWidget(QLabel("Template:"))
+
+            self.template_combo = QComboBox()
+            self.template_combo.addItem("-- Select Template --")
+            for name in self.TEMPLATES.keys():
+                self.template_combo.addItem(name)
+            self.template_combo.currentTextChanged.connect(self._on_template_selected)
+            template_layout.addWidget(self.template_combo, 1)
+
+            template_group.setLayout(template_layout)
+            layout.addWidget(template_group)
 
         # Identification group
         id_group = QGroupBox("Identification")
@@ -189,6 +275,26 @@ class CANMessageDialog(QDialog):
         self.frame_count_spin.setEnabled(msg_type == "compound")
         if msg_type != "compound":
             self.frame_count_spin.setValue(1)
+
+    def _on_template_selected(self, template_name: str):
+        """Handle template selection."""
+        if template_name == "-- Select Template --":
+            return
+
+        if template_name in self.TEMPLATES:
+            template = self.TEMPLATES[template_name].copy()
+
+            # Check if ID already exists and modify if needed
+            base_id = template.get("id", "msg_template")
+            final_id = base_id
+            counter = 1
+            while final_id in self.existing_ids:
+                final_id = f"{base_id}_{counter}"
+                counter += 1
+            template["id"] = final_id
+
+            # Load the template configuration
+            self._load_config(template)
 
     def _on_accept(self):
         """Validate and accept dialog."""

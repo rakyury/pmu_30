@@ -37,6 +37,7 @@ class DeviceController(QObject):
     # New signals for telemetry and logs
     telemetry_received = pyqtSignal(object)  # TelemetryPacket
     log_received = pyqtSignal(int, str, str)  # level, source, message
+    config_received = pyqtSignal(dict)  # Configuration dictionary
 
     def __init__(self):
         super().__init__()
@@ -48,6 +49,11 @@ class DeviceController(QObject):
         self._stop_thread = threading.Event()
         self._telemetry_enabled = False
         self._rx_buffer = bytearray()
+
+        # Config receive state
+        self._config_chunks = {}  # chunk_idx -> data
+        self._config_total_chunks = 0
+        self._config_event = threading.Event()
 
     def is_connected(self) -> bool:
         """Check if device is connected."""
@@ -112,6 +118,10 @@ class DeviceController(QObject):
             self._is_connected = True
             self.connected.emit()
 
+            # Subscribe to telemetry after connection is established
+            if connection_type == "Emulator":
+                self.subscribe_telemetry()
+
             logger.info(f"Connected via {connection_type}")
             return True
 
@@ -160,9 +170,6 @@ class DeviceController(QObject):
 
         # Start receive thread
         self._start_receive_thread()
-
-        # Subscribe to telemetry
-        self.subscribe_telemetry()
 
     def _connect_can(self, interface: str, config: Dict[str, Any]):
         """Connect via CAN bus."""
@@ -231,15 +238,21 @@ class DeviceController(QObject):
                 response = self._connection.read(1024)
                 return response
             elif isinstance(self._connection, socket.socket):
-                self._connection.sendall(command)
-                # Wait for response (with timeout)
-                self._connection.setblocking(True)
-                self._connection.settimeout(2.0)
-                try:
-                    response = self._connection.recv(4096)
-                finally:
-                    self._connection.setblocking(False)
-                return response
+                # When receive thread is running, just send without blocking recv
+                # Responses will be handled by receive thread via signals
+                if self._receive_thread and self._receive_thread.is_alive():
+                    self._connection.sendall(command)
+                    return b''  # Response handled by receive thread
+                else:
+                    self._connection.sendall(command)
+                    # Wait for response (with timeout)
+                    self._connection.setblocking(True)
+                    self._connection.settimeout(2.0)
+                    try:
+                        response = self._connection.recv(4096)
+                    finally:
+                        self._connection.setblocking(False)
+                    return response
 
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
             logger.error(f"Connection lost: {e}")
@@ -251,22 +264,62 @@ class DeviceController(QObject):
             self.error.emit(error_msg)
             return None
 
-    def read_configuration(self) -> Optional[dict]:
+    def read_configuration(self, timeout: float = 5.0) -> Optional[dict]:
         """
         Read configuration from device.
+
+        Args:
+            timeout: Timeout in seconds
 
         Returns:
             Configuration dictionary or None
         """
+        if not self._is_connected:
+            logger.warning("Cannot read config: not connected")
+            return None
 
         logger.info("Reading configuration from device...")
 
-        # TODO: Implement configuration read protocol
-        # - Send READ_CONFIG command
-        # - Parse response
-        # - Return structured configuration
+        # Reset config receive state
+        self._config_chunks.clear()
+        self._config_total_chunks = 0
+        self._config_event.clear()
 
-        return None
+        # Send GET_CONFIG command
+        frame = self._build_frame(MessageType.GET_CONFIG)
+        logger.debug(f"Sending GET_CONFIG frame: {frame.hex()}")
+        if not self._send_frame(frame):
+            logger.error("Failed to send GET_CONFIG")
+            return None
+        logger.debug("GET_CONFIG sent successfully, waiting for response...")
+
+        # Wait for all chunks
+        if not self._config_event.wait(timeout):
+            logger.error(f"Timeout waiting for config ({timeout}s)")
+            return None
+
+        # Reassemble chunks in order
+        config_data = bytearray()
+        for i in range(self._config_total_chunks):
+            if i in self._config_chunks:
+                config_data.extend(self._config_chunks[i])
+            else:
+                logger.error(f"Missing config chunk {i}")
+                return None
+
+        # Parse JSON
+        try:
+            import json
+            config_str = config_data.decode('utf-8')
+            config = json.loads(config_str)
+            logger.info(f"Configuration received: {len(config_str)} bytes")
+            return config
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse config JSON: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error processing config: {e}")
+            return None
 
     def write_configuration(self, config: dict) -> bool:
         """
@@ -331,23 +384,25 @@ class DeviceController(QObject):
 
     def _receive_loop(self):
         """Background loop for receiving data from device."""
+        logger.debug("Receive loop started")
         while not self._stop_thread.is_set():
             try:
                 if isinstance(self._connection, socket.socket):
                     try:
                         data = self._connection.recv(4096)
                         if data:
+                            logger.debug(f"Received {len(data)} bytes: {data[:50].hex()}...")
                             self._rx_buffer.extend(data)
                             self._process_rx_buffer()
                         elif data == b'':
                             # Empty data means connection closed
-                            logger.warning("Connection closed by remote")
+                            logger.warning("Connection closed by remote (recv returned empty)")
                             self._handle_connection_lost()
                             break
                     except BlockingIOError:
                         pass  # No data available
-                    except ConnectionResetError:
-                        logger.warning("Connection reset by remote")
+                    except ConnectionResetError as e:
+                        logger.warning(f"Connection reset by remote: {e}")
                         self._handle_connection_lost()
                         break
                     except ConnectionAbortedError:
@@ -389,13 +444,16 @@ class DeviceController(QObject):
 
     def _process_rx_buffer(self):
         """Process received data and extract frames."""
+        logger.debug(f"Processing rx buffer: {len(self._rx_buffer)} bytes")
         while len(self._rx_buffer) >= 6:  # Minimum frame size
             # Find start byte (must search for bytes, not int)
             start_idx = self._rx_buffer.find(bytes([FRAME_START_BYTE]))
             if start_idx == -1:
+                logger.debug(f"No start byte found in buffer, clearing {len(self._rx_buffer)} bytes")
                 self._rx_buffer.clear()
                 return
             if start_idx > 0:
+                logger.debug(f"Discarding {start_idx} bytes before start byte")
                 del self._rx_buffer[:start_idx]
 
             if len(self._rx_buffer) < 6:
@@ -406,8 +464,10 @@ class DeviceController(QObject):
             msg_type = self._rx_buffer[3]
 
             frame_len = 4 + payload_len + 2  # Header + payload + CRC
+            logger.debug(f"Frame header: msg_type=0x{msg_type:02X}, payload_len={payload_len}, frame_len={frame_len}")
 
             if len(self._rx_buffer) < frame_len:
+                logger.debug(f"Need more data: have {len(self._rx_buffer)}, need {frame_len}")
                 return  # Need more data
 
             # Extract frame
@@ -419,11 +479,12 @@ class DeviceController(QObject):
             received_crc = frame[-2] | (frame[-1] << 8)
 
             if expected_crc != received_crc:
-                logger.warning(f"CRC mismatch: {expected_crc:04X} != {received_crc:04X}")
+                logger.warning(f"CRC mismatch: expected=0x{expected_crc:04X}, received=0x{received_crc:04X}, frame={frame[:20].hex()}...")
                 continue
 
             # Process message
             payload = frame[4:-2]
+            logger.debug(f"Frame OK: msg_type=0x{msg_type:02X}, payload={len(payload)} bytes")
             self._handle_message(msg_type, payload)
 
     def _handle_message(self, msg_type: int, payload: bytes):
@@ -454,6 +515,22 @@ class DeviceController(QObject):
 
             elif msg_type == MessageType.CHANNEL_ACK:
                 logger.debug("Channel ACK received")
+
+            elif msg_type == MessageType.CONFIG_DATA:
+                # Parse config chunk
+                if len(payload) >= 4:
+                    chunk_idx = payload[0] | (payload[1] << 8)
+                    total_chunks = payload[2] | (payload[3] << 8)
+                    chunk_data = payload[4:]
+
+                    logger.debug(f"CONFIG_DATA chunk {chunk_idx + 1}/{total_chunks}, {len(chunk_data)} bytes")
+
+                    self._config_total_chunks = total_chunks
+                    self._config_chunks[chunk_idx] = chunk_data
+
+                    # Check if all chunks received
+                    if len(self._config_chunks) >= total_chunks:
+                        self._config_event.set()
 
             else:
                 logger.debug(f"Received message type 0x{msg_type:02X}, {len(payload)} bytes")

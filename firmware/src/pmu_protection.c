@@ -62,8 +62,11 @@ static void Protection_CheckFaults(void);
 static void Protection_HandleLoadShedding(void);
 static uint16_t Protection_ReadVbatADC(void);
 static int16_t Protection_ReadMCUTemp(void);
-static int16_t Protection_ReadBoardTemp(void);
+int16_t Protection_ReadBoardTempL(void);
+int16_t Protection_ReadBoardTempR(void);
 static inline int16_t Protection_GetMaxTemp(void);
+static uint16_t Protection_Read5VOutput(void);
+static uint16_t Protection_Read3V3Output(void);
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -184,10 +187,15 @@ static void Protection_UpdateTemperature(void)
     /* Read MCU internal temperature sensor */
     protection_state.temperature.mcu_temp_C = Protection_ReadMCUTemp();
 
-    /* Read board temperature sensor */
-    protection_state.temperature.board_temp_C = Protection_ReadBoardTemp();
+    /* Read board temperature sensors (Left and Right) */
+    protection_state.temperature.board_temp_L_C = Protection_ReadBoardTempL();
+    protection_state.temperature.board_temp_R_C = Protection_ReadBoardTempR();
 
-    /* Check for overtemperature using max of both sensors */
+    /* Update voltage outputs monitoring */
+    protection_state.output_5v_mV = Protection_Read5VOutput();
+    protection_state.output_3v3_mV = Protection_Read3V3Output();
+
+    /* Check for overtemperature using max of all sensors */
     int16_t max_temp = Protection_GetMaxTemp();
 
     if (max_temp >= protection_state.temperature.temp_critical_C) {
@@ -400,58 +408,87 @@ static int16_t Protection_ReadMCUTemp(void)
 }
 
 /**
- * @brief Read board temperature sensor
+ * @brief Read board temperature sensor Left
  * @retval Temperature in °C
+ * @note Weak function - can be overridden by emulator
  */
-static int16_t Protection_ReadBoardTemp(void)
+__attribute__((weak))
+int16_t Protection_ReadBoardTempL(void)
 {
 #ifdef UNIT_TEST
     /* For unit tests, return nominal temperature */
     return 25;
 #else
-    /* External board temperature sensor implementation
-     *
-     * Option 1: NTC Thermistor with voltage divider
-     * - Connect to ADC channel (e.g., ADC2_IN5)
-     * - Use Steinhart-Hart equation for conversion
-     *
-     * Option 2: Digital sensor (I2C/SPI)
-     * - TMP102, LM75, DS18B20, etc.
-     * - Read via I2C interface
-     *
-     * For now, returning nominal until sensor is specified
+    /* External board temperature sensor Left - primary sensor
+     * TODO: Implement actual sensor reading
      */
-
-    /* Example NTC implementation (10kΩ @ 25°C):
-     *
-     * uint16_t adc_value = ADC_ReadBoardTempChannel();
-     * float voltage = (adc_value * 3.3f) / 4096.0f;
-     * float resistance = (10000.0f * voltage) / (3.3f - voltage);
-     *
-     * // Steinhart-Hart equation coefficients for 10k NTC
-     * float steinhart = log(resistance / 10000.0f);
-     * steinhart /= 3950.0f;  // B coefficient
-     * steinhart += 1.0f / (25.0f + 273.15f);
-     * steinhart = 1.0f / steinhart;
-     * steinhart -= 273.15f;  // Convert to Celsius
-     *
-     * return (int16_t)steinhart;
-     */
-
     return 25;  /* Nominal 25°C until sensor is configured */
 #endif
 }
 
 /**
- * @brief Get maximum temperature from MCU and board sensors
+ * @brief Read board temperature sensor Right
+ * @retval Temperature in °C
+ * @note Weak function - can be overridden by emulator
+ */
+__attribute__((weak))
+int16_t Protection_ReadBoardTempR(void)
+{
+#ifdef UNIT_TEST
+    /* For unit tests, return nominal temperature */
+    return 25;
+#else
+    /* External board temperature sensor Right - secondary sensor
+     * TODO: Implement actual sensor reading
+     */
+    return 25;  /* Nominal 25°C until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Read 5V output voltage
+ * @retval Voltage in mV
+ */
+static uint16_t Protection_Read5VOutput(void)
+{
+#ifdef UNIT_TEST
+    return 5000;  /* Nominal 5V */
+#else
+    /* TODO: Read from ADC channel monitoring 5V rail */
+    return 5000;  /* Nominal until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Read 3.3V output voltage
+ * @retval Voltage in mV
+ */
+static uint16_t Protection_Read3V3Output(void)
+{
+#ifdef UNIT_TEST
+    return 3300;  /* Nominal 3.3V */
+#else
+    /* TODO: Read from ADC channel monitoring 3.3V rail */
+    return 3300;  /* Nominal until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Get maximum temperature from all sensors
  * @retval Maximum temperature in °C
  */
 static inline int16_t Protection_GetMaxTemp(void)
 {
-    return (protection_state.temperature.mcu_temp_C >
-            protection_state.temperature.board_temp_C) ?
-            protection_state.temperature.mcu_temp_C :
-            protection_state.temperature.board_temp_C;
+    int16_t max_temp = protection_state.temperature.mcu_temp_C;
+
+    if (protection_state.temperature.board_temp_L_C > max_temp) {
+        max_temp = protection_state.temperature.board_temp_L_C;
+    }
+    if (protection_state.temperature.board_temp_R_C > max_temp) {
+        max_temp = protection_state.temperature.board_temp_R_C;
+    }
+
+    return max_temp;
 }
 
 /**
@@ -517,12 +554,16 @@ uint16_t PMU_Protection_GetVoltage(void)
 }
 
 /**
- * @brief Get board temperature in °C
+ * @brief Get board temperature in °C (returns max of L/R for backward compat)
  * @retval Temperature in degrees Celsius
  */
 int16_t PMU_Protection_GetTemperature(void)
 {
-    return protection_state.temperature.board_temp_C;
+    /* Return max of L/R for backward compatibility */
+    return (protection_state.temperature.board_temp_L_C >
+            protection_state.temperature.board_temp_R_C) ?
+            protection_state.temperature.board_temp_L_C :
+            protection_state.temperature.board_temp_R_C;
 }
 
 /**
@@ -532,6 +573,69 @@ int16_t PMU_Protection_GetTemperature(void)
 uint32_t PMU_Protection_GetTotalCurrent(void)
 {
     return protection_state.power.total_current_mA;
+}
+
+/**
+ * @brief Get board temperature Left (primary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempL(void)
+{
+    return protection_state.temperature.board_temp_L_C;
+}
+
+/**
+ * @brief Get board temperature Right (secondary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempR(void)
+{
+    return protection_state.temperature.board_temp_R_C;
+}
+
+/**
+ * @brief Get system status bits (ECUMaster compatible)
+ * @retval Status bits
+ */
+uint16_t PMU_Protection_GetStatus(void)
+{
+    return protection_state.system_status;
+}
+
+/**
+ * @brief Get user error flag
+ * @retval 1 if user error, 0 otherwise
+ */
+uint8_t PMU_Protection_GetUserError(void)
+{
+    return protection_state.user_error;
+}
+
+/**
+ * @brief Get 5V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get5VOutput(void)
+{
+    return protection_state.output_5v_mV;
+}
+
+/**
+ * @brief Get 3.3V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get3V3Output(void)
+{
+    return protection_state.output_3v3_mV;
+}
+
+/**
+ * @brief Check if system is in shutdown sequence
+ * @retval 1 if turning off, 0 otherwise
+ */
+uint8_t PMU_Protection_IsTurningOff(void)
+{
+    return protection_state.is_turning_off;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

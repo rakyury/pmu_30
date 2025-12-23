@@ -8,6 +8,7 @@ Hardware emulator for PMU-30 that allows running firmware logic on a PC without 
 - [Current Status](#current-status)
 - [Build and Run](#build-and-run)
 - [Configurator Connection](#configurator-connection)
+- [Web UI (Browser Monitoring)](#web-ui-browser-monitoring)
 - [Interactive Mode](#interactive-mode)
 - [UI Visualization](#ui-visualization)
 - [Test Scenarios](#test-scenarios)
@@ -30,6 +31,7 @@ Hardware emulator for PMU-30 that allows running firmware logic on a PC without 
 | **H-Bridge (4 bridges)** | Working | Position simulation, motor parameters, fault injection |
 | **Protection System** | Working | Voltage/temperature/current monitoring, fault injection |
 | **TCP Server** | Working | Configurator connection on port 9876 |
+| **Web UI Server** | Working | Browser monitoring on port 8080 |
 | **JSON Config Parsing** | Working | Full v3.0 config format support |
 | **Telemetry** | Working | Real-time channel state streaming |
 | **Console UI** | Working | Channel state visualization |
@@ -91,6 +93,12 @@ Hardware emulator for PMU-30 that allows running firmware logic on a PC without 
 6. **Configuration Persistence**
    - Configuration saved to `last_config.json` on each upload
    - Configuration automatically loaded on emulator startup
+
+7. **Web UI**
+   - HTTP server on port 8080
+   - WebSocket for real-time telemetry updates (100ms interval)
+   - Dark-themed responsive dashboard
+   - Channel toggle controls via WebSocket
 
 ### What's Partially Working
 
@@ -229,6 +237,51 @@ The emulator can run on a remote machine:
 # In Configurator
 Host: 192.168.1.100
 Port: 9876
+```
+
+---
+
+## Web UI (Browser Monitoring)
+
+The emulator includes a built-in web server for real-time monitoring in a browser.
+
+### Accessing the Web UI
+
+1. **Start the emulator**
+2. **Open browser**: Navigate to `http://localhost:8080`
+3. **Or use console command**: Type `webui` or `web` to auto-open browser
+
+### Features
+
+The Web UI provides:
+
+- **Real-time Dashboard** - Dark-themed responsive UI
+- **PROFET Channel Status** - Shows 16 channels with ON/OFF/FAULT states and currents
+- **H-Bridge Status** - Shows 4 H-bridge channels with direction and PWM
+- **Analog Inputs** - Displays 8 ADC voltage readings
+- **System Status** - Battery voltage, temperature, uptime, tick counter
+- **Channel Controls** - Click buttons to toggle PROFET channels
+- **Log Panel** - Shows system messages in real-time
+- **WebSocket Updates** - Automatic 100ms refresh rate
+
+### Screenshot Preview
+
+```
++---------------------------------------------------------------+
+|            PMU-30 Emulator Monitor              [●] Connected |
++---------------------------------------------------------------+
+|  PROFET Channels (1-16)    |  H-Bridge Channels (17-20)      |
+|  +-----+-----+-----+-----+ |  +------+------+------+------+  |
+|  | CH1 | CH2 | CH3 | CH4 | |  | HB1  | HB2  | HB3  | HB4  |  |
+|  | OFF | ON  | OFF | OFF | |  | OFF  | FWD  | REV  | OFF  |  |
+|  | 0.0A| 2.5A| 0.0A| 0.0A| |  |  0%  | 50%  | 75%  |  0%  |  |
+|  +-----+-----+-----+-----+ |  +------+------+------+------+  |
++---------------------------------------------------------------+
+|  Analog Inputs             |  System Status                  |
+|  AIN1: 2.45V  AIN2: 1.23V |  Voltage: 12.5V                 |
+|  AIN3: 0.50V  AIN4: 3.30V |  Temperature: 25.0°C            |
+|  AIN5: 0.00V  AIN6: 1.65V |  Uptime: 123s                   |
++---------------------------------------------------------------+
 ```
 
 ---

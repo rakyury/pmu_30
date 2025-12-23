@@ -41,6 +41,93 @@ class CANInputDialog(QDialog):
         ("Set to Zero", "set_zero"),
     ]
 
+    # CAN Input Signal Templates (Link ECU Generic Dashboard)
+    TEMPLATES = {
+        "Link: Engine RPM": {
+            "id": "crx_ecu_rpm", "frame_offset": 0, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 2, "multiplier": 1.0, "divider": 1.0,
+            "offset": 0.0, "decimal_places": 0, "default_value": 0.0, "timeout_behavior": "use_default"
+        },
+        "Link: MAP (kPa)": {
+            "id": "crx_ecu_map", "frame_offset": 0, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 4, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 1, "default_value": 101.0, "timeout_behavior": "use_default"
+        },
+        "Link: TPS (%)": {
+            "id": "crx_ecu_tps", "frame_offset": 1, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 4, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 1, "default_value": 0.0, "timeout_behavior": "use_default"
+        },
+        "Link: Baro (kPa)": {
+            "id": "crx_ecu_baro", "frame_offset": 1, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 2, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 1, "default_value": 101.0, "timeout_behavior": "use_default"
+        },
+        "Link: Injector Duty (%)": {
+            "id": "crx_ecu_injdc", "frame_offset": 1, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 1, "default_value": 0.0, "timeout_behavior": "use_default"
+        },
+        "Link: Coolant Temp (°C)": {
+            "id": "crx_ecu_clt", "frame_offset": 2, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 10.0,
+            "offset": -50.0, "decimal_places": 1, "default_value": 20.0, "timeout_behavior": "use_default"
+        },
+        "Link: Intake Air Temp (°C)": {
+            "id": "crx_ecu_iat", "frame_offset": 3, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 2, "multiplier": 1.0, "divider": 10.0,
+            "offset": -50.0, "decimal_places": 1, "default_value": 20.0, "timeout_behavior": "use_default"
+        },
+        "Link: Battery Voltage": {
+            "id": "crx_ecu_batt", "frame_offset": 3, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 4, "multiplier": 1.0, "divider": 100.0,
+            "offset": 0.0, "decimal_places": 2, "default_value": 12.0, "timeout_behavior": "use_default"
+        },
+        "Link: Gear": {
+            "id": "crx_ecu_gear", "frame_offset": 4, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 2, "multiplier": 1.0, "divider": 1.0,
+            "offset": 0.0, "decimal_places": 0, "default_value": 0.0, "timeout_behavior": "use_default"
+        },
+        "Link: Ignition Angle (°)": {
+            "id": "crx_ecu_ign", "frame_offset": 4, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 10.0,
+            "offset": -100.0, "decimal_places": 1, "default_value": 0.0, "timeout_behavior": "use_default"
+        },
+        "Link: Lambda 1": {
+            "id": "crx_ecu_lambda1", "frame_offset": 6, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 4, "multiplier": 1.0, "divider": 1000.0,
+            "offset": 0.0, "decimal_places": 3, "default_value": 1.0, "timeout_behavior": "use_default"
+        },
+        "Link: Lambda 2": {
+            "id": "crx_ecu_lambda2", "frame_offset": 6, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 1000.0,
+            "offset": 0.0, "decimal_places": 3, "default_value": 1.0, "timeout_behavior": "use_default"
+        },
+        "Link: Fuel Pressure (bar)": {
+            "id": "crx_ecu_fuelp", "frame_offset": 7, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 2, "default_value": 3.0, "timeout_behavior": "use_default"
+        },
+        "Link: Oil Temp (°C)": {
+            "id": "crx_ecu_oilt", "frame_offset": 0, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 2, "multiplier": 1.0, "divider": 10.0,
+            "offset": -50.0, "decimal_places": 1, "default_value": 20.0, "timeout_behavior": "use_default",
+            "_note": "Frame offset 0 from m_linkecu_B (base + 8)"
+        },
+        "Link: Oil Pressure (bar)": {
+            "id": "crx_ecu_oilp", "frame_offset": 0, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 4, "multiplier": 1.0, "divider": 100.0,
+            "offset": 0.0, "decimal_places": 2, "default_value": 0.0, "timeout_behavior": "use_default",
+            "_note": "Frame offset 0 from m_linkecu_B (base + 8)"
+        },
+        "Link: Vehicle Speed (km/h)": {
+            "id": "crx_ecu_speed", "frame_offset": 1, "data_type": "unsigned", "data_format": "16bit",
+            "byte_order": "little_endian", "byte_offset": 6, "multiplier": 1.0, "divider": 10.0,
+            "offset": 0.0, "decimal_places": 1, "default_value": 0.0, "timeout_behavior": "use_default",
+            "_note": "Frame offset 1 from m_linkecu_B (base + 9)"
+        },
+    }
+
     def __init__(self, parent=None, input_config: Optional[Dict[str, Any]] = None,
                  message_ids: Optional[List[str]] = None,
                  existing_channel_ids: Optional[List[str]] = None):
@@ -71,6 +158,23 @@ class CANInputDialog(QDialog):
     def _init_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout()
+
+        # Template selection (only for new inputs)
+        if not self.input_config:
+            template_group = QGroupBox("Quick Start from Template")
+            template_layout = QHBoxLayout()
+
+            template_layout.addWidget(QLabel("Template:"))
+
+            self.template_combo = QComboBox()
+            self.template_combo.addItem("-- Select Template --")
+            for name in self.TEMPLATES.keys():
+                self.template_combo.addItem(name)
+            self.template_combo.currentTextChanged.connect(self._on_template_selected)
+            template_layout.addWidget(self.template_combo, 1)
+
+            template_group.setLayout(template_layout)
+            layout.addWidget(template_group)
 
         # Identification group
         id_group = QGroupBox("Identification")
@@ -243,6 +347,29 @@ class CANInputDialog(QDialog):
         """Handle data format change."""
         format_value = self.DATA_FORMATS[index][1]
         self.custom_frame.setVisible(format_value == "custom")
+
+    def _on_template_selected(self, template_name: str):
+        """Handle template selection."""
+        if template_name == "-- Select Template --":
+            return
+
+        if template_name in self.TEMPLATES:
+            template = self.TEMPLATES[template_name].copy()
+
+            # Remove internal notes
+            template.pop("_note", None)
+
+            # Check if ID already exists and modify if needed
+            base_id = template.get("id", "crx_template")
+            final_id = base_id
+            counter = 1
+            while final_id in self.existing_channel_ids:
+                final_id = f"{base_id}_{counter}"
+                counter += 1
+            template["id"] = final_id
+
+            # Load the template configuration
+            self._load_config(template)
 
     def _on_accept(self):
         """Validate and accept dialog."""

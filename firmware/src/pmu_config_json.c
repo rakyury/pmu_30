@@ -1582,14 +1582,19 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         uint8_t pin = config.output_pins[i];
         if (pin < 30) {
             /* Set channel state based on enabled flag */
-            /* When source_channel is empty and enabled=true, it means "always on" */
-            if (enabled && (strlen(config.source_channel) == 0)) {
-                PMU_PROFET_SetState(pin, 1);
-            } else if (!enabled) {
+            if (!enabled) {
+                /* Disabled channel - turn OFF and skip PWM setup */
                 PMU_PROFET_SetState(pin, 0);
+                continue;
             }
 
-            /* Set PWM duty cycle */
+            /* Channel is enabled */
+            /* When source_channel is empty, it means "always on" mode */
+            if (strlen(config.source_channel) == 0) {
+                PMU_PROFET_SetState(pin, 1);
+            }
+
+            /* Set PWM duty cycle (only for enabled channels) */
             if (config.pwm_enabled) {
                 /* duty_fixed is 0-100%, convert to 0-1000 per-mille */
                 uint16_t duty_permille = (uint16_t)(config.duty_fixed * 10.0f);

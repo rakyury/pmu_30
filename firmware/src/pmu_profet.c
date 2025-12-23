@@ -28,6 +28,7 @@
 #include "pmu_spi.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
+#include <stdbool.h>
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -108,6 +109,7 @@ static void PROFET_UpdateDiagnostics(uint8_t channel);
 static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault);
 static uint16_t PROFET_ReadCurrentADC(uint8_t channel);
 static uint16_t PROFET_ReadStatusADC(uint8_t channel);
+static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -284,8 +286,8 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
         return HAL_ERROR;
     }
 
-    /* Don't allow state change if in fault */
-    if (channels[channel].state == PMU_PROFET_STATE_FAULT &&
+    /* Don't allow state change if in fault lockout */
+    if (PROFET_IsInFaultState(channels[channel].state) &&
         channels[channel].fault_count >= PROFET_FAULT_THRESHOLD) {
         return HAL_ERROR;
     }
@@ -327,8 +329,8 @@ HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
         duty = PMU_PROFET_PWM_RESOLUTION;
     }
 
-    /* Don't allow PWM if in fault */
-    if (channels[channel].state == PMU_PROFET_STATE_FAULT &&
+    /* Don't allow PWM if in fault lockout */
+    if (PROFET_IsInFaultState(channels[channel].state) &&
         channels[channel].fault_count >= PROFET_FAULT_THRESHOLD) {
         return HAL_ERROR;
     }
@@ -437,6 +439,19 @@ uint8_t PMU_PROFET_GetFaults(uint8_t channel)
 }
 
 /**
+ * @brief Check if channel is in a fault state
+ * @param state Channel state
+ * @retval true if in fault state
+ */
+static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state)
+{
+    return (state == PMU_PROFET_STATE_OC ||
+            state == PMU_PROFET_STATE_OT ||
+            state == PMU_PROFET_STATE_SC ||
+            state == PMU_PROFET_STATE_OL);
+}
+
+/**
  * @brief Clear channel faults
  * @param channel Channel number (0-29)
  * @retval HAL status
@@ -450,10 +465,46 @@ HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel)
     channels[channel].fault_flags = PMU_PROFET_FAULT_NONE;
     channels[channel].fault_count = 0;
 
-    /* If channel was in fault state, move to OFF */
-    if (channels[channel].state == PMU_PROFET_STATE_FAULT) {
+    /* If channel was in any fault state, move to OFF */
+    if (PROFET_IsInFaultState(channels[channel].state)) {
         channels[channel].state = PMU_PROFET_STATE_OFF;
     }
+
+    return HAL_OK;
+}
+
+/**
+ * @brief Inject fault into channel (for emulator/testing)
+ * @param channel Channel number (0-29)
+ * @param fault Fault flags to inject
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_InjectFault(uint8_t channel, uint8_t fault)
+{
+    if (!IS_VALID_CHANNEL(channel)) {
+        return HAL_ERROR;
+    }
+
+    channels[channel].fault_flags |= fault;
+    channels[channel].fault_count++;
+
+    /* Map fault type to specific ECUMaster-compatible state */
+    PMU_PROFET_State_t fault_state;
+    if (fault & PMU_PROFET_FAULT_SHORT_CIRCUIT) {
+        fault_state = PMU_PROFET_STATE_SC;
+    } else if (fault & PMU_PROFET_FAULT_OVERTEMP) {
+        fault_state = PMU_PROFET_STATE_OT;
+    } else if (fault & PMU_PROFET_FAULT_OPEN_LOAD) {
+        fault_state = PMU_PROFET_STATE_OL;
+    } else {
+        fault_state = PMU_PROFET_STATE_OC;  /* Default to OC */
+    }
+
+    /* Set channel to fault state and turn off */
+    channels[channel].state = fault_state;
+    HAL_GPIO_WritePin(profet_gpio[channel].port,
+                     profet_gpio[channel].pin,
+                     GPIO_PIN_RESET);
 
     return HAL_OK;
 }
@@ -510,27 +561,32 @@ static void PROFET_UpdateCurrentSensing(uint8_t channel)
 static void PROFET_UpdateDiagnostics(uint8_t channel)
 {
     uint16_t current = channels[channel].current_mA;
+    PMU_PROFET_State_t state = channels[channel].state;
 
-    /* Only check diagnostics when channel is supposed to be ON */
-    if (channels[channel].state == PMU_PROFET_STATE_OFF) {
+    /* Only check diagnostics when channel is ON or PWM (active states) */
+    if (state != PMU_PROFET_STATE_ON && state != PMU_PROFET_STATE_PWM) {
         return;
     }
 
-    /* Short circuit detection (>80A) */
+    /* Short circuit detection (>80A) - check immediately */
     if (current > PROFET_SHORT_CIRCUIT_MA) {
         PROFET_HandleFault(channel, PMU_PROFET_FAULT_SHORT_CIRCUIT);
         return;
     }
 
-    /* Overcurrent detection (>42A sustained) */
+    /* Overcurrent detection (>42A sustained) - check immediately */
     if (current > PROFET_OVERCURRENT_MA) {
         PROFET_HandleFault(channel, PMU_PROFET_FAULT_OVERCURRENT);
         return;
     }
 
-    /* Open load detection (<50mA when ON) */
-    if (channels[channel].pwm_duty > 500 && current < PROFET_OPEN_LOAD_MA) {
-        /* Only flag open load if PWM > 50% */
+    /* Open load detection (<50mA when ON)
+     * Only check after channel has been on for a while (500ms grace period)
+     * This allows current sensing to stabilize after turn-on */
+    if (channels[channel].on_time_ms > 500 &&
+        channels[channel].pwm_duty > 500 &&
+        current < PROFET_OPEN_LOAD_MA) {
+        /* Only flag open load if PWM > 50% and channel has been on long enough */
         PROFET_HandleFault(channel, PMU_PROFET_FAULT_OPEN_LOAD);
     }
 
@@ -563,6 +619,26 @@ static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault)
     channels[channel].fault_flags |= fault;
     channels[channel].fault_count++;
 
+    /* Map fault type to specific ECUMaster-compatible state */
+    PMU_PROFET_State_t fault_state;
+    switch (fault) {
+        case PMU_PROFET_FAULT_OVERCURRENT:
+            fault_state = PMU_PROFET_STATE_OC;
+            break;
+        case PMU_PROFET_FAULT_OVERTEMP:
+            fault_state = PMU_PROFET_STATE_OT;
+            break;
+        case PMU_PROFET_FAULT_SHORT_CIRCUIT:
+            fault_state = PMU_PROFET_STATE_SC;
+            break;
+        case PMU_PROFET_FAULT_OPEN_LOAD:
+            fault_state = PMU_PROFET_STATE_OL;
+            break;
+        default:
+            fault_state = PMU_PROFET_STATE_OC;  /* Default to OC for unknown faults */
+            break;
+    }
+
     /* Immediate shutdown for critical faults */
     if (fault == PMU_PROFET_FAULT_SHORT_CIRCUIT ||
         fault == PMU_PROFET_FAULT_OVERTEMP) {
@@ -571,12 +647,12 @@ static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault)
         HAL_GPIO_WritePin(profet_gpio[channel].port,
                          profet_gpio[channel].pin,
                          GPIO_PIN_RESET);
-        channels[channel].state = PMU_PROFET_STATE_FAULT;
+        channels[channel].state = fault_state;
     }
 
     /* Lockout after too many faults */
     if (channels[channel].fault_count >= PROFET_FAULT_THRESHOLD) {
-        channels[channel].state = PMU_PROFET_STATE_FAULT;
+        channels[channel].state = fault_state;
         HAL_GPIO_WritePin(profet_gpio[channel].port,
                          profet_gpio[channel].pin,
                          GPIO_PIN_RESET);

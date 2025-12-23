@@ -19,6 +19,8 @@
 #include "pmu_channel.h"
 #include "pmu_logic.h"
 #include "pmu_can.h"
+#include "pmu_profet.h"
+#include "pmu_protection.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,11 +140,17 @@ int PMU_Emu_Init(void)
 
     /* Initialize protection */
     emulator.protection.battery_voltage_mV = PMU_EMU_DEFAULT_VOLTAGE_MV;
-    emulator.protection.board_temp_C = PMU_EMU_DEFAULT_TEMP_C;
+    emulator.protection.board_temp_L_C = PMU_EMU_DEFAULT_TEMP_C;
+    emulator.protection.board_temp_R_C = PMU_EMU_DEFAULT_TEMP_C;
     emulator.protection.mcu_temp_C = PMU_EMU_DEFAULT_TEMP_C;
     emulator.protection.total_current_mA = 0;
     emulator.protection.fault_flags = 0;
     emulator.protection.enable_auto_faults = true;
+    emulator.protection.output_5v_mV = 5000;
+    emulator.protection.output_3v3_mV = 3300;
+    emulator.protection.system_status = 0;
+    emulator.protection.user_error = 0;
+    emulator.protection.is_turning_off = 0;
 
     /* Seed random for noise */
     srand((unsigned int)time(NULL));
@@ -202,11 +210,10 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     hal_tick += scaled_delta;
 
     /* Update uptime */
-    static uint32_t uptime_accum = 0;
-    uptime_accum += scaled_delta;
-    if (uptime_accum >= 1000) {
-        emulator.uptime_seconds += uptime_accum / 1000;
-        uptime_accum %= 1000;
+    emulator.uptime_accum_ms += scaled_delta;
+    if (emulator.uptime_accum_ms >= 1000) {
+        emulator.uptime_seconds += emulator.uptime_accum_ms / 1000;
+        emulator.uptime_accum_ms %= 1000;
     }
 
     /* Update emulator subsystems (hardware simulation) */
@@ -215,6 +222,12 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     Emu_UpdatePROFET(scaled_delta);
     Emu_UpdateHBridge(scaled_delta);
     Emu_UpdateProtection(scaled_delta);
+
+    /* Update firmware PROFET module (reads current from emulator via SPI stubs) */
+    PMU_PROFET_Update();
+
+    /* Update firmware protection module (reads voltage/temp from emulator via ADC stubs) */
+    PMU_Protection_Update();
 
     /* Update firmware logic (runs at 1kHz in real firmware) */
     static uint32_t channel_update_accum = 0;
@@ -468,8 +481,24 @@ int PMU_Emu_PROFET_InjectFault(uint8_t channel, uint8_t fault_flags)
         return -1;
     }
 
+    /* Update emulator state - map fault to ECUMaster state */
     emulator.profet[channel].fault_flags |= fault_flags;
-    emulator.profet[channel].state = 3;  /* FAULT */
+
+    /* Map fault type to specific ECUMaster-compatible state:
+     * 2=OC (overcurrent), 3=OT (overtemp), 4=SC (short circuit), 5=OL (open load) */
+    if (fault_flags & 0x04) {        /* Short circuit */
+        emulator.profet[channel].state = 4;  /* SC */
+    } else if (fault_flags & 0x02) { /* Over temperature */
+        emulator.profet[channel].state = 3;  /* OT */
+    } else if (fault_flags & 0x08) { /* Open load */
+        emulator.profet[channel].state = 5;  /* OL */
+    } else {                         /* Default: overcurrent */
+        emulator.profet[channel].state = 2;  /* OC */
+    }
+
+    /* Also inject into firmware PROFET module */
+    PMU_PROFET_InjectFault(channel, fault_flags);
+
     EMU_LOG("PROFET[%d] fault injected: 0x%02X", channel, fault_flags);
     return 0;
 }
@@ -480,10 +509,18 @@ int PMU_Emu_PROFET_ClearFault(uint8_t channel)
         return -1;
     }
 
+    /* Clear emulator state */
     emulator.profet[channel].fault_flags = 0;
-    if (emulator.profet[channel].state == 3) {
+
+    /* Check if in any fault state (2=OC, 3=OT, 4=SC, 5=OL) */
+    uint8_t state = emulator.profet[channel].state;
+    if (state >= 2 && state <= 5) {
         emulator.profet[channel].state = 0;  /* OFF */
     }
+
+    /* Also clear in firmware PROFET module */
+    PMU_PROFET_ClearFaults(channel);
+
     EMU_LOG("PROFET[%d] fault cleared", channel);
     return 0;
 }
@@ -557,8 +594,10 @@ void PMU_Emu_Protection_SetVoltage(uint16_t voltage_mV)
 
 void PMU_Emu_Protection_SetTemperature(int16_t temp_C)
 {
-    emulator.protection.board_temp_C = temp_C;
-    EMU_LOG("Protection: board temp = %d C", temp_C);
+    /* Sets both L and R to same value (use individual setters for different values) */
+    emulator.protection.board_temp_L_C = temp_C;
+    emulator.protection.board_temp_R_C = temp_C;
+    EMU_LOG("Protection: board temp L/R = %d C", temp_C);
 }
 
 void PMU_Emu_Protection_SetMCUTemperature(int16_t temp_C)
@@ -698,7 +737,7 @@ int PMU_Emu_SaveScenario(const char* filename)
 
     /* Save protection values */
     fprintf(f, "  \"voltage_mV\": %d,\n", emulator.protection.battery_voltage_mV);
-    fprintf(f, "  \"temperature_C\": %d\n", emulator.protection.board_temp_C);
+    fprintf(f, "  \"temperature_C\": %d\n", emulator.protection.board_temp_L_C);
 
     fprintf(f, "}\n");
     fclose(f);
@@ -725,10 +764,14 @@ void PMU_Emu_PrintState(void)
 
     printf("\n--- Protection ---\n");
     printf("Voltage: %d mV\n", emulator.protection.battery_voltage_mV);
-    printf("Board Temp: %d C\n", emulator.protection.board_temp_C);
+    printf("Board Temp L: %d C\n", emulator.protection.board_temp_L_C);
+    printf("Board Temp R: %d C\n", emulator.protection.board_temp_R_C);
     printf("MCU Temp: %d C\n", emulator.protection.mcu_temp_C);
+    printf("5V Output: %d mV\n", emulator.protection.output_5v_mV);
+    printf("3.3V Output: %d mV\n", emulator.protection.output_3v3_mV);
     printf("Total Current: %u mA\n", emulator.protection.total_current_mA);
     printf("Faults: 0x%04X\n", emulator.protection.fault_flags);
+    printf("Status: 0x%04X\n", emulator.protection.system_status);
 
     printf("\n--- ADC Channels ---\n");
     for (int i = 0; i < PMU_EMU_ADC_CHANNELS; i++) {
@@ -770,11 +813,16 @@ void PMU_Emu_PrintState(void)
 
 void PMU_Emu_GetStatsString(char* buffer, size_t size)
 {
+    int16_t max_temp = emulator.protection.board_temp_L_C;
+    if (emulator.protection.board_temp_R_C > max_temp) {
+        max_temp = emulator.protection.board_temp_R_C;
+    }
+
     snprintf(buffer, size,
              "EMU: up=%us, V=%dmV, T=%dC, I=%umA",
              emulator.uptime_seconds,
              emulator.protection.battery_voltage_mV,
-             emulator.protection.board_temp_C,
+             max_temp,
              emulator.protection.total_current_mA);
 }
 
@@ -817,20 +865,44 @@ static void Emu_UpdatePROFET(uint32_t delta_ms)
     uint32_t total_current = 0;
 
     for (int i = 0; i < PMU_EMU_PROFET_CHANNELS; i++) {
+        /* Sync state from firmware PROFET module */
+        PMU_PROFET_Channel_t* fw_profet = PMU_PROFET_GetChannelData(i);
+        if (fw_profet && emulator.profet[i].fault_flags == 0) {
+            /* Sync state and pwm_duty FROM firmware (if not in injected fault) */
+            emulator.profet[i].state = fw_profet->state;
+            emulator.profet[i].pwm_duty = fw_profet->pwm_duty;
+        }
+
         if (emulator.profet[i].fault_flags != 0) {
-            emulator.profet[i].state = 3;  /* FAULT */
+            /* Map fault flags to ECUMaster state:
+             * 2=OC, 3=OT, 4=SC, 5=OL */
+            uint8_t ff = emulator.profet[i].fault_flags;
+            if (ff & 0x04) {
+                emulator.profet[i].state = 4;  /* SC - Short Circuit */
+            } else if (ff & 0x02) {
+                emulator.profet[i].state = 3;  /* OT - Over Temperature */
+            } else if (ff & 0x08) {
+                emulator.profet[i].state = 5;  /* OL - Open Load */
+            } else {
+                emulator.profet[i].state = 2;  /* OC - Over Current */
+            }
             emulator.profet[i].current_mA = 0;
+            /* Sync injected fault to firmware */
+            if (fw_profet) {
+                fw_profet->fault_flags = emulator.profet[i].fault_flags;
+            }
             continue;
         }
 
-        /* Calculate current based on state and duty */
+        /* Calculate current based on state and duty
+         * ECUMaster states: 0=OFF, 1=ON, 6=PWM */
         float voltage = emulator.protection.battery_voltage_mV / 1000.0f;
         float resistance = emulator.profet[i].load_resistance_ohm;
 
         if (resistance <= 0) resistance = 12.0f;
 
         float duty_factor = 1.0f;
-        if (emulator.profet[i].state == 2) {  /* PWM */
+        if (emulator.profet[i].state == 6) {  /* PWM */
             duty_factor = emulator.profet[i].pwm_duty / 1000.0f;
         } else if (emulator.profet[i].state != 1) {  /* Not ON */
             duty_factor = 0.0f;
@@ -838,6 +910,29 @@ static void Emu_UpdatePROFET(uint32_t delta_ms)
 
         float current_A = (voltage / resistance) * duty_factor;
         emulator.profet[i].current_mA = (uint16_t)(current_A * 1000.0f);
+
+        /* Update ADC DMA buffer with simulated current
+         * ADC = (current_mA × 4095) / (kILIS × 3.3)
+         * kILIS = 4700, so divisor = 15510
+         * Cap at 4095 (12-bit ADC max) */
+        uint32_t adc_val = (emulator.profet[i].current_mA * 4095UL) / 15510;
+        if (adc_val > 4095) adc_val = 4095;
+        profet_current_adc_buffer[i] = (uint16_t)adc_val;
+
+        /* Update status ADC buffer with temperature
+         * V_ST = 1.0V + (Temp - 25) × 0.006V
+         * ADC = V_ST × 4095 / 3.3V */
+        int16_t temp_c = emulator.profet[i].temperature_C;
+        float v_st = 1.0f + (temp_c - 25) * 0.006f;
+        if (v_st < 0) v_st = 0;
+        if (v_st > 3.3f) v_st = 3.3f;
+        profet_status_adc_buffer[i] = (uint16_t)((v_st * 4095.0f) / 3.3f);
+
+        /* Sync simulated current back to firmware */
+        if (fw_profet) {
+            fw_profet->current_mA = emulator.profet[i].current_mA;
+            fw_profet->temperature_C = emulator.profet[i].temperature_C;
+        }
 
         /* Temperature simulation (simplified) */
         if (emulator.profet[i].current_mA > 0) {
@@ -906,6 +1001,12 @@ static void Emu_UpdateProtection(uint32_t delta_ms)
 {
     (void)delta_ms;
 
+    /* Get max board temperature */
+    int16_t max_board_temp = emulator.protection.board_temp_L_C;
+    if (emulator.protection.board_temp_R_C > max_board_temp) {
+        max_board_temp = emulator.protection.board_temp_R_C;
+    }
+
     if (!emulator.protection.enable_auto_faults) {
         return;
     }
@@ -918,11 +1019,11 @@ static void Emu_UpdateProtection(uint32_t delta_ms)
         emulator.protection.fault_flags |= 0x0002;  /* OVERVOLTAGE */
     }
 
-    /* Check temperature limits */
-    if (emulator.protection.board_temp_C > 100) {
+    /* Check temperature limits using max of L/R */
+    if (max_board_temp > 100) {
         emulator.protection.fault_flags |= 0x0010;  /* OVERTEMP_WARNING */
     }
-    if (emulator.protection.board_temp_C > 125) {
+    if (max_board_temp > 125) {
         emulator.protection.fault_flags |= 0x0020;  /* OVERTEMP_CRITICAL */
     }
 }
@@ -1103,9 +1204,50 @@ HAL_StatusTypeDef HAL_ADC_ConfigChannel(ADC_HandleTypeDef* hadc, ADC_ChannelConf
     return HAL_OK;
 }
 
-uint32_t HAL_ADC_GetValue(ADC_HandleTypeDef* hadc)
+HAL_StatusTypeDef HAL_ADC_PollForConversion(ADC_HandleTypeDef* hadc, uint32_t Timeout)
 {
     (void)hadc;
+    (void)Timeout;
+    /* Emulator ADC is always ready */
+    return HAL_OK;
+}
+
+uint32_t HAL_ADC_GetValue(ADC_HandleTypeDef* hadc)
+{
+    /*
+     * Return appropriate emulator values based on ADC handle:
+     * - ADC1: Battery voltage (used by hadc_vbat in pmu_protection.c)
+     * - ADC3: MCU temperature sensor (used by hadc_temp in pmu_protection.c)
+     *
+     * Battery voltage conversion (reverse of Protection_ReadVbatADC formula):
+     *   voltage_mV = (adc * 3300 * 6670) / (4096 * 1000)
+     *   adc = (voltage_mV * 4096 * 1000) / (3300 * 6670)
+     *   adc = (voltage_mV * 4096) / 22011
+     *
+     * MCU temperature conversion (reverse of Protection_ReadMCUTemp formula):
+     *   temp_C = (760000 - voltage_uV) / 2500 + 25
+     *   voltage_uV = 760000 - (temp_C - 25) * 2500
+     *   adc = (voltage_uV * 4096) / 3300000
+     */
+
+    if (hadc->Instance == ADC1) {
+        /* Battery voltage - convert from mV to ADC value */
+        uint32_t voltage_mV = emulator.protection.battery_voltage_mV;
+        uint32_t adc_value = (voltage_mV * 4096) / 22011;
+        if (adc_value > 4095) adc_value = 4095;
+        return adc_value;
+    }
+    else if (hadc->Instance == ADC3) {
+        /* MCU temperature sensor - convert from °C to ADC value */
+        int16_t temp_C = emulator.protection.mcu_temp_C;
+        int32_t voltage_uV = 760000 - (temp_C - 25) * 2500;
+        if (voltage_uV < 0) voltage_uV = 0;
+        uint32_t adc_value = (voltage_uV * 4096) / 3300000;
+        if (adc_value > 4095) adc_value = 4095;
+        return adc_value;
+    }
+
+    /* Default - return generic ADC value */
     return emulator.adc[0].raw_value << 2;  /* 12-bit */
 }
 
@@ -1410,6 +1552,26 @@ void HAL_NVIC_EnableIRQ(IRQn_Type IRQn)
 void HAL_NVIC_DisableIRQ(IRQn_Type IRQn)
 {
     (void)IRQn;
+}
+
+/* Protection Temperature Functions - Override weak implementations in pmu_protection.c */
+
+/**
+ * @brief Read board temperature sensor Left (emulator override)
+ * @retval Temperature in °C from emulator state
+ */
+int16_t Protection_ReadBoardTempL(void)
+{
+    return emulator.protection.board_temp_L_C;
+}
+
+/**
+ * @brief Read board temperature sensor Right (emulator override)
+ * @retval Temperature in °C from emulator state
+ */
+int16_t Protection_ReadBoardTempR(void)
+{
+    return emulator.protection.board_temp_R_C;
 }
 
 /* System Functions */

@@ -75,6 +75,9 @@ class ConfigManager:
                 loaded_config = self._migrate_v2_to_v3(loaded_config)
                 logger.info(f"Migrated configuration from v{version} to v3.0")
 
+            # Auto-generate missing IDs from name field
+            loaded_config = self._ensure_channel_ids(loaded_config)
+
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
 
@@ -116,6 +119,41 @@ class ConfigManager:
         except Exception as e:
             error_msg = f"Failed to load configuration:\n\n{str(e)}"
             logger.error(f"Failed to load configuration: {e}")
+            return False, error_msg
+
+    def load_from_dict(self, config_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        Load configuration from dictionary (e.g., from device).
+
+        Args:
+            config_dict: Configuration dictionary
+
+        Returns:
+            Tuple[bool, Optional[str]]: (success, error_message)
+        """
+        try:
+            # Auto-generate missing IDs from name field
+            config_dict = self._ensure_channel_ids(config_dict)
+
+            # Validate configuration
+            is_valid, validation_errors = ConfigValidator.validate_config(config_dict)
+
+            if not is_valid:
+                error_msg = ConfigValidator.format_validation_errors(validation_errors)
+                logger.warning(f"Config validation warnings:\n{error_msg}")
+                # Don't fail on validation, just warn
+
+            # Apply configuration
+            self.config = config_dict
+            self.current_file = None
+            self.modified = False
+
+            logger.info("Loaded configuration from device")
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Failed to load configuration: {str(e)}"
+            logger.error(error_msg)
             return False, error_msg
 
     def save_to_file(self, filepath: Optional[str] = None) -> bool:
@@ -322,6 +360,36 @@ class ConfigManager:
         if channel_type:
             return sum(1 for ch in channels if ch.get("channel_type") == channel_type.value)
         return len(channels)
+
+    # ========== Convenience Methods for Specific Channel Types ==========
+
+    def get_can_inputs(self) -> List[Dict[str, Any]]:
+        """Get all CAN RX channels"""
+        return self.get_channels_by_type(ChannelType.CAN_RX)
+
+    def get_outputs(self) -> List[Dict[str, Any]]:
+        """Get all power output channels"""
+        return self.get_channels_by_type(ChannelType.POWER_OUTPUT)
+
+    def get_inputs(self) -> List[Dict[str, Any]]:
+        """Get all analog input channels"""
+        return self.get_channels_by_type(ChannelType.ANALOG_INPUT)
+
+    def get_digital_inputs(self) -> List[Dict[str, Any]]:
+        """Get all digital input channels"""
+        return self.get_channels_by_type(ChannelType.DIGITAL_INPUT)
+
+    def get_logic_channels(self) -> List[Dict[str, Any]]:
+        """Get all logic channels"""
+        return self.get_channels_by_type(ChannelType.LOGIC)
+
+    def get_timers(self) -> List[Dict[str, Any]]:
+        """Get all timer channels"""
+        return self.get_channels_by_type(ChannelType.TIMER)
+
+    def get_keypads(self) -> List[Dict[str, Any]]:
+        """Get all keypad configurations from system settings"""
+        return self.config.get("system", {}).get("keypads", [])
 
     # ========== System Settings ==========
 
@@ -564,6 +632,66 @@ class ConfigManager:
         return self.get_can_message_by_id(message_id) is not None
 
     # ========== Migration ==========
+
+    def _ensure_channel_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ensure all channels have an 'id' field.
+        Auto-generates id from 'name' if missing.
+        """
+        import re
+
+        channels = config.get("channels", [])
+        existing_ids = set()
+
+        # First pass - collect existing IDs
+        for ch in channels:
+            if "id" in ch and ch["id"]:
+                existing_ids.add(ch["id"])
+
+        # Second pass - generate missing IDs
+        for ch in channels:
+            if "id" not in ch or not ch["id"]:
+                name = ch.get("name", "")
+                channel_type = ch.get("channel_type", "channel")
+
+                # Get prefix based on channel type
+                prefix_map = {
+                    "digital_input": "di_",
+                    "analog_input": "ai_",
+                    "power_output": "out_",
+                    "logic": "l_",
+                    "number": "n_",
+                    "timer": "tm_",
+                    "filter": "flt_",
+                    "enum": "e_",
+                    "table_2d": "t2d_",
+                    "table_3d": "t3d_",
+                    "switch": "sw_",
+                    "can_rx": "crx_",
+                    "can_tx": "ctx_",
+                    "lua_script": "lua_",
+                }
+                prefix = prefix_map.get(channel_type, "ch_")
+
+                # Generate base id from name
+                if name:
+                    base_id = re.sub(r'[^a-z0-9_]', '_', name.lower())
+                    base_id = re.sub(r'_+', '_', base_id).strip('_')
+                else:
+                    base_id = "unnamed"
+
+                # Ensure uniqueness
+                new_id = f"{prefix}{base_id}"
+                counter = 1
+                while new_id in existing_ids:
+                    new_id = f"{prefix}{base_id}_{counter}"
+                    counter += 1
+
+                ch["id"] = new_id
+                existing_ids.add(new_id)
+                logger.debug(f"Generated channel ID: {new_id} from name: {name}")
+
+        return config
 
     def _migrate_v2_to_v3(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """

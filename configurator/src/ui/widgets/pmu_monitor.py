@@ -72,10 +72,6 @@ class PMUMonitorWidget(QWidget):
         # Header
         header_layout = QHBoxLayout()
 
-        self.title_label = QLabel("PMU", self)
-        self.title_label.setStyleSheet("font-weight: bold; font-size: 12px;")
-        header_layout.addWidget(self.title_label)
-
         header_layout.addStretch()
 
         self.status_label = QLabel("Disconnected", self)
@@ -310,6 +306,21 @@ class PMUMonitorWidget(QWidget):
         self.set_value("board_temp_1", data.get("temperature_c", "?"))
         self.set_value("total_current", data.get("current_a", "?"))
         self.set_value("uptime", data.get("uptime_ms", 0) // 1000 if data.get("uptime_ms") else "?")
+
+        # Extended system values from expanded telemetry
+        self.set_value("board_temp_2", data.get("board_temp_2", "?"))
+        output_5v = data.get("output_5v_mv", 0)
+        self.set_value("5v_output", output_5v / 1000.0 if isinstance(output_5v, (int, float)) and output_5v else "?")
+        output_3v3 = data.get("output_3v3_mv", 0)
+        self.set_value("3v3_output", output_3v3 / 1000.0 if isinstance(output_3v3, (int, float)) and output_3v3 else "?")
+        self.set_value("flash_temp", data.get("flash_temp", "?"))
+
+        # System status bits
+        system_status = data.get("system_status", 0)
+        self.set_value("status", hex(system_status) if isinstance(system_status, int) else "?")
+        self.set_value("reset_detector", "Yes" if system_status & 0x01 else "No")
+        self.set_value("user_error", "Yes" if system_status & 0x02 else "No")
+        self.set_value("is_turning_off", "Yes" if system_status & 0x04 else "No")
 
         # Output states
         channel_states = data.get("channel_states", [])

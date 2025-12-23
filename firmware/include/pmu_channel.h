@@ -141,12 +141,29 @@ typedef struct {
 #define PMU_CHANNEL_FLAG_FAULT          0x04    /**< Fault detected */
 #define PMU_CHANNEL_FLAG_OVERRIDE       0x08    /**< Manual override active */
 
-/* System channel IDs */
-#define PMU_CHANNEL_SYSTEM_BATTERY_V    1000    /**< Battery voltage */
-#define PMU_CHANNEL_SYSTEM_TOTAL_I      1001    /**< Total current */
-#define PMU_CHANNEL_SYSTEM_MCU_TEMP     1002    /**< MCU temperature */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP   1003    /**< Board temperature */
-#define PMU_CHANNEL_SYSTEM_UPTIME       1004    /**< System uptime (seconds) */
+/* System channel IDs (ECUMaster compatible: pmuX.*) */
+#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000    /**< Battery voltage (pmuX.battery) */
+#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001    /**< Total current (pmuX.totalCurrent) */
+#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002    /**< MCU temperature */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003    /**< Board temperature Left (pmuX.boardTemperatureL) */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004    /**< Board temperature Right (pmuX.boardTemperatureR) */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005    /**< Board temperature Max (pmuX.boardTemperatureMax) */
+#define PMU_CHANNEL_SYSTEM_UPTIME           1006    /**< System uptime (seconds) */
+#define PMU_CHANNEL_SYSTEM_STATUS           1007    /**< System status (pmuX.status) */
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008    /**< User error (pmuX.userError) */
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009    /**< 5V output voltage */
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010    /**< 3.3V output voltage */
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011    /**< Shutdown in progress flag */
+
+/* Per-output channel bases (ECUMaster compatible: pmuX.oY.*) */
+/* Use: PMU_CHANNEL_OUTPUT_STATUS_BASE + output_index (0-29) */
+#define PMU_CHANNEL_OUTPUT_STATUS_BASE      1100    /**< Output status base (oY.status) */
+#define PMU_CHANNEL_OUTPUT_CURRENT_BASE     1130    /**< Output current base (oY.current) */
+#define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     1160    /**< Output voltage base (oY.voltage) */
+#define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      1190    /**< Output active base (oY.active) */
+
+/* Analog input channel base (ECUMaster compatible: pmuX.aY.*) */
+#define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     1220    /**< Analog input voltage base (aY.voltage) */
 
 /* Exported functions --------------------------------------------------------*/
 

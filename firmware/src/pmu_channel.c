@@ -101,9 +101,19 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     strncpy(sys_channel.unit, "°C", sizeof(sys_channel.unit));
     PMU_Channel_Register(&sys_channel);
 
-    /* Board temperature */
-    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_BOARD_TEMP;
-    strncpy(sys_channel.name, "Board Temperature", sizeof(sys_channel.name));
+    /* Board temperature Left (ECUMaster: pmuX.boardTemperatureL) */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_BOARD_TEMP_L;
+    strncpy(sys_channel.name, "Board Temp L", sizeof(sys_channel.name));
+    PMU_Channel_Register(&sys_channel);
+
+    /* Board temperature Right (ECUMaster: pmuX.boardTemperatureR) */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_BOARD_TEMP_R;
+    strncpy(sys_channel.name, "Board Temp R", sizeof(sys_channel.name));
+    PMU_Channel_Register(&sys_channel);
+
+    /* Board temperature Max (ECUMaster: pmuX.boardTemperatureMax) */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX;
+    strncpy(sys_channel.name, "Board Temp Max", sizeof(sys_channel.name));
     PMU_Channel_Register(&sys_channel);
 
     /* Uptime */
@@ -113,6 +123,50 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     sys_channel.max_value = 0x7FFFFFFF;
     strncpy(sys_channel.name, "System Uptime", sizeof(sys_channel.name));
     strncpy(sys_channel.unit, "s", sizeof(sys_channel.unit));
+    PMU_Channel_Register(&sys_channel);
+
+    /* System status (ECUMaster: pmuX.status) */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_STATUS;
+    sys_channel.format = PMU_CHANNEL_FORMAT_RAW;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 0xFFFF;
+    strncpy(sys_channel.name, "System Status", sizeof(sys_channel.name));
+    strncpy(sys_channel.unit, "", sizeof(sys_channel.unit));
+    PMU_Channel_Register(&sys_channel);
+
+    /* User error (ECUMaster: pmuX.userError) */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_USER_ERROR;
+    sys_channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 1;
+    strncpy(sys_channel.name, "User Error", sizeof(sys_channel.name));
+    PMU_Channel_Register(&sys_channel);
+
+    /* 5V output voltage */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_5V_OUTPUT;
+    sys_channel.format = PMU_CHANNEL_FORMAT_VOLTAGE;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 6000;  /* 6V max */
+    strncpy(sys_channel.name, "5V Output", sizeof(sys_channel.name));
+    strncpy(sys_channel.unit, "mV", sizeof(sys_channel.unit));
+    PMU_Channel_Register(&sys_channel);
+
+    /* 3.3V output voltage */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_3V3_OUTPUT;
+    sys_channel.format = PMU_CHANNEL_FORMAT_VOLTAGE;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 4000;  /* 4V max */
+    strncpy(sys_channel.name, "3.3V Output", sizeof(sys_channel.name));
+    strncpy(sys_channel.unit, "mV", sizeof(sys_channel.unit));
+    PMU_Channel_Register(&sys_channel);
+
+    /* Is turning off flag */
+    sys_channel.channel_id = PMU_CHANNEL_SYSTEM_IS_TURNING_OFF;
+    sys_channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 1;
+    strncpy(sys_channel.name, "Is Turning Off", sizeof(sys_channel.name));
+    strncpy(sys_channel.unit, "", sizeof(sys_channel.unit));
     PMU_Channel_Register(&sys_channel);
 
     return HAL_OK;
@@ -341,13 +395,13 @@ void PMU_Channel_Update(void)
 #if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
     PMU_ChannelEntry_t* entry;
 
-    /* Battery voltage */
+    /* Battery voltage (pmuX.battery) */
     entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_BATTERY_V);
     if (entry) {
         entry->channel.value = PMU_Protection_GetVoltage();
     }
 
-    /* Total current */
+    /* Total current (pmuX.totalCurrent) */
     entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_TOTAL_I);
     if (entry) {
         entry->channel.value = PMU_Protection_GetTotalCurrent();
@@ -359,10 +413,60 @@ void PMU_Channel_Update(void)
         entry->channel.value = PMU_Protection_GetTemperature();
     }
 
+    /* Board temperature Left (pmuX.boardTemperatureL) - primary board sensor */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_BOARD_TEMP_L);
+    if (entry) {
+        entry->channel.value = PMU_Protection_GetBoardTempL();
+    }
+
+    /* Board temperature Right (pmuX.boardTemperatureR) - secondary board sensor */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_BOARD_TEMP_R);
+    if (entry) {
+        entry->channel.value = PMU_Protection_GetBoardTempR();
+    }
+
+    /* Board temperature Max (pmuX.boardTemperatureMax) - highest of L/R */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX);
+    if (entry) {
+        int32_t temp_l = PMU_Protection_GetBoardTempL();
+        int32_t temp_r = PMU_Protection_GetBoardTempR();
+        entry->channel.value = (temp_l > temp_r) ? temp_l : temp_r;
+    }
+
     /* Uptime */
     entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_UPTIME);
     if (entry) {
         entry->channel.value = HAL_GetTick() / 1000;
+    }
+
+    /* System status (pmuX.status) */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_STATUS);
+    if (entry) {
+        entry->channel.value = PMU_Protection_GetStatus();
+    }
+
+    /* User error (pmuX.userError) */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_USER_ERROR);
+    if (entry) {
+        entry->channel.value = PMU_Protection_GetUserError();
+    }
+
+    /* 5V output voltage */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_5V_OUTPUT);
+    if (entry) {
+        entry->channel.value = PMU_Protection_Get5VOutput();
+    }
+
+    /* 3.3V output voltage */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_3V3_OUTPUT);
+    if (entry) {
+        entry->channel.value = PMU_Protection_Get3V3Output();
+    }
+
+    /* Is turning off flag */
+    entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_IS_TURNING_OFF);
+    if (entry) {
+        entry->channel.value = PMU_Protection_IsTurningOff();
     }
 #endif
 }

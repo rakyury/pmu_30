@@ -19,6 +19,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32_hal_emu.h"
+#include "pmu_emulator.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -81,11 +82,9 @@ void PMU_ADC_Update(void)
     /* Stub - ADC update is handled by emulator */
 }
 
-__attribute__((weak))
-void PMU_PROFET_Update(void)
-{
-    /* Stub - PROFET update is handled by emulator */
-}
+/* PMU_PROFET_Update() - using real implementation from pmu_profet.c
+ * The stub SPI functions (PMU_SPI_GetCurrent, etc.) return emulator state,
+ * so the real PROFET update will read simulated current correctly. */
 
 __attribute__((weak))
 void PMU_HBridge_Update(void)
@@ -93,11 +92,9 @@ void PMU_HBridge_Update(void)
     /* Stub - H-Bridge update is handled by emulator */
 }
 
-__attribute__((weak))
-void PMU_Protection_Update(void)
-{
-    /* Stub - Protection update is handled by emulator */
-}
+/* PMU_Protection_Update() - using real implementation from pmu_protection.c
+ * The emulator provides voltage/temperature values via HAL_ADC_GetValue(),
+ * so the real protection module will read simulated values correctly. */
 
 __attribute__((weak))
 void PMU_UI_Update(void)
@@ -149,14 +146,44 @@ HAL_StatusTypeDef PMU_SPI_CalibrateOffset(PMU_SPI_Device_t device)
 
 uint32_t PMU_SPI_GetCurrent(uint8_t channel)
 {
-    (void)channel;
-    return 0;  /* No current in emulator */
+    PMU_Emulator_t* emu = PMU_Emu_GetState();
+    if (channel < 30 && emu) {
+        return emu->profet[channel].current_mA;
+    }
+    return 0;
 }
 
 int16_t PMU_SPI_GetTemperature(uint8_t channel)
 {
-    (void)channel;
-    return 25;  /* Room temperature */
+    PMU_Emulator_t* emu = PMU_Emu_GetState();
+    if (channel < 30 && emu) {
+        return emu->profet[channel].temperature_C;
+    }
+    return 25;
+}
+
+uint16_t PMU_SPI_GetRawValue(uint8_t channel, uint8_t type)
+{
+    PMU_Emulator_t* emu = PMU_Emu_GetState();
+    if (channel >= 30 || !emu) {
+        return 0;
+    }
+    if (type == 0) {
+        /* Current - convert mA to raw ADC (12-bit, 0-20A range) */
+        return (uint16_t)((emu->profet[channel].current_mA * 4095) / 20000);
+    } else {
+        /* Status - return fault flags */
+        return emu->profet[channel].fault_flags;
+    }
+}
+
+uint8_t PMU_SPI_GetFaultFlags(uint8_t channel)
+{
+    PMU_Emulator_t* emu = PMU_Emu_GetState();
+    if (channel < 30 && emu) {
+        return emu->profet[channel].fault_flags;
+    }
+    return 0;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

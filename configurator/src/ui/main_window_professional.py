@@ -7,7 +7,7 @@ Unified Channel architecture support
 import logging
 from PyQt6.QtWidgets import (
     QMainWindow, QDockWidget, QMenuBar, QStatusBar, QMessageBox,
-    QFileDialog, QLabel
+    QFileDialog, QLabel, QTabWidget
 )
 from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
@@ -36,6 +36,7 @@ from .dialogs.can_message_dialog import CANMessageDialog
 from .dialogs.can_input_dialog import CANInputDialog
 from .dialogs.can_output_dialog import CANOutputDialog
 from .dialogs.can_messages_manager_dialog import CANMessagesManagerDialog
+from .dialogs.can_import_dialog import CANImportDialog
 from .dialogs.connection_dialog import ConnectionDialog
 from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
 
@@ -52,6 +53,8 @@ class MainWindowProfessional(QMainWindow):
 
     # Signals
     configuration_changed = pyqtSignal()
+    _config_loaded_signal = pyqtSignal(dict)  # Internal signal for thread-safe config loading
+    _config_load_error_signal = pyqtSignal()  # Internal signal for config load errors
 
     def __init__(self):
         super().__init__()
@@ -115,12 +118,12 @@ class MainWindowProfessional(QMainWindow):
 
         Layout:
         +------------------+------------------------+
-        |                  |                        |
-        |  Project Tree    |     PMU Monitor        |
+        |                  |  [PMU] [Outputs] [Ana] |
+        |  Project Tree    |     Tab Content        |
         |  (Config)        |     (Real-time)        |
         |                  |                        |
         +------------------+------------------------+
-        |     Connection Bar (Telemetry)            |
+        |     Status Bar (Connection/Telemetry)     |
         +-------------------------------------------+
         """
 
@@ -135,40 +138,39 @@ class MainWindowProfessional(QMainWindow):
         self.project_tree_dock.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
 
-        # === RIGHT SIDE: PMU Monitor (main view) ===
-        self.pmu_monitor_dock = QDockWidget("PMU Monitor", self)
-        self.pmu_monitor_dock.setAllowedAreas(
+        # === RIGHT SIDE: Tabbed Monitor Panel ===
+        self.monitor_dock = QDockWidget("Monitor", self)
+        self.monitor_dock.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea |
             Qt.DockWidgetArea.RightDockWidgetArea
         )
+
+        # Create tab widget for monitors
+        self.monitor_tabs = QTabWidget()
+        self.monitor_tabs.setTabPosition(QTabWidget.TabPosition.North)
+
+        # PMU Monitor tab (system overview)
         self.pmu_monitor = PMUMonitorWidget()
-        self.pmu_monitor_dock.setWidget(self.pmu_monitor)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
+        self.monitor_tabs.addTab(self.pmu_monitor, "PMU")
 
-        # === Create but hide secondary monitors (can be shown via View menu) ===
-        # Output Monitor (legacy)
-        self.output_dock = QDockWidget("Output Table", self)
+        # Output Monitor tab
         self.output_monitor = OutputMonitor()
-        self.output_dock.setWidget(self.output_monitor)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.output_dock)
-        self.output_dock.hide()
+        self.monitor_tabs.addTab(self.output_monitor, "Outputs")
 
-        # Analog Monitor (legacy)
-        self.analog_dock = QDockWidget("Analog Table", self)
+        # Analog Monitor tab
         self.analog_monitor = AnalogMonitor()
-        self.analog_dock.setWidget(self.analog_monitor)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.analog_dock)
-        self.analog_dock.hide()
+        self.monitor_tabs.addTab(self.analog_monitor, "Analog")
 
-        # Variables Inspector (legacy)
-        self.variables_dock = QDockWidget("Variables", self)
+        # Variables Inspector tab
         self.variables_inspector = VariablesInspector()
-        self.variables_dock.setWidget(self.variables_inspector)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.variables_dock)
-        self.variables_dock.hide()
+        self.monitor_tabs.addTab(self.variables_inspector, "Variables")
+
+        self.monitor_dock.setWidget(self.monitor_tabs)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
 
         # For backwards compatibility
-        self.pmu_output_dock = self.pmu_monitor_dock
+        self.pmu_monitor_dock = self.monitor_dock
+        self.pmu_output_dock = self.monitor_dock
 
     def _setup_menubar(self):
         """Setup menu bar."""
@@ -212,6 +214,11 @@ class MainWindowProfessional(QMainWindow):
         can_messages_action.triggered.connect(self.show_can_messages_manager)
         edit_menu.addAction(can_messages_action)
 
+        import_can_action = QAction("Import CAN Channels...", self)
+        import_can_action.setShortcut("Ctrl+I")
+        import_can_action.triggered.connect(self.show_can_import_dialog)
+        edit_menu.addAction(import_can_action)
+
         edit_menu.addSeparator()
 
         settings_action = QAction("Settings...", self)
@@ -243,6 +250,7 @@ class MainWindowProfessional(QMainWindow):
         device_menu.addSeparator()
 
         save_flash_action = QAction("Save to Flash (Permanent)", self)
+        save_flash_action.setShortcut("F2")
         save_flash_action.triggered.connect(self.save_to_flash)
         device_menu.addAction(save_flash_action)
 
@@ -270,27 +278,35 @@ class MainWindowProfessional(QMainWindow):
         config_action.setShortcut("F7")
         windows_menu.addAction(config_action)
 
-        pmu_monitor_action = self.pmu_monitor_dock.toggleViewAction()
-        pmu_monitor_action.setText("PMU Monitor")
-        pmu_monitor_action.setShortcut("F8")
-        windows_menu.addAction(pmu_monitor_action)
+        monitor_action = self.monitor_dock.toggleViewAction()
+        monitor_action.setText("Monitor Panel")
+        monitor_action.setShortcut("F8")
+        windows_menu.addAction(monitor_action)
 
         windows_menu.addSeparator()
 
-        # Secondary panels (hidden by default)
-        windows_menu.addAction(QAction("--- Additional Panels ---", self))
+        # Monitor tab shortcuts
+        windows_menu.addAction(QAction("--- Monitor Tabs ---", self))
 
-        output_monitor_action = self.output_dock.toggleViewAction()
-        output_monitor_action.setText("Output Table")
-        windows_menu.addAction(output_monitor_action)
+        pmu_tab_action = QAction("PMU Monitor", self)
+        pmu_tab_action.setShortcut("F9")
+        pmu_tab_action.triggered.connect(lambda: self._switch_monitor_tab(0))
+        windows_menu.addAction(pmu_tab_action)
 
-        analog_monitor_action = self.analog_dock.toggleViewAction()
-        analog_monitor_action.setText("Analog Table")
-        windows_menu.addAction(analog_monitor_action)
+        outputs_tab_action = QAction("Outputs Monitor", self)
+        outputs_tab_action.setShortcut("F10")
+        outputs_tab_action.triggered.connect(lambda: self._switch_monitor_tab(1))
+        windows_menu.addAction(outputs_tab_action)
 
-        variables_action = self.variables_dock.toggleViewAction()
-        variables_action.setText("Variables Inspector")
-        windows_menu.addAction(variables_action)
+        analog_tab_action = QAction("Analog Monitor", self)
+        analog_tab_action.setShortcut("F11")
+        analog_tab_action.triggered.connect(lambda: self._switch_monitor_tab(2))
+        windows_menu.addAction(analog_tab_action)
+
+        variables_tab_action = QAction("Variables Inspector", self)
+        variables_tab_action.setShortcut("F12")
+        variables_tab_action.triggered.connect(lambda: self._switch_monitor_tab(3))
+        windows_menu.addAction(variables_tab_action)
 
         windows_menu.addSeparator()
 
@@ -383,11 +399,20 @@ class MainWindowProfessional(QMainWindow):
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
 
-        # Device controller signals
-        self.device_controller.telemetry_received.connect(self._on_telemetry_received)
-        self.device_controller.log_received.connect(self._on_log_received)
-        self.device_controller.disconnected.connect(self._on_device_disconnected)
-        self.device_controller.error.connect(self._on_device_error)
+        # Device controller signals - use QueuedConnection for thread safety
+        # (signals may be emitted from background receive thread)
+        self.device_controller.telemetry_received.connect(
+            self._on_telemetry_received, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.log_received.connect(
+            self._on_log_received, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.disconnected.connect(
+            self._on_device_disconnected, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.error.connect(
+            self._on_device_error, Qt.ConnectionType.QueuedConnection)
+
+        # Internal signals for config loading from thread
+        self._config_loaded_signal.connect(self._load_config_from_device)
+        self._config_load_error_signal.connect(self._show_read_error)
 
     def _on_device_disconnected(self):
         """Handle device disconnection."""
@@ -395,6 +420,9 @@ class MainWindowProfessional(QMainWindow):
         self.device_status_label.setStyleSheet("color: #ef4444;")
         self.status_message.setText("Disconnected from device")
         self.pmu_monitor.set_connected(False)
+        self.output_monitor.set_connected(False)
+        self.analog_monitor.set_connected(False)
+        self.variables_inspector.set_connected(False)
 
     def _on_device_error(self, error_msg: str):
         """Handle device error."""
@@ -432,6 +460,8 @@ class MainWindowProfessional(QMainWindow):
                 self.project_tree.add_channel(channel_type, config)
                 self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
                 self.configuration_changed.emit()
+                # Apply channel state immediately to device
+                self._apply_output_to_device(config)
 
         elif channel_type == ChannelType.LOGIC:
             dialog = LogicDialog(self, None, available_channels)
@@ -565,6 +595,8 @@ class MainWindowProfessional(QMainWindow):
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
                 self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+                # Apply channel state immediately to device (without flash save)
+                self._apply_output_to_device(updated_config)
 
         elif channel_type == ChannelType.LOGIC:
             dialog = LogicDialog(self, item_data, available_channels)
@@ -827,6 +859,9 @@ class MainWindowProfessional(QMainWindow):
         self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
         self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
 
+        # Update variables inspector
+        self.variables_inspector.populate_from_config(self.config_manager)
+
     def _save_config_from_ui(self):
         """Save configuration from UI."""
         config = self.config_manager.get_config()
@@ -859,7 +894,12 @@ class MainWindowProfessional(QMainWindow):
                 self.device_status_label.setText("ONLINE")
                 self.device_status_label.setStyleSheet("color: #10b981;")
                 self.pmu_monitor.set_connected(True)
-                QMessageBox.information(self, "Connected", "Successfully connected to PMU-30 device.")
+                self.output_monitor.set_connected(True)
+                self.analog_monitor.set_connected(True)
+                self.variables_inspector.set_connected(True)
+
+                # Auto-read configuration from device
+                QTimer.singleShot(500, self.read_from_device)
             else:
                 self.status_message.setText("Connection failed")
                 QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.")
@@ -873,10 +913,110 @@ class MainWindowProfessional(QMainWindow):
         self.device_status_label.setText("OFFLINE")
         self.device_status_label.setStyleSheet("color: #ef4444;")
         self.pmu_monitor.set_connected(False)
+        self.output_monitor.set_connected(False)
+        self.analog_monitor.set_connected(False)
+        self.variables_inspector.set_connected(False)
 
     def read_from_device(self):
         """Read configuration from device."""
-        pass
+        if not self.device_controller.is_connected():
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Please connect to device first."
+            )
+            return
+
+        self.status_message.setText("Reading configuration...")
+
+        # Run in thread to not block UI
+        import threading
+
+        def read_config_thread():
+            config = self.device_controller.read_configuration(timeout=5.0)
+            if config:
+                # Use signal to update UI from main thread
+                self._config_loaded_signal.emit(config)
+            else:
+                self._config_load_error_signal.emit()
+
+        thread = threading.Thread(target=read_config_thread, daemon=True)
+        thread.start()
+
+    def _load_config_from_device(self, config: dict):
+        """Load configuration received from device into UI."""
+        try:
+            # Clear current project tree
+            self.project_tree.clear_all()
+
+            # Load channels from config
+            channels = config.get("channels", [])
+            for ch_data in channels:
+                ch_type_str = ch_data.get("channel_type", "")
+                try:
+                    ch_type = ChannelType(ch_type_str)
+                    self.project_tree.add_channel(ch_type, ch_data)
+                except ValueError:
+                    logger.warning(f"Unknown channel type: {ch_type_str}")
+
+            # Update monitors
+            self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+            self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+
+            # Store config in config_manager
+            self.config_manager.load_from_dict(config)
+
+            # Update variables inspector
+            self.variables_inspector.populate_from_config(self.config_manager)
+
+            self.status_message.setText(f"Configuration loaded: {len(channels)} channels")
+            logger.info(f"Loaded configuration with {len(channels)} channels")
+
+        except Exception as e:
+            logger.error(f"Error loading config: {e}")
+            self.status_message.setText(f"Error loading config: {e}")
+
+    def _show_read_error(self):
+        """Show error when config read fails."""
+        self.status_message.setText("Failed to read configuration")
+        QMessageBox.warning(
+            self,
+            "Read Failed",
+            "Failed to read configuration from device."
+        )
+
+    def _apply_output_to_device(self, output_config: dict):
+        """Apply output channel state to device immediately (without flash save).
+
+        Sends SET_CHANNEL command for each pin in the output config.
+        Channel IDs for PROFET outputs are 100-129 (pin + 100).
+        """
+        if not self.device_controller.is_connected():
+            return
+
+        pins = output_config.get("pins", [])
+        enabled = output_config.get("enabled", False)
+        pwm_config = output_config.get("pwm", {})
+
+        # Determine value: 0=OFF, 1000=ON, or PWM duty (0-1000)
+        if enabled:
+            if pwm_config.get("enabled", False):
+                # PWM mode: duty value 0-100% -> 0-1000
+                value = pwm_config.get("duty_value", 100.0) * 10.0
+            else:
+                # ON mode: full duty
+                value = 1000.0
+        else:
+            # OFF
+            value = 0.0
+
+        # Send SET_CHANNEL for each pin
+        for pin in pins:
+            channel_id = 100 + pin  # PROFET channel IDs are 100-129
+            self.device_controller.set_channel(channel_id, value)
+            logger.debug(f"Applied output O{pin+1} = {value}")
+
+        self.status_message.setText(f"Applied output state: {'ON' if enabled else 'OFF'}")
 
     def write_to_device(self):
         """Write configuration to device."""
@@ -1017,39 +1157,61 @@ class MainWindowProfessional(QMainWindow):
 
     def _on_telemetry_received(self, telemetry):
         """Handle telemetry data from device."""
-        logger.debug(f"Telemetry received: voltage={telemetry.input_voltage_mv}mV, temp={telemetry.temperature_c}C")
-        # Update PMU monitor with telemetry data
-        data = {
-            'voltage_v': telemetry.input_voltage_mv / 1000.0,
-            'temperature_c': telemetry.temperature_c,
-            'current_a': telemetry.total_current_ma / 1000.0,
-            'channel_states': [s.value if hasattr(s, 'value') else s for s in telemetry.profet_states],
-            'channel_currents': telemetry.profet_duties,  # PWM duty as current placeholder
-            'analog_values': telemetry.adc_values[:8],
-            'fault_flags': telemetry.fault_flags.value if hasattr(telemetry.fault_flags, 'value') else 0,
-        }
-        self.pmu_monitor.update_from_telemetry(data)
+        try:
+            logger.debug(f"Telemetry received: voltage={telemetry.input_voltage_mv}mV, temp={telemetry.temperature_c}C")
+            # Update PMU monitor with telemetry data
+            data = {
+                'voltage_v': telemetry.input_voltage_mv / 1000.0,
+                'temperature_c': telemetry.temperature_c,
+                'current_a': telemetry.total_current_ma / 1000.0,
+                'channel_states': [s.value if hasattr(s, 'value') else s for s in telemetry.profet_states],
+                'channel_currents': telemetry.profet_duties,  # PWM duty as current placeholder
+                'analog_values': telemetry.adc_values[:8],
+                'fault_flags': telemetry.fault_flags.value if hasattr(telemetry.fault_flags, 'value') else 0,
+                # Extended telemetry fields
+                'board_temp_2': telemetry.board_temp_2,
+                'output_5v_mv': telemetry.output_5v_mv,
+                'output_3v3_mv': telemetry.output_3v3_mv,
+                'flash_temp': telemetry.flash_temp,
+                'system_status': telemetry.system_status,
+                'uptime_ms': telemetry.timestamp_ms,
+            }
+            self.pmu_monitor.update_from_telemetry(data)
 
-        # Update output monitor with channel states
-        for i, state in enumerate(telemetry.profet_states[:len(self.output_monitor.output_channels)]):
-            if i < len(self.output_monitor.output_channels):
-                is_active = state in [1, 6]  # ON or PWM_ACTIVE
-                duty = telemetry.profet_duties[i] / 10.0 if i < len(telemetry.profet_duties) else 0
-                self.output_monitor.update_output_status(
-                    self.output_monitor.output_channels[i].get('id', f'OUT{i}'),
-                    is_active,
-                    duty
-                )
+            # Update output monitor with full telemetry data
+            # Convert ChannelState enum values to integers for the output monitor
+            states = [int(s) if hasattr(s, 'value') else s for s in telemetry.profet_states]
+            duties = list(telemetry.profet_duties)
+            currents = list(telemetry.output_currents)  # Estimated from duties
+            battery_v = telemetry.input_voltage  # Get battery voltage in V
 
-        # Update analog monitor with ADC values
-        for i, value in enumerate(telemetry.adc_values[:8]):
-            if i < len(self.analog_monitor.input_channels):
-                # Convert raw ADC (0-4095) to percentage (0-100)
-                percent = (value / 4095.0) * 100
-                self.analog_monitor.update_input_value(
-                    self.analog_monitor.input_channels[i].get('id', f'AIN{i}'),
-                    percent
-                )
+            self.output_monitor.update_from_telemetry(states, duties, currents, battery_v)
+
+            # Update analog monitor with ADC values
+            for i, value in enumerate(telemetry.adc_values[:8]):
+                if i < len(self.analog_monitor.inputs_data):
+                    # Convert raw ADC (0-4095) to percentage (0-100)
+                    percent = (value / 4095.0) * 100
+                    voltage = (value / 4095.0) * 5.0  # Assume 5V reference
+                    # update_input_value(channel: int, value: float, voltage: float)
+                    self.analog_monitor.update_input_value(i, percent, voltage)
+
+            # Update variables inspector with telemetry data
+            variables_data = {
+                'board_temp_l': telemetry.temperature_c,
+                'board_temp_r': telemetry.board_temp_2,
+                'battery_voltage': telemetry.input_voltage,
+                'voltage_5v': telemetry.output_5v_mv / 1000.0 if telemetry.output_5v_mv else 0,
+                'voltage_3v3': telemetry.output_3v3_mv / 1000.0 if telemetry.output_3v3_mv else 0,
+                'pmu_status': telemetry.system_status,
+                'user_error': 0,  # TODO: Add user error tracking
+                'profet_states': states,
+                'profet_currents': currents,
+                'adc_values': list(telemetry.adc_values),
+            }
+            self.variables_inspector.update_from_telemetry(variables_data)
+        except Exception as e:
+            logger.error(f"Error processing telemetry: {e}")
 
     def _on_log_received(self, level: int, source: str, message: str):
         """Handle log message from device."""
@@ -1074,6 +1236,35 @@ class MainWindowProfessional(QMainWindow):
         dialog = CANMessagesManagerDialog(self, self.config_manager)
         dialog.messages_changed.connect(self._on_config_changed)
         dialog.exec()
+
+    def show_can_import_dialog(self):
+        """Show CAN Import dialog for importing from .canx and .dbc files."""
+        dialog = CANImportDialog(self, self.config_manager)
+        dialog.import_completed.connect(self._on_can_import_completed)
+        dialog.exec()
+
+    def _on_can_import_completed(self, messages: list, channels: list):
+        """Handle imported CAN messages and channels."""
+        config = self.config_manager.get_config()
+
+        # Add imported CAN messages
+        if "can_messages" not in config:
+            config["can_messages"] = []
+        config["can_messages"].extend(messages)
+
+        # Add imported channels
+        if "channels" not in config:
+            config["channels"] = []
+        config["channels"].extend(channels)
+
+        self.config_manager.modified = True
+        self._on_config_changed()
+
+        # Refresh the project tree
+        if hasattr(self, 'project_tree'):
+            self.project_tree.refresh()
+
+        logger.info(f"Imported {len(messages)} CAN message(s) and {len(channels)} CAN input(s)")
 
     def show_settings(self):
         """Show settings dialog."""
@@ -1143,18 +1334,21 @@ class MainWindowProfessional(QMainWindow):
 
         # Show main panels
         self.project_tree_dock.show()
-        self.pmu_monitor_dock.show()
-
-        # Hide secondary panels
-        self.output_dock.hide()
-        self.analog_dock.hide()
-        self.variables_dock.hide()
+        self.monitor_dock.show()
 
         # Reset positions
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.pmu_monitor_dock)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
+
+        # Reset to first tab (PMU Monitor)
+        self.monitor_tabs.setCurrentIndex(0)
 
         logger.info("Layout reset to default")
+
+    def _switch_monitor_tab(self, index: int):
+        """Switch to specific monitor tab."""
+        self.monitor_dock.show()
+        self.monitor_tabs.setCurrentIndex(index)
 
     def apply_theme(self):
         """Apply light theme by default."""

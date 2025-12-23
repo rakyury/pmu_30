@@ -372,6 +372,8 @@ class OutputConfigDialog(QDialog):
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
+        import re
+
         # Collect selected pins (1-3)
         pins = []
         pin1 = self.pin1_combo.currentData()
@@ -386,9 +388,23 @@ class OutputConfigDialog(QDialog):
         if pin3 is not None and pin3 >= 0:
             pins.append(pin3)
 
+        name = self.name_edit.text().strip()
+
+        # Generate ID from name if editing existing config, preserve original id
+        # Otherwise create id from name (lowercase, replace spaces with underscores)
+        if self.output_config and self.output_config.get("id"):
+            channel_id = self.output_config.get("id")
+        else:
+            # Convert name to valid id: lowercase, alphanumeric and underscores only
+            channel_id = re.sub(r'[^a-z0-9_]', '_', name.lower())
+            channel_id = re.sub(r'_+', '_', channel_id).strip('_')
+            if not channel_id:
+                channel_id = f"out_{pins[0] if pins else 0}"
+
         config = {
+            "id": channel_id,
             "pins": pins,
-            "name": self.name_edit.text(),
+            "name": name,
             "enabled": self.enabled_check.isChecked(),
             "control_function": self.control_function_edit.text(),
             "protection": {

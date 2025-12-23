@@ -26,6 +26,8 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "pmu_config_json.h"
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -156,6 +158,25 @@ int EMU_Server_Broadcast(uint8_t msg_type, const uint8_t* payload, uint16_t len)
  * @retval 0 on success, -1 on error or file not found
  */
 int EMU_Server_LoadConfig(const char* filename);
+
+/**
+ * @brief Check if configuration is loaded
+ * @retval true if config is loaded
+ */
+bool EMU_Server_IsConfigLoaded(void);
+
+/**
+ * @brief Get configuration load statistics
+ * @retval Pointer to stats or NULL if no config loaded
+ */
+const PMU_JSON_LoadStats_t* EMU_Server_GetConfigStats(void);
+
+/**
+ * @brief Get current configuration JSON
+ * @param out_size Pointer to receive JSON size (can be NULL)
+ * @retval Pointer to JSON string or NULL if no config loaded
+ */
+const char* EMU_Server_GetConfigJSON(size_t* out_size);
 
 #ifdef __cplusplus
 }

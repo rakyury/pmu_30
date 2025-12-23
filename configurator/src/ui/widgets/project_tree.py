@@ -358,6 +358,13 @@ class ProjectTree(QWidget):
 
     # ========== Add channel methods ==========
 
+    def clear_all(self):
+        """Clear all channels from the tree (keep folder structure)."""
+        for channel_type, folder in self.channel_type_folders.items():
+            # Remove all children (channels) but keep the folder
+            while folder.childCount() > 0:
+                folder.removeChild(folder.child(0))
+
     def add_channel(self, channel_type: ChannelType, channel_data: Dict[str, Any]) -> Optional[QTreeWidgetItem]:
         """Add a channel to the appropriate folder."""
         folder = self._get_folder_for_type(channel_type)
