@@ -16,6 +16,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_emulator.h"
 #include "stm32_hal_emu.h"
+#include "pmu_channel.h"
+#include "pmu_logic.h"
+#include "pmu_can.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,12 +209,34 @@ void PMU_Emu_Tick(uint32_t delta_ms)
         uptime_accum %= 1000;
     }
 
-    /* Update subsystems */
+    /* Update emulator subsystems (hardware simulation) */
     Emu_UpdateADC(scaled_delta);
     Emu_UpdateCAN(scaled_delta);
     Emu_UpdatePROFET(scaled_delta);
     Emu_UpdateHBridge(scaled_delta);
     Emu_UpdateProtection(scaled_delta);
+
+    /* Update firmware logic (runs at 1kHz in real firmware) */
+    static uint32_t channel_update_accum = 0;
+    static uint32_t logic_update_accum = 0;
+
+    channel_update_accum += scaled_delta;
+    logic_update_accum += scaled_delta;
+
+    /* Channel update at 1kHz */
+    if (channel_update_accum >= 1) {
+        PMU_Channel_Update();
+        channel_update_accum = 0;
+    }
+
+    /* Logic update at 500Hz (every 2ms) */
+    if (logic_update_accum >= 2) {
+        PMU_Logic_Execute();
+        logic_update_accum = 0;
+    }
+
+    /* CAN update */
+    PMU_CAN_Update();
 }
 
 /**

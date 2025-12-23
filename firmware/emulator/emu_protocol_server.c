@@ -651,6 +651,40 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
             break;
         }
 
+        case EMU_MSG_SAVE_TO_FLASH: {
+            LOG_SERVER("SAVE_TO_FLASH requested");
+            /* In emulator, we simulate flash save */
+            printf("\n");
+            printf("+============================================================+\n");
+            printf("|          CONFIGURATION SAVED TO FLASH (SIMULATED)          |\n");
+            printf("+============================================================+\n");
+            printf("\n");
+
+            /* Send ACK */
+            resp[0] = 1;  /* Success */
+            resp[1] = 0;  /* Error code low */
+            resp[2] = 0;  /* Error code high */
+            Server_SendResponse(client_idx, EMU_MSG_FLASH_ACK, resp, 3);
+            break;
+        }
+
+        case EMU_MSG_RESTART: {
+            LOG_SERVER("RESTART requested");
+            printf("\n");
+            printf("+============================================================+\n");
+            printf("|          DEVICE RESTART REQUESTED (SIMULATED)              |\n");
+            printf("+============================================================+\n");
+            printf("\n");
+
+            /* Send ACK before "restarting" */
+            resp[0] = 1;  /* Success */
+            Server_SendResponse(client_idx, EMU_MSG_RESTART_ACK, resp, 1);
+
+            /* Simulate restart by resetting emulator state */
+            /* In real firmware this would trigger a system reset */
+            break;
+        }
+
         default:
             LOG_SERVER("Unknown message type 0x%02X", msg_type);
             /* Send error */
@@ -826,6 +860,7 @@ static int Server_ApplyConfig(const char* json, size_t len)
     printf("|    - CAN RX:         %-5lu                                 |\n", (unsigned long)stats.can_rx);
     printf("|    - CAN TX:         %-5lu                                 |\n", (unsigned long)stats.can_tx);
     printf("|  CAN Messages:      %-5lu                                  |\n", (unsigned long)stats.can_messages);
+    printf("|  Lua Scripts:       %-5lu                                  |\n", (unsigned long)stats.lua_scripts);
     printf("|  CAN Stream:        %-5s                                  |\n", stats.stream_enabled ? "ON" : "OFF");
     printf("|  Parse Time:        %-5lu ms                               |\n", (unsigned long)stats.parse_time_ms);
     printf("|  Config saved to:   last_config.json                       |\n");
@@ -833,6 +868,48 @@ static int Server_ApplyConfig(const char* json, size_t len)
     printf("\n");
 
     return 0;
+}
+
+void EMU_Server_SendLog(uint8_t level, const char* source, const char* message)
+{
+    if (!server.running) {
+        return;
+    }
+
+    size_t source_len = source ? strlen(source) : 0;
+    size_t msg_len = message ? strlen(message) : 0;
+
+    if (source_len > 32) source_len = 32;
+    if (msg_len > 200) msg_len = 200;
+
+    /* Log message format:
+     * [0] level (1 byte)
+     * [1] source_len (1 byte)
+     * [2..source_len+1] source string
+     * [source_len+2] message_len (1 byte)
+     * [source_len+3..] message string
+     */
+    uint8_t buffer[256];
+    size_t offset = 0;
+
+    buffer[offset++] = level;
+    buffer[offset++] = (uint8_t)source_len;
+    if (source_len > 0) {
+        memcpy(buffer + offset, source, source_len);
+        offset += source_len;
+    }
+    buffer[offset++] = (uint8_t)msg_len;
+    if (msg_len > 0) {
+        memcpy(buffer + offset, message, msg_len);
+        offset += msg_len;
+    }
+
+    /* Send to all connected clients */
+    for (int i = 0; i < EMU_SERVER_MAX_CLIENTS; i++) {
+        if (server.clients[i].active) {
+            Server_SendResponse(i, EMU_MSG_LOG, buffer, (uint16_t)offset);
+        }
+    }
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

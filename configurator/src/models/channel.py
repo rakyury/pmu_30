@@ -1438,6 +1438,104 @@ class CanTxChannel(ChannelBase):
         return [sig.source_channel for sig in self.signals if sig.source_channel]
 
 
+class LuaTriggerType(Enum):
+    """Lua script trigger types"""
+    MANUAL = "manual"
+    PERIODIC = "periodic"
+    ON_INPUT_CHANGE = "on_input_change"
+    ON_VIRTUAL_CHANGE = "on_virtual_change"
+    ON_STARTUP = "on_startup"
+
+
+class LuaPriority(Enum):
+    """Lua script execution priority"""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+
+
+@dataclass
+class LuaScriptChannel(ChannelBase):
+    """Lua script channel for custom logic"""
+    name: str = ""
+    description: str = ""
+    enabled: bool = True
+    script: str = ""
+    trigger_type: LuaTriggerType = LuaTriggerType.MANUAL
+    trigger_period_ms: int = 100
+    trigger_channel: str = ""
+    max_execution_ms: int = 50
+    priority: LuaPriority = LuaPriority.NORMAL
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.LUA_SCRIPT
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "name": self.name,
+            "description": self.description,
+            "enabled": self.enabled,
+            "script": self.script,
+            "trigger_type": self.trigger_type.value if isinstance(self.trigger_type, LuaTriggerType) else self.trigger_type,
+            "trigger_period_ms": self.trigger_period_ms,
+            "trigger_channel": self.trigger_channel,
+            "max_execution_ms": self.max_execution_ms,
+            "priority": self.priority.value if isinstance(self.priority, LuaPriority) else self.priority,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LuaScriptChannel':
+        # Parse trigger_type
+        trigger_str = data.get("trigger_type", "manual")
+        try:
+            trigger_type = LuaTriggerType(trigger_str)
+        except ValueError:
+            trigger_type = LuaTriggerType.MANUAL
+
+        # Parse priority
+        priority_str = data.get("priority", "normal")
+        try:
+            priority = LuaPriority(priority_str)
+        except ValueError:
+            priority = LuaPriority.NORMAL
+
+        return cls(
+            id=data.get("id", ""),
+            channel_type=ChannelType.LUA_SCRIPT,
+            name=data.get("name", ""),
+            description=data.get("description", ""),
+            enabled=data.get("enabled", True),
+            script=data.get("script", ""),
+            trigger_type=trigger_type,
+            trigger_period_ms=data.get("trigger_period_ms", 100),
+            trigger_channel=data.get("trigger_channel", ""),
+            max_execution_ms=data.get("max_execution_ms", 50),
+            priority=priority,
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.trigger_channel:
+            channels.append(self.trigger_channel)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+        if not self.script.strip():
+            errors.append("Script cannot be empty")
+        if self.trigger_type == LuaTriggerType.PERIODIC:
+            if self.trigger_period_ms < 10:
+                errors.append("Trigger period must be at least 10ms")
+        if self.trigger_type in [LuaTriggerType.ON_INPUT_CHANGE, LuaTriggerType.ON_VIRTUAL_CHANGE]:
+            if not self.trigger_channel:
+                errors.append("Trigger channel is required for this trigger type")
+        if self.max_execution_ms < 1:
+            errors.append("Max execution time must be at least 1ms")
+        return errors
+
+
 # Channel Type to Class mapping
 CHANNEL_CLASS_MAP = {
     ChannelType.DIGITAL_INPUT: DigitalInputChannel,
@@ -1453,6 +1551,7 @@ CHANNEL_CLASS_MAP = {
     ChannelType.SWITCH: SwitchChannel,
     ChannelType.CAN_RX: CanRxChannel,
     ChannelType.CAN_TX: CanTxChannel,
+    ChannelType.LUA_SCRIPT: LuaScriptChannel,
 }
 
 
@@ -1493,6 +1592,7 @@ CHANNEL_PREFIX_MAP = {
     ChannelType.SWITCH: "sw_",
     ChannelType.CAN_RX: "crx_",
     ChannelType.CAN_TX: "ctx_",
+    ChannelType.LUA_SCRIPT: "lua_",
 }
 
 
@@ -1517,6 +1617,7 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.SWITCH: "Switch",
         ChannelType.CAN_RX: "CAN Input",
         ChannelType.CAN_TX: "CAN Output",
+        ChannelType.LUA_SCRIPT: "Lua Script",
     }
     return names.get(channel_type, channel_type.value)
 

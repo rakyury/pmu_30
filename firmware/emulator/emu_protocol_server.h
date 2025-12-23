@@ -70,6 +70,8 @@ typedef struct {
 #define EMU_MSG_CONFIG_DATA         0x21
 #define EMU_MSG_SET_CONFIG          0x22
 #define EMU_MSG_CONFIG_ACK          0x23
+#define EMU_MSG_SAVE_TO_FLASH       0x24
+#define EMU_MSG_FLASH_ACK           0x25
 #define EMU_MSG_SUBSCRIBE_TELEM     0x30
 #define EMU_MSG_UNSUBSCRIBE_TELEM   0x31
 #define EMU_MSG_TELEMETRY_DATA      0x32
@@ -78,6 +80,9 @@ typedef struct {
 #define EMU_MSG_GET_CHANNEL         0x42
 #define EMU_MSG_CHANNEL_DATA        0x43
 #define EMU_MSG_ERROR               0x50
+#define EMU_MSG_LOG                 0x55
+#define EMU_MSG_RESTART             0x70
+#define EMU_MSG_RESTART_ACK         0x71
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -127,6 +132,14 @@ const EMU_ServerStats_t* EMU_Server_GetStats(void);
  * @brief Send telemetry update to all connected clients
  */
 void EMU_Server_SendTelemetry(void);
+
+/**
+ * @brief Send log message to all connected clients
+ * @param level Log level (0=debug, 1=info, 2=warning, 3=error)
+ * @param source Source identifier (e.g., "lua", "system")
+ * @param message Log message text
+ */
+void EMU_Server_SendLog(uint8_t level, const char* source, const char* message);
 
 /**
  * @brief Broadcast message to all clients

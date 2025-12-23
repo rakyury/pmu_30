@@ -9,11 +9,17 @@ Owner: R2 m-sport
 
 import logging
 import socket
-from typing import List, Optional, Dict, Any
+import struct
+import threading
+import time
+from typing import List, Optional, Dict, Any, Callable
 from PyQt6.QtCore import QObject, pyqtSignal
 
 import serial
 import serial.tools.list_ports
+
+from communication.protocol import MessageType, crc16_ccitt, FRAME_START_BYTE
+from communication.telemetry import parse_telemetry, TelemetryPacket
 
 
 logger = logging.getLogger(__name__)
@@ -28,12 +34,20 @@ class DeviceController(QObject):
     data_received = pyqtSignal(bytes)
     error = pyqtSignal(str)
 
+    # New signals for telemetry and logs
+    telemetry_received = pyqtSignal(object)  # TelemetryPacket
+    log_received = pyqtSignal(int, str, str)  # level, source, message
+
     def __init__(self):
         super().__init__()
 
         self._connection = None
         self._connection_type = None
         self._is_connected = False
+        self._receive_thread = None
+        self._stop_thread = threading.Event()
+        self._telemetry_enabled = False
+        self._rx_buffer = bytearray()
 
     def is_connected(self) -> bool:
         """Check if device is connected."""
@@ -139,9 +153,16 @@ class DeviceController(QObject):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5.0)
         sock.connect((host, port))
+        sock.setblocking(False)  # Non-blocking for receive thread
 
         self._connection = sock
         logger.info(f"Connected to emulator at {host}:{port}")
+
+        # Start receive thread
+        self._start_receive_thread()
+
+        # Subscribe to telemetry
+        self.subscribe_telemetry()
 
     def _connect_can(self, interface: str, config: Dict[str, Any]):
         """Connect via CAN bus."""
@@ -168,6 +189,9 @@ class DeviceController(QObject):
     def disconnect(self):
         """Disconnect from device."""
 
+        # Stop receive thread first
+        self._stop_receive_thread()
+
         if self._connection:
             try:
                 if isinstance(self._connection, serial.Serial):
@@ -177,6 +201,7 @@ class DeviceController(QObject):
 
                 self._connection = None
                 self._is_connected = False
+                self._telemetry_enabled = False
                 self.disconnected.emit()
 
                 logger.info("Disconnected from device")
@@ -195,7 +220,7 @@ class DeviceController(QObject):
             Response bytes or None
         """
 
-        if not self._is_connected:
+        if not self._is_connected or not self._connection:
             logger.warning("Cannot send command: not connected")
             return None
 
@@ -207,10 +232,19 @@ class DeviceController(QObject):
                 return response
             elif isinstance(self._connection, socket.socket):
                 self._connection.sendall(command)
-                # Wait for response
-                response = self._connection.recv(4096)
+                # Wait for response (with timeout)
+                self._connection.setblocking(True)
+                self._connection.settimeout(2.0)
+                try:
+                    response = self._connection.recv(4096)
+                finally:
+                    self._connection.setblocking(False)
                 return response
 
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
+            logger.error(f"Connection lost: {e}")
+            self._handle_connection_lost()
+            return None
         except Exception as e:
             error_msg = f"Communication error: {str(e)}"
             logger.error(error_msg)
@@ -275,4 +309,226 @@ class DeviceController(QObject):
         # - Verify
         # - Reset device
 
+        return False
+
+    # --- New methods for telemetry and device control ---
+
+    def _start_receive_thread(self):
+        """Start background thread for receiving data."""
+        self._stop_thread.clear()
+        self._rx_buffer = bytearray()
+        self._receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+        self._receive_thread.start()
+        logger.debug("Receive thread started")
+
+    def _stop_receive_thread(self):
+        """Stop background receive thread."""
+        self._stop_thread.set()
+        if self._receive_thread:
+            self._receive_thread.join(timeout=2.0)
+            self._receive_thread = None
+        logger.debug("Receive thread stopped")
+
+    def _receive_loop(self):
+        """Background loop for receiving data from device."""
+        while not self._stop_thread.is_set():
+            try:
+                if isinstance(self._connection, socket.socket):
+                    try:
+                        data = self._connection.recv(4096)
+                        if data:
+                            self._rx_buffer.extend(data)
+                            self._process_rx_buffer()
+                        elif data == b'':
+                            # Empty data means connection closed
+                            logger.warning("Connection closed by remote")
+                            self._handle_connection_lost()
+                            break
+                    except BlockingIOError:
+                        pass  # No data available
+                    except ConnectionResetError:
+                        logger.warning("Connection reset by remote")
+                        self._handle_connection_lost()
+                        break
+                    except ConnectionAbortedError:
+                        logger.warning("Connection aborted")
+                        self._handle_connection_lost()
+                        break
+                    except socket.error as e:
+                        if not self._stop_thread.is_set():
+                            logger.error(f"Socket error: {e}")
+                            self._handle_connection_lost()
+                            break
+                elif isinstance(self._connection, serial.Serial):
+                    if self._connection.in_waiting > 0:
+                        data = self._connection.read(self._connection.in_waiting)
+                        if data:
+                            self._rx_buffer.extend(data)
+                            self._process_rx_buffer()
+
+                time.sleep(0.01)  # 10ms polling interval
+
+            except Exception as e:
+                if not self._stop_thread.is_set():
+                    logger.error(f"Receive error: {e}")
+                    self._handle_connection_lost()
+                    break
+
+    def _handle_connection_lost(self):
+        """Handle unexpected connection loss."""
+        self._is_connected = False
+        self._telemetry_enabled = False
+        if self._connection:
+            try:
+                self._connection.close()
+            except:
+                pass
+            self._connection = None
+        self.disconnected.emit()
+        self.error.emit("Connection lost")
+
+    def _process_rx_buffer(self):
+        """Process received data and extract frames."""
+        while len(self._rx_buffer) >= 6:  # Minimum frame size
+            # Find start byte (must search for bytes, not int)
+            start_idx = self._rx_buffer.find(bytes([FRAME_START_BYTE]))
+            if start_idx == -1:
+                self._rx_buffer.clear()
+                return
+            if start_idx > 0:
+                del self._rx_buffer[:start_idx]
+
+            if len(self._rx_buffer) < 6:
+                return
+
+            # Parse header
+            payload_len = self._rx_buffer[1] | (self._rx_buffer[2] << 8)
+            msg_type = self._rx_buffer[3]
+
+            frame_len = 4 + payload_len + 2  # Header + payload + CRC
+
+            if len(self._rx_buffer) < frame_len:
+                return  # Need more data
+
+            # Extract frame
+            frame = bytes(self._rx_buffer[:frame_len])
+            del self._rx_buffer[:frame_len]
+
+            # Verify CRC
+            expected_crc = crc16_ccitt(frame[1:-2])
+            received_crc = frame[-2] | (frame[-1] << 8)
+
+            if expected_crc != received_crc:
+                logger.warning(f"CRC mismatch: {expected_crc:04X} != {received_crc:04X}")
+                continue
+
+            # Process message
+            payload = frame[4:-2]
+            self._handle_message(msg_type, payload)
+
+    def _handle_message(self, msg_type: int, payload: bytes):
+        """Handle incoming message."""
+        try:
+            if msg_type == MessageType.TELEMETRY_DATA:
+                telemetry = parse_telemetry(payload)
+                self.telemetry_received.emit(telemetry)
+
+            elif msg_type == MessageType.LOG_MESSAGE:
+                # Parse log message
+                if len(payload) >= 3:
+                    level = payload[0]
+                    source_len = payload[1]
+                    source = payload[2:2 + source_len].decode('utf-8', errors='replace')
+                    msg_len = payload[2 + source_len]
+                    message = payload[3 + source_len:3 + source_len + msg_len].decode('utf-8', errors='replace')
+                    self.log_received.emit(level, source, message)
+
+            elif msg_type == MessageType.CONFIG_ACK:
+                logger.info("Config ACK received")
+
+            elif msg_type == MessageType.FLASH_ACK:
+                logger.info("Flash save ACK received")
+
+            elif msg_type == MessageType.RESTART_ACK:
+                logger.info("Restart ACK received")
+
+            elif msg_type == MessageType.CHANNEL_ACK:
+                logger.debug("Channel ACK received")
+
+            else:
+                logger.debug(f"Received message type 0x{msg_type:02X}, {len(payload)} bytes")
+
+        except Exception as e:
+            logger.error(f"Error handling message 0x{msg_type:02X}: {e}")
+
+    def _build_frame(self, msg_type: int, payload: bytes = b'') -> bytes:
+        """Build a protocol frame."""
+        header = struct.pack('<BHB', FRAME_START_BYTE, len(payload), msg_type)
+        crc_data = header[1:] + payload
+        crc = crc16_ccitt(crc_data)
+        return header + payload + struct.pack('<H', crc)
+
+    def _send_frame(self, frame: bytes) -> bool:
+        """Send a frame to the device with error handling."""
+        if not self._is_connected or not self._connection:
+            logger.warning("Cannot send: not connected")
+            return False
+
+        try:
+            if isinstance(self._connection, socket.socket):
+                self._connection.sendall(frame)
+            elif isinstance(self._connection, serial.Serial):
+                self._connection.write(frame)
+            return True
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
+            logger.error(f"Connection lost while sending: {e}")
+            self._handle_connection_lost()
+            return False
+        except Exception as e:
+            logger.error(f"Send error: {e}")
+            return False
+
+    def subscribe_telemetry(self, rate_hz: int = 10):
+        """Subscribe to telemetry streaming."""
+        payload = struct.pack('<H', rate_hz)
+        frame = self._build_frame(MessageType.SUBSCRIBE_TELEMETRY, payload)
+
+        if self._send_frame(frame):
+            self._telemetry_enabled = True
+            logger.info(f"Subscribed to telemetry at {rate_hz}Hz")
+
+    def unsubscribe_telemetry(self):
+        """Unsubscribe from telemetry streaming."""
+        frame = self._build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
+
+        if self._send_frame(frame):
+            self._telemetry_enabled = False
+            logger.info("Unsubscribed from telemetry")
+
+    def set_channel(self, channel_id: int, value: float) -> bool:
+        """Set channel value (live, not saved to flash)."""
+        payload = struct.pack('<Hf', channel_id, value)
+        frame = self._build_frame(MessageType.SET_CHANNEL, payload)
+
+        if self._send_frame(frame):
+            logger.debug(f"Set channel {channel_id} = {value}")
+            return True
+        return False
+
+    def save_to_flash(self) -> bool:
+        """Save current configuration to flash."""
+        frame = self._build_frame(MessageType.SAVE_TO_FLASH)
+
+        if self._send_frame(frame):
+            logger.info("Save to flash requested")
+            return True
+        return False
+
+    def restart_device(self) -> bool:
+        """Restart the device."""
+        frame = self._build_frame(MessageType.RESTART_DEVICE)
+
+        if self._send_frame(frame):
+            logger.info("Device restart requested")
+            return True
         return False

@@ -94,6 +94,7 @@ typedef struct {
     uint32_t enums;               /**< Number of enumerations */
     uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
+    uint32_t lua_scripts;         /**< Number of Lua scripts loaded */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
     bool stream_enabled;          /**< Standard CAN Stream enabled */

@@ -66,54 +66,43 @@ uint32_t HAL_GetUIDw0(void)
 /**
  * These are stub implementations of firmware functions.
  * They can be overridden by linking the actual firmware sources.
+ *
+ * Note: The following functions are now linked from actual firmware sources:
+ * - PMU_Channel_Update() - from pmu_channel.c
+ * - PMU_Logic_Execute() - from pmu_logic.c
+ * - PMU_CAN_Update() - from pmu_can.c
+ *
+ * The emulator calls these functions directly in PMU_Emu_Tick().
  */
 
 __attribute__((weak))
 void PMU_ADC_Update(void)
 {
-    /* Stub - no operation */
-}
-
-__attribute__((weak))
-void PMU_CAN_Update(void)
-{
-    /* Stub - no operation */
+    /* Stub - ADC update is handled by emulator */
 }
 
 __attribute__((weak))
 void PMU_PROFET_Update(void)
 {
-    /* Stub - no operation */
+    /* Stub - PROFET update is handled by emulator */
 }
 
 __attribute__((weak))
 void PMU_HBridge_Update(void)
 {
-    /* Stub - no operation */
+    /* Stub - H-Bridge update is handled by emulator */
 }
 
 __attribute__((weak))
 void PMU_Protection_Update(void)
 {
-    /* Stub - no operation */
-}
-
-__attribute__((weak))
-void PMU_Channel_Update(void)
-{
-    /* Stub - no operation */
-}
-
-__attribute__((weak))
-void PMU_Logic_Update(void)
-{
-    /* Stub - no operation */
+    /* Stub - Protection update is handled by emulator */
 }
 
 __attribute__((weak))
 void PMU_UI_Update(void)
 {
-    /* Stub - no operation */
+    /* Stub - UI not available in emulator */
 }
 
 /* SPI Stubs (for PROFET diagnostics) ----------------------------------------*/

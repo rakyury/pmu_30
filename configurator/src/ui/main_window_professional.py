@@ -37,6 +37,7 @@ from .dialogs.can_input_dialog import CANInputDialog
 from .dialogs.can_output_dialog import CANOutputDialog
 from .dialogs.can_messages_manager_dialog import CANMessagesManagerDialog
 from .dialogs.connection_dialog import ConnectionDialog
+from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
@@ -239,6 +240,18 @@ class MainWindowProfessional(QMainWindow):
         write_config_action.triggered.connect(self.write_to_device)
         device_menu.addAction(write_config_action)
 
+        device_menu.addSeparator()
+
+        save_flash_action = QAction("Save to Flash (Permanent)", self)
+        save_flash_action.triggered.connect(self.save_to_flash)
+        device_menu.addAction(save_flash_action)
+
+        device_menu.addSeparator()
+
+        restart_action = QAction("Restart Device", self)
+        restart_action.triggered.connect(self.restart_device)
+        device_menu.addAction(restart_action)
+
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
 
@@ -370,6 +383,24 @@ class MainWindowProfessional(QMainWindow):
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
 
+        # Device controller signals
+        self.device_controller.telemetry_received.connect(self._on_telemetry_received)
+        self.device_controller.log_received.connect(self._on_log_received)
+        self.device_controller.disconnected.connect(self._on_device_disconnected)
+        self.device_controller.error.connect(self._on_device_error)
+
+    def _on_device_disconnected(self):
+        """Handle device disconnection."""
+        self.device_status_label.setText("OFFLINE")
+        self.device_status_label.setStyleSheet("color: #ef4444;")
+        self.status_message.setText("Disconnected from device")
+        self.pmu_monitor.set_connected(False)
+
+    def _on_device_error(self, error_msg: str):
+        """Handle device error."""
+        self.status_message.setText(f"Error: {error_msg}")
+        logger.error(f"Device error: {error_msg}")
+
     def _on_item_add_requested(self, channel_type_str: str):
         """Handle request to add new item by Channel type."""
         try:
@@ -498,6 +529,13 @@ class MainWindowProfessional(QMainWindow):
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
+        elif channel_type == ChannelType.LUA_SCRIPT:
+            dialog = LuaScriptTreeDialog(self, None, available_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
+                self.configuration_changed.emit()
+
     def _on_item_edit_requested(self, channel_type_str: str, data: dict):
         """Handle request to edit item by Channel type."""
         try:
@@ -605,6 +643,12 @@ class MainWindowProfessional(QMainWindow):
                 updated_config = dialog.get_config()
                 self.project_tree.update_current_item(updated_config)
 
+        elif channel_type == ChannelType.LUA_SCRIPT:
+            dialog = LuaScriptTreeDialog(self, item_data, available_channels)
+            if dialog.exec():
+                updated_config = dialog.get_config()
+                self.project_tree.update_current_item(updated_config)
+
     def _get_available_channels(self) -> dict:
         """Get all available channels for selection organized by Channel type."""
         channels = {
@@ -622,6 +666,7 @@ class MainWindowProfessional(QMainWindow):
             "enums": [],
             "can_rx": [],
             "can_tx": [],
+            "lua_scripts": [],
             # Legacy format for backwards compatibility
             "inputs_physical": [f"in.{i}" for i in range(20)],
             "outputs_physical": [f"out.{i}" for i in range(30)],
@@ -666,6 +711,9 @@ class MainWindowProfessional(QMainWindow):
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.CAN_TX):
             channels["can_tx"].append(ch.get("id", ""))
+
+        for ch in self.project_tree.get_channels_by_type(ChannelType.LUA_SCRIPT):
+            channels["lua_scripts"].append(ch.get("id", ""))
 
         return channels
 
@@ -810,6 +858,7 @@ class MainWindowProfessional(QMainWindow):
                 self.status_message.setText(f"Connected via {config.get('type')}")
                 self.device_status_label.setText("ONLINE")
                 self.device_status_label.setStyleSheet("color: #10b981;")
+                self.pmu_monitor.set_connected(True)
                 QMessageBox.information(self, "Connected", "Successfully connected to PMU-30 device.")
             else:
                 self.status_message.setText("Connection failed")
@@ -819,9 +868,11 @@ class MainWindowProfessional(QMainWindow):
 
     def disconnect_device(self):
         """Disconnect from device."""
+        self.device_controller.disconnect()
         self.status_message.setText("Disconnected")
         self.device_status_label.setText("OFFLINE")
         self.device_status_label.setStyleSheet("color: #ef4444;")
+        self.pmu_monitor.set_connected(False)
 
     def read_from_device(self):
         """Read configuration from device."""
@@ -843,6 +894,14 @@ class MainWindowProfessional(QMainWindow):
 
             # Get current configuration as JSON
             config = self.config_manager.get_config()
+
+            # Sync channels from project_tree to config
+            # (channels are stored in project_tree, not config_manager)
+            config["channels"] = self.project_tree.get_all_channels()
+
+            # Sync CAN messages from config_manager
+            config["can_messages"] = self.config_manager.get_all_can_messages()
+
             config_json = json.dumps(config, indent=2).encode('utf-8')
 
             self.status_message.setText(f"Writing configuration ({len(config_json)} bytes)...")
@@ -907,6 +966,108 @@ class MainWindowProfessional(QMainWindow):
                 "Write Failed",
                 f"Failed to write configuration:\n{str(e)}"
             )
+
+    def save_to_flash(self):
+        """Save current configuration to flash (permanent)."""
+        if not self.device_controller.is_connected():
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Please connect to device first."
+            )
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Save to Flash",
+            "This will permanently save the current configuration to device flash memory.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            if self.device_controller.save_to_flash():
+                self.status_message.setText("Configuration saved to flash")
+                QMessageBox.information(self, "Success", "Configuration saved to flash memory.")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to save configuration to flash.")
+
+    def restart_device(self):
+        """Restart the connected device."""
+        if not self.device_controller.is_connected():
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Please connect to device first."
+            )
+            return
+
+        result = QMessageBox.question(
+            self,
+            "Restart Device",
+            "Are you sure you want to restart the device?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if result == QMessageBox.StandardButton.Yes:
+            if self.device_controller.restart_device():
+                self.status_message.setText("Device restart requested")
+            else:
+                QMessageBox.warning(self, "Error", "Failed to restart device.")
+
+    def _on_telemetry_received(self, telemetry):
+        """Handle telemetry data from device."""
+        logger.debug(f"Telemetry received: voltage={telemetry.input_voltage_mv}mV, temp={telemetry.temperature_c}C")
+        # Update PMU monitor with telemetry data
+        data = {
+            'voltage_v': telemetry.input_voltage_mv / 1000.0,
+            'temperature_c': telemetry.temperature_c,
+            'current_a': telemetry.total_current_ma / 1000.0,
+            'channel_states': [s.value if hasattr(s, 'value') else s for s in telemetry.profet_states],
+            'channel_currents': telemetry.profet_duties,  # PWM duty as current placeholder
+            'analog_values': telemetry.adc_values[:8],
+            'fault_flags': telemetry.fault_flags.value if hasattr(telemetry.fault_flags, 'value') else 0,
+        }
+        self.pmu_monitor.update_from_telemetry(data)
+
+        # Update output monitor with channel states
+        for i, state in enumerate(telemetry.profet_states[:len(self.output_monitor.output_channels)]):
+            if i < len(self.output_monitor.output_channels):
+                is_active = state in [1, 6]  # ON or PWM_ACTIVE
+                duty = telemetry.profet_duties[i] / 10.0 if i < len(telemetry.profet_duties) else 0
+                self.output_monitor.update_output_status(
+                    self.output_monitor.output_channels[i].get('id', f'OUT{i}'),
+                    is_active,
+                    duty
+                )
+
+        # Update analog monitor with ADC values
+        for i, value in enumerate(telemetry.adc_values[:8]):
+            if i < len(self.analog_monitor.input_channels):
+                # Convert raw ADC (0-4095) to percentage (0-100)
+                percent = (value / 4095.0) * 100
+                self.analog_monitor.update_input_value(
+                    self.analog_monitor.input_channels[i].get('id', f'AIN{i}'),
+                    percent
+                )
+
+    def _on_log_received(self, level: int, source: str, message: str):
+        """Handle log message from device."""
+        level_names = {0: 'DEBUG', 1: 'INFO', 2: 'WARNING', 3: 'ERROR'}
+        level_name = level_names.get(level, 'INFO')
+
+        log_text = f"[{source}] {message}"
+        self.status_message.setText(log_text)
+
+        # Log to Python logger as well
+        if level == 0:
+            logger.debug(f"Device: {log_text}")
+        elif level == 1:
+            logger.info(f"Device: {log_text}")
+        elif level == 2:
+            logger.warning(f"Device: {log_text}")
+        else:
+            logger.error(f"Device: {log_text}")
 
     def show_can_messages_manager(self):
         """Show CAN Messages manager dialog."""

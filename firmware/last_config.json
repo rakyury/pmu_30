@@ -5,11 +5,37 @@
     "serial_number": "",
     "firmware_version": "",
     "hardware_revision": "",
-    "created": "2025-12-23T12:42:07.238311",
-    "modified": "2025-12-23T12:42:07.238326"
+    "created": "2025-12-23T16:14:52.323555",
+    "modified": "2025-12-23T16:14:52.323562"
   },
   "can_messages": [],
-  "channels": [],
+  "channels": [
+    {
+      "control_function": "",
+      "enabled": true,
+      "name": "dasda",
+      "pins": [
+        5
+      ],
+      "protection": {
+        "current_limit": 10.0,
+        "inrush_current": 20.0,
+        "inrush_time_ms": 500,
+        "retry_count": 3,
+        "retry_delay_ms": 1000,
+        "retry_forever": false
+      },
+      "pwm": {
+        "duty_function": "",
+        "duty_value": 50.0,
+        "enabled": false,
+        "frequency": 1000,
+        "soft_start_duration_ms": 1000,
+        "soft_start_enabled": false
+      },
+      "channel_type": "power_output"
+    }
+  ],
   "system": {
     "control_frequency_hz": 1000,
     "logic_frequency_hz": 500,

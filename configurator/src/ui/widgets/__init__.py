@@ -5,6 +5,7 @@ from .output_monitor import OutputMonitor
 from .analog_monitor import AnalogMonitor
 from .variables_inspector import VariablesInspector
 from .pmu_monitor import PMUMonitorWidget
+from .lua_editor import LuaCodeEditor
 
 __all__ = [
     'ProjectTree',
@@ -12,4 +13,5 @@ __all__ = [
     'AnalogMonitor',
     'VariablesInspector',
     'PMUMonitorWidget',
+    'LuaCodeEditor',
 ]

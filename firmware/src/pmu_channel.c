@@ -338,7 +338,7 @@ const PMU_Channel_t* PMU_Channel_GetByName(const char* name)
 void PMU_Channel_Update(void)
 {
     /* Update system channels */
-#ifndef UNIT_TEST
+#if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
     PMU_ChannelEntry_t* entry;
 
     /* Battery voltage */

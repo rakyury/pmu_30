@@ -70,6 +70,8 @@ static bool JSON_ParsePIDControllers(cJSON* pid_array);
 static bool JSON_ParseCANBuses(cJSON* can_array);
 static bool JSON_ParseSystem(cJSON* system_obj);
 static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats);
+static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* stats);
+static bool JSON_ParseLuaScripts(cJSON* scripts_array, PMU_JSON_LoadStats_t* stats);
 static PMU_LegacyInputType_t JSON_ParseInputType(const char* type_str);
 static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
 static uint16_t JSON_ResolveChannel(cJSON* channel_obj);
@@ -164,6 +166,24 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
         cJSON* channels = cJSON_GetObjectItem(root, "channels");
         if (channels && cJSON_IsArray(channels)) {
             if (!JSON_ParseChannels(channels, &local_stats)) {
+                cJSON_Delete(root);
+                return PMU_JSON_ERROR_VALIDATION;
+            }
+        }
+
+        /* Parse CAN messages (Level 1 - v3.0) */
+        cJSON* can_messages = cJSON_GetObjectItem(root, "can_messages");
+        if (can_messages && cJSON_IsArray(can_messages)) {
+            if (!JSON_ParseCanMessages(can_messages, &local_stats)) {
+                cJSON_Delete(root);
+                return PMU_JSON_ERROR_VALIDATION;
+            }
+        }
+
+        /* Parse Lua scripts */
+        cJSON* lua_scripts = cJSON_GetObjectItem(root, "lua_scripts");
+        if (lua_scripts && cJSON_IsArray(lua_scripts)) {
+            if (!JSON_ParseLuaScripts(lua_scripts, &local_stats)) {
                 cJSON_Delete(root);
                 return PMU_JSON_ERROR_VALIDATION;
             }
@@ -804,12 +824,28 @@ static bool JSON_ParseCANBuses(cJSON* can_array)
 }
 
 /**
- * @brief Parse system settings from JSON (simplified implementation)
+ * @brief Parse system settings from JSON
+ *
+ * Handles: control_frequency_hz, logic_frequency_hz, can1_baudrate, can2_baudrate
  */
 static bool JSON_ParseSystem(cJSON* system_obj)
 {
-    /* TODO: Implement system settings parsing */
+#ifdef JSON_PARSING_ENABLED
+    /* Parse and log system settings */
+    int control_freq = JSON_GetInt(system_obj, "control_frequency_hz", 1000);
+    int logic_freq = JSON_GetInt(system_obj, "logic_frequency_hz", 500);
+    int can1_baud = JSON_GetInt(system_obj, "can1_baudrate", 500000);
+    int can2_baud = JSON_GetInt(system_obj, "can2_baudrate", 500000);
+
+    printf("[JSON] System: control=%dHz, logic=%dHz, CAN1=%d, CAN2=%d\n",
+           control_freq, logic_freq, can1_baud, can2_baud);
+
+    /* TODO: Apply these settings to hardware when infrastructure is ready */
+
+#else
     (void)system_obj;
+#endif
+
     return true;
 }
 
@@ -884,10 +920,137 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
 
     /* TODO: Parse power settings */
     /* TODO: Parse safety settings */
-    /* TODO: Parse system settings */
 
 #else
     (void)settings_obj;
+    (void)stats;
+#endif
+
+    return true;
+}
+
+/**
+ * @brief Parse CAN messages array (Level 1 - v3.0)
+ *
+ * CAN messages define the base message properties that CAN RX channels reference.
+ */
+static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* stats)
+{
+#ifdef JSON_PARSING_ENABLED
+    int count = cJSON_GetArraySize(messages_array);
+
+    for (int i = 0; i < count && i < PMU_MAX_CAN_MESSAGES; i++) {
+        cJSON* msg = cJSON_GetArrayItem(messages_array, i);
+        if (!msg || !cJSON_IsObject(msg)) {
+            continue;
+        }
+
+        PMU_CanMessageConfig_t config = {0};
+
+        /* Parse message ID and name */
+        const char* id = JSON_GetString(msg, "id", "");
+        strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
+
+        const char* name = JSON_GetString(msg, "name", "");
+        strncpy(config.name, name, sizeof(config.name) - 1);
+
+        /* Parse CAN bus and ID */
+        config.can_bus = (uint8_t)JSON_GetInt(msg, "can_bus", 1);
+
+        /* Parse base_id (can be hex string or integer) */
+        cJSON* base_id = cJSON_GetObjectItem(msg, "base_id");
+        if (base_id) {
+            if (cJSON_IsString(base_id)) {
+                config.base_id = (uint32_t)strtoul(base_id->valuestring, NULL, 0);
+            } else if (cJSON_IsNumber(base_id)) {
+                config.base_id = (uint32_t)base_id->valueint;
+            }
+        }
+
+        config.is_extended = JSON_GetBool(msg, "is_extended", false);
+
+        /* Parse message type */
+        const char* msg_type = JSON_GetString(msg, "message_type", "normal");
+        if (strcmp(msg_type, "compound") == 0 || strcmp(msg_type, "multiplexed") == 0) {
+            config.message_type = PMU_CAN_MSG_TYPE_COMPOUND;
+        } else {
+            config.message_type = PMU_CAN_MSG_TYPE_NORMAL;
+        }
+
+        config.frame_count = (uint8_t)JSON_GetInt(msg, "frame_count", 1);
+        config.dlc = (uint8_t)JSON_GetInt(msg, "dlc", 8);
+        config.timeout_ms = (uint16_t)JSON_GetInt(msg, "timeout_ms", 500);
+        config.enabled = JSON_GetBool(msg, "enabled", true);
+
+        /* TODO: Register message with CAN subsystem */
+        /* PMU_CAN_RegisterMessage(&config); */
+
+        printf("[JSON] CAN message '%s': bus=%d, id=0x%X, type=%s\n",
+               config.id, config.can_bus, (unsigned)config.base_id, msg_type);
+
+        if (stats) {
+            stats->can_messages++;
+        }
+    }
+
+#else
+    (void)messages_array;
+    (void)stats;
+#endif
+
+    return true;
+}
+
+/**
+ * @brief Parse Lua scripts array
+ */
+static bool JSON_ParseLuaScripts(cJSON* scripts_array, PMU_JSON_LoadStats_t* stats)
+{
+#ifdef JSON_PARSING_ENABLED
+    int count = cJSON_GetArraySize(scripts_array);
+
+    for (int i = 0; i < count; i++) {
+        cJSON* script = cJSON_GetArrayItem(scripts_array, i);
+        if (!script || !cJSON_IsObject(script)) {
+            continue;
+        }
+
+        const char* name = JSON_GetString(script, "name", "unnamed");
+        const char* code = JSON_GetString(script, "code", "");
+        bool enabled = JSON_GetBool(script, "enabled", true);
+        bool auto_run = JSON_GetBool(script, "auto_run", false);
+
+        if (strlen(code) > 0 && enabled) {
+#ifdef PMU_LUA_ENABLED
+            /* Load script into Lua engine */
+            HAL_StatusTypeDef result = PMU_Lua_LoadScript(name, code, strlen(code));
+            if (result == HAL_OK) {
+                printf("[JSON] Lua script '%s' loaded (%zu bytes)\n", name, strlen(code));
+
+                /* Enable auto-run if specified */
+                if (auto_run) {
+                    PMU_Lua_EnableScript(name, true);
+                }
+
+                if (stats) {
+                    stats->lua_scripts++;
+                }
+            } else {
+                printf("[JSON] Failed to load Lua script '%s'\n", name);
+            }
+#else
+            /* Lua not available - just log */
+            printf("[JSON] Lua script '%s' (%zu bytes, auto_run=%d) - Lua disabled\n",
+                   name, strlen(code), auto_run);
+            if (stats) {
+                stats->lua_scripts++;
+            }
+#endif
+        }
+    }
+
+#else
+    (void)scripts_array;
     (void)stats;
 #endif
 
@@ -1105,15 +1268,20 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
         }
 
         /* Get channel ID and type */
+        /* Try "id" first, then "name" as fallback */
         const char* id = JSON_GetString(channel, "id", "");
+        if (strlen(id) == 0) {
+            id = JSON_GetString(channel, "name", "");
+        }
+
         /* Support both "channel_type" (v2.0) and "gpio_type" (legacy) */
         const char* channel_type_str = JSON_GetString(channel, "channel_type", "");
         if (strlen(channel_type_str) == 0) {
             channel_type_str = JSON_GetString(channel, "gpio_type", "");  /* Fallback */
         }
 
-        if (strlen(id) == 0 || strlen(channel_type_str) == 0) {
-            JSON_SetError("Channel %d: missing id or channel_type", i);
+        if (strlen(channel_type_str) == 0) {
+            JSON_SetError("Channel %d: missing channel_type", i);
             continue;
         }
 

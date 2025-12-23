@@ -63,6 +63,11 @@ class ProjectTree(QWidget):
                 "Enumerations": {"channel_type": ChannelType.ENUM},
             }
         },
+        "Scripts": {
+            "subfolders": {
+                "Lua Scripts": {"channel_type": ChannelType.LUA_SCRIPT},
+            }
+        },
     }
 
     def __init__(self, parent=None):
@@ -453,6 +458,12 @@ class ProjectTree(QWidget):
             filter_type = data.get("filter_type", "moving_avg")
             return filter_type.replace("_", " ").title()
 
+        elif channel_type == ChannelType.LUA_SCRIPT:
+            trigger = data.get("trigger_type", "manual")
+            enabled = data.get("enabled", True)
+            status = "[ON]" if enabled else "[OFF]"
+            return f"{trigger} {status}"
+
         return ""
 
     # ========== Legacy add methods (for compatibility) ==========
@@ -510,8 +521,8 @@ class ProjectTree(QWidget):
         self.add_channel(ChannelType.NUMBER, pid_data)
 
     def add_lua_script(self, lua_data: Dict[str, Any]):
-        """Add LUA script to tree (legacy - not in new architecture)."""
-        pass  # LUA scripts are not part of channel architecture
+        """Add LUA script to tree."""
+        self.add_channel(ChannelType.LUA_SCRIPT, lua_data)
 
     # ========== Update and get methods ==========
 
@@ -606,7 +617,7 @@ class ProjectTree(QWidget):
         return []  # Mapped to numbers
 
     def get_all_lua_scripts(self) -> List[Dict[str, Any]]:
-        return []  # Not in channel architecture
+        return self.get_channels_by_type(ChannelType.LUA_SCRIPT)
 
     def clear_all(self):
         """Clear all channels from tree (keep folder structure)."""

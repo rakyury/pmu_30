@@ -36,6 +36,8 @@ class MessageType(IntEnum):
     CONFIG_DATA = 0x21
     SET_CONFIG = 0x22
     CONFIG_ACK = 0x23
+    SAVE_TO_FLASH = 0x24    # Save current config to flash
+    FLASH_ACK = 0x25        # Flash save acknowledgment
 
     # Telemetry streaming
     SUBSCRIBE_TELEMETRY = 0x30
@@ -51,11 +53,18 @@ class MessageType(IntEnum):
     # Error handling
     ERROR = 0x50
 
+    # Log messages (from device/scripts)
+    LOG_MESSAGE = 0x55
+
     # Firmware update
     BOOTLOADER_ENTER = 0x60
     BOOTLOADER_DATA = 0x61
     BOOTLOADER_ACK = 0x62
     BOOTLOADER_EXIT = 0x63
+
+    # Device control
+    RESTART_DEVICE = 0x70
+    RESTART_ACK = 0x71
 
 
 class ProtocolError(Exception):

@@ -4,15 +4,16 @@ PMU-30 Telemetry Data Structures
 This module defines the telemetry packet format and data structures
 for real-time monitoring of PMU-30 device state.
 
-Telemetry Packet Structure (119 bytes at 50Hz):
+Telemetry Packet Structure (154 bytes at configurable rate):
 - timestamp_ms: 4 bytes (uint32)
-- channel_states: 30 bytes (1 byte per channel)
-- analog_values: 16 bytes (8 x uint16)
-- output_currents: 60 bytes (30 x uint16, mA)
-- input_voltage: 2 bytes (uint16, mV)
-- temperature: 1 byte (int8, Celsius)
-- fault_flags: 4 bytes (uint32)
-- crc16: 2 bytes
+- voltage_mv: 2 bytes (uint16) - battery voltage in mV
+- temperature_c: 2 bytes (int16) - board temperature in Celsius
+- total_current_ma: 4 bytes (uint32) - total current in mA
+- adc_values: 40 bytes (20 x uint16) - raw ADC readings
+- profet_states: 30 bytes (30 x uint8) - PROFET channel states
+- profet_duties: 60 bytes (30 x uint16) - PROFET PWM duties (0-1000)
+- hbridge_states: 4 bytes (4 x uint8) - H-Bridge states
+- hbridge_positions: 8 bytes (4 x uint16) - H-Bridge positions
 """
 
 from dataclasses import dataclass, field
@@ -62,28 +63,53 @@ class TelemetryPacket:
     """
     Real-time telemetry data from PMU-30.
 
-    This packet is sent at 50Hz when telemetry streaming is enabled.
+    This packet is sent at configurable rate when telemetry streaming is enabled.
     """
 
     # Timing
     timestamp_ms: int = 0
     local_timestamp: float = field(default_factory=time.time)
 
-    # Channel states (30 channels)
-    channel_states: list[ChannelState] = field(
-        default_factory=lambda: [ChannelState.OFF] * 30
-    )
-
-    # Analog input values (8 primary ADC channels)
-    analog_values: list[int] = field(default_factory=lambda: [0] * 8)
-
-    # Output currents in mA (30 channels)
-    output_currents: list[int] = field(default_factory=lambda: [0] * 30)
-
     # System values
     input_voltage_mv: int = 0
     temperature_c: int = 0
+    total_current_ma: int = 0
+
+    # ADC values (20 channels, raw 12-bit values 0-4095)
+    adc_values: list[int] = field(default_factory=lambda: [0] * 20)
+
+    # PROFET channel states (30 channels)
+    profet_states: list[ChannelState] = field(
+        default_factory=lambda: [ChannelState.OFF] * 30
+    )
+
+    # PROFET PWM duties (30 channels, 0-1000 = 0-100.0%)
+    profet_duties: list[int] = field(default_factory=lambda: [0] * 30)
+
+    # H-Bridge states (4 bridges)
+    hbridge_states: list[int] = field(default_factory=lambda: [0] * 4)
+
+    # H-Bridge positions (4 bridges)
+    hbridge_positions: list[int] = field(default_factory=lambda: [0] * 4)
+
+    # Legacy compatibility fields (derived)
     fault_flags: FaultFlags = FaultFlags.NONE
+
+    @property
+    def channel_states(self) -> list[ChannelState]:
+        """Alias for profet_states for legacy code."""
+        return self.profet_states
+
+    @property
+    def analog_values(self) -> list[int]:
+        """Get first 8 ADC values (primary analog inputs)."""
+        return self.adc_values[:8]
+
+    @property
+    def output_currents(self) -> list[int]:
+        """Estimate output currents from PWM duty cycles (placeholder)."""
+        # Real current sensing would come from ADC channels
+        return [duty for duty in self.profet_duties]
 
     @property
     def input_voltage(self) -> float:
@@ -117,8 +143,8 @@ class TelemetryPacket:
         ]
 
     @property
-    def total_current_ma(self) -> int:
-        """Get total current draw in mA."""
+    def calculated_total_current_ma(self) -> int:
+        """Get calculated total current draw from duties in mA."""
         return sum(self.output_currents)
 
     @property
@@ -172,19 +198,20 @@ class TelemetryPacket:
 
 
 # Telemetry packet format string for struct.unpack
-# Total size: 119 bytes
+# Total size: 154 bytes (matching emulator format)
 TELEMETRY_FORMAT = "<" + "".join([
     "I",      # timestamp_ms (4 bytes)
-    "30B",    # channel_states (30 bytes)
-    "8H",     # analog_values (16 bytes)
-    "30H",    # output_currents (60 bytes)
-    "H",      # input_voltage_mv (2 bytes)
-    "b",      # temperature_c (1 byte)
-    "I",      # fault_flags (4 bytes)
-    "H",      # crc16 (2 bytes)
+    "H",      # voltage_mv (2 bytes)
+    "h",      # temperature_c (2 bytes, signed)
+    "I",      # total_current_ma (4 bytes)
+    "20H",    # adc_values (40 bytes)
+    "30B",    # profet_states (30 bytes)
+    "30H",    # profet_duties (60 bytes)
+    "4B",     # hbridge_states (4 bytes)
+    "4H",     # hbridge_positions (8 bytes)
 ])
 
-TELEMETRY_PACKET_SIZE = 119
+TELEMETRY_PACKET_SIZE = 154
 
 
 def parse_telemetry(data: bytes) -> TelemetryPacket:
@@ -192,13 +219,13 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     Parse telemetry data from raw bytes.
 
     Args:
-        data: Raw telemetry packet bytes (119 bytes)
+        data: Raw telemetry packet bytes (154 bytes)
 
     Returns:
         Parsed TelemetryPacket
 
     Raises:
-        ValueError: If data is invalid or CRC fails
+        ValueError: If data is invalid
     """
     if len(data) < TELEMETRY_PACKET_SIZE:
         raise ValueError(f"Telemetry packet too short: {len(data)} < {TELEMETRY_PACKET_SIZE}")
@@ -211,38 +238,43 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     timestamp_ms = values[idx]
     idx += 1
 
-    channel_states = [ChannelState(v) for v in values[idx:idx + 30]]
-    idx += 30
-
-    analog_values = list(values[idx:idx + 8])
-    idx += 8
-
-    output_currents = list(values[idx:idx + 30])
-    idx += 30
-
-    input_voltage_mv = values[idx]
+    voltage_mv = values[idx]
     idx += 1
 
     temperature_c = values[idx]
     idx += 1
 
-    fault_flags = FaultFlags(values[idx])
+    total_current_ma = values[idx]
     idx += 1
 
-    # Note: CRC is at values[idx], already validated by protocol layer
+    adc_values = list(values[idx:idx + 20])
+    idx += 20
+
+    profet_states = [ChannelState(min(v, 7)) for v in values[idx:idx + 30]]
+    idx += 30
+
+    profet_duties = list(values[idx:idx + 30])
+    idx += 30
+
+    hbridge_states = list(values[idx:idx + 4])
+    idx += 4
+
+    hbridge_positions = list(values[idx:idx + 4])
 
     return TelemetryPacket(
         timestamp_ms=timestamp_ms,
-        channel_states=channel_states,
-        analog_values=analog_values,
-        output_currents=output_currents,
-        input_voltage_mv=input_voltage_mv,
+        input_voltage_mv=voltage_mv,
         temperature_c=temperature_c,
-        fault_flags=fault_flags,
+        total_current_ma=total_current_ma,
+        adc_values=adc_values,
+        profet_states=profet_states,
+        profet_duties=profet_duties,
+        hbridge_states=hbridge_states,
+        hbridge_positions=hbridge_positions,
     )
 
 
-def create_telemetry_bytes(packet: TelemetryPacket, crc: int = 0) -> bytes:
+def create_telemetry_bytes(packet: TelemetryPacket) -> bytes:
     """
     Create raw bytes from a telemetry packet.
 
@@ -250,7 +282,6 @@ def create_telemetry_bytes(packet: TelemetryPacket, crc: int = 0) -> bytes:
 
     Args:
         packet: TelemetryPacket to serialize
-        crc: CRC value to include (usually calculated by caller)
 
     Returns:
         Raw bytes representation
@@ -258,13 +289,14 @@ def create_telemetry_bytes(packet: TelemetryPacket, crc: int = 0) -> bytes:
     return struct.pack(
         TELEMETRY_FORMAT,
         packet.timestamp_ms,
-        *[s.value for s in packet.channel_states],
-        *packet.analog_values,
-        *packet.output_currents,
         packet.input_voltage_mv,
         packet.temperature_c,
-        packet.fault_flags.value,
-        crc,
+        packet.total_current_ma,
+        *packet.adc_values,
+        *[s.value if isinstance(s, ChannelState) else s for s in packet.profet_states],
+        *packet.profet_duties,
+        *packet.hbridge_states,
+        *packet.hbridge_positions,
     )
 
 

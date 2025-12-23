@@ -19,6 +19,7 @@ from .can_input_dialog import CANInputDialog
 from .can_output_dialog import CANOutputDialog
 from .can_messages_manager_dialog import CANMessagesManagerDialog
 from .channel_selector_dialog import ChannelSelectorDialog
+from .lua_script_tree_dialog import LuaScriptTreeDialog
 
 __all__ = [
     'BaseGPIODialog',
@@ -40,4 +41,5 @@ __all__ = [
     'CANOutputDialog',
     'CANMessagesManagerDialog',
     'ChannelSelectorDialog',
+    'LuaScriptTreeDialog',
 ]
