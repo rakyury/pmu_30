@@ -572,8 +572,14 @@ static int lua_pmu_setOutput(lua_State* L)
     int state = (int)luaL_checkinteger(L, 2);
     int pwm = (int)luaL_optinteger(L, 3, 0);
 
-    (void)pwm;  /* PWM not used in basic set */
-    PMU_PROFET_SetOutput(channel, state ? true : false);
+    if (pwm > 0) {
+        /* PWM mode */
+        PMU_PROFET_SetState(channel, 1);
+        PMU_PROFET_SetPWM(channel, (uint16_t)pwm);
+    } else {
+        /* On/Off mode */
+        PMU_PROFET_SetState(channel, state ? 1 : 0);
+    }
     return 0;
 }
 
