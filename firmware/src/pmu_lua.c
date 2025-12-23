@@ -21,6 +21,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_lua.h"
+#include "pmu_lua_api.h"
 #include "pmu_profet.h"
 #include "pmu_adc.h"
 #include "pmu_logic.h"
@@ -30,11 +31,14 @@
 #include "pmu_ui.h"
 #endif
 #include <string.h>
+#include <stdio.h>
 
-/* TODO: Include Lua headers when library is added */
-/* #include "lua.h" */
-/* #include "lualib.h" */
-/* #include "lauxlib.h" */
+/* Lua headers - only when USE_LUA is defined */
+#ifdef USE_LUA
+#include "lua.h"
+#include "lualib.h"
+#include "lauxlib.h"
+#endif
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -46,14 +50,15 @@ typedef struct {
     PMU_Lua_ScriptInfo_t info;
     uint8_t* code;              /* Script bytecode/source */
     uint32_t code_size;
-    /* lua_State* L; */          /* Per-script Lua state (when implemented) */
 } PMU_Lua_Script_t;
 
 /**
  * @brief Lua engine state
  */
 typedef struct {
-    /* lua_State* L; */          /* Main Lua state */
+#ifdef USE_LUA
+    lua_State* L;               /* Main Lua state */
+#endif
     PMU_Lua_Script_t scripts[PMU_LUA_MAX_SCRIPTS];
     uint8_t script_count;
     PMU_Lua_Stats_t stats;
@@ -74,16 +79,18 @@ static void Lua_RegisterPMUAPI(void);
 static PMU_Lua_Script_t* Lua_FindScript(const char* name);
 static HAL_StatusTypeDef Lua_AllocateScript(const char* name, PMU_Lua_Script_t** script);
 
+#ifdef USE_LUA
 /* Lua API functions (exported to Lua) */
-static int lua_pmu_setOutput(void* L);
-static int lua_pmu_getInput(void* L);
-static int lua_pmu_getVirtual(void* L);
-static int lua_pmu_setVirtual(void* L);
-static int lua_pmu_delay(void* L);
-static int lua_pmu_log(void* L);
-static int lua_pmu_getVoltage(void* L);
-static int lua_pmu_getTemperature(void* L);
-static int lua_pmu_sendCAN(void* L);
+static int lua_pmu_setOutput(lua_State* L);
+static int lua_pmu_getInput(lua_State* L);
+static int lua_pmu_getVirtual(lua_State* L);
+static int lua_pmu_setVirtual(lua_State* L);
+static int lua_pmu_delay(lua_State* L);
+static int lua_pmu_log(lua_State* L);
+static int lua_pmu_getVoltage(lua_State* L);
+static int lua_pmu_getTemperature(lua_State* L);
+static int lua_pmu_sendCAN(lua_State* L);
+#endif
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -97,15 +104,19 @@ HAL_StatusTypeDef PMU_Lua_Init(void)
     memset(&lua_state, 0, sizeof(PMU_Lua_State_t));
     memset(lua_memory_pool, 0, sizeof(lua_memory_pool));
 
-    /* TODO: Initialize Lua when library is integrated */
-    /* lua_state.L = lua_newstate(custom_allocator, lua_memory_pool); */
-    /* if (lua_state.L == NULL) { */
-    /*     strcpy(lua_state.last_error, "Failed to create Lua state"); */
-    /*     return HAL_ERROR; */
-    /* } */
+#ifdef USE_LUA
+    /* Create new Lua state */
+    lua_state.L = luaL_newstate();
+    if (lua_state.L == NULL) {
+        strcpy(lua_state.last_error, "Failed to create Lua state");
+        return HAL_ERROR;
+    }
 
     /* Open standard libraries (restricted for safety) */
-    /* luaL_openlibs(lua_state.L); */
+    luaL_openlibs(lua_state.L);
+
+    printf("[LUA] Lua %s initialized\n", LUA_VERSION);
+#endif
 
     /* Register PMU API functions */
     Lua_RegisterPMUAPI();
@@ -137,16 +148,17 @@ void PMU_Lua_Deinit(void)
     for (uint8_t i = 0; i < lua_state.script_count; i++) {
         if (lua_state.scripts[i].code != NULL) {
             /* Free script memory */
-            /* Would use custom allocator */
             lua_state.scripts[i].code = NULL;
         }
     }
 
+#ifdef USE_LUA
     /* Close Lua state */
-    /* if (lua_state.L != NULL) { */
-    /*     lua_close(lua_state.L); */
-    /*     lua_state.L = NULL; */
-    /* } */
+    if (lua_state.L != NULL) {
+        lua_close(lua_state.L);
+        lua_state.L = NULL;
+    }
+#endif
 
     lua_state.initialized = 0;
 }
@@ -156,9 +168,10 @@ void PMU_Lua_Deinit(void)
  */
 static void Lua_RegisterPMUAPI(void)
 {
-    /* TODO: Register functions when Lua is integrated */
+#ifdef USE_LUA
+    if (lua_state.L == NULL) return;
 
-    /* Example registration:
+    /* Register basic functions */
     lua_register(lua_state.L, "setOutput", lua_pmu_setOutput);
     lua_register(lua_state.L, "getInput", lua_pmu_getInput);
     lua_register(lua_state.L, "getVirtual", lua_pmu_getVirtual);
@@ -169,14 +182,17 @@ static void Lua_RegisterPMUAPI(void)
     lua_register(lua_state.L, "getTemperature", lua_pmu_getTemperature);
     lua_register(lua_state.L, "sendCAN", lua_pmu_sendCAN);
 
-    // Create PMU table with constants
+    /* Create PMU table with constants */
     lua_newtable(lua_state.L);
     lua_pushinteger(lua_state.L, 30);
     lua_setfield(lua_state.L, -2, "NUM_OUTPUTS");
     lua_pushinteger(lua_state.L, 20);
     lua_setfield(lua_state.L, -2, "NUM_INPUTS");
     lua_setglobal(lua_state.L, "PMU");
-    */
+
+    /* Register extended API (channel, logic, system tables) */
+    PMU_Lua_RegisterAPI(lua_state.L);
+#endif
 }
 
 /**
@@ -213,19 +229,23 @@ HAL_StatusTypeDef PMU_Lua_LoadScript(const char* name, const char* script, uint3
     scr->info.auto_run = 0;
     scr->info.last_status = PMU_LUA_STATUS_OK;
 
-    /* TODO: Compile and load script when Lua is integrated */
-    /* int result = luaL_loadbuffer(lua_state.L, script, length, name); */
-    /* if (result != LUA_OK) { */
-    /*     const char* err = lua_tostring(lua_state.L, -1); */
-    /*     strncpy(lua_state.last_error, err, sizeof(lua_state.last_error) - 1); */
-    /*     lua_pop(lua_state.L, 1); */
-    /*     scr->info.last_status = PMU_LUA_STATUS_SYNTAX_ERROR; */
-    /*     lua_state.stats.errors_count++; */
-    /*     return HAL_ERROR; */
-    /* } */
+#ifdef USE_LUA
+    /* Compile and load script */
+    int result = luaL_loadbuffer(lua_state.L, script, length, name);
+    if (result != LUA_OK) {
+        const char* err = lua_tostring(lua_state.L, -1);
+        strncpy(lua_state.last_error, err ? err : "Unknown error", sizeof(lua_state.last_error) - 1);
+        lua_pop(lua_state.L, 1);
+        scr->info.last_status = PMU_LUA_STATUS_SYNTAX_ERROR;
+        lua_state.stats.errors_count++;
+        printf("[LUA] Load error: %s\n", lua_state.last_error);
+        return HAL_ERROR;
+    }
 
-    /* Store compiled script */
-    /* lua_setglobal(lua_state.L, name); */
+    /* Store compiled script as global function */
+    lua_setglobal(lua_state.L, name);
+    printf("[LUA] Script '%s' loaded (%u bytes)\n", name, (unsigned)length);
+#endif
 
     lua_state.stats.total_scripts++;
     lua_state.stats.active_scripts++;
@@ -292,23 +312,26 @@ PMU_Lua_Status_t PMU_Lua_ExecuteScript(const char* name)
 
     uint32_t start_time = HAL_GetTick();
 
-    /* TODO: Execute script when Lua is integrated */
-    /* lua_getglobal(lua_state.L, name); */
-    /* if (lua_isfunction(lua_state.L, -1)) { */
-    /*     int result = lua_pcall(lua_state.L, 0, 0, 0); */
-    /*     if (result != LUA_OK) { */
-    /*         const char* err = lua_tostring(lua_state.L, -1); */
-    /*         strncpy(lua_state.last_error, err, sizeof(lua_state.last_error) - 1); */
-    /*         lua_pop(lua_state.L, 1); */
-    /*         scr->info.last_status = PMU_LUA_STATUS_RUNTIME_ERROR; */
-    /*         lua_state.stats.errors_count++; */
-    /*         return PMU_LUA_STATUS_RUNTIME_ERROR; */
-    /*     } */
-    /* } else { */
-    /*     lua_pop(lua_state.L, 1); */
-    /*     strcpy(lua_state.last_error, "Not a function"); */
-    /*     return PMU_LUA_STATUS_ERROR; */
-    /* } */
+#ifdef USE_LUA
+    /* Execute script */
+    lua_getglobal(lua_state.L, name);
+    if (lua_isfunction(lua_state.L, -1)) {
+        int result = lua_pcall(lua_state.L, 0, 0, 0);
+        if (result != LUA_OK) {
+            const char* err = lua_tostring(lua_state.L, -1);
+            strncpy(lua_state.last_error, err ? err : "Unknown error", sizeof(lua_state.last_error) - 1);
+            lua_pop(lua_state.L, 1);
+            scr->info.last_status = PMU_LUA_STATUS_RUNTIME_ERROR;
+            lua_state.stats.errors_count++;
+            printf("[LUA] Runtime error in '%s': %s\n", name, lua_state.last_error);
+            return PMU_LUA_STATUS_RUNTIME_ERROR;
+        }
+    } else {
+        lua_pop(lua_state.L, 1);
+        strcpy(lua_state.last_error, "Not a function");
+        return PMU_LUA_STATUS_ERROR;
+    }
+#endif
 
     uint32_t exec_time = HAL_GetTick() - start_time;
 
@@ -342,15 +365,18 @@ PMU_Lua_Status_t PMU_Lua_ExecuteCode(const char* code)
         return PMU_LUA_STATUS_ERROR;
     }
 
-    /* TODO: Execute code when Lua is integrated */
-    /* int result = luaL_dostring(lua_state.L, code); */
-    /* if (result != LUA_OK) { */
-    /*     const char* err = lua_tostring(lua_state.L, -1); */
-    /*     strncpy(lua_state.last_error, err, sizeof(lua_state.last_error) - 1); */
-    /*     lua_pop(lua_state.L, 1); */
-    /*     lua_state.stats.errors_count++; */
-    /*     return PMU_LUA_STATUS_RUNTIME_ERROR; */
-    /* } */
+#ifdef USE_LUA
+    /* Execute Lua code directly */
+    int result = luaL_dostring(lua_state.L, code);
+    if (result != LUA_OK) {
+        const char* err = lua_tostring(lua_state.L, -1);
+        strncpy(lua_state.last_error, err ? err : "Unknown error", sizeof(lua_state.last_error) - 1);
+        lua_pop(lua_state.L, 1);
+        lua_state.stats.errors_count++;
+        printf("[LUA] Exec error: %s\n", lua_state.last_error);
+        return PMU_LUA_STATUS_RUNTIME_ERROR;
+    }
+#endif
 
     lua_state.stats.total_executions++;
     return PMU_LUA_STATUS_OK;
@@ -373,8 +399,13 @@ void PMU_Lua_Update(void)
         }
     }
 
-    /* TODO: Garbage collection */
-    /* lua_gc(lua_state.L, LUA_GCSTEP, 10); */
+#ifdef USE_LUA
+    /* Incremental garbage collection */
+    lua_gc(lua_state.L, LUA_GCSTEP, 10);
+
+    /* Update memory usage statistics */
+    lua_state.stats.memory_used = lua_gc(lua_state.L, LUA_GCCOUNT, 0) * 1024;
+#endif
 }
 
 /**
@@ -517,27 +548,32 @@ HAL_StatusTypeDef PMU_Lua_RegisterFunction(const char* name, void* func)
         return HAL_ERROR;
     }
 
-    /* TODO: Register function when Lua is integrated */
-    /* lua_register(lua_state.L, name, (lua_CFunction)func); */
+#ifdef USE_LUA
+    if (lua_state.L == NULL) {
+        return HAL_ERROR;
+    }
+    lua_register(lua_state.L, name, (lua_CFunction)func);
+#endif
 
     return HAL_OK;
 }
 
 /* Lua API Functions ---------------------------------------------------------*/
 
+#ifdef USE_LUA
+
 /**
  * @brief Lua API: Set output channel
  * Usage: setOutput(channel, state, pwm)
  */
-static int lua_pmu_setOutput(void* L)
+static int lua_pmu_setOutput(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int channel = luaL_checkinteger(L, 1); */
-    /* int state = luaL_checkinteger(L, 2); */
-    /* int pwm = luaL_optinteger(L, 3, 0); */
+    int channel = (int)luaL_checkinteger(L, 1);
+    int state = (int)luaL_checkinteger(L, 2);
+    int pwm = (int)luaL_optinteger(L, 3, 0);
 
-    /* PMU_PROFET_SetChannel(channel, state, pwm); */
-    /* return 0; */
+    (void)pwm;  /* PWM not used in basic set */
+    PMU_PROFET_SetOutput(channel, state ? true : false);
     return 0;
 }
 
@@ -545,41 +581,35 @@ static int lua_pmu_setOutput(void* L)
  * @brief Lua API: Get input value
  * Usage: value = getInput(channel)
  */
-static int lua_pmu_getInput(void* L)
+static int lua_pmu_getInput(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int channel = luaL_checkinteger(L, 1); */
-    /* uint16_t value = PMU_ADC_GetValue(channel); */
-    /* lua_pushinteger(L, value); */
-    /* return 1; */
-    return 0;
+    int channel = (int)luaL_checkinteger(L, 1);
+    uint16_t value = PMU_ADC_GetValue(channel);
+    lua_pushinteger(L, value);
+    return 1;
 }
 
 /**
  * @brief Lua API: Get virtual channel
  * Usage: value = getVirtual(channel)
  */
-static int lua_pmu_getVirtual(void* L)
+static int lua_pmu_getVirtual(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int channel = luaL_checkinteger(L, 1); */
-    /* int32_t value = PMU_Logic_GetVirtualChannel(channel); */
-    /* lua_pushinteger(L, value); */
-    /* return 1; */
-    return 0;
+    int channel = (int)luaL_checkinteger(L, 1);
+    int32_t value = PMU_Logic_GetVirtualChannel(channel);
+    lua_pushinteger(L, value);
+    return 1;
 }
 
 /**
  * @brief Lua API: Set virtual channel
  * Usage: setVirtual(channel, value)
  */
-static int lua_pmu_setVirtual(void* L)
+static int lua_pmu_setVirtual(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int channel = luaL_checkinteger(L, 1); */
-    /* int value = luaL_checkinteger(L, 2); */
-    /* PMU_Logic_SetVirtualChannel(channel, value); */
-    /* return 0; */
+    int channel = (int)luaL_checkinteger(L, 1);
+    int32_t value = (int32_t)luaL_checkinteger(L, 2);
+    PMU_Logic_SetVirtualChannel(channel, value);
     return 0;
 }
 
@@ -587,12 +617,10 @@ static int lua_pmu_setVirtual(void* L)
  * @brief Lua API: Delay execution
  * Usage: delay(ms)
  */
-static int lua_pmu_delay(void* L)
+static int lua_pmu_delay(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int ms = luaL_checkinteger(L, 1); */
-    /* HAL_Delay(ms); */
-    /* return 0; */
+    int ms = (int)luaL_checkinteger(L, 1);
+    HAL_Delay(ms);
     return 0;
 }
 
@@ -600,12 +628,10 @@ static int lua_pmu_delay(void* L)
  * @brief Lua API: Log message
  * Usage: log(message)
  */
-static int lua_pmu_log(void* L)
+static int lua_pmu_log(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* const char* msg = luaL_checkstring(L, 1); */
-    /* // Send to logging system or UART */
-    /* return 0; */
+    const char* msg = luaL_checkstring(L, 1);
+    printf("[LUA] %s\n", msg);
     return 0;
 }
 
@@ -613,41 +639,39 @@ static int lua_pmu_log(void* L)
  * @brief Lua API: Get battery voltage
  * Usage: voltage = getVoltage()
  */
-static int lua_pmu_getVoltage(void* L)
+static int lua_pmu_getVoltage(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* uint16_t voltage = PMU_Protection_GetVoltage(); */
-    /* lua_pushinteger(L, voltage); */
-    /* return 1; */
-    return 0;
+    uint16_t voltage = PMU_Protection_GetVoltage();
+    lua_pushinteger(L, voltage);
+    return 1;
 }
 
 /**
  * @brief Lua API: Get temperature
  * Usage: temp = getTemperature()
  */
-static int lua_pmu_getTemperature(void* L)
+static int lua_pmu_getTemperature(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int16_t temp = PMU_Protection_GetTemperature(); */
-    /* lua_pushinteger(L, temp); */
-    /* return 1; */
-    return 0;
+    int16_t temp = PMU_Protection_GetTemperature();
+    lua_pushinteger(L, temp);
+    return 1;
 }
 
 /**
  * @brief Lua API: Send CAN message
  * Usage: sendCAN(bus, id, data)
  */
-static int lua_pmu_sendCAN(void* L)
+static int lua_pmu_sendCAN(lua_State* L)
 {
-    /* TODO: Implement when Lua is integrated */
-    /* int bus = luaL_checkinteger(L, 1); */
-    /* int id = luaL_checkinteger(L, 2); */
-    /* const char* data = luaL_checkstring(L, 3); */
-    /* PMU_CAN_SendMessage(bus, id, (uint8_t*)data, strlen(data)); */
-    /* return 0; */
+    int bus = (int)luaL_checkinteger(L, 1);
+    uint32_t id = (uint32_t)luaL_checkinteger(L, 2);
+    size_t len = 0;
+    const char* data = luaL_checklstring(L, 3, &len);
+    if (len > 8) len = 8;  /* CAN max 8 bytes */
+    PMU_CAN_SendMessage(bus, id, (uint8_t*)data, (uint8_t)len);
     return 0;
 }
+
+#endif /* USE_LUA */
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
