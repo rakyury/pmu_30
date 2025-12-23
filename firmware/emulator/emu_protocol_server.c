@@ -11,6 +11,7 @@
 #include "emu_protocol_server.h"
 #include "pmu_emulator.h"
 #include "pmu_config_json.h"
+#include "pmu_channel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -525,15 +526,29 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
 
                 LOG_SERVER("SET_CHANNEL %d = %.2f", channel_id, value);
 
-                /* Apply to emulator */
-                if (channel_id < 20) {
-                    PMU_Emu_ADC_SetRaw(channel_id, (uint16_t)(value * 1023.0f / 100.0f));
+                /* Apply to firmware channel system */
+                HAL_StatusTypeDef result = PMU_Channel_SetValue(channel_id, (int32_t)value);
+
+                /* Also update emulator state for outputs */
+                if (channel_id >= 100 && channel_id < 130) {
+                    /* PROFET output - update emulator state */
+                    uint8_t profet_idx = channel_id - 100;
+                    if (value > 0) {
+                        emu->profet[profet_idx].state = 1;  /* ON */
+                        emu->profet[profet_idx].pwm_duty = (uint16_t)value;
+                    } else {
+                        emu->profet[profet_idx].state = 0;  /* OFF */
+                        emu->profet[profet_idx].pwm_duty = 0;
+                    }
+                } else if (channel_id < 20) {
+                    /* Input channel - update emulator ADC */
+                    PMU_Emu_ADC_SetRaw(channel_id, (uint16_t)value);
                 }
 
                 /* Send ACK */
                 resp[0] = (uint8_t)(channel_id & 0xFF);
                 resp[1] = (uint8_t)(channel_id >> 8);
-                resp[2] = 1;  /* Success */
+                resp[2] = (result == HAL_OK) ? 1 : 0;  /* Success flag */
                 resp[3] = 0;  /* Error code low */
                 resp[4] = 0;  /* Error code high */
                 Server_SendResponse(client_idx, EMU_MSG_CHANNEL_ACK, resp, 5);
@@ -544,14 +559,19 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
         case EMU_MSG_GET_CHANNEL: {
             if (len >= 2) {
                 uint16_t channel_id = payload[0] | (payload[1] << 8);
-                float value = 0.0f;
 
-                /* Get from emulator */
-                if (channel_id < 20) {
-                    value = (float)emu->adc[channel_id].raw_value;
-                } else if (channel_id >= 100 && channel_id < 130) {
-                    const PMU_Emu_PROFET_Channel_t* ch = PMU_Emu_PROFET_GetState(channel_id - 100);
-                    if (ch) value = (float)ch->pwm_duty / 10.0f;
+                /* Get from firmware channel system first */
+                int32_t ch_value = PMU_Channel_GetValue(channel_id);
+                float value = (float)ch_value;
+
+                /* Fall back to emulator state if channel not registered */
+                if (ch_value == 0) {
+                    if (channel_id < 20) {
+                        value = (float)emu->adc[channel_id].raw_value;
+                    } else if (channel_id >= 100 && channel_id < 130) {
+                        const PMU_Emu_PROFET_Channel_t* ch = PMU_Emu_PROFET_GetState(channel_id - 100);
+                        if (ch) value = (float)ch->pwm_duty;
+                    }
                 }
 
                 resp[0] = (uint8_t)(channel_id & 0xFF);
@@ -756,43 +776,63 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     memcpy(buffer + offset, &tick, 4);
     offset += 4;
 
-    /* Voltage (2 bytes) */
-    uint16_t voltage = emu->protection.battery_voltage_mV;
+    /* Voltage (2 bytes) - from system channel or emulator */
+    int32_t voltage_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
+    uint16_t voltage = (voltage_val > 0) ? (uint16_t)voltage_val : emu->protection.battery_voltage_mV;
     memcpy(buffer + offset, &voltage, 2);
     offset += 2;
 
-    /* Temperature (2 bytes, signed) */
-    int16_t temp = emu->protection.board_temp_C;
+    /* Temperature (2 bytes, signed) - from system channel or emulator */
+    int32_t temp_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP);
+    int16_t temp = (temp_val != 0) ? (int16_t)temp_val : emu->protection.board_temp_C;
     memcpy(buffer + offset, &temp, 2);
     offset += 2;
 
-    /* Total current (4 bytes) */
-    uint32_t current = emu->protection.total_current_mA;
+    /* Total current (4 bytes) - from system channel or emulator */
+    int32_t current_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_TOTAL_I);
+    uint32_t current = (current_val > 0) ? (uint32_t)current_val : emu->protection.total_current_mA;
     memcpy(buffer + offset, &current, 4);
     offset += 4;
 
-    /* ADC values (20 x 2 bytes) */
+    /* ADC values (20 x 2 bytes) - from firmware channels if available */
     for (int i = 0; i < 20; i++) {
-        uint16_t adc = emu->adc[i].raw_value;
+        int32_t ch_val = PMU_Channel_GetValue(i);  /* Channels 0-19 are inputs */
+        uint16_t adc = (ch_val != 0) ? (uint16_t)ch_val : emu->adc[i].raw_value;
         memcpy(buffer + offset, &adc, 2);
         offset += 2;
     }
 
-    /* PROFET states (30 x 1 byte) */
+    /* PROFET states (30 x 1 byte) - from firmware channels if available */
     for (int i = 0; i < 30; i++) {
-        buffer[offset++] = emu->profet[i].state;
+        int32_t ch_val = PMU_Channel_GetValue(100 + i);  /* Channels 100-129 are outputs */
+        if (ch_val != 0) {
+            buffer[offset++] = (ch_val > 0) ? 1 : 0;  /* ON if value > 0 */
+        } else {
+            buffer[offset++] = emu->profet[i].state;
+        }
     }
 
-    /* PROFET duties (30 x 2 bytes) */
+    /* PROFET duties (30 x 2 bytes) - from firmware channels if available */
     for (int i = 0; i < 30; i++) {
-        uint16_t duty = emu->profet[i].pwm_duty;
+        int32_t ch_val = PMU_Channel_GetValue(100 + i);  /* Get PWM duty from channel */
+        uint16_t duty;
+        if (ch_val != 0) {
+            duty = (uint16_t)ch_val;  /* Channel value is already duty (0-1000) */
+        } else {
+            duty = emu->profet[i].pwm_duty;
+        }
         memcpy(buffer + offset, &duty, 2);
         offset += 2;
     }
 
     /* H-Bridge states (4 x 1 byte) */
     for (int i = 0; i < 4; i++) {
-        buffer[offset++] = emu->hbridge[i].state;
+        int32_t ch_val = PMU_Channel_GetValue(130 + i);  /* Channels 130-133 are H-bridges */
+        if (ch_val != 0) {
+            buffer[offset++] = (ch_val > 0) ? 1 : 0;
+        } else {
+            buffer[offset++] = emu->hbridge[i].state;
+        }
     }
 
     /* H-Bridge positions (4 x 2 bytes) */
@@ -801,6 +841,12 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
         memcpy(buffer + offset, &pos, 2);
         offset += 2;
     }
+
+    /* Channel count (2 bytes) */
+    const PMU_ChannelStats_t* ch_stats = PMU_Channel_GetStats();
+    uint16_t channel_count = ch_stats ? ch_stats->total_channels : 0;
+    memcpy(buffer + offset, &channel_count, 2);
+    offset += 2;
 
     *len = offset;
 }
@@ -864,6 +910,77 @@ static int Server_ApplyConfig(const char* json, size_t len)
     printf("|  CAN Stream:        %-5s                                  |\n", stats.stream_enabled ? "ON" : "OFF");
     printf("|  Parse Time:        %-5lu ms                               |\n", (unsigned long)stats.parse_time_ms);
     printf("|  Config saved to:   last_config.json                       |\n");
+    printf("+============================================================+\n");
+    printf("\n");
+
+    return 0;
+}
+
+int EMU_Server_LoadConfig(const char* filename)
+{
+    const char* config_file = filename ? filename : "last_config.json";
+
+    /* Try to open the config file */
+    FILE* f = fopen(config_file, "rb");
+    if (!f) {
+        printf("[CONFIG] No saved config found: %s\n", config_file);
+        return -1;
+    }
+
+    /* Get file size */
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (file_size <= 0 || file_size > 100 * 1024) {
+        fclose(f);
+        printf("[CONFIG] Invalid config file size: %ld bytes\n", file_size);
+        return -1;
+    }
+
+    /* Allocate buffer */
+    char* json_buffer = (char*)malloc(file_size + 1);
+    if (!json_buffer) {
+        fclose(f);
+        printf("[CONFIG] Failed to allocate memory for config\n");
+        return -1;
+    }
+
+    /* Read file */
+    size_t bytes_read = fread(json_buffer, 1, file_size, f);
+    fclose(f);
+
+    if (bytes_read != (size_t)file_size) {
+        free(json_buffer);
+        printf("[CONFIG] Failed to read config file\n");
+        return -1;
+    }
+
+    json_buffer[file_size] = '\0';
+
+    /* Apply configuration using firmware parser */
+    printf("[CONFIG] Loading saved configuration from %s (%ld bytes)...\n", config_file, file_size);
+
+    PMU_JSON_Init();
+    PMU_JSON_LoadStats_t stats = {0};
+    PMU_JSON_Status_t result = PMU_JSON_LoadFromString(json_buffer, (uint32_t)file_size, &stats);
+
+    free(json_buffer);
+
+    if (result != PMU_JSON_OK) {
+        const char* error = PMU_JSON_GetLastError();
+        printf("[CONFIG] Failed to parse saved config: %s\n", error ? error : "unknown error");
+        return -1;
+    }
+
+    printf("\n");
+    printf("+============================================================+\n");
+    printf("|          SAVED CONFIGURATION LOADED                        |\n");
+    printf("+============================================================+\n");
+    printf("|  Channels: %-5lu    CAN Messages: %-5lu                    |\n",
+           (unsigned long)stats.total_channels, (unsigned long)stats.can_messages);
+    printf("|  Lua Scripts: %-5lu                                        |\n",
+           (unsigned long)stats.lua_scripts);
     printf("+============================================================+\n");
     printf("\n");
 

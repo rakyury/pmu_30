@@ -120,8 +120,8 @@ static HAL_StatusTypeDef CAN_InitBus(PMU_CAN_Bus_t bus)
         return HAL_ERROR;
     }
 
-#ifdef UNIT_TEST
-    /* Skip hardware initialization for unit tests */
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
+    /* Skip hardware initialization for unit tests (but not emulator) */
     return HAL_OK;
 #else
     /* Configure FDCAN peripheral for STM32H7
@@ -251,10 +251,11 @@ void PMU_CAN_Update(void)
             continue;
         }
 
-#ifndef UNIT_TEST
+#if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
         /* Check for received messages in RX FIFO0
          * In real implementation, this is typically done in IRQ handler
          * Here we poll for demonstration
+         * In emulator: reads from emulated CAN RX queue
          */
         FDCAN_HandleTypeDef* hfdcan = can_buses[bus].hfdcan;
 
@@ -266,7 +267,7 @@ void PMU_CAN_Update(void)
                 /* Process received message */
                 PMU_CAN_Message_t msg;
                 msg.id = rx_header.Identifier;
-                msg.dlc = CAN_DLCToBytes(rx_header.DataLength);
+                msg.dlc = CAN_DLCToBytes(rx_header.DataLength >> 16);
                 msg.id_type = (rx_header.IdType == FDCAN_EXTENDED_ID) ? PMU_CAN_ID_EXTENDED : PMU_CAN_ID_STANDARD;
                 msg.frame_type = (rx_header.FDFormat == FDCAN_FD_CAN) ? PMU_CAN_FRAME_FD : PMU_CAN_FRAME_CLASSIC;
                 msg.rtr = 0;
@@ -338,8 +339,8 @@ HAL_StatusTypeDef PMU_CAN_SendMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
         return HAL_ERROR;
     }
 
-#ifdef UNIT_TEST
-    /* For unit tests, just increment counter */
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
+    /* For unit tests (not emulator), just increment counter */
     can_buses[bus].stats.tx_count++;
     return HAL_OK;
 #else

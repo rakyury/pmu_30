@@ -1279,6 +1279,16 @@ HAL_StatusTypeDef HAL_FDCAN_ConfigFilter(FDCAN_HandleTypeDef* hfdcan, FDCAN_Filt
     return HAL_OK;
 }
 
+HAL_StatusTypeDef HAL_FDCAN_ConfigGlobalFilter(FDCAN_HandleTypeDef* hfdcan, uint32_t NonMatchingStd, uint32_t NonMatchingExt, uint32_t RejectRemoteStd, uint32_t RejectRemoteExt)
+{
+    (void)hfdcan;
+    (void)NonMatchingStd;
+    (void)NonMatchingExt;
+    (void)RejectRemoteStd;
+    (void)RejectRemoteExt;
+    return HAL_OK;
+}
+
 HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTypeDef* pTxHeader, uint8_t* pTxData)
 {
     /* Determine bus from handle */

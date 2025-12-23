@@ -150,6 +150,13 @@ void EMU_Server_SendLog(uint8_t level, const char* source, const char* message);
  */
 int EMU_Server_Broadcast(uint8_t msg_type, const uint8_t* payload, uint16_t len);
 
+/**
+ * @brief Load last configuration from file
+ * @param filename Config file path (NULL for default "last_config.json")
+ * @retval 0 on success, -1 on error or file not found
+ */
+int EMU_Server_LoadConfig(const char* filename);
+
 #ifdef __cplusplus
 }
 #endif

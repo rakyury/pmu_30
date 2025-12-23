@@ -196,6 +196,9 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Warning: Failed to start protocol server\n");
     }
 
+    /* Try to load last saved configuration */
+    EMU_Server_LoadConfig(NULL);  /* Uses default "last_config.json" */
+
     /* Run appropriate mode */
     switch (g_mode) {
         case EMU_MODE_INTERACTIVE:

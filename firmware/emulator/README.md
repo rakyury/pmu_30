@@ -82,11 +82,19 @@ Hardware emulator for PMU-30 that allows running firmware logic on a PC without 
    - Background tick thread for real-time operation
    - Signal handling for graceful shutdown
 
+5. **Firmware Integration**
+   - PMU_Channel_Update() called at 1kHz tick rate
+   - PMU_Logic_Execute() called at 500Hz for logic functions
+   - PMU_CAN_Update() processes CAN RX queue from injected messages
+   - Real channel values from firmware used in telemetry
+
+6. **Configuration Persistence**
+   - Configuration saved to `last_config.json` on each upload
+   - Configuration automatically loaded on emulator startup
+
 ### What's Partially Working
 
-1. **Firmware Logic Execution** - Stub functions exist but actual firmware modules need integration
-2. **CAN RX Processing** - Messages are queued but firmware CAN handler needs to poll them
-3. **Lua Scripting** - Parsing works, execution disabled without Lua library
+1. **Lua Scripting** - Script management infrastructure works, actual Lua execution requires linking Lua 5.4 library
 
 ---
 
@@ -548,30 +556,31 @@ C = Configurator, E = Emulator
 
 ### Known Issues
 
-1. **CAN RX not fully integrated** - Messages are injected but firmware CAN handler doesn't process them automatically
-2. **PWM output state** - Visual state tracking works, but actual PWM generation is simulated
-3. **H-Bridge end stops** - No mechanical limit switch simulation
+1. **PWM output state** - Visual state tracking works, but actual PWM generation is simulated
+2. **H-Bridge end stops** - No mechanical limit switch simulation
+3. **Lua execution disabled** - Lua library not linked by default; only script management works
 
 ---
 
 ## TODO / Future Improvements
 
+### Recently Completed ✓
+
+- [x] **Integrate firmware logic execution** - PMU_Channel_Update and PMU_Logic_Execute now called in tick loop
+- [x] **CAN RX message processing** - Injected CAN messages are processed by firmware CAN handler
+- [x] **Telemetry with real data** - Uses PMU_Channel_GetValue() for actual channel states
+- [x] **Output state feedback** - SET_CHANNEL updates both firmware channel and emulator state
+- [x] **Lua scripting structure** - Lua files included in build (stub mode without Lua library)
+- [x] **Config persistence** - Auto-loads last_config.json on startup
+
 ### High Priority
 
-- [ ] **Integrate firmware logic execution** - Connect PMU_Channel_Update, PMU_Logic_Update to actual firmware modules
-- [ ] **CAN RX message processing** - Make injected CAN messages trigger firmware handlers
-- [ ] **Telemetry with real data** - Return actual channel states instead of simulated values
-- [ ] **Output state feedback** - When configurator sets channel, update emulator state
-
-### Medium Priority
-
-- [ ] **Lua scripting on Windows** - Add Lua library to Windows build
-- [ ] **Config persistence** - Save/load last config on startup
+- [ ] **Full Lua support** - Link Lua 5.4 library for actual script execution
 - [ ] **Web UI** - Browser-based monitoring interface
 - [ ] **Multiple client support** - Allow multiple configurator connections
 - [ ] **CAN bus logging** - Save CAN traffic to file for analysis
 
-### Low Priority
+### Medium Priority
 
 - [ ] **Flash memory emulation** - File-backed persistent storage
 - [ ] **SPI diagnostic simulation** - Return realistic PROFET diagnostic data
@@ -582,7 +591,6 @@ C = Configurator, E = Emulator
 ### Configurator Integration
 
 - [ ] **Read config from device** - GET_CONFIG should return current parsed config
-- [ ] **Channel value feedback** - Telemetry should reflect actual output states
 - [ ] **Error reporting** - Send parsing errors back to configurator
 - [ ] **Firmware update simulation** - Accept firmware binary (no-op)
 
