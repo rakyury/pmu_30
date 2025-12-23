@@ -145,6 +145,24 @@ PMU_Storage_Status_t PMU_Storage_Init(void)
  */
 bool PMU_Storage_HasValidConfig(void)
 {
+#if defined(PMU_EMULATOR)
+    /* In emulator, read header from file */
+    PMU_Config_Header_t header;
+    if (PMU_Bootloader_ReadFlash(PMU_CONFIG_INT_ADDRESS, (uint8_t*)&header, sizeof(header)) != PMU_BOOT_OK) {
+        return false;
+    }
+
+    if (header.magic != PMU_CONFIG_MAGIC) {
+        return false;
+    }
+
+    uint32_t header_crc = PMU_Storage_CalculateCRC32(
+        (const uint8_t*)&header,
+        sizeof(PMU_Config_Header_t) - sizeof(uint32_t)
+    );
+
+    return (header_crc == header.header_crc32);
+#else
     PMU_Config_Header_t* header = (PMU_Config_Header_t*)PMU_CONFIG_INT_ADDRESS;
 
     if (header->magic != PMU_CONFIG_MAGIC) {
@@ -158,6 +176,7 @@ bool PMU_Storage_HasValidConfig(void)
     );
 
     return (header_crc == header->header_crc32);
+#endif
 }
 
 /**
@@ -575,8 +594,56 @@ static void Storage_InitDefaults(void)
  */
 static PMU_Storage_Status_t Storage_LoadFromInternal(void)
 {
-#ifdef UNIT_TEST
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
     Storage_InitDefaults();
+    return PMU_STORAGE_OK;
+#elif defined(PMU_EMULATOR)
+    /* Emulator: read from file-based flash emulation */
+    PMU_Config_Header_t header;
+    if (PMU_Bootloader_ReadFlash(PMU_CONFIG_INT_ADDRESS, (uint8_t*)&header, sizeof(header)) != PMU_BOOT_OK) {
+        return PMU_STORAGE_ERROR_NOT_FOUND;
+    }
+
+    /* Check magic */
+    if (header.magic != PMU_CONFIG_MAGIC) {
+        return PMU_STORAGE_ERROR_NOT_FOUND;
+    }
+
+    /* Verify header CRC */
+    uint32_t header_crc = PMU_Storage_CalculateCRC32(
+        (const uint8_t*)&header,
+        sizeof(PMU_Config_Header_t) - sizeof(uint32_t)
+    );
+    if (header_crc != header.header_crc32) {
+        return PMU_STORAGE_ERROR_CRC;
+    }
+
+    /* Check version compatibility */
+    if (header.version_major != PMU_CONFIG_VERSION_MAJOR) {
+        return PMU_STORAGE_ERROR_VERSION;
+    }
+
+    /* Check data size */
+    if (header.data_size != sizeof(PMU_System_Config_t)) {
+        return PMU_STORAGE_ERROR_VERSION;
+    }
+
+    /* Read configuration data */
+    if (PMU_Bootloader_ReadFlash(PMU_CONFIG_INT_ADDRESS + PMU_CONFIG_HEADER_SIZE,
+                                  (uint8_t*)&system_config,
+                                  sizeof(PMU_System_Config_t)) != PMU_BOOT_OK) {
+        return PMU_STORAGE_ERROR_FLASH;
+    }
+
+    /* Verify data CRC */
+    uint32_t data_crc = PMU_Storage_CalculateCRC32(
+        (const uint8_t*)&system_config,
+        sizeof(PMU_System_Config_t)
+    );
+    if (data_crc != header.data_crc32) {
+        return PMU_STORAGE_ERROR_CRC;
+    }
+
     return PMU_STORAGE_OK;
 #else
     PMU_Config_Header_t* header = (PMU_Config_Header_t*)PMU_CONFIG_INT_ADDRESS;
@@ -627,7 +694,7 @@ static PMU_Storage_Status_t Storage_LoadFromInternal(void)
  */
 static PMU_Storage_Status_t Storage_SaveToInternal(void)
 {
-#ifdef UNIT_TEST
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
     return PMU_STORAGE_OK;
 #else
     /* Prepare header */
