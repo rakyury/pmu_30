@@ -155,6 +155,9 @@ class MainWindowProfessional(QMainWindow):
         # Create tab widget for monitors
         self.monitor_tabs = QTabWidget()
         self.monitor_tabs.setTabPosition(QTabWidget.TabPosition.North)
+        # Ensure tabs expand to fill available space
+        from PyQt6.QtWidgets import QSizePolicy
+        self.monitor_tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # PMU Monitor tab (system overview)
         self.pmu_monitor = PMUMonitorWidget()
@@ -195,6 +198,7 @@ class MainWindowProfessional(QMainWindow):
         # Channel Graph tab (dependency visualization)
         self.channel_graph = ChannelGraphWidget()
         self.channel_graph.channel_edit_requested.connect(self._on_graph_channel_edit)
+        self.channel_graph.refresh_requested.connect(self._on_graph_refresh_requested)
         self.monitor_tabs.addTab(self.channel_graph, "Dependencies")
 
         # Log Viewer tab (firmware logs)
@@ -312,15 +316,6 @@ class MainWindowProfessional(QMainWindow):
         bluetooth_settings_action = QAction("Bluetooth Settings...", self)
         bluetooth_settings_action.triggered.connect(self.show_bluetooth_settings)
         device_menu.addAction(bluetooth_settings_action)
-
-        # Tools menu
-        tools_menu = menubar.addMenu("Tools")
-
-        can_monitor_action = QAction("CAN Monitor", self)
-        tools_menu.addAction(can_monitor_action)
-
-        data_logger_action = QAction("Data Logger", self)
-        tools_menu.addAction(data_logger_action)
 
         # Windows menu
         windows_menu = menubar.addMenu("Windows")
@@ -1170,6 +1165,18 @@ class MainWindowProfessional(QMainWindow):
         if item:
             self.project_tree.setCurrentItem(item)
             self._on_project_item_double_clicked(item, 0)
+
+    def _on_graph_refresh_requested(self):
+        """Handle refresh request from dependency graph."""
+        # Get current channels from project tree
+        channels = self.project_tree.get_all_channels()
+        if channels:
+            self._update_channel_graph(channels)
+        else:
+            # Try from config manager
+            config = self.config_manager.get_config()
+            channels = config.get("channels", [])
+            self._update_channel_graph(channels)
 
     def _save_config_from_ui(self):
         """Save configuration from UI."""

@@ -392,6 +392,7 @@ class ChannelGraphWidget(QWidget):
 
     channel_selected = pyqtSignal(str)  # channel_id
     channel_edit_requested = pyqtSignal(str)  # channel_id
+    refresh_requested = pyqtSignal()  # Request data refresh from parent
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -402,6 +403,8 @@ class ChannelGraphWidget(QWidget):
 
     def _init_ui(self):
         """Initialize UI."""
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -460,7 +463,7 @@ class ChannelGraphWidget(QWidget):
 
         self.view = ChannelGraphView(self.scene)
         self.view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        layout.addWidget(self.view)
+        layout.addWidget(self.view, 1)  # Stretch factor 1 to fill space
 
         # Status bar
         self.status_label = QLabel("No channels loaded")
@@ -532,4 +535,7 @@ class ChannelGraphWidget(QWidget):
                 edge.set_active(False)
 
     def _refresh_graph(self):
+        # Emit signal to request fresh data from parent
+        self.refresh_requested.emit()
+        # Then rebuild with current data
         self._rebuild_graph()
