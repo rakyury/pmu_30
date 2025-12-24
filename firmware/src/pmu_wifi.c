@@ -90,13 +90,15 @@ HAL_StatusTypeDef PMU_WiFi_ApplyConfig(const PMU_WiFi_Config_t* config)
     /* Copy configuration */
     memcpy(&s_wifi_config, config, sizeof(PMU_WiFi_Config_t));
 
-    /* If WiFi is enabled, restart with new config */
+    /* Apply the configuration immediately */
     if (s_wifi_config.enabled) {
+        /* WiFi enabled - restart with new config */
         PMU_WiFi_Stop();
         return PMU_WiFi_Start();
+    } else {
+        /* WiFi disabled - stop and update status */
+        return PMU_WiFi_Stop();
     }
-
-    return HAL_OK;
 }
 
 HAL_StatusTypeDef PMU_WiFi_GetConfig(PMU_WiFi_Config_t* config)

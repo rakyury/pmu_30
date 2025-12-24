@@ -90,13 +90,15 @@ HAL_StatusTypeDef PMU_BT_ApplyConfig(const PMU_BT_Config_t* config)
     /* Copy configuration */
     memcpy(&s_bt_config, config, sizeof(PMU_BT_Config_t));
 
-    /* If Bluetooth is enabled, restart with new config */
+    /* Apply the configuration immediately */
     if (s_bt_config.enabled) {
+        /* Bluetooth enabled - restart with new config */
         PMU_BT_Stop();
         return PMU_BT_Start();
+    } else {
+        /* Bluetooth disabled - stop and update status */
+        return PMU_BT_Stop();
     }
-
-    return HAL_OK;
 }
 
 HAL_StatusTypeDef PMU_BT_GetConfig(PMU_BT_Config_t* config)
