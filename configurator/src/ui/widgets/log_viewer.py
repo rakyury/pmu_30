@@ -73,6 +73,9 @@ class LogViewerWidget(QWidget):
 
     def _init_ui(self):
         """Initialize UI."""
+        from PyQt6.QtWidgets import QSizePolicy as SP
+        self.setSizePolicy(SP.Policy.Expanding, SP.Policy.Expanding)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -170,7 +173,7 @@ class LogViewerWidget(QWidget):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([120, 500])
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)  # Stretch factor 1 to fill space
 
         # Status bar
         status_layout = QHBoxLayout()

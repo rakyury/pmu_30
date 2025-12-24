@@ -135,6 +135,10 @@ class ChannelNodeItem(QGraphicsEllipseItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self.node.x = value.x()
             self.node.y = value.y()
+            # Update label position
+            if self.node.label_item:
+                label = self.node.label_item
+                label.setPos(value.x() - label.boundingRect().width() / 2, value.y() + 30)
             # Update connected edges
             scene = self.scene()
             if scene and hasattr(scene, 'update_edges'):
@@ -249,6 +253,9 @@ class ChannelGraphScene(QGraphicsScene):
         self.node_items.clear()
         self.edges.clear()
 
+        # Build channel_id -> node_id mapping for resolving numeric references
+        channel_id_to_node_id = {}
+
         # Create nodes
         for ch in channels:
             ch_id = ch.get('id', '')
@@ -262,6 +269,24 @@ class ChannelGraphScene(QGraphicsScene):
                 inputs=ch.get('input_channels', [])
             )
             self.nodes[ch_id] = node
+
+            # Map numeric channel_id to node id
+            numeric_id = ch.get('channel_id')
+            if numeric_id is not None:
+                channel_id_to_node_id[numeric_id] = ch_id
+
+        # Resolve numeric input references to node IDs
+        for node in self.nodes.values():
+            resolved_inputs = []
+            for input_ref in node.inputs:
+                if isinstance(input_ref, int):
+                    # Numeric reference - look up in mapping
+                    if input_ref in channel_id_to_node_id:
+                        resolved_inputs.append(channel_id_to_node_id[input_ref])
+                elif isinstance(input_ref, str):
+                    # String reference - use as-is
+                    resolved_inputs.append(input_ref)
+            node.inputs = resolved_inputs
 
         # Calculate outputs (reverse of inputs)
         for node in self.nodes.values():

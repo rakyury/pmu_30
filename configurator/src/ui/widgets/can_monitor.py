@@ -60,6 +60,9 @@ class CANMonitor(QWidget):
 
     def _init_ui(self):
         """Initialize UI components."""
+        from PyQt6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -88,8 +91,10 @@ class CANMonitor(QWidget):
 
         splitter.addWidget(right_tabs)
         splitter.setSizes([500, 300])
+        splitter.setStretchFactor(0, 2)  # Stream side gets more space
+        splitter.setStretchFactor(1, 1)  # Decoded side
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)  # Stretch factor 1 to fill space
 
         # Status bar
         status_layout = QHBoxLayout()

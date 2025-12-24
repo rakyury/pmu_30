@@ -76,6 +76,9 @@ class PIDTuner(QWidget):
 
     def _init_ui(self):
         """Initialize UI components."""
+        from PyQt6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -96,7 +99,9 @@ class PIDTuner(QWidget):
         splitter.addWidget(controls_widget)
 
         splitter.setSizes([600, 300])
-        layout.addWidget(splitter)
+        splitter.setStretchFactor(0, 1)  # Graph expands
+        splitter.setStretchFactor(1, 0)  # Controls fixed width
+        layout.addWidget(splitter, 1)  # Stretch factor 1 to fill space
 
         # Status bar
         status_layout = QHBoxLayout()

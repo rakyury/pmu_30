@@ -140,6 +140,9 @@ class DataLoggerWidget(QWidget):
 
     def _init_ui(self):
         """Initialize user interface."""
+        from PyQt6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
@@ -162,6 +165,8 @@ class DataLoggerWidget(QWidget):
 
         # Set splitter proportions
         splitter.setSizes([250, 750])
+        splitter.setStretchFactor(0, 0)  # Channel panel fixed
+        splitter.setStretchFactor(1, 1)  # Graph panel expands
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -244,6 +249,50 @@ class DataLoggerWidget(QWidget):
         load_btn.clicked.connect(self._on_load_log)
         self.toolbar.addWidget(load_btn)
 
+        self.toolbar.addSeparator()
+
+        # Trigger recording
+        self.trigger_btn = QPushButton("Trigger")
+        self.trigger_btn.setCheckable(True)
+        self.trigger_btn.setToolTip("Enable trigger-based recording")
+        self.trigger_btn.toggled.connect(self._on_trigger_toggled)
+        self.toolbar.addWidget(self.trigger_btn)
+
+        # Trigger settings (shown when trigger enabled)
+        self.trigger_channel_combo = QComboBox()
+        self.trigger_channel_combo.setMinimumWidth(120)
+        self.trigger_channel_combo.setToolTip("Trigger channel")
+        self.trigger_channel_combo.setVisible(False)
+        self.toolbar.addWidget(self.trigger_channel_combo)
+
+        self.trigger_condition_combo = QComboBox()
+        self.trigger_condition_combo.addItems(['>', '<', '>=', '<=', '==', '!=', 'Rising', 'Falling'])
+        self.trigger_condition_combo.setToolTip("Trigger condition")
+        self.trigger_condition_combo.setVisible(False)
+        self.toolbar.addWidget(self.trigger_condition_combo)
+
+        self.trigger_value_spin = QDoubleSpinBox()
+        self.trigger_value_spin.setRange(-99999, 99999)
+        self.trigger_value_spin.setValue(0)
+        self.trigger_value_spin.setToolTip("Trigger value")
+        self.trigger_value_spin.setVisible(False)
+        self.toolbar.addWidget(self.trigger_value_spin)
+
+        # Pre-trigger buffer
+        self.toolbar.addWidget(QLabel("Pre:"))
+        self.pretrigger_spin = QSpinBox()
+        self.pretrigger_spin.setRange(0, 60)
+        self.pretrigger_spin.setValue(2)
+        self.pretrigger_spin.setSuffix(" s")
+        self.pretrigger_spin.setToolTip("Pre-trigger buffer (seconds)")
+        self.pretrigger_spin.setVisible(False)
+        self.toolbar.addWidget(self.pretrigger_spin)
+
+        # Trigger state tracking
+        self.trigger_enabled = False
+        self.trigger_armed = False
+        self.trigger_last_value = None
+
     def _create_channel_panel(self) -> QWidget:
         """Create channel selector panel."""
         panel = QWidget()
@@ -273,6 +322,11 @@ class DataLoggerWidget(QWidget):
         btn_layout.addWidget(clear_all_btn)
 
         layout.addLayout(btn_layout)
+
+        # Math channel button
+        math_btn = QPushButton("+ Math Channel")
+        math_btn.clicked.connect(self._add_math_channel)
+        layout.addWidget(math_btn)
 
         return panel
 
@@ -512,15 +566,155 @@ class DataLoggerWidget(QWidget):
         for ch_id in self.channels:
             self._update_plot_visibility(ch_id)
 
+    def _add_math_channel(self):
+        """Add a calculated math channel."""
+        from PyQt6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Math Channel")
+        dialog.setMinimumWidth(400)
+
+        layout = QFormLayout(dialog)
+
+        # Channel name
+        name_edit = QLineEdit()
+        name_edit.setPlaceholderText("e.g., Total Power")
+        layout.addRow("Name:", name_edit)
+
+        # Source channel A
+        ch_a_combo = QComboBox()
+        for ch_id, ch in sorted(self.channels.items(), key=lambda x: x[1].name):
+            ch_a_combo.addItem(ch.name, ch_id)
+        layout.addRow("Channel A:", ch_a_combo)
+
+        # Operation
+        op_combo = QComboBox()
+        op_combo.addItems(['+', '-', '*', '/', 'max', 'min', 'avg', 'abs(A)', 'sqrt(A)', 'A^2'])
+        layout.addRow("Operation:", op_combo)
+
+        # Source channel B (optional for some ops)
+        ch_b_combo = QComboBox()
+        ch_b_combo.addItem("(constant)", None)
+        for ch_id, ch in sorted(self.channels.items(), key=lambda x: x[1].name):
+            ch_b_combo.addItem(ch.name, ch_id)
+        layout.addRow("Channel B:", ch_b_combo)
+
+        # Constant value
+        const_spin = QDoubleSpinBox()
+        const_spin.setRange(-99999, 99999)
+        const_spin.setValue(1.0)
+        layout.addRow("Constant:", const_spin)
+
+        # Unit
+        unit_edit = QLineEdit()
+        unit_edit.setPlaceholderText("e.g., W, V, A")
+        layout.addRow("Unit:", unit_edit)
+
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = name_edit.text() or "Math Channel"
+            ch_a_id = ch_a_combo.currentData()
+            op = op_combo.currentText()
+            ch_b_id = ch_b_combo.currentData()
+            const_val = const_spin.value()
+            unit = unit_edit.text()
+
+            # Create math channel with unique ID
+            math_id = 0x1000 + len([c for c in self.channels if c >= 0x1000])
+
+            # Store math channel config
+            math_config = {
+                'ch_a': ch_a_id,
+                'op': op,
+                'ch_b': ch_b_id,
+                'const': const_val
+            }
+
+            self.add_channel(math_id, name, unit, 'User', -99999, 99999)
+            self.channels[math_id].math_config = math_config
+            self._update_channel_tree()
+
+            logger.info(f"Added math channel: {name} = {op}")
+
+    def _compute_math_channels(self, timestamp: float):
+        """Compute values for math channels."""
+        for ch_id, channel in self.channels.items():
+            if not hasattr(channel, 'math_config'):
+                continue
+
+            cfg = channel.math_config
+            ch_a = self.channels.get(cfg['ch_a'])
+            ch_b = self.channels.get(cfg['ch_b']) if cfg['ch_b'] else None
+
+            if not ch_a or not ch_a.values:
+                continue
+
+            val_a = ch_a.current_value
+            val_b = ch_b.current_value if ch_b and ch_b.values else cfg['const']
+
+            result = 0
+            op = cfg['op']
+
+            try:
+                if op == '+':
+                    result = val_a + val_b
+                elif op == '-':
+                    result = val_a - val_b
+                elif op == '*':
+                    result = val_a * val_b
+                elif op == '/':
+                    result = val_a / val_b if val_b != 0 else 0
+                elif op == 'max':
+                    result = max(val_a, val_b)
+                elif op == 'min':
+                    result = min(val_a, val_b)
+                elif op == 'avg':
+                    result = (val_a + val_b) / 2
+                elif op == 'abs(A)':
+                    result = abs(val_a)
+                elif op == 'sqrt(A)':
+                    result = val_a ** 0.5 if val_a >= 0 else 0
+                elif op == 'A^2':
+                    result = val_a * val_a
+
+                channel.add_sample(timestamp, result)
+            except Exception:
+                pass
+
     def add_sample(self, channel_id: int, timestamp: float, value: float):
         """Add a sample to a channel."""
         if channel_id in self.channels:
             self.channels[channel_id].add_sample(timestamp, value)
 
+            # Check trigger
+            if self._check_trigger(channel_id, value):
+                self._on_trigger_fired()
+
     def add_samples(self, timestamp: float, data: Dict[int, float]):
         """Add samples for multiple channels."""
         for channel_id, value in data.items():
             self.add_sample(channel_id, timestamp, value)
+
+    def _on_trigger_fired(self):
+        """Handle trigger condition met."""
+        if not self.trigger_armed:
+            return
+
+        self.trigger_armed = False  # One-shot
+        self.trigger_btn.setText("Triggered!")
+        self.trigger_btn.setStyleSheet("background-color: #44FF44;")
+
+        # Start recording if not already
+        if not self.is_recording:
+            self.record_btn.setChecked(True)
 
     def update_from_telemetry(self, telemetry_data: dict):
         """Update data logger from telemetry data.
@@ -582,6 +776,8 @@ class DataLoggerWidget(QWidget):
         # Add all samples
         if samples:
             self.add_samples(timestamp, samples)
+            # Compute math channels
+            self._compute_math_channels(timestamp)
 
     def _on_update(self):
         """Periodic UI update."""
@@ -646,6 +842,70 @@ class DataLoggerWidget(QWidget):
         else:
             self.live_btn.setText("Live")
             self.live_btn.setStyleSheet("")
+
+    def _on_trigger_toggled(self, checked: bool):
+        """Handle trigger button toggle."""
+        self.trigger_enabled = checked
+        self.trigger_armed = checked
+
+        # Show/hide trigger settings
+        self.trigger_channel_combo.setVisible(checked)
+        self.trigger_condition_combo.setVisible(checked)
+        self.trigger_value_spin.setVisible(checked)
+        self.pretrigger_spin.setVisible(checked)
+
+        if checked:
+            self.trigger_btn.setText("Armed")
+            self.trigger_btn.setStyleSheet("background-color: #FFAA00;")
+            # Populate trigger channel combo
+            self._update_trigger_channels()
+        else:
+            self.trigger_btn.setText("Trigger")
+            self.trigger_btn.setStyleSheet("")
+            self.trigger_last_value = None
+
+    def _update_trigger_channels(self):
+        """Update trigger channel combo with available channels."""
+        self.trigger_channel_combo.clear()
+        for ch_id, channel in sorted(self.channels.items(), key=lambda x: x[1].name):
+            self.trigger_channel_combo.addItem(channel.name, ch_id)
+
+    def _check_trigger(self, channel_id: int, value: float) -> bool:
+        """Check if trigger condition is met."""
+        if not self.trigger_enabled or not self.trigger_armed:
+            return False
+
+        # Check if this is the trigger channel
+        trigger_ch_id = self.trigger_channel_combo.currentData()
+        if trigger_ch_id != channel_id:
+            return False
+
+        condition = self.trigger_condition_combo.currentText()
+        threshold = self.trigger_value_spin.value()
+
+        triggered = False
+
+        if condition == '>':
+            triggered = value > threshold
+        elif condition == '<':
+            triggered = value < threshold
+        elif condition == '>=':
+            triggered = value >= threshold
+        elif condition == '<=':
+            triggered = value <= threshold
+        elif condition == '==':
+            triggered = abs(value - threshold) < 0.001
+        elif condition == '!=':
+            triggered = abs(value - threshold) >= 0.001
+        elif condition == 'Rising':
+            if self.trigger_last_value is not None:
+                triggered = self.trigger_last_value < threshold and value >= threshold
+        elif condition == 'Falling':
+            if self.trigger_last_value is not None:
+                triggered = self.trigger_last_value >= threshold and value < threshold
+
+        self.trigger_last_value = value
+        return triggered
 
     def _on_clear(self):
         """Clear all data."""

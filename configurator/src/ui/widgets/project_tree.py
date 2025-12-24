@@ -436,17 +436,61 @@ class ProjectTree(QWidget):
     def _get_channel_details(self, channel_type: ChannelType, data: Dict[str, Any]) -> str:
         """Get display details string for channel."""
         if channel_type == ChannelType.DIGITAL_INPUT:
-            subtype = data.get("subtype", "switch")
-            return subtype.replace("_", " ").title()
+            pin = data.get("input_pin", 0)
+            subtype = data.get("subtype", "switch_active_low")
+            # Format subtype nicely
+            subtype_display = {
+                "switch_active_low": "Switch Active Low",
+                "switch_active_high": "Switch Active High",
+                "frequency": "Frequency",
+                "rpm": "RPM",
+                "flex_fuel": "Flex Fuel",
+                "beacon": "Beacon",
+                "puls_oil_sensor": "PULS Oil"
+            }.get(subtype, subtype.replace("_", " ").title())
+            return f"D{pin + 1} {subtype_display}"
 
         elif channel_type == ChannelType.ANALOG_INPUT:
-            return f"A{data.get('input_pin', 0) + 1}"
+            pin = data.get("input_pin", 0)
+            subtype = data.get("subtype", "linear")
+            pullup = data.get("pullup_option", "1m_down")
+
+            # Format subtype
+            subtype_display = {
+                "switch_active_low": "Switch Low",
+                "switch_active_high": "Switch High",
+                "rotary_switch": "Rotary",
+                "linear": "Linear",
+                "calibrated": "Calibrated"
+            }.get(subtype, subtype)
+
+            # Format pullup/pulldown
+            pullup_display = ""
+            if pullup and pullup != "none" and pullup != "1m_down":
+                pullup_map = {
+                    "10k_up": "10K↑",
+                    "10k_down": "10K↓",
+                    "100k_up": "100K↑",
+                    "100k_down": "100K↓"
+                }
+                pullup_display = f" {pullup_map.get(pullup, '')}"
+
+            return f"A{pin + 1} {subtype_display}{pullup_display}"
 
         elif channel_type == ChannelType.POWER_OUTPUT:
             pins = data.get('pins', [data.get('channel', 0)])
             if isinstance(pins, list) and pins:
-                return ", ".join([f"O{p + 1}" for p in pins])
-            return f"O{data.get('channel', 0) + 1}"
+                pins_str = ", ".join([f"O{p + 1}" for p in pins])
+            else:
+                pins_str = f"O{data.get('channel', 0) + 1}"
+
+            # Add PWM indicator
+            pwm_enabled = data.get('pwm_enabled', False) or data.get('pwm', {}).get('enabled', False)
+            if pwm_enabled:
+                freq = data.get('pwm_frequency_hz', 0) or data.get('pwm', {}).get('frequency', 0)
+                pins_str += f" PWM {freq}Hz"
+
+            return pins_str
 
         elif channel_type == ChannelType.LOGIC:
             op = data.get("operation", "and").upper()
@@ -760,9 +804,10 @@ class ProjectTree(QWidget):
             channel_name = inp.get('name', inp.get('id', ''))
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
-            channel = inp.get('channel')
-            if channel is not None:
-                used_pins.append(channel)
+            # Pin is stored in 'input_pin' field
+            pin = inp.get('input_pin')
+            if pin is not None:
+                used_pins.append(pin)
         return used_pins
 
     def get_all_used_digital_input_pins(self, exclude_channel_id: str = None) -> List[int]:
@@ -780,9 +825,10 @@ class ProjectTree(QWidget):
             channel_name = inp.get('name', inp.get('id', ''))
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
-            channel = inp.get('channel')
-            if channel is not None:
-                used_pins.append(channel)
+            # Pin is stored in 'input_pin' field
+            pin = inp.get('input_pin')
+            if pin is not None:
+                used_pins.append(pin)
         return used_pins
 
     def get_all_used_hbridge_numbers(self, exclude_channel_id: str = None) -> List[int]:
