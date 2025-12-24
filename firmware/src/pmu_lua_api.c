@@ -15,6 +15,9 @@
 #include "pmu_channel.h"
 #include "pmu_logic_functions.h"
 #include "pmu_protection.h"
+#include "pmu_can.h"
+#include "pmu_lin.h"
+#include "pmu_pid.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -39,6 +42,9 @@ void PMU_Lua_RegisterAPI(lua_State* L)
     PMU_Lua_RegisterLogicAPI(L);
     PMU_Lua_RegisterSystemAPI(L);
     PMU_Lua_RegisterUtilAPI(L);
+    PMU_Lua_RegisterCanAPI(L);
+    PMU_Lua_RegisterLinAPI(L);
+    PMU_Lua_RegisterPidAPI(L);
 }
 
 /**
@@ -638,6 +644,638 @@ int lua_util_sleep(lua_State* L)
     return 0;
 }
 
+/* CAN API ===================================================================*/
+
+/**
+ * @brief Register CAN bus functions API
+ */
+void PMU_Lua_RegisterCanAPI(lua_State* L)
+{
+    lua_newtable(L);
+
+    lua_pushstring(L, "send");
+    lua_pushcfunction(L, lua_can_send);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "get");
+    lua_pushcfunction(L, lua_can_get);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "set");
+    lua_pushcfunction(L, lua_can_set);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "on_receive");
+    lua_pushcfunction(L, lua_can_on_receive);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "status");
+    lua_pushcfunction(L, lua_can_status);
+    lua_settable(L, -3);
+
+    lua_setglobal(L, "can");
+}
+
+/**
+ * @brief Send CAN message
+ * Usage: can.send(bus, id, {d0, d1, d2, d3, d4, d5, d6, d7})
+ * @param bus CAN bus (1-4)
+ * @param id CAN message ID
+ * @param data Table with 1-8 data bytes
+ * @return true on success
+ */
+int lua_can_send(lua_State* L)
+{
+    if (lua_gettop(L) < 3) {
+        lua_pushstring(L, "can.send expects (bus, id, data_table)");
+        lua_error(L);
+        return 0;
+    }
+
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint32_t id = (uint32_t)lua_tointeger(L, 2);
+
+    uint8_t data[8] = {0};
+    uint8_t length = 0;
+
+    if (lua_istable(L, 3)) {
+        for (int i = 1; i <= 8; i++) {
+            lua_rawgeti(L, 3, i);
+            if (lua_isnil(L, -1)) {
+                lua_pop(L, 1);
+                break;
+            }
+            data[i-1] = (uint8_t)lua_tointeger(L, -1);
+            lua_pop(L, 1);
+            length++;
+        }
+    }
+
+    /* Send CAN message */
+    HAL_StatusTypeDef status = PMU_CAN_TransmitFrame(bus, id, data, length);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Get signal value from CAN message
+ * Usage: value = can.get("msg_id", "signal_name")
+ */
+int lua_can_get(lua_State* L)
+{
+    if (!lua_isstring(L, 1)) {
+        lua_pushstring(L, "can.get expects (msg_id_string, signal_name)");
+        lua_error(L);
+        return 0;
+    }
+
+    const char* msg_id = lua_tostring(L, 1);
+    const char* signal = lua_isstring(L, 2) ? lua_tostring(L, 2) : NULL;
+
+    /* Get message by ID and extract signal value */
+    /* For now, return value from channel system */
+    const PMU_Channel_t* ch = PMU_Channel_GetByID(msg_id);
+    if (ch) {
+        lua_pushnumber(L, (lua_Number)ch->value / 1000.0);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Set signal value for CAN TX message
+ * Usage: can.set("msg_id", "signal_name", value)
+ */
+int lua_can_set(lua_State* L)
+{
+    if (!lua_isstring(L, 1) || !lua_isnumber(L, 3)) {
+        lua_pushstring(L, "can.set expects (msg_id, signal_name, value)");
+        lua_error(L);
+        return 0;
+    }
+
+    const char* msg_id = lua_tostring(L, 1);
+    lua_Number value = lua_tonumber(L, 3);
+
+    /* Set value via channel system */
+    uint16_t ch_idx = PMU_Channel_GetIndexByID(msg_id);
+    if (ch_idx != PMU_CHANNEL_INVALID) {
+        PMU_Channel_SetValue(ch_idx, (int32_t)(value * 1000.0));
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Register callback for CAN message receive
+ * Usage: can.on_receive(msg_id, callback_function)
+ */
+int lua_can_on_receive(lua_State* L)
+{
+    /* TODO: Implement CAN receive callbacks */
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+/**
+ * @brief Get CAN bus status
+ * Usage: status = can.status(bus)
+ * Returns: {state, tx_count, rx_count, error_count, bus_off}
+ */
+int lua_can_status(lua_State* L)
+{
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+
+    lua_newtable(L);
+
+    /* Get CAN statistics */
+    PMU_CAN_Stats_t stats;
+    if (PMU_CAN_GetStats(bus, &stats) == HAL_OK) {
+        lua_pushstring(L, "state");
+        lua_pushinteger(L, stats.state);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "tx_count");
+        lua_pushinteger(L, stats.tx_count);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "rx_count");
+        lua_pushinteger(L, stats.rx_count);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "error_count");
+        lua_pushinteger(L, stats.error_count);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "bus_off");
+        lua_pushboolean(L, stats.bus_off);
+        lua_settable(L, -3);
+    }
+
+    return 1;
+}
+
+/* LIN API ===================================================================*/
+
+/**
+ * @brief Register LIN bus functions API
+ */
+void PMU_Lua_RegisterLinAPI(lua_State* L)
+{
+    lua_newtable(L);
+
+    lua_pushstring(L, "send");
+    lua_pushcfunction(L, lua_lin_send);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "get");
+    lua_pushcfunction(L, lua_lin_get);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "set");
+    lua_pushcfunction(L, lua_lin_set);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "request");
+    lua_pushcfunction(L, lua_lin_request);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "wakeup");
+    lua_pushcfunction(L, lua_lin_wakeup);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "sleep");
+    lua_pushcfunction(L, lua_lin_sleep);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "status");
+    lua_pushcfunction(L, lua_lin_status);
+    lua_settable(L, -3);
+
+    lua_setglobal(L, "lin");
+}
+
+/**
+ * @brief Send LIN frame
+ * Usage: lin.send(bus, frame_id, {d0, d1, d2, ...})
+ */
+int lua_lin_send(lua_State* L)
+{
+    if (lua_gettop(L) < 3) {
+        lua_pushstring(L, "lin.send expects (bus, frame_id, data_table)");
+        lua_error(L);
+        return 0;
+    }
+
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t frame_id = (uint8_t)lua_tointeger(L, 2) & 0x3F;
+
+    uint8_t data[8] = {0};
+    uint8_t length = 0;
+
+    if (lua_istable(L, 3)) {
+        for (int i = 1; i <= 8; i++) {
+            lua_rawgeti(L, 3, i);
+            if (lua_isnil(L, -1)) {
+                lua_pop(L, 1);
+                break;
+            }
+            data[i-1] = (uint8_t)lua_tointeger(L, -1);
+            lua_pop(L, 1);
+            length++;
+        }
+    }
+
+    /* Send LIN frame */
+    HAL_StatusTypeDef status = PMU_LIN_TransmitFrame(bus, frame_id, data, length);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Get signal value from LIN frame
+ * Usage: value = lin.get("frame_id", "signal_name")
+ */
+int lua_lin_get(lua_State* L)
+{
+    if (!lua_isstring(L, 1)) {
+        lua_pushstring(L, "lin.get expects (frame_id_string, signal_name)");
+        lua_error(L);
+        return 0;
+    }
+
+    const char* frame_id = lua_tostring(L, 1);
+
+    /* Get input signal by frame reference */
+    PMU_LIN_Input_t* input = PMU_LIN_GetInput(frame_id);
+    if (input) {
+        lua_pushnumber(L, (lua_Number)input->current_value);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Set signal value for LIN TX frame
+ * Usage: lin.set("frame_id", "signal_name", value)
+ */
+int lua_lin_set(lua_State* L)
+{
+    if (!lua_isstring(L, 1) || !lua_isnumber(L, 3)) {
+        lua_pushstring(L, "lin.set expects (frame_id, signal_name, value)");
+        lua_error(L);
+        return 0;
+    }
+
+    const char* frame_id = lua_tostring(L, 1);
+    lua_Number value = lua_tonumber(L, 3);
+
+    /* Get output signal and set value */
+    PMU_LIN_Output_t* output = PMU_LIN_GetOutput(frame_id);
+    if (output) {
+        output->current_value = (float)value;
+        lua_pushboolean(L, 1);
+    } else {
+        lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Request LIN frame (master mode)
+ * Usage: lin.request(frame_id)
+ */
+int lua_lin_request(lua_State* L)
+{
+    uint8_t frame_id = (uint8_t)lua_tointeger(L, 1) & 0x3F;
+
+    HAL_StatusTypeDef status = PMU_LIN_RequestFrame(PMU_LIN_BUS_1, frame_id);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Send LIN wakeup signal
+ * Usage: lin.wakeup(bus)
+ */
+int lua_lin_wakeup(lua_State* L)
+{
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+
+    HAL_StatusTypeDef status = PMU_LIN_SendWakeup(bus);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Put LIN bus to sleep
+ * Usage: lin.sleep(bus)
+ */
+int lua_lin_sleep(lua_State* L)
+{
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+
+    HAL_StatusTypeDef status = PMU_LIN_GoToSleep(bus);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Get LIN bus status
+ * Usage: status = lin.status(bus)
+ * Returns: {state, is_master, tx_count, rx_count, error_count}
+ */
+int lua_lin_status(lua_State* L)
+{
+    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+
+    lua_newtable(L);
+
+    PMU_LIN_Stats_t stats;
+    if (PMU_LIN_GetStats(bus, &stats) == HAL_OK) {
+        lua_pushstring(L, "state");
+        lua_pushinteger(L, stats.state);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "is_master");
+        lua_pushboolean(L, stats.is_master);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "tx_count");
+        lua_pushinteger(L, stats.frames_tx);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "rx_count");
+        lua_pushinteger(L, stats.frames_rx);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "error_count");
+        lua_pushinteger(L, stats.errors);
+        lua_settable(L, -3);
+    }
+
+    return 1;
+}
+
+/* PID API ===================================================================*/
+
+/**
+ * @brief Register PID controller functions API
+ */
+void PMU_Lua_RegisterPidAPI(lua_State* L)
+{
+    lua_newtable(L);
+
+    lua_pushstring(L, "create");
+    lua_pushcfunction(L, lua_pid_create);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "setpoint");
+    lua_pushcfunction(L, lua_pid_setpoint);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "configure");
+    lua_pushcfunction(L, lua_pid_configure);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "limits");
+    lua_pushcfunction(L, lua_pid_limits);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "compute");
+    lua_pushcfunction(L, lua_pid_compute);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "reset");
+    lua_pushcfunction(L, lua_pid_reset);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "get");
+    lua_pushcfunction(L, lua_pid_get);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "enable");
+    lua_pushcfunction(L, lua_pid_enable);
+    lua_settable(L, -3);
+
+    lua_setglobal(L, "pid");
+}
+
+/**
+ * @brief Create a new PID controller
+ * Usage: id = pid.create("name", kp, ki, kd)
+ */
+int lua_pid_create(lua_State* L)
+{
+    if (lua_gettop(L) < 4) {
+        lua_pushstring(L, "pid.create expects (name, kp, ki, kd)");
+        lua_error(L);
+        return 0;
+    }
+
+    const char* name = lua_tostring(L, 1);
+    float kp = (float)lua_tonumber(L, 2);
+    float ki = (float)lua_tonumber(L, 3);
+    float kd = (float)lua_tonumber(L, 4);
+
+    PMU_PID_Config_t config = {
+        .kp = kp,
+        .ki = ki,
+        .kd = kd,
+        .output_min = -1000.0f,
+        .output_max = 1000.0f,
+        .sample_time_ms = 10,
+        .enabled = true
+    };
+    strncpy(config.id, name, PMU_PID_ID_LEN - 1);
+
+    int id = PMU_PID_Create(&config);
+
+    if (id >= 0) {
+        lua_pushinteger(L, id);
+    } else {
+        lua_pushnil(L);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Set PID controller setpoint
+ * Usage: pid.setpoint(id, value)
+ */
+int lua_pid_setpoint(lua_State* L)
+{
+    if (lua_gettop(L) < 2) {
+        lua_pushstring(L, "pid.setpoint expects (id, value)");
+        lua_error(L);
+        return 0;
+    }
+
+    int id = (int)lua_tointeger(L, 1);
+    float setpoint = (float)lua_tonumber(L, 2);
+
+    HAL_StatusTypeDef status = PMU_PID_SetSetpoint(id, setpoint);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Configure PID controller gains
+ * Usage: pid.configure(id, kp, ki, kd)
+ */
+int lua_pid_configure(lua_State* L)
+{
+    if (lua_gettop(L) < 4) {
+        lua_pushstring(L, "pid.configure expects (id, kp, ki, kd)");
+        lua_error(L);
+        return 0;
+    }
+
+    int id = (int)lua_tointeger(L, 1);
+    float kp = (float)lua_tonumber(L, 2);
+    float ki = (float)lua_tonumber(L, 3);
+    float kd = (float)lua_tonumber(L, 4);
+
+    HAL_StatusTypeDef status = PMU_PID_SetGains(id, kp, ki, kd);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Set PID controller output limits
+ * Usage: pid.limits(id, min, max)
+ */
+int lua_pid_limits(lua_State* L)
+{
+    if (lua_gettop(L) < 3) {
+        lua_pushstring(L, "pid.limits expects (id, min, max)");
+        lua_error(L);
+        return 0;
+    }
+
+    int id = (int)lua_tointeger(L, 1);
+    float min_val = (float)lua_tonumber(L, 2);
+    float max_val = (float)lua_tonumber(L, 3);
+
+    HAL_StatusTypeDef status = PMU_PID_SetLimits(id, min_val, max_val);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Compute PID output for given input
+ * Usage: output = pid.compute(id, input)
+ */
+int lua_pid_compute(lua_State* L)
+{
+    if (lua_gettop(L) < 2) {
+        lua_pushstring(L, "pid.compute expects (id, input)");
+        lua_error(L);
+        return 0;
+    }
+
+    int id = (int)lua_tointeger(L, 1);
+    float input = (float)lua_tonumber(L, 2);
+
+    float output = PMU_PID_Compute(id, input);
+
+    lua_pushnumber(L, (lua_Number)output);
+    return 1;
+}
+
+/**
+ * @brief Reset PID controller state
+ * Usage: pid.reset(id)
+ */
+int lua_pid_reset(lua_State* L)
+{
+    int id = (int)lua_tointeger(L, 1);
+
+    HAL_StatusTypeDef status = PMU_PID_Reset(id);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
+/**
+ * @brief Get PID controller state
+ * Usage: info = pid.get(id)
+ * Returns: {output, error, integral, derivative, setpoint, enabled}
+ */
+int lua_pid_get(lua_State* L)
+{
+    int id = (int)lua_tointeger(L, 1);
+
+    lua_newtable(L);
+
+    PMU_PID_State_t state;
+    if (PMU_PID_GetState(id, &state) == HAL_OK) {
+        lua_pushstring(L, "output");
+        lua_pushnumber(L, (lua_Number)state.output);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "error");
+        lua_pushnumber(L, (lua_Number)state.error);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "integral");
+        lua_pushnumber(L, (lua_Number)state.integral);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "derivative");
+        lua_pushnumber(L, (lua_Number)state.derivative);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "setpoint");
+        lua_pushnumber(L, (lua_Number)state.setpoint);
+        lua_settable(L, -3);
+
+        lua_pushstring(L, "enabled");
+        lua_pushboolean(L, state.enabled);
+        lua_settable(L, -3);
+    }
+
+    return 1;
+}
+
+/**
+ * @brief Enable/disable PID controller
+ * Usage: pid.enable(id, enabled)
+ */
+int lua_pid_enable(lua_State* L)
+{
+    if (lua_gettop(L) < 2) {
+        lua_pushstring(L, "pid.enable expects (id, enabled)");
+        lua_error(L);
+        return 0;
+    }
+
+    int id = (int)lua_tointeger(L, 1);
+    bool enabled = lua_toboolean(L, 2);
+
+    HAL_StatusTypeDef status = PMU_PID_SetEnabled(id, enabled);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
+}
+
 #else /* !USE_LUA */
 
 /* Stub implementations when Lua is not available */
@@ -646,6 +1284,9 @@ void PMU_Lua_RegisterChannelAPI(lua_State* L) { (void)L; }
 void PMU_Lua_RegisterLogicAPI(lua_State* L) { (void)L; }
 void PMU_Lua_RegisterSystemAPI(lua_State* L) { (void)L; }
 void PMU_Lua_RegisterUtilAPI(lua_State* L) { (void)L; }
+void PMU_Lua_RegisterCanAPI(lua_State* L) { (void)L; }
+void PMU_Lua_RegisterLinAPI(lua_State* L) { (void)L; }
+void PMU_Lua_RegisterPidAPI(lua_State* L) { (void)L; }
 
 #endif /* USE_LUA */
 
