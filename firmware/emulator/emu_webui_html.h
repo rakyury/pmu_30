@@ -1079,7 +1079,7 @@ static const char* DASHBOARD_HTML =
 "        \n"
 "        function clearChFault() {\n"
 "            if (editingChannel < 0) return;\n"
-"            sendCommand({action: 'clear_fault', channel: editingChannel});\n"
+"            sendCommand({action: 'clear_fault', type: 'profet', channel: editingChannel});\n"
 "        }\n"
 "        \n"
 "        function editAnalog(ch) {\n"

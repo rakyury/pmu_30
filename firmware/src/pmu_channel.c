@@ -29,6 +29,7 @@
 #include "pmu_protection.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -168,6 +169,62 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     strncpy(sys_channel.name, "Is Turning Off", sizeof(sys_channel.name));
     strncpy(sys_channel.unit, "", sizeof(sys_channel.unit));
     PMU_Channel_Register(&sys_channel);
+
+    /* Register output sub-channels (ECUMaster compatible: oY.status, oY.current, oY.voltage, oY.active) */
+    PMU_Channel_t out_channel;
+    memset(&out_channel, 0, sizeof(out_channel));
+    out_channel.hw_class = PMU_CHANNEL_CLASS_OUTPUT_POWER;
+    out_channel.direction = PMU_CHANNEL_DIR_OUTPUT;
+    out_channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+
+    for (uint8_t i = 0; i < 30; i++) {
+        out_channel.physical_index = i;
+
+        /* oY.status - state code (0-7) */
+        out_channel.channel_id = PMU_CHANNEL_OUTPUT_STATUS_BASE + i;
+        out_channel.format = PMU_CHANNEL_FORMAT_ENUM;
+        out_channel.min_value = 0;
+        out_channel.max_value = 7;
+        snprintf(out_channel.name, sizeof(out_channel.name), "o_%d.status", i + 1);
+        strncpy(out_channel.unit, "", sizeof(out_channel.unit));
+        PMU_Channel_Register(&out_channel);
+
+        /* oY.current - current in mA */
+        out_channel.channel_id = PMU_CHANNEL_OUTPUT_CURRENT_BASE + i;
+        out_channel.format = PMU_CHANNEL_FORMAT_CURRENT;
+        out_channel.min_value = 0;
+        out_channel.max_value = 40000;  /* 40A max */
+        snprintf(out_channel.name, sizeof(out_channel.name), "o_%d.current", i + 1);
+        strncpy(out_channel.unit, "mA", sizeof(out_channel.unit));
+        PMU_Channel_Register(&out_channel);
+
+        /* oY.voltage - output voltage in mV */
+        out_channel.channel_id = PMU_CHANNEL_OUTPUT_VOLTAGE_BASE + i;
+        out_channel.format = PMU_CHANNEL_FORMAT_VOLTAGE;
+        out_channel.min_value = 0;
+        out_channel.max_value = 30000;  /* 30V max */
+        snprintf(out_channel.name, sizeof(out_channel.name), "o_%d.voltage", i + 1);
+        strncpy(out_channel.unit, "mV", sizeof(out_channel.unit));
+        PMU_Channel_Register(&out_channel);
+
+        /* oY.active - boolean active state */
+        out_channel.channel_id = PMU_CHANNEL_OUTPUT_ACTIVE_BASE + i;
+        out_channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+        out_channel.min_value = 0;
+        out_channel.max_value = 1;
+        snprintf(out_channel.name, sizeof(out_channel.name), "o_%d.active", i + 1);
+        strncpy(out_channel.unit, "", sizeof(out_channel.unit));
+        PMU_Channel_Register(&out_channel);
+
+        /* oY.dutyCycle - PWM duty cycle (0-1000 = 0-100.0%) */
+        out_channel.channel_id = PMU_CHANNEL_OUTPUT_DUTY_BASE + i;
+        out_channel.format = PMU_CHANNEL_FORMAT_PERCENT;
+        out_channel.min_value = 0;
+        out_channel.max_value = 1000;
+        snprintf(out_channel.name, sizeof(out_channel.name), "o_%d.dutyCycle", i + 1);
+        strncpy(out_channel.unit, "%", sizeof(out_channel.unit));
+        PMU_Channel_Register(&out_channel);
+    }
 
     return HAL_OK;
 }
@@ -481,6 +538,56 @@ void PMU_Channel_Update(void)
     entry = Channel_FindEntry(PMU_CHANNEL_SYSTEM_IS_TURNING_OFF);
     if (entry) {
         entry->channel.value = PMU_Protection_IsTurningOff();
+    }
+
+    /* Update output sub-channels (ECUMaster compatible: oY.status, oY.current, oY.active, oY.dutyCycle) */
+    int32_t battery_mv = PMU_Protection_GetVoltage();
+    for (uint8_t i = 0; i < 30; i++) {
+        PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
+        if (!profet) continue;
+
+        /* oY.status - state code (0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS) */
+        entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_STATUS_BASE + i);
+        if (entry) {
+            entry->channel.value = (int32_t)profet->state;
+        }
+
+        /* oY.current - current in mA */
+        entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_CURRENT_BASE + i);
+        if (entry) {
+            entry->channel.value = (int32_t)profet->current_mA;
+        }
+
+        /* oY.voltage - output voltage in mV (approximation: battery_v * duty / 1000) */
+        entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_VOLTAGE_BASE + i);
+        if (entry) {
+            if (profet->state == PMU_PROFET_STATE_ON) {
+                entry->channel.value = battery_mv;
+            } else if (profet->state == PMU_PROFET_STATE_PWM) {
+                entry->channel.value = (battery_mv * profet->pwm_duty) / 1000;
+            } else {
+                entry->channel.value = 0;
+            }
+        }
+
+        /* oY.active - boolean: 1 if ON or PWM with duty > 0 */
+        entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_ACTIVE_BASE + i);
+        if (entry) {
+            entry->channel.value = (profet->state == PMU_PROFET_STATE_ON ||
+                                   (profet->state == PMU_PROFET_STATE_PWM && profet->pwm_duty > 0)) ? 1 : 0;
+        }
+
+        /* oY.dutyCycle - PWM duty cycle (0-1000 = 0-100.0%) */
+        entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_DUTY_BASE + i);
+        if (entry) {
+            if (profet->state == PMU_PROFET_STATE_ON) {
+                entry->channel.value = 1000;  /* 100% */
+            } else if (profet->state == PMU_PROFET_STATE_PWM) {
+                entry->channel.value = (int32_t)profet->pwm_duty;
+            } else {
+                entry->channel.value = 0;  /* 0% */
+            }
+        }
     }
 #endif
 }
