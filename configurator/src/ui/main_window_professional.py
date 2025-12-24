@@ -361,34 +361,6 @@ class MainWindowProfessional(QMainWindow):
         # View menu
         view_menu = menubar.addMenu("View")
 
-        # Style submenu
-        style_menu = view_menu.addMenu("Application Style")
-
-        from PyQt6.QtWidgets import QStyleFactory
-        available_styles = QStyleFactory.keys()
-
-        self.style_group = QActionGroup(self)
-        self.style_group.setExclusive(True)
-
-        fluent_action = QAction("Fluent Design (Custom)", self)
-        fluent_action.setCheckable(True)
-        fluent_action.triggered.connect(lambda: self.change_style("Fluent"))
-        self.style_group.addAction(fluent_action)
-        style_menu.addAction(fluent_action)
-
-        style_menu.addSeparator()
-
-        for style_name in available_styles:
-            action = QAction(style_name, self)
-            action.setCheckable(True)
-            if style_name == "Fusion":
-                action.setChecked(True)
-            action.triggered.connect(lambda checked, s=style_name: self.change_style(s))
-            self.style_group.addAction(action)
-            style_menu.addAction(action)
-
-        self.current_style = "Fusion"
-
         # Help menu
         help_menu = menubar.addMenu("Help")
 
@@ -661,6 +633,8 @@ class MainWindowProfessional(QMainWindow):
 
         elif channel_type == ChannelType.LUA_SCRIPT:
             dialog = LuaScriptTreeDialog(self, None, available_channels, existing_channels)
+            dialog.run_requested.connect(self._on_lua_run_requested)
+            dialog.stop_requested.connect(self._on_lua_stop_requested)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -844,6 +818,8 @@ class MainWindowProfessional(QMainWindow):
 
             elif channel_type == ChannelType.LUA_SCRIPT:
                 dialog = LuaScriptTreeDialog(self, item_data, available_channels, existing_channels)
+                dialog.run_requested.connect(self._on_lua_run_requested)
+                dialog.stop_requested.connect(self._on_lua_stop_requested)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
@@ -1682,6 +1658,31 @@ class MainWindowProfessional(QMainWindow):
         logger.info(f"PID controller reset requested for {controller_id}")
         self.status_message.setText(f"PID controller {controller_id} reset requested")
 
+    def _on_lua_run_requested(self, script_id: str, script_code: str):
+        """Handle Lua script run request from dialog."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - cannot run Lua script")
+            logger.warning(f"Lua run requested but device not connected: {script_id}")
+            return
+
+        # TODO: Implement Lua execution via protocol
+        # This requires adding PMU_CMD_EXEC_LUA command to firmware protocol
+        logger.info(f"Lua script run requested: {script_id}")
+        logger.debug(f"Lua code:\n{script_code[:200]}...")  # Log first 200 chars
+        self.status_message.setText(f"Lua '{script_id}' execution requested (not yet implemented)")
+
+        # For now, show informative message
+        # The actual implementation would send the script to the device and receive output
+
+    def _on_lua_stop_requested(self, script_id: str):
+        """Handle Lua script stop request from dialog."""
+        if not self.device_controller.is_connected():
+            return
+
+        # TODO: Implement Lua stop via protocol
+        logger.info(f"Lua script stop requested: {script_id}")
+        self.status_message.setText(f"Lua '{script_id}' stop requested")
+
     def _on_can_send_message(self, arb_id: int, data: bytes, is_extended: bool):
         """Handle CAN message send request from CAN monitor."""
         if not self.device_controller.is_connected():
@@ -1773,12 +1774,14 @@ class MainWindowProfessional(QMainWindow):
                 'board_temp_l': telemetry.temperature_c,
                 'board_temp_r': telemetry.board_temp_2,
                 'battery_voltage': telemetry.input_voltage,
+                'battery_voltage_mv': telemetry.input_voltage_mv,
                 'voltage_5v': telemetry.output_5v_mv / 1000.0 if telemetry.output_5v_mv else 0,
                 'voltage_3v3': telemetry.output_3v3_mv / 1000.0 if telemetry.output_3v3_mv else 0,
                 'pmu_status': telemetry.system_status,
                 'user_error': 0,  # TODO: Add user error tracking
                 'profet_states': states,
                 'profet_currents': currents,
+                'profet_duties': duties,  # PWM duty cycles (0-1000)
                 'adc_values': list(telemetry.adc_values),
             }
 
@@ -1948,30 +1951,12 @@ class MainWindowProfessional(QMainWindow):
         self.monitor_tabs.setCurrentIndex(index)
 
     def apply_theme(self):
-        """Apply light theme by default."""
+        """Apply dark theme by default."""
         from PyQt6.QtWidgets import QApplication
         app = QApplication.instance()
         if app:
-            ThemeManager.toggle_theme(app, False)
-
-    def change_style(self, style_name: str):
-        """Change application style."""
-        from PyQt6.QtWidgets import QApplication, QStyleFactory
-
-        app = QApplication.instance()
-        if not app:
-            return
-
-        self.current_style = style_name
-
-        if style_name == "Fluent":
             app.setStyle("Fusion")
-            ThemeManager.toggle_theme(app, False)
-        else:
-            app.setStyle(QStyleFactory.create(style_name))
-            app.setStyleSheet("")
-
-        self.update()
+            ThemeManager.apply_dark_theme(app)
 
     def closeEvent(self, event):
         """Handle window close."""
