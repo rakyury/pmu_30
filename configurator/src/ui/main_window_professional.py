@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
 
 from .widgets import (
-    ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector,
+    ProjectTree, OutputMonitor, AnalogMonitor, DigitalMonitor, VariablesInspector,
     PMUMonitorWidget, HBridgeMonitor, PIDTuner, CANMonitor, DataLoggerWidget,
     ChannelGraphWidget, LogViewerWidget
 )
@@ -171,6 +171,10 @@ class MainWindowProfessional(QMainWindow):
         self.analog_monitor = AnalogMonitor()
         self.monitor_tabs.addTab(self.analog_monitor, "Analog")
 
+        # Digital Input Monitor tab
+        self.digital_monitor = DigitalMonitor()
+        self.monitor_tabs.addTab(self.digital_monitor, "Digital")
+
         # H-Bridge Monitor tab
         self.hbridge_monitor = HBridgeMonitor()
         self.hbridge_monitor.hbridge_command.connect(self._on_hbridge_command)
@@ -279,16 +283,7 @@ class MainWindowProfessional(QMainWindow):
 
         device_menu.addSeparator()
 
-        read_config_action = QAction("Read Configuration", self)
-        read_config_action.triggered.connect(self.read_from_device)
-        device_menu.addAction(read_config_action)
-
-        write_config_action = QAction("Write Configuration", self)
-        write_config_action.triggered.connect(self.write_to_device)
-        device_menu.addAction(write_config_action)
-
-        device_menu.addSeparator()
-
+        # Note: Read/Write Configuration removed - auto-sync on connect and changes
         save_flash_action = QAction("Save to Flash (Permanent)", self)
         save_flash_action.setShortcut("F2")
         save_flash_action.triggered.connect(self.save_to_flash)
@@ -476,6 +471,7 @@ class MainWindowProfessional(QMainWindow):
         self.pmu_monitor.set_connected(False)
         self.output_monitor.set_connected(False)
         self.analog_monitor.set_connected(False)
+        self.digital_monitor.set_connected(False)
         self.variables_inspector.set_connected(False)
         self.pid_tuner.set_connected(False)
         self.can_monitor.set_connected(False)
@@ -508,6 +504,7 @@ class MainWindowProfessional(QMainWindow):
         self.pmu_monitor.set_connected(True)
         self.output_monitor.set_connected(True)
         self.analog_monitor.set_connected(True)
+        self.digital_monitor.set_connected(True)
         self.variables_inspector.set_connected(True)
         self.pid_tuner.set_connected(True)
         self.can_monitor.set_connected(True)
@@ -526,17 +523,22 @@ class MainWindowProfessional(QMainWindow):
 
         if channel_type == ChannelType.DIGITAL_INPUT:
             used_pins = self.project_tree.get_all_used_digital_input_pins()
+            logger.debug(f"Creating new digital input, used_pins={used_pins}")
             dialog = DigitalInputDialog(self, None, available_channels, used_pins, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
+                logger.debug(f"New digital input config: input_pin={config.get('input_pin')}, name={config.get('name')}")
                 self.project_tree.add_channel(channel_type, config)
+                self.digital_monitor.set_inputs(self.project_tree.get_all_inputs())
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.ANALOG_INPUT:
             used_pins = self.project_tree.get_all_used_analog_input_pins()
+            logger.debug(f"Creating new analog input, used_pins={used_pins}")
             dialog = AnalogInputDialog(self, None, available_channels, used_pins, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
+                logger.debug(f"New analog input config: input_pin={config.get('input_pin')}, name={config.get('name')}")
                 self.project_tree.add_channel(channel_type, config)
                 self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
                 self.configuration_changed.emit()
@@ -864,9 +866,19 @@ class MainWindowProfessional(QMainWindow):
             self._edit_dialog_open = False
 
     def _get_available_channels(self) -> dict:
-        """Get all available channels for selection organized by Channel type."""
+        """Get all available channels for selection organized by Channel type.
+
+        Returns dict with lists of tuples: (channel_id: int, name: str)
+        where channel_id is the numeric ID used for firmware references.
+        """
+        def get_channel_info(ch):
+            """Extract (channel_id, display_name) from channel config."""
+            ch_id = ch.get("channel_id", 0)
+            name = ch.get("name", ch.get("id", f"Channel {ch_id}"))
+            return (ch_id, name)
+
         channels = {
-            # Channel format
+            # Channel format - lists of (channel_id, name) tuples
             "digital_inputs": [],
             "analog_inputs": [],
             "power_outputs": [],
@@ -882,62 +894,61 @@ class MainWindowProfessional(QMainWindow):
             "can_tx": [],
             "lua_scripts": [],
             "pid_controllers": [],
-            # Legacy format for backwards compatibility
-            "inputs_physical": [f"in.{i}" for i in range(20)],
-            "outputs_physical": [f"out.{i}" for i in range(30)],
         }
 
         # Add channels from project tree
         for ch in self.project_tree.get_channels_by_type(ChannelType.DIGITAL_INPUT):
-            channels["digital_inputs"].append(ch.get("id", ""))
+            channels["digital_inputs"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.ANALOG_INPUT):
-            channels["analog_inputs"].append(ch.get("id", ""))
+            channels["analog_inputs"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.POWER_OUTPUT):
-            channels["power_outputs"].append(ch.get("id", ""))
+            channels["power_outputs"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.LOGIC):
-            channels["logic"].append(ch.get("id", ""))
+            channels["logic"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.NUMBER):
-            channels["numbers"].append(ch.get("id", ""))
+            channels["numbers"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.TABLE_2D):
-            channels["tables_2d"].append(ch.get("id", ""))
+            channels["tables_2d"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.TABLE_3D):
-            channels["tables_3d"].append(ch.get("id", ""))
+            channels["tables_3d"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.SWITCH):
-            channels["switches"].append(ch.get("id", ""))
+            channels["switches"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.TIMER):
-            channels["timers"].append(ch.get("id", ""))
+            channels["timers"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.FILTER):
-            channels["filters"].append(ch.get("id", ""))
+            channels["filters"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.ENUM):
-            channels["enums"].append(ch.get("id", ""))
+            channels["enums"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.CAN_RX):
-            channels["can_rx"].append(ch.get("id", ""))
+            channels["can_rx"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.CAN_TX):
-            channels["can_tx"].append(ch.get("id", ""))
+            channels["can_tx"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.LUA_SCRIPT):
-            channels["lua_scripts"].append(ch.get("id", ""))
+            channels["lua_scripts"].append(get_channel_info(ch))
 
         for ch in self.project_tree.get_channels_by_type(ChannelType.PID):
-            channels["pid_controllers"].append(ch.get("id", ""))
+            channels["pid_controllers"].append(get_channel_info(ch))
 
         return channels
 
     def _on_config_changed(self):
         """Handle configuration change."""
         self.config_manager.modified = True
+        # Auto-send configuration to device (without flash save)
+        self._send_config_to_device_silent()
 
     # ========== Menu actions ==========
 
@@ -1050,6 +1061,7 @@ class MainWindowProfessional(QMainWindow):
         # Update monitors
         self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
         self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+        self.digital_monitor.set_inputs(self.project_tree.get_all_inputs())
         self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
 
         # Update PID tuner with available PID controllers
@@ -1076,6 +1088,7 @@ class MainWindowProfessional(QMainWindow):
                 'id': ch.get('id', ''),
                 'name': ch.get('name', ch.get('id', '')),
                 'type': ch.get('channel_type', 'logic'),
+                'channel_id': ch.get('channel_id'),  # Numeric ID for resolving references
                 'input_channels': []
             }
 
@@ -1280,6 +1293,7 @@ class MainWindowProfessional(QMainWindow):
             # Update monitors
             self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
             self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+            self.digital_monitor.set_inputs(self.project_tree.get_all_inputs())
             self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
 
             # Store config in config_manager
@@ -1337,8 +1351,63 @@ class MainWindowProfessional(QMainWindow):
 
         self.status_message.setText(f"Applied output state: {'ON' if enabled else 'OFF'}")
 
+    def _send_config_to_device_silent(self):
+        """Send configuration to device silently (no dialogs, no flash save).
+
+        Called automatically when configuration changes in UI.
+        """
+        if not self.device_controller.is_connected():
+            return
+
+        try:
+            import json
+            import struct
+
+            # Get current configuration as JSON
+            config = self.config_manager.get_config()
+            config["channels"] = self.project_tree.get_all_channels()
+            config["can_messages"] = self.config_manager.get_all_can_messages()
+
+            config_json = json.dumps(config, indent=2).encode('utf-8')
+
+            # Split into chunks (1024 bytes each)
+            chunk_size = 1024
+            chunks = [
+                config_json[i:i + chunk_size]
+                for i in range(0, len(config_json), chunk_size)
+            ]
+            total_chunks = len(chunks)
+
+            # Send each chunk
+            for idx, chunk in enumerate(chunks):
+                header = struct.pack('<HH', idx, total_chunks)
+                payload = header + chunk
+                msg_type = 0x22  # SET_CONFIG
+                frame_data = struct.pack('<BHB', 0xAA, len(payload), msg_type) + payload
+
+                # Calculate CRC16-CCITT
+                crc = 0xFFFF
+                for byte in frame_data[1:]:
+                    crc ^= byte << 8
+                    for _ in range(8):
+                        if crc & 0x8000:
+                            crc = (crc << 1) ^ 0x1021
+                        else:
+                            crc <<= 1
+                        crc &= 0xFFFF
+
+                frame = frame_data + struct.pack('<H', crc)
+                self.device_controller.send_command(frame)
+
+            self.status_message.setText(f"Config synced ({len(config_json)} bytes)")
+            logger.debug(f"Config sent to device: {len(config_json)} bytes, {total_chunks} chunks")
+
+        except Exception as e:
+            logger.error(f"Failed to send config silently: {e}")
+            self.status_message.setText("Config sync failed")
+
     def write_to_device(self):
-        """Write configuration to device."""
+        """Write configuration to device (with confirmation dialog)."""
         if not self.device_controller.is_connected():
             QMessageBox.warning(
                 self,
@@ -1695,6 +1764,9 @@ class MainWindowProfessional(QMainWindow):
 
             # Update analog monitor with ADC values (uses switch logic for switch inputs)
             self.analog_monitor.update_from_telemetry(telemetry.adc_values)
+
+            # Update digital monitor with ADC values (first 8 ADC channels are digital inputs)
+            self.digital_monitor.update_from_telemetry(list(telemetry.adc_values))
 
             # Update variables inspector with telemetry data
             variables_data = {
