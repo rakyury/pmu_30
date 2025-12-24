@@ -484,13 +484,30 @@ void EMU_WebUI_SendTelemetry(void)
     p += snprintf(p, end - p,
         "],\"voltage\":%.1f,\"temperature\":%.1f,\"uptime\":%u,\"tick\":%u,"
         "\"wifi\":{\"state\":%d,\"mode\":%d,\"ip\":\"%s\",\"rssi\":%d,\"clients\":%d},"
-        "\"bluetooth\":{\"state\":%d,\"mode\":%d,\"mac\":\"%s\",\"connections\":%d}}}",
+        "\"bluetooth\":{\"state\":%d,\"mode\":%d,\"mac\":\"%s\",\"connections\":%d},"
+        "\"lin\":[",
         (float)state->protection.battery_voltage_mV / 1000.0f,
         (float)max_temp, state->uptime_seconds, state->tick_ms,
         wifi_status.state, wifi_status.active_mode, wifi_ip,
         wifi_status.rssi, wifi_status.connected_clients,
         bt_status.state, bt_status.active_mode, bt_mac,
         bt_status.num_connections);
+
+    /* LIN bus status */
+    for (int i = 0; i < PMU_EMU_LIN_BUS_COUNT; i++) {
+        const PMU_Emu_LIN_Bus_t* lin = PMU_Emu_LIN_GetBus(i);
+        if (i > 0) *p++ = ',';
+        p += snprintf(p, end - p,
+            "{\"state\":%d,\"is_master\":%d,\"baudrate\":%u,"
+            "\"frames_rx\":%u,\"frames_tx\":%u,\"errors\":%u}",
+            lin ? lin->state : 0,
+            lin ? (lin->is_master ? 1 : 0) : 0,
+            lin ? lin->baudrate : 0,
+            lin ? lin->frames_rx : 0,
+            lin ? lin->frames_tx : 0,
+            lin ? lin->errors : 0);
+    }
+    p += snprintf(p, end - p, "]}}");
 
     /* Pre-calculate length once for all clients */
     size_t json_len = p - json;
@@ -1497,6 +1514,67 @@ static void handle_webui_command(const char* json)
         snprintf(msg, sizeof(msg), "Bluetooth %s",
                  advertise ? "advertising" : "not advertising");
         EMU_WebUI_SendLog(1, "bluetooth", msg);
+    }
+
+    /* LIN bus control */
+    else if (strstr(json, "\"action\":\"set_lin\"")) {
+        int bus = parse_int_field(json, "bus");
+        int enabled = parse_int_field(json, "enabled");
+
+        if (bus >= 0 && bus < PMU_EMU_LIN_BUS_COUNT) {
+            PMU_Emu_LIN_SetEnabled(bus, enabled != 0);
+
+            char msg[64];
+            snprintf(msg, sizeof(msg), "LIN%d %s", bus, enabled ? "enabled" : "disabled");
+            EMU_WebUI_SendLog(1, "lin", msg);
+        }
+    }
+
+    /* LIN wakeup */
+    else if (strstr(json, "\"action\":\"lin_wakeup\"")) {
+        int bus = parse_int_field(json, "bus");
+
+        if (bus >= 0 && bus < PMU_EMU_LIN_BUS_COUNT) {
+            PMU_Emu_LIN_SendWakeup(bus);
+
+            char msg[64];
+            snprintf(msg, sizeof(msg), "LIN%d wakeup sent", bus);
+            EMU_WebUI_SendLog(1, "lin", msg);
+        }
+    }
+
+    /* LIN sleep */
+    else if (strstr(json, "\"action\":\"lin_sleep\"")) {
+        int bus = parse_int_field(json, "bus");
+
+        if (bus >= 0 && bus < PMU_EMU_LIN_BUS_COUNT) {
+            PMU_Emu_LIN_SetSleep(bus);
+
+            char msg[64];
+            snprintf(msg, sizeof(msg), "LIN%d sleep mode", bus);
+            EMU_WebUI_SendLog(1, "lin", msg);
+        }
+    }
+
+    /* LIN frame injection */
+    else if (strstr(json, "\"action\":\"inject_lin\"")) {
+        int bus = parse_int_field(json, "bus");
+        int id = parse_int_field(json, "id");
+        int data[8] = {0};
+        int len = parse_int_array(json, "data", data, 8);
+
+        if (bus >= 0 && bus < PMU_EMU_LIN_BUS_COUNT && id >= 0 && id <= 63) {
+            uint8_t lin_data[8];
+            for (int i = 0; i < 8; i++) {
+                lin_data[i] = (uint8_t)data[i];
+            }
+
+            PMU_Emu_LIN_InjectFrame(bus, id, lin_data, len > 0 ? len : 8);
+
+            char msg[128];
+            snprintf(msg, sizeof(msg), "LIN%d inject ID=0x%02X len=%d", bus, id, len);
+            EMU_WebUI_SendLog(1, "lin", msg);
+        }
     }
 }
 
