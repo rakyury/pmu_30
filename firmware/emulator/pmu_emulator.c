@@ -19,8 +19,12 @@
 #include "pmu_channel.h"
 #include "pmu_logic.h"
 #include "pmu_can.h"
+#include "pmu_lin.h"
 #include "pmu_profet.h"
 #include "pmu_protection.h"
+#include "pmu_pid.h"
+#include "pmu_blinkmarine.h"
+#include "pmu_config_json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -75,6 +79,7 @@ extern uint16_t hbridge_position_adc_buffer[4];
 
 /* Private function prototypes -----------------------------------------------*/
 static void Emu_UpdateADC(uint32_t delta_ms);
+static void Emu_UpdateDigitalInputs(uint32_t delta_ms);
 static void Emu_UpdateCAN(uint32_t delta_ms);
 static void Emu_UpdatePROFET(uint32_t delta_ms);
 static void Emu_UpdateHBridge(uint32_t delta_ms);
@@ -118,24 +123,70 @@ int PMU_Emu_Init(void)
     /* Initialize PROFET channels */
     for (int i = 0; i < PMU_EMU_PROFET_CHANNELS; i++) {
         emulator.profet[i].state = 0;  /* OFF */
+        emulator.profet[i].prev_state = 0;
         emulator.profet[i].pwm_duty = 0;
         emulator.profet[i].current_mA = 0;
         emulator.profet[i].temperature_C = 25;
         emulator.profet[i].fault_flags = 0;
         emulator.profet[i].load_resistance_ohm = 12.0f;  /* 1A @ 12V default */
+        /* Realistic simulation defaults */
+        emulator.profet[i].inrush_remaining_ms = 0;
+        emulator.profet[i].inrush_multiplier = 5.0f;  /* 5x inrush for lamps/motors */
+        emulator.profet[i].thermal_energy_J = 0.0f;
+        emulator.profet[i].soft_start_ms = 0;  /* 0 = no soft-start */
+        emulator.profet[i].soft_start_elapsed = 0;
     }
 
-    /* Initialize H-Bridge channels */
+    /* Initialize H-Bridge channels with realistic motor parameters */
     for (int i = 0; i < PMU_EMU_HBRIDGE_CHANNELS; i++) {
-        emulator.hbridge[i].mode = 0;  /* COAST */
-        emulator.hbridge[i].state = 0;  /* IDLE */
-        emulator.hbridge[i].duty_cycle = 0;
-        emulator.hbridge[i].current_mA = 0;
-        emulator.hbridge[i].position = 0;
-        emulator.hbridge[i].target_position = 0;
-        emulator.hbridge[i].motor_speed = 100.0f;  /* Units/sec */
-        emulator.hbridge[i].load_inertia = 1.0f;
-        emulator.hbridge[i].fault_flags = 0;
+        PMU_Emu_HBridge_Channel_t* hb = &emulator.hbridge[i];
+
+        hb->mode = 0;  /* COAST */
+        hb->state = 0;  /* IDLE */
+        hb->duty_cycle = 0;
+        hb->current_mA = 0;
+        hb->position = 500;  /* Mid-position */
+        hb->target_position = 500;
+        hb->motor_speed = 100.0f;  /* Legacy: units/sec */
+        hb->load_inertia = 1.0f;   /* Legacy */
+        hb->fault_flags = 0;
+
+        /* Default motor parameters - typical 12V automotive wiper motor */
+        PMU_Emu_MotorParams_t* mp = &hb->motor_params;
+        mp->Kt = 0.05f;              /* Torque constant: 0.05 Nm/A */
+        mp->Ke = 0.05f;              /* Back-EMF constant (V/(rad/s)) = Kt for DC motors */
+        mp->Rm = 0.5f;               /* Motor resistance: 0.5 Ohm */
+        mp->Lm = 0.001f;             /* Motor inductance: 1 mH */
+        mp->Jm = 0.0001f;            /* Motor inertia: 100 g·cm² */
+        mp->Jl = 0.001f;             /* Load inertia: 1000 g·cm² (wiper arm + blade) */
+        mp->gear_ratio = 50.0f;      /* Typical worm gear ratio */
+        mp->Bf = 0.0001f;            /* Viscous friction */
+        mp->Tf = 0.01f;              /* Coulomb friction: 10 mNm */
+        mp->Ts = 0.02f;              /* Stiction: 20 mNm */
+        mp->stiction_velocity = 0.1f; /* 0.1 rad/s threshold */
+        mp->pos_min_rad = 0.0f;      /* Min position: 0 rad */
+        mp->pos_max_rad = 3.14159f;  /* Max position: π rad (180°) */
+        mp->end_stop_stiffness = 10.0f; /* End-stop spring: 10 Nm/rad */
+        mp->thermal_resistance = 5.0f;  /* 5 K/W */
+        mp->thermal_capacitance = 50.0f; /* 50 J/K */
+
+        /* Initial motor state */
+        PMU_Emu_MotorState_t* ms = &hb->motor_state;
+        ms->current_A = 0.0f;
+        ms->voltage_V = 0.0f;
+        ms->back_emf_V = 0.0f;
+        ms->omega = 0.0f;
+        ms->omega_prev = 0.0f;
+        ms->theta = 1.5708f;  /* Start at π/2 rad (90°, mid-position) */
+        ms->torque_motor = 0.0f;
+        ms->torque_friction = 0.0f;
+        ms->torque_load = 0.0f;
+        ms->acceleration = 0.0f;
+        ms->temperature_C = 25.0f;
+        ms->power_dissipated_W = 0.0f;
+        ms->at_end_stop = 0;
+        ms->stalled = 0;
+        ms->stall_time_ms = 0;
     }
 
     /* Initialize protection */
@@ -151,6 +202,35 @@ int PMU_Emu_Init(void)
     emulator.protection.system_status = 0;
     emulator.protection.user_error = 0;
     emulator.protection.is_turning_off = 0;
+
+    /* Initialize WiFi module */
+    emulator.wifi.state = PMU_EMU_WIFI_STATE_OFF;
+    emulator.wifi.enabled = false;
+    emulator.wifi.ap_mode = false;
+    strcpy(emulator.wifi.ssid, "");
+    strcpy(emulator.wifi.ip_addr, "0.0.0.0");
+    emulator.wifi.rssi = -100;
+    emulator.wifi.channel = 0;
+    emulator.wifi.tx_bytes = 0;
+    emulator.wifi.rx_bytes = 0;
+    emulator.wifi.clients_connected = 0;
+    emulator.wifi.uptime_s = 0;
+
+    /* Initialize Bluetooth module */
+    emulator.bluetooth.state = PMU_EMU_BT_STATE_OFF;
+    emulator.bluetooth.enabled = false;
+    emulator.bluetooth.ble_mode = true;
+    strcpy(emulator.bluetooth.device_name, "PMU-30");
+    strcpy(emulator.bluetooth.peer_address, "");
+    emulator.bluetooth.rssi = -100;
+    emulator.bluetooth.tx_bytes = 0;
+    emulator.bluetooth.rx_bytes = 0;
+    emulator.bluetooth.authenticated = false;
+    emulator.bluetooth.uptime_s = 0;
+
+    /* Initialize flash simulation */
+    emulator.flash_temp_C = 25;
+    emulator.flash_file_count = 0;
 
     /* Seed random for noise */
     srand((unsigned int)time(NULL));
@@ -218,10 +298,15 @@ void PMU_Emu_Tick(uint32_t delta_ms)
 
     /* Update emulator subsystems (hardware simulation) */
     Emu_UpdateADC(scaled_delta);
+    Emu_UpdateDigitalInputs(scaled_delta);
     Emu_UpdateCAN(scaled_delta);
     Emu_UpdatePROFET(scaled_delta);
     Emu_UpdateHBridge(scaled_delta);
     Emu_UpdateProtection(scaled_delta);
+
+    /* Update firmware ADC module (processes analog inputs, updates digital_state) */
+    extern void PMU_ADC_Update(void);
+    PMU_ADC_Update();
 
     /* Update firmware PROFET module (reads current from emulator via SPI stubs) */
     PMU_PROFET_Update();
@@ -232,9 +317,11 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     /* Update firmware logic (runs at 1kHz in real firmware) */
     static uint32_t channel_update_accum = 0;
     static uint32_t logic_update_accum = 0;
+    static uint32_t debug_accum = 0;
 
     channel_update_accum += scaled_delta;
     logic_update_accum += scaled_delta;
+    debug_accum += scaled_delta;
 
     /* Channel update at 1kHz */
     if (channel_update_accum >= 1) {
@@ -245,11 +332,30 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     /* Logic update at 500Hz (every 2ms) */
     if (logic_update_accum >= 2) {
         PMU_Logic_Execute();
+        PMU_PID_Update();
+        PMU_PowerOutput_Update();  /* Update outputs based on control channels */
         logic_update_accum = 0;
+    }
+
+    /* Debug output every 2 seconds */
+    if (debug_accum >= 2000) {
+        extern uint8_t PMU_ADC_GetDigitalState(uint8_t channel);
+        extern uint16_t PMU_ADC_GetRawValue(uint8_t channel);
+        int32_t ch_val = PMU_Channel_GetValue(0);
+        uint8_t dig_state = PMU_ADC_GetDigitalState(0);
+        uint16_t raw_val = PMU_ADC_GetRawValue(0);
+        /* Calculate voltage in mV: (raw * 3300) / 1024 */
+        uint16_t voltage_mv = (raw_val * 3300) / 1024;
+        printf("[DEBUG] Ch0: raw=%d voltage=%dmV dig_state=%d ch_val=%d\n",
+               raw_val, voltage_mv, dig_state, (int)ch_val);
+        debug_accum = 0;
     }
 
     /* CAN update */
     PMU_CAN_Update();
+
+    /* BlinkMarine keypad update */
+    PMU_BlinkMarine_Update();
 }
 
 /**
@@ -335,6 +441,203 @@ void PMU_Emu_ADC_SetAll(const uint16_t* values)
 
     for (int i = 0; i < PMU_EMU_ADC_CHANNELS; i++) {
         PMU_Emu_ADC_SetRaw(i, values[i]);
+    }
+}
+
+/* ============================================================================
+ * Digital Input Emulation
+ * ============================================================================ */
+
+int PMU_Emu_DI_SetState(uint8_t channel, bool state)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return -1;
+    }
+
+    PMU_Emu_Digital_Input_t* di = &emulator.digital_inputs[channel];
+    bool old_state = di->state;
+    di->state = state;
+
+    /* Detect edges */
+    if (state && !old_state) {
+        di->edge_rising = true;
+        di->pulse_count++;
+    } else if (!state && old_state) {
+        di->edge_falling = true;
+    }
+
+    /* Update timestamp for debounce */
+    if (state != old_state) {
+        di->last_change_ms = emulator.tick_ms;
+    }
+
+    /* Immediate debounced state update if no debounce configured */
+    if (di->debounce_ms == 0) {
+        di->debounced_state = di->inverted ? !state : state;
+    }
+
+    EMU_LOG("DI[%d] = %d", channel, state);
+    return 0;
+}
+
+bool PMU_Emu_DI_GetState(uint8_t channel)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return false;
+    }
+    return emulator.digital_inputs[channel].debounced_state;
+}
+
+int PMU_Emu_DI_Configure(uint8_t channel, bool inverted, bool pull_up, uint32_t debounce_ms)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return -1;
+    }
+
+    PMU_Emu_Digital_Input_t* di = &emulator.digital_inputs[channel];
+    di->inverted = inverted;
+    di->pull_up = pull_up;
+    di->pull_down = !pull_up;
+    di->debounce_ms = debounce_ms;
+
+    /* Set initial state based on pull-up/down */
+    if (pull_up) {
+        di->state = true;
+        di->debounced_state = inverted ? false : true;
+    } else {
+        di->state = false;
+        di->debounced_state = inverted ? true : false;
+    }
+
+    return 0;
+}
+
+int PMU_Emu_DI_Pulse(uint8_t channel, uint32_t duration_ms)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return -1;
+    }
+
+    /* Toggle on, then schedule toggle off (simple implementation) */
+    PMU_Emu_DI_SetState(channel, true);
+    /* Note: In a real implementation, this would use a timer to turn off after duration_ms */
+    /* For now, just log the pulse request */
+    EMU_LOG("DI[%d] pulse %dms requested (simplified)", channel, duration_ms);
+    return 0;
+}
+
+int PMU_Emu_DI_Toggle(uint8_t channel)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return -1;
+    }
+
+    return PMU_Emu_DI_SetState(channel, !emulator.digital_inputs[channel].state);
+}
+
+void PMU_Emu_DI_SetAll(uint16_t states)
+{
+    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS; i++) {
+        PMU_Emu_DI_SetState(i, (states >> i) & 1);
+    }
+}
+
+uint16_t PMU_Emu_DI_GetAll(void)
+{
+    uint16_t result = 0;
+    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS; i++) {
+        if (emulator.digital_inputs[i].debounced_state) {
+            result |= (1 << i);
+        }
+    }
+    return result;
+}
+
+bool PMU_Emu_DI_GetRisingEdge(uint8_t channel)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return false;
+    }
+
+    bool edge = emulator.digital_inputs[channel].edge_rising;
+    emulator.digital_inputs[channel].edge_rising = false;
+    return edge;
+}
+
+bool PMU_Emu_DI_GetFallingEdge(uint8_t channel)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return false;
+    }
+
+    bool edge = emulator.digital_inputs[channel].edge_falling;
+    emulator.digital_inputs[channel].edge_falling = false;
+    return edge;
+}
+
+uint32_t PMU_Emu_DI_GetPulseCount(uint8_t channel, bool reset)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return 0;
+    }
+
+    uint32_t count = emulator.digital_inputs[channel].pulse_count;
+    if (reset) {
+        emulator.digital_inputs[channel].pulse_count = 0;
+    }
+    return count;
+}
+
+const PMU_Emu_Digital_Input_t* PMU_Emu_DI_GetChannel(uint8_t channel)
+{
+    if (channel >= PMU_EMU_DIGITAL_INPUTS) {
+        return NULL;
+    }
+    return &emulator.digital_inputs[channel];
+}
+
+/**
+ * @brief Update digital input debouncing (called from tick)
+ */
+static void Emu_UpdateDigitalInputs(uint32_t delta_ms)
+{
+    (void)delta_ms;
+
+    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS; i++) {
+        PMU_Emu_Digital_Input_t* di = &emulator.digital_inputs[i];
+
+        if (di->debounce_ms > 0) {
+            /* Check if debounce time has elapsed */
+            uint32_t elapsed = emulator.tick_ms - di->last_change_ms;
+            if (elapsed >= di->debounce_ms) {
+                bool new_state = di->inverted ? !di->state : di->state;
+                di->debounced_state = new_state;
+            }
+        }
+    }
+
+    /* Sync digital inputs to ADC channels for switch processing.
+     * Maps first 16 digital inputs to first 16 ADC channels.
+     * HIGH = 5V (raw value 1023), LOW = 0V (raw value 0).
+     * Only syncs if the ADC channel is NOT enabled for voltage injection. */
+    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS && i < PMU_EMU_ADC_CHANNELS; i++) {
+        PMU_Emu_Digital_Input_t* di = &emulator.digital_inputs[i];
+
+        /* Only sync if not explicitly set by voltage injection */
+        if (!emulator.adc[i].enabled) {
+            /* Set ADC raw value based on digital state:
+             * For active-low switch: HIGH (pressed) = 0V, LOW (released) = 5V
+             * The ADC module will apply threshold detection */
+            if (di->debounced_state) {
+                /* Digital input HIGH -> switch closed to ground -> 0V */
+                emulator.adc[i].raw_value = 0;
+                emulator.adc[i].voltage_v = 0.0f;
+            } else {
+                /* Digital input LOW -> switch open, pulled up -> 5V */
+                emulator.adc[i].raw_value = 1023;
+                emulator.adc[i].voltage_v = 5.0f;
+            }
+        }
     }
 }
 
@@ -582,6 +885,182 @@ void PMU_Emu_HBridge_SetCallback(PMU_Emu_OutputCallback_t callback)
     emulator.on_hbridge_change = callback;
 }
 
+/**
+ * @brief Set H-Bridge mode and PWM duty cycle
+ */
+int PMU_Emu_HBridge_SetMode(uint8_t bridge, uint8_t mode, uint16_t duty)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS) {
+        return -1;
+    }
+
+    PMU_Emu_HBridge_Channel_t* hb = &emulator.hbridge[bridge];
+
+    /* Limit duty cycle */
+    if (duty > 1000) duty = 1000;
+
+    /* Set mode */
+    uint8_t old_mode = hb->mode;
+    hb->mode = mode;
+    hb->duty_cycle = duty;
+
+    /* Update state based on mode */
+    if (mode == 0) { /* COAST */
+        hb->state = 0; /* IDLE */
+    } else if (mode == 1 || mode == 2) { /* FORWARD or REVERSE */
+        hb->state = 1; /* RUNNING */
+    } else if (mode == 3) { /* BRAKE */
+        hb->state = 0; /* IDLE */
+    }
+
+    EMU_LOG("HBridge[%d] mode=%d duty=%d (%.1f%%)", bridge, mode, duty, duty / 10.0f);
+
+    /* Notify callback - encode mode in high nibble, keep duty in low 12 bits */
+    if (emulator.on_hbridge_change && old_mode != mode) {
+        uint16_t encoded_value = ((uint16_t)mode << 12) | (duty & 0x0FFF);
+        emulator.on_hbridge_change(bridge, encoded_value);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Set H-Bridge target position for PID control
+ */
+int PMU_Emu_HBridge_SetTarget(uint8_t bridge, uint16_t target)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS) {
+        return -1;
+    }
+
+    if (target > 1000) target = 1000;
+
+    emulator.hbridge[bridge].target_position = target;
+    EMU_LOG("HBridge[%d] target position=%d", bridge, target);
+    return 0;
+}
+
+/**
+ * @brief Set detailed motor physics parameters
+ */
+int PMU_Emu_HBridge_SetMotorPhysics(uint8_t bridge, const PMU_Emu_MotorParams_t* params)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS || params == NULL) {
+        return -1;
+    }
+
+    memcpy(&emulator.hbridge[bridge].motor_params, params, sizeof(PMU_Emu_MotorParams_t));
+    EMU_LOG("HBridge[%d] motor physics updated: Kt=%.3f, Ke=%.3f, Rm=%.2f",
+            bridge, params->Kt, params->Ke, params->Rm);
+    return 0;
+}
+
+/**
+ * @brief Set motor preset configuration
+ * Presets: "wiper", "valve", "window", "seat", "pump"
+ */
+int PMU_Emu_HBridge_SetMotorPreset(uint8_t bridge, const char* preset)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS || preset == NULL) {
+        return -1;
+    }
+
+    PMU_Emu_MotorParams_t* mp = &emulator.hbridge[bridge].motor_params;
+
+    if (strcmp(preset, "wiper") == 0) {
+        /* Windshield wiper motor - high torque, moderate speed */
+        mp->Kt = 0.05f;    mp->Ke = 0.05f;
+        mp->Rm = 0.5f;     mp->Lm = 0.001f;
+        mp->Jm = 0.0001f;  mp->Jl = 0.001f;
+        mp->gear_ratio = 50.0f;
+        mp->Bf = 0.0001f;  mp->Tf = 0.01f;   mp->Ts = 0.02f;
+        mp->stiction_velocity = 0.1f;
+        mp->pos_min_rad = 0.0f;  mp->pos_max_rad = 3.14159f;
+        mp->end_stop_stiffness = 10.0f;
+        mp->thermal_resistance = 5.0f;  mp->thermal_capacitance = 50.0f;
+    }
+    else if (strcmp(preset, "valve") == 0) {
+        /* Valve actuator - slow, precise positioning */
+        mp->Kt = 0.03f;    mp->Ke = 0.03f;
+        mp->Rm = 2.0f;     mp->Lm = 0.002f;
+        mp->Jm = 0.00005f; mp->Jl = 0.0005f;
+        mp->gear_ratio = 100.0f;
+        mp->Bf = 0.0005f;  mp->Tf = 0.005f;  mp->Ts = 0.01f;
+        mp->stiction_velocity = 0.05f;
+        mp->pos_min_rad = 0.0f;  mp->pos_max_rad = 1.5708f;  /* 90° */
+        mp->end_stop_stiffness = 20.0f;
+        mp->thermal_resistance = 8.0f;  mp->thermal_capacitance = 30.0f;
+    }
+    else if (strcmp(preset, "window") == 0) {
+        /* Power window motor - moderate speed, high load */
+        mp->Kt = 0.08f;    mp->Ke = 0.08f;
+        mp->Rm = 0.3f;     mp->Lm = 0.0008f;
+        mp->Jm = 0.0002f;  mp->Jl = 0.002f;
+        mp->gear_ratio = 80.0f;
+        mp->Bf = 0.0002f;  mp->Tf = 0.02f;   mp->Ts = 0.03f;
+        mp->stiction_velocity = 0.1f;
+        mp->pos_min_rad = 0.0f;  mp->pos_max_rad = 6.28318f;  /* 360° */
+        mp->end_stop_stiffness = 15.0f;
+        mp->thermal_resistance = 4.0f;  mp->thermal_capacitance = 60.0f;
+    }
+    else if (strcmp(preset, "seat") == 0) {
+        /* Seat motor - very slow, very high torque */
+        mp->Kt = 0.1f;     mp->Ke = 0.1f;
+        mp->Rm = 0.2f;     mp->Lm = 0.0005f;
+        mp->Jm = 0.0003f;  mp->Jl = 0.005f;
+        mp->gear_ratio = 200.0f;
+        mp->Bf = 0.0003f;  mp->Tf = 0.05f;   mp->Ts = 0.08f;
+        mp->stiction_velocity = 0.05f;
+        mp->pos_min_rad = 0.0f;  mp->pos_max_rad = 1.0472f;  /* 60° */
+        mp->end_stop_stiffness = 25.0f;
+        mp->thermal_resistance = 3.0f;  mp->thermal_capacitance = 80.0f;
+    }
+    else if (strcmp(preset, "pump") == 0) {
+        /* Fluid pump motor - continuous rotation, no position limits */
+        mp->Kt = 0.04f;    mp->Ke = 0.04f;
+        mp->Rm = 0.8f;     mp->Lm = 0.001f;
+        mp->Jm = 0.00015f; mp->Jl = 0.0008f;
+        mp->gear_ratio = 1.0f;  /* Direct drive */
+        mp->Bf = 0.0001f;  mp->Tf = 0.008f;  mp->Ts = 0.012f;
+        mp->stiction_velocity = 0.1f;
+        mp->pos_min_rad = -1e6f;  mp->pos_max_rad = 1e6f;  /* No limits */
+        mp->end_stop_stiffness = 0.0f;
+        mp->thermal_resistance = 6.0f;  mp->thermal_capacitance = 40.0f;
+    }
+    else {
+        EMU_LOG("HBridge[%d] unknown preset: %s", bridge, preset);
+        return -1;
+    }
+
+    EMU_LOG("HBridge[%d] preset '%s' applied", bridge, preset);
+    return 0;
+}
+
+/**
+ * @brief Apply external load torque to motor
+ */
+int PMU_Emu_HBridge_SetLoadTorque(uint8_t bridge, float torque_Nm)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS) {
+        return -1;
+    }
+
+    emulator.hbridge[bridge].motor_state.torque_load = torque_Nm;
+    EMU_LOG("HBridge[%d] load torque = %.3f Nm", bridge, torque_Nm);
+    return 0;
+}
+
+/**
+ * @brief Get motor dynamic state
+ */
+const PMU_Emu_MotorState_t* PMU_Emu_HBridge_GetMotorState(uint8_t bridge)
+{
+    if (bridge >= PMU_EMU_HBRIDGE_CHANNELS) {
+        return NULL;
+    }
+    return &emulator.hbridge[bridge].motor_state;
+}
+
 /* ============================================================================
  * Protection System Emulation
  * ============================================================================ */
@@ -621,6 +1100,302 @@ void PMU_Emu_Protection_ClearFaults(void)
 void PMU_Emu_Protection_SetAutoFaults(bool enable)
 {
     emulator.protection.enable_auto_faults = enable;
+}
+
+/* ============================================================================
+ * WiFi Module Emulation
+ * ============================================================================ */
+
+const PMU_Emu_WiFi_t* PMU_Emu_WiFi_GetState(void)
+{
+    return &emulator.wifi;
+}
+
+void PMU_Emu_WiFi_SetEnabled(bool enabled)
+{
+    emulator.wifi.enabled = enabled;
+    if (enabled) {
+        if (emulator.wifi.state == PMU_EMU_WIFI_STATE_OFF) {
+            emulator.wifi.state = PMU_EMU_WIFI_STATE_INIT;
+        }
+    } else {
+        emulator.wifi.state = PMU_EMU_WIFI_STATE_OFF;
+        emulator.wifi.uptime_s = 0;
+    }
+    EMU_LOG("WiFi: %s", enabled ? "enabled" : "disabled");
+}
+
+void PMU_Emu_WiFi_SetState(PMU_Emu_WiFi_State_t state)
+{
+    emulator.wifi.state = state;
+    if (state == PMU_EMU_WIFI_STATE_CONNECTED || state == PMU_EMU_WIFI_STATE_AP_MODE) {
+        emulator.wifi.enabled = true;
+    }
+}
+
+void PMU_Emu_WiFi_SetConnection(const char* ssid, int8_t rssi, uint8_t channel)
+{
+    if (ssid) {
+        strncpy(emulator.wifi.ssid, ssid, sizeof(emulator.wifi.ssid) - 1);
+        emulator.wifi.ssid[sizeof(emulator.wifi.ssid) - 1] = '\0';
+    }
+    emulator.wifi.rssi = rssi;
+    emulator.wifi.channel = channel;
+    EMU_LOG("WiFi: connected to %s (ch%d, %ddBm)", emulator.wifi.ssid, channel, rssi);
+}
+
+void PMU_Emu_WiFi_SetIP(const char* ip)
+{
+    if (ip) {
+        strncpy(emulator.wifi.ip_addr, ip, sizeof(emulator.wifi.ip_addr) - 1);
+        emulator.wifi.ip_addr[sizeof(emulator.wifi.ip_addr) - 1] = '\0';
+    }
+}
+
+void PMU_Emu_WiFi_AddTraffic(uint32_t tx_bytes, uint32_t rx_bytes)
+{
+    emulator.wifi.tx_bytes += tx_bytes;
+    emulator.wifi.rx_bytes += rx_bytes;
+}
+
+/* ============================================================================
+ * Bluetooth Module Emulation
+ * ============================================================================ */
+
+const PMU_Emu_Bluetooth_t* PMU_Emu_BT_GetState(void)
+{
+    return &emulator.bluetooth;
+}
+
+void PMU_Emu_BT_SetEnabled(bool enabled)
+{
+    emulator.bluetooth.enabled = enabled;
+    if (enabled) {
+        if (emulator.bluetooth.state == PMU_EMU_BT_STATE_OFF) {
+            emulator.bluetooth.state = PMU_EMU_BT_STATE_ADVERTISING;
+        }
+    } else {
+        emulator.bluetooth.state = PMU_EMU_BT_STATE_OFF;
+        emulator.bluetooth.uptime_s = 0;
+    }
+    EMU_LOG("Bluetooth: %s", enabled ? "enabled" : "disabled");
+}
+
+void PMU_Emu_BT_SetState(PMU_Emu_BT_State_t state)
+{
+    emulator.bluetooth.state = state;
+    if (state == PMU_EMU_BT_STATE_CONNECTED) {
+        emulator.bluetooth.enabled = true;
+    }
+}
+
+void PMU_Emu_BT_SetConnection(const char* peer_address, int8_t rssi)
+{
+    if (peer_address) {
+        strncpy(emulator.bluetooth.peer_address, peer_address, sizeof(emulator.bluetooth.peer_address) - 1);
+        emulator.bluetooth.peer_address[sizeof(emulator.bluetooth.peer_address) - 1] = '\0';
+    }
+    emulator.bluetooth.rssi = rssi;
+    EMU_LOG("Bluetooth: connected to %s (%ddBm)", emulator.bluetooth.peer_address, rssi);
+}
+
+void PMU_Emu_BT_AddTraffic(uint32_t tx_bytes, uint32_t rx_bytes)
+{
+    emulator.bluetooth.tx_bytes += tx_bytes;
+    emulator.bluetooth.rx_bytes += rx_bytes;
+}
+
+void PMU_Emu_WiFi_SetAPMode(bool ap_mode)
+{
+    emulator.wifi.ap_mode = ap_mode;
+    if (emulator.wifi.enabled) {
+        emulator.wifi.state = ap_mode ? PMU_EMU_WIFI_STATE_AP_MODE : PMU_EMU_WIFI_STATE_CONNECTED;
+    }
+    EMU_LOG("WiFi: AP mode %s", ap_mode ? "enabled" : "disabled");
+}
+
+void PMU_Emu_WiFi_Connect(const char* ssid)
+{
+    if (!emulator.wifi.enabled) {
+        emulator.wifi.enabled = true;
+    }
+    emulator.wifi.state = PMU_EMU_WIFI_STATE_CONNECTING;
+    if (ssid && ssid[0]) {
+        strncpy(emulator.wifi.ssid, ssid, sizeof(emulator.wifi.ssid) - 1);
+        emulator.wifi.ssid[sizeof(emulator.wifi.ssid) - 1] = '\0';
+    }
+    /* Simulate successful connection after a short delay (in next tick) */
+    emulator.wifi.state = PMU_EMU_WIFI_STATE_CONNECTED;
+    emulator.wifi.rssi = -55;
+    emulator.wifi.channel = 6;
+    snprintf(emulator.wifi.ip_addr, sizeof(emulator.wifi.ip_addr), "192.168.1.%d", 100 + (rand() % 50));
+    EMU_LOG("WiFi: connected to '%s'", ssid ? ssid : "(default)");
+}
+
+void PMU_Emu_WiFi_Disconnect(void)
+{
+    emulator.wifi.state = PMU_EMU_WIFI_STATE_INIT;
+    emulator.wifi.rssi = 0;
+    emulator.wifi.clients_connected = 0;
+    snprintf(emulator.wifi.ip_addr, sizeof(emulator.wifi.ip_addr), "0.0.0.0");
+    EMU_LOG("WiFi: disconnected");
+}
+
+void PMU_Emu_BT_SetBLEMode(bool ble_mode)
+{
+    emulator.bluetooth.ble_mode = ble_mode;
+    EMU_LOG("Bluetooth: BLE mode %s", ble_mode ? "enabled" : "disabled");
+}
+
+void PMU_Emu_BT_SetAdvertising(bool advertising)
+{
+    if (!emulator.bluetooth.enabled) {
+        emulator.bluetooth.enabled = true;
+        emulator.bluetooth.state = PMU_EMU_BT_STATE_INIT;
+    }
+    if (advertising) {
+        emulator.bluetooth.state = PMU_EMU_BT_STATE_ADVERTISING;
+    } else if (emulator.bluetooth.state == PMU_EMU_BT_STATE_ADVERTISING) {
+        emulator.bluetooth.state = PMU_EMU_BT_STATE_INIT;
+    }
+    EMU_LOG("Bluetooth: advertising %s", advertising ? "started" : "stopped");
+}
+
+/* ============================================================================
+ * LIN Bus Emulation
+ * ============================================================================ */
+
+const PMU_Emu_LIN_Bus_t* PMU_Emu_LIN_GetBus(uint8_t bus)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) {
+        return NULL;
+    }
+    return &emulator.lin[bus];
+}
+
+void PMU_Emu_LIN_SetEnabled(uint8_t bus, bool enabled)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+
+    emulator.lin[bus].enabled = enabled;
+    emulator.lin[bus].state = enabled ? PMU_EMU_LIN_STATE_IDLE : PMU_EMU_LIN_STATE_OFF;
+    EMU_LOG("LIN%d: %s", bus, enabled ? "enabled" : "disabled");
+}
+
+void PMU_Emu_LIN_SetMasterMode(uint8_t bus, bool is_master)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+
+    emulator.lin[bus].is_master = is_master;
+    EMU_LOG("LIN%d: %s mode", bus, is_master ? "master" : "slave");
+}
+
+void PMU_Emu_LIN_InjectFrame(uint8_t bus, uint8_t frame_id,
+                             const uint8_t* data, uint8_t length)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT || !data || length > 8) return;
+    if (frame_id > 63) return;
+
+    /* Store in frame data buffer */
+    if (frame_id < PMU_EMU_LIN_FRAME_COUNT) {
+        memcpy(emulator.lin[bus].frame_data[frame_id], data, length);
+    }
+
+    /* Add to RX queue */
+    PMU_Emu_LIN_Bus_t* lin = &emulator.lin[bus];
+    if (lin->rx_queue_count < PMU_EMU_LIN_RX_QUEUE_SIZE) {
+        uint8_t idx = (lin->rx_queue_head + lin->rx_queue_count) % PMU_EMU_LIN_RX_QUEUE_SIZE;
+        lin->rx_queue[idx].frame_id = frame_id;
+        memcpy(lin->rx_queue[idx].data, data, length);
+        lin->rx_queue[idx].length = length;
+        lin->rx_queue[idx].timestamp = emulator.tick_ms;
+        lin->rx_queue_count++;
+    }
+
+    lin->frames_rx++;
+    lin->state = PMU_EMU_LIN_STATE_ACTIVE;
+
+    /* Forward to LIN protocol handler */
+    PMU_LIN_HandleRxFrame(bus, frame_id, data, length);
+
+    EMU_LOG("LIN%d: injected frame 0x%02X (%d bytes)", bus, frame_id, length);
+}
+
+void PMU_Emu_LIN_Transmit(uint8_t bus, uint8_t frame_id,
+                          const uint8_t* data, uint8_t length)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT || !data || length > 8) return;
+    if (frame_id > 63) return;
+
+    /* Store in frame data buffer */
+    if (frame_id < PMU_EMU_LIN_FRAME_COUNT) {
+        memcpy(emulator.lin[bus].frame_data[frame_id], data, length);
+    }
+
+    emulator.lin[bus].frames_tx++;
+    emulator.lin[bus].state = PMU_EMU_LIN_STATE_ACTIVE;
+
+    EMU_LOG("LIN%d: TX frame 0x%02X (%d bytes)", bus, frame_id, length);
+}
+
+void PMU_Emu_LIN_RequestFrame(uint8_t bus, uint8_t frame_id)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+    if (frame_id > 63) return;
+
+    /* In emulator, immediately respond with stored frame data */
+    if (frame_id < PMU_EMU_LIN_FRAME_COUNT) {
+        PMU_LIN_HandleRxFrame(bus, frame_id,
+                              emulator.lin[bus].frame_data[frame_id], 8);
+    }
+
+    EMU_LOG("LIN%d: request frame 0x%02X", bus, frame_id);
+}
+
+void PMU_Emu_LIN_HandleRx(uint8_t bus, uint8_t frame_id,
+                          const uint8_t* data, uint8_t length)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+
+    /* Store frame data */
+    if (frame_id < PMU_EMU_LIN_FRAME_COUNT) {
+        memcpy(emulator.lin[bus].frame_data[frame_id], data, length);
+    }
+
+    emulator.lin[bus].frames_rx++;
+}
+
+void PMU_Emu_LIN_SendWakeup(uint8_t bus)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+
+    emulator.lin[bus].state = PMU_EMU_LIN_STATE_IDLE;
+    EMU_LOG("LIN%d: wakeup sent", bus);
+}
+
+void PMU_Emu_LIN_SetSleep(uint8_t bus)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT) return;
+
+    emulator.lin[bus].state = PMU_EMU_LIN_STATE_SLEEP;
+    EMU_LOG("LIN%d: sleep mode", bus);
+}
+
+int PMU_Emu_LIN_GetFrameData(uint8_t bus, uint8_t frame_id, uint8_t* data)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT || !data) return -1;
+    if (frame_id >= PMU_EMU_LIN_FRAME_COUNT) return -1;
+
+    memcpy(data, emulator.lin[bus].frame_data[frame_id], 8);
+    return 0;
+}
+
+void PMU_Emu_LIN_SetFrameData(uint8_t bus, uint8_t frame_id, const uint8_t* data)
+{
+    if (bus >= PMU_EMU_LIN_BUS_COUNT || !data) return;
+    if (frame_id >= PMU_EMU_LIN_FRAME_COUNT) return;
+
+    memcpy(emulator.lin[bus].frame_data[frame_id], data, 8);
 }
 
 /* ============================================================================
@@ -830,12 +1605,27 @@ void PMU_Emu_GetStatsString(char* buffer, size_t size)
  * Private Functions - Subsystem Updates
  * ============================================================================ */
 
+/* External ADC DMA buffer from pmu_adc.c */
+extern uint16_t adc_dma_buffer[20];
+
 static void Emu_UpdateADC(uint32_t delta_ms)
 {
     (void)delta_ms;
 
-    /* Update ADC DMA buffer with emulated values */
-    /* The firmware reads from this buffer */
+    /* Update ADC DMA buffer with emulated values
+     * The firmware reads from this buffer via ADC_ReadChannel()
+     * Buffer values are 12-bit (0-4095) */
+    for (int i = 0; i < 20 && i < PMU_EMU_ADC_CHANNELS; i++) {
+        uint16_t raw = emulator.adc[i].raw_value;  /* 10-bit (0-1023) */
+
+        /* Add noise if enabled */
+        if (emulator.adc[i].use_noise && emulator.adc[i].noise_amplitude > 0) {
+            raw = Emu_AddNoise(raw, emulator.adc[i].noise_amplitude);
+        }
+
+        /* Convert 10-bit to 12-bit for buffer */
+        adc_dma_buffer[i] = raw << 2;
+    }
 }
 
 static void Emu_UpdateCAN(uint32_t delta_ms)
@@ -860,139 +1650,373 @@ static void Emu_UpdateCAN(uint32_t delta_ms)
 
 static void Emu_UpdatePROFET(uint32_t delta_ms)
 {
-    (void)delta_ms;
-
     uint32_t total_current = 0;
+    const float AMBIENT_TEMP = 25.0f;
+    const float THERMAL_RESISTANCE = 5.0f;  /* K/W - junction to ambient */
+    const float THERMAL_MASS = 0.5f;        /* J/K - thermal capacitance */
+    const uint16_t INRUSH_DURATION_MS = 50; /* Inrush current duration */
 
     for (int i = 0; i < PMU_EMU_PROFET_CHANNELS; i++) {
+        PMU_Emu_PROFET_Channel_t* ch = &emulator.profet[i];
+
         /* Sync state from firmware PROFET module */
         PMU_PROFET_Channel_t* fw_profet = PMU_PROFET_GetChannelData(i);
-        if (fw_profet && emulator.profet[i].fault_flags == 0) {
-            /* Sync state and pwm_duty FROM firmware (if not in injected fault) */
-            emulator.profet[i].state = fw_profet->state;
-            emulator.profet[i].pwm_duty = fw_profet->pwm_duty;
+        if (fw_profet && ch->fault_flags == 0) {
+            ch->state = fw_profet->state;
+            ch->pwm_duty = fw_profet->pwm_duty;
         }
 
-        if (emulator.profet[i].fault_flags != 0) {
-            /* Map fault flags to ECUMaster state:
-             * 2=OC, 3=OT, 4=SC, 5=OL */
-            uint8_t ff = emulator.profet[i].fault_flags;
+        /* Handle fault injection */
+        if (ch->fault_flags != 0) {
+            uint8_t ff = ch->fault_flags;
             if (ff & 0x04) {
-                emulator.profet[i].state = 4;  /* SC - Short Circuit */
+                ch->state = 4;  /* SC - Short Circuit */
             } else if (ff & 0x02) {
-                emulator.profet[i].state = 3;  /* OT - Over Temperature */
+                ch->state = 3;  /* OT - Over Temperature */
             } else if (ff & 0x08) {
-                emulator.profet[i].state = 5;  /* OL - Open Load */
+                ch->state = 5;  /* OL - Open Load */
             } else {
-                emulator.profet[i].state = 2;  /* OC - Over Current */
+                ch->state = 2;  /* OC - Over Current */
             }
-            emulator.profet[i].current_mA = 0;
-            /* Sync injected fault to firmware */
+            ch->current_mA = 0;
+            ch->inrush_remaining_ms = 0;
+            ch->soft_start_elapsed = 0;
             if (fw_profet) {
-                fw_profet->fault_flags = emulator.profet[i].fault_flags;
+                fw_profet->fault_flags = ch->fault_flags;
             }
+            ch->prev_state = ch->state;
             continue;
         }
 
-        /* Calculate current based on state and duty
-         * ECUMaster states: 0=OFF, 1=ON, 6=PWM */
+        /* Detect state change (OFF->ON or OFF->PWM) for inrush */
+        bool just_turned_on = (ch->prev_state == 0 && (ch->state == 1 || ch->state == 6));
+        if (just_turned_on) {
+            ch->inrush_remaining_ms = INRUSH_DURATION_MS;
+            ch->soft_start_elapsed = 0;
+        }
+        ch->prev_state = ch->state;
+
+        /* Calculate base current */
         float voltage = emulator.protection.battery_voltage_mV / 1000.0f;
-        float resistance = emulator.profet[i].load_resistance_ohm;
+        float resistance = ch->load_resistance_ohm;
+        if (resistance <= 0.1f) resistance = 12.0f;
 
-        if (resistance <= 0) resistance = 12.0f;
-
-        float duty_factor = 1.0f;
-        if (emulator.profet[i].state == 6) {  /* PWM */
-            duty_factor = emulator.profet[i].pwm_duty / 1000.0f;
-        } else if (emulator.profet[i].state != 1) {  /* Not ON */
-            duty_factor = 0.0f;
+        float duty_factor = 0.0f;
+        if (ch->state == 1) {       /* ON */
+            duty_factor = 1.0f;
+        } else if (ch->state == 6) { /* PWM */
+            duty_factor = ch->pwm_duty / 1000.0f;
         }
 
+        /* Apply soft-start ramp if configured */
+        if (ch->soft_start_ms > 0 && ch->soft_start_elapsed < ch->soft_start_ms) {
+            float ramp = (float)ch->soft_start_elapsed / (float)ch->soft_start_ms;
+            duty_factor *= ramp;
+            ch->soft_start_elapsed += delta_ms;
+        }
+
+        /* Calculate steady-state current */
         float current_A = (voltage / resistance) * duty_factor;
-        emulator.profet[i].current_mA = (uint16_t)(current_A * 1000.0f);
+
+        /* Apply inrush current multiplier (exponential decay) */
+        if (ch->inrush_remaining_ms > 0) {
+            float inrush_factor = 1.0f + (ch->inrush_multiplier - 1.0f) *
+                                  ((float)ch->inrush_remaining_ms / INRUSH_DURATION_MS);
+            current_A *= inrush_factor;
+            ch->inrush_remaining_ms = (delta_ms >= ch->inrush_remaining_ms) ?
+                                      0 : ch->inrush_remaining_ms - delta_ms;
+        }
+
+        /* Cap current at reasonable maximum (20A) */
+        if (current_A > 20.0f) current_A = 20.0f;
+        ch->current_mA = (uint16_t)(current_A * 1000.0f);
 
         /* Update ADC DMA buffer with simulated current
          * ADC = (current_mA × 4095) / (kILIS × 3.3)
-         * kILIS = 4700, so divisor = 15510
-         * Cap at 4095 (12-bit ADC max) */
-        uint32_t adc_val = (emulator.profet[i].current_mA * 4095UL) / 15510;
+         * kILIS = 4700, so divisor = 15510 */
+        uint32_t adc_val = (ch->current_mA * 4095UL) / 15510;
         if (adc_val > 4095) adc_val = 4095;
         profet_current_adc_buffer[i] = (uint16_t)adc_val;
 
+        /* Realistic temperature simulation using thermal model:
+         * P = I²R (power dissipated in PROFET ~0.1 * load power)
+         * dT/dt = (P - (T-Ta)/Rth) / Cth */
+        float power_W = current_A * current_A * 0.05f;  /* ~5% of load power in PROFET */
+        float temp_diff = ch->temperature_C - AMBIENT_TEMP;
+        float heat_loss_W = temp_diff / THERMAL_RESISTANCE;
+        float dT = (power_W - heat_loss_W) * (delta_ms / 1000.0f) / THERMAL_MASS;
+
+        ch->thermal_energy_J += power_W * (delta_ms / 1000.0f);
+        ch->temperature_C += (int16_t)(dT * 10);  /* Scale for int16 */
+
+        /* Clamp temperature */
+        if (ch->temperature_C < (int16_t)AMBIENT_TEMP) ch->temperature_C = (int16_t)AMBIENT_TEMP;
+        if (ch->temperature_C > 150) ch->temperature_C = 150;
+
         /* Update status ADC buffer with temperature
-         * V_ST = 1.0V + (Temp - 25) × 0.006V
-         * ADC = V_ST × 4095 / 3.3V */
-        int16_t temp_c = emulator.profet[i].temperature_C;
-        float v_st = 1.0f + (temp_c - 25) * 0.006f;
+         * V_ST = 1.0V + (Temp - 25) × 0.006V */
+        float v_st = 1.0f + (ch->temperature_C - 25) * 0.006f;
         if (v_st < 0) v_st = 0;
         if (v_st > 3.3f) v_st = 3.3f;
         profet_status_adc_buffer[i] = (uint16_t)((v_st * 4095.0f) / 3.3f);
 
         /* Sync simulated current back to firmware */
         if (fw_profet) {
-            fw_profet->current_mA = emulator.profet[i].current_mA;
-            fw_profet->temperature_C = emulator.profet[i].temperature_C;
+            fw_profet->current_mA = ch->current_mA;
+            fw_profet->temperature_C = ch->temperature_C;
         }
 
-        /* Temperature simulation (simplified) */
-        if (emulator.profet[i].current_mA > 0) {
-            /* Heating */
-            int16_t heat = (int16_t)(emulator.profet[i].current_mA / 5000);
-            if (emulator.profet[i].temperature_C < 100 + heat) {
-                emulator.profet[i].temperature_C++;
+        /* Auto-fault detection if enabled */
+        if (emulator.protection.enable_auto_faults) {
+            if (ch->temperature_C > 140) {
+                ch->fault_flags |= 0x02;  /* OT */
             }
-        } else {
-            /* Cooling */
-            if (emulator.profet[i].temperature_C > 25) {
-                emulator.profet[i].temperature_C--;
+            if (ch->current_mA > 15000) {
+                ch->fault_flags |= 0x01;  /* OC */
             }
         }
 
-        total_current += emulator.profet[i].current_mA;
+        total_current += ch->current_mA;
     }
 
     emulator.protection.total_current_mA = total_current;
 }
 
+/**
+ * @brief Sign function for friction calculation
+ */
+static float Emu_Signf(float x)
+{
+    if (x > 0.0f) return 1.0f;
+    if (x < 0.0f) return -1.0f;
+    return 0.0f;
+}
+
+/**
+ * @brief Update H-Bridge with realistic motor physics simulation
+ *
+ * Physics model:
+ * 1. Electrical: V = i*R + Ke*ω (voltage equation)
+ *    Motor current: i = (V - Ke*ω) / R
+ * 2. Mechanical: J*dω/dt = Kt*i - Bf*ω - Tf*sign(ω) - τ_load - τ_endstop
+ * 3. Position: dθ/dt = ω
+ * 4. Thermal: C*dT/dt = i²*R - (T-Ta)/Rth
+ */
 static void Emu_UpdateHBridge(uint32_t delta_ms)
 {
+    const float AMBIENT_TEMP = 25.0f;
+    const float dt = delta_ms / 1000.0f;  /* Time step in seconds */
+
+    if (dt <= 0.0f) return;
+
     for (int i = 0; i < PMU_EMU_HBRIDGE_CHANNELS; i++) {
-        if (emulator.hbridge[i].fault_flags != 0) {
-            emulator.hbridge[i].state = 4;  /* FAULT */
-            continue;
+        PMU_Emu_HBridge_Channel_t* hb = &emulator.hbridge[i];
+        PMU_Emu_MotorParams_t* mp = &hb->motor_params;
+        PMU_Emu_MotorState_t* ms = &hb->motor_state;
+
+        /* Handle fault state */
+        if (hb->fault_flags != 0) {
+            hb->state = 4;  /* FAULT */
+            ms->voltage_V = 0.0f;
+            ms->current_A = 0.0f;
+            /* Let motor coast to stop with friction */
         }
 
-        /* Simulate motor movement */
-        if (emulator.hbridge[i].mode == 1 || emulator.hbridge[i].mode == 2) {
-            /* FORWARD or REVERSE */
-            float speed = emulator.hbridge[i].motor_speed;
-            float duty_factor = emulator.hbridge[i].duty_cycle / 1000.0f;
-            float delta_pos = (speed * duty_factor * delta_ms) / (1000.0f * emulator.hbridge[i].load_inertia);
+        /* Calculate supply voltage based on mode and duty cycle */
+        float Vbus = emulator.protection.battery_voltage_mV / 1000.0f;
+        float duty = hb->duty_cycle / 1000.0f;  /* 0.0 to 1.0 */
 
-            int16_t new_pos = (int16_t)emulator.hbridge[i].position;
-            if (emulator.hbridge[i].mode == 1) {
-                new_pos += (int16_t)delta_pos;
-            } else {
-                new_pos -= (int16_t)delta_pos;
-            }
+        switch (hb->mode) {
+            case 0:  /* COAST - both switches open, motor coasts */
+                ms->voltage_V = 0.0f;
+                /* In coast, current decays through freewheeling diodes */
+                ms->current_A *= 0.9f;  /* Exponential decay */
+                break;
 
-            /* Clamp position */
-            if (new_pos < 0) new_pos = 0;
-            if (new_pos > 1000) new_pos = 1000;
+            case 1:  /* FORWARD */
+                ms->voltage_V = Vbus * duty;
+                hb->state = 1;  /* RUNNING */
+                break;
 
-            emulator.hbridge[i].position = (uint16_t)new_pos;
-            emulator.hbridge[i].state = 1;  /* RUNNING */
-        } else if (emulator.hbridge[i].mode == 0 || emulator.hbridge[i].mode == 3) {
-            /* COAST or BRAKE */
-            emulator.hbridge[i].state = 0;  /* IDLE */
+            case 2:  /* REVERSE */
+                ms->voltage_V = -Vbus * duty;
+                hb->state = 1;  /* RUNNING */
+                break;
+
+            case 3:  /* BRAKE - both switches closed, motor brakes */
+                ms->voltage_V = 0.0f;
+                /* In brake mode, motor acts as generator into short circuit */
+                break;
+
+            default:
+                ms->voltage_V = 0.0f;
+                break;
         }
 
-        /* Current simulation */
-        if (emulator.hbridge[i].mode == 1 || emulator.hbridge[i].mode == 2) {
-            float duty_factor = emulator.hbridge[i].duty_cycle / 1000.0f;
-            emulator.hbridge[i].current_mA = (uint16_t)(5000 * duty_factor);  /* 5A max */
+        /* =====================================================
+         * ELECTRICAL MODEL: V = i*R + Ke*ω  =>  i = (V - Ke*ω) / R
+         * ===================================================== */
+
+        /* Calculate back-EMF (voltage induced by rotating motor) */
+        ms->back_emf_V = mp->Ke * ms->omega;
+
+        /* Calculate motor current */
+        if (hb->mode == 3) {
+            /* BRAKE mode: motor is shorted, back-EMF drives current */
+            ms->current_A = -ms->back_emf_V / mp->Rm;
+        } else if (hb->mode == 0) {
+            /* COAST: current decays (already handled above) */
         } else {
-            emulator.hbridge[i].current_mA = 0;
+            /* FORWARD/REVERSE: normal motor operation */
+            float net_voltage = ms->voltage_V - ms->back_emf_V;
+            ms->current_A = net_voltage / mp->Rm;
+        }
+
+        /* Clamp current to realistic limits */
+        const float MAX_CURRENT = 30.0f;  /* 30A limit */
+        if (ms->current_A > MAX_CURRENT) ms->current_A = MAX_CURRENT;
+        if (ms->current_A < -MAX_CURRENT) ms->current_A = -MAX_CURRENT;
+
+        /* =====================================================
+         * MECHANICAL MODEL: J*dω/dt = τ_motor - τ_friction - τ_load
+         * ===================================================== */
+
+        /* Motor torque: τ = Kt * i */
+        ms->torque_motor = mp->Kt * ms->current_A;
+
+        /* Total inertia (motor + load referred to motor shaft) */
+        float J_total = mp->Jm + mp->Jl / (mp->gear_ratio * mp->gear_ratio);
+        if (J_total < 0.00001f) J_total = 0.00001f;
+
+        /* Friction torque model (Coulomb + viscous + Stribeck) */
+        float omega_abs = (ms->omega > 0) ? ms->omega : -ms->omega;
+        if (omega_abs < mp->stiction_velocity) {
+            /* Stiction regime */
+            float stiction_factor = 1.0f + (mp->Ts - mp->Tf) *
+                                    (1.0f - omega_abs / mp->stiction_velocity);
+            ms->torque_friction = stiction_factor * mp->Tf * Emu_Signf(ms->omega) +
+                                  mp->Bf * ms->omega;
+        } else {
+            /* Dynamic friction: Coulomb + viscous */
+            ms->torque_friction = mp->Tf * Emu_Signf(ms->omega) + mp->Bf * ms->omega;
+        }
+
+        /* End-stop torque (elastic bounce at limits) */
+        float torque_endstop = 0.0f;
+        ms->at_end_stop = 0;
+
+        if (ms->theta < mp->pos_min_rad) {
+            float penetration = mp->pos_min_rad - ms->theta;
+            torque_endstop = mp->end_stop_stiffness * penetration;
+            ms->at_end_stop = 1;
+            if (ms->omega < 0) torque_endstop += -ms->omega * 0.1f;
+        } else if (ms->theta > mp->pos_max_rad) {
+            float penetration = ms->theta - mp->pos_max_rad;
+            torque_endstop = -mp->end_stop_stiffness * penetration;
+            ms->at_end_stop = 2;
+            if (ms->omega > 0) torque_endstop += -ms->omega * 0.1f;
+        }
+
+        /* Net torque */
+        float torque_net = ms->torque_motor - ms->torque_friction -
+                           ms->torque_load + torque_endstop;
+
+        /* Handle stall condition */
+        if (omega_abs < 0.01f && (hb->mode == 1 || hb->mode == 2) && hb->duty_cycle > 100) {
+            float torque_abs = (ms->torque_motor > 0) ? ms->torque_motor : -ms->torque_motor;
+            if (torque_abs < mp->Ts) {
+                torque_net = 0.0f;
+                ms->stall_time_ms += delta_ms;
+                if (ms->stall_time_ms > 500) ms->stalled = 1;
+            } else {
+                ms->stall_time_ms = 0;
+                ms->stalled = 0;
+            }
+        } else {
+            ms->stall_time_ms = 0;
+            ms->stalled = 0;
+        }
+
+        /* Angular acceleration: α = τ / J */
+        ms->acceleration = torque_net / J_total;
+        ms->omega_prev = ms->omega;
+
+        /* Integrate velocity: ω = ω + α * dt */
+        ms->omega += ms->acceleration * dt;
+
+        /* Additional damping in BRAKE mode */
+        if (hb->mode == 3) {
+            ms->omega *= 0.95f;
+        }
+
+        /* Integrate position: θ = θ + ω * dt */
+        ms->theta += ms->omega * dt;
+
+        /* Clamp position to end stops */
+        if (ms->theta < mp->pos_min_rad - 0.1f) {
+            ms->theta = mp->pos_min_rad;
+            ms->omega = 0.0f;
+        }
+        if (ms->theta > mp->pos_max_rad + 0.1f) {
+            ms->theta = mp->pos_max_rad;
+            ms->omega = 0.0f;
+        }
+
+        /* =====================================================
+         * THERMAL MODEL: C*dT/dt = P - (T-Ta)/Rth
+         * ===================================================== */
+
+        ms->power_dissipated_W = ms->current_A * ms->current_A * mp->Rm;
+        float heat_loss = (ms->temperature_C - AMBIENT_TEMP) / mp->thermal_resistance;
+        float dT = (ms->power_dissipated_W - heat_loss) * dt / mp->thermal_capacitance;
+        ms->temperature_C += dT;
+
+        if (ms->temperature_C < AMBIENT_TEMP) ms->temperature_C = AMBIENT_TEMP;
+        if (ms->temperature_C > 150.0f) ms->temperature_C = 150.0f;
+
+        /* =====================================================
+         * UPDATE OUTPUT VALUES
+         * ===================================================== */
+
+        /* Current in mA for display */
+        float current_abs = (ms->current_A > 0) ? ms->current_A : -ms->current_A;
+        hb->current_mA = (uint16_t)(current_abs * 1000.0f);
+
+        /* Position in 0-1000 range */
+        float pos_range = mp->pos_max_rad - mp->pos_min_rad;
+        if (pos_range < 0.001f) pos_range = 3.14159f;
+        float pos_normalized = (ms->theta - mp->pos_min_rad) / pos_range;
+        if (pos_normalized < 0.0f) pos_normalized = 0.0f;
+        if (pos_normalized > 1.0f) pos_normalized = 1.0f;
+        hb->position = (uint16_t)(pos_normalized * 1000.0f);
+
+        /* Legacy motor_speed (for backward compatibility) */
+        hb->motor_speed = omega_abs * 57.2958f;  /* rad/s to deg/s */
+
+        /* Update ADC buffers */
+        hbridge_position_adc_buffer[i] = (uint16_t)(pos_normalized * 4095.0f);
+        uint16_t current_adc = (uint16_t)((current_abs / 30.0f) * 4095.0f);
+        if (current_adc > 4095) current_adc = 4095;
+        hbridge_current_adc_buffer[i] = current_adc;
+
+        /* Update state based on motion */
+        if (hb->mode == 0 || hb->mode == 3) {
+            hb->state = 0;  /* IDLE */
+        } else if (hb->fault_flags != 0) {
+            hb->state = 4;  /* FAULT */
+        } else if (omega_abs < 0.01f) {
+            int16_t pos_error = (int16_t)hb->position - (int16_t)hb->target_position;
+            if (pos_error < 0) pos_error = -pos_error;
+            hb->state = (pos_error < 20) ? 3 : 1;  /* PARKED or RUNNING */
+        } else {
+            hb->state = 1;  /* RUNNING */
+        }
+
+        /* Auto-fault detection */
+        if (emulator.protection.enable_auto_faults) {
+            if (ms->temperature_C > 125.0f) hb->fault_flags |= 0x04;
+            if (ms->stall_time_ms > 2000) hb->fault_flags |= 0x08;
+            if (current_abs > 25.0f) hb->fault_flags |= 0x01;
         }
     }
 }

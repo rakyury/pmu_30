@@ -39,6 +39,10 @@ class DeviceController(QObject):
     log_received = pyqtSignal(int, str, str)  # level, source, message
     config_received = pyqtSignal(dict)  # Configuration dictionary
 
+    # Auto-reconnect signals
+    reconnecting = pyqtSignal(int, int)  # attempt, max_attempts
+    reconnect_failed = pyqtSignal()  # all attempts exhausted
+
     def __init__(self):
         super().__init__()
 
@@ -55,9 +59,55 @@ class DeviceController(QObject):
         self._config_total_chunks = 0
         self._config_event = threading.Event()
 
+        # Config write state
+        self._config_ack_event = threading.Event()
+        self._config_ack_success = False
+        self._config_ack_error = 0
+
+        # Flash save state
+        self._flash_ack_event = threading.Event()
+        self._flash_ack_success = False
+
+        # Auto-reconnect state
+        self._auto_reconnect_enabled = True
+        self._reconnect_interval = 3.0  # seconds between attempts
+        self._max_reconnect_attempts = 10
+        self._last_connection_config = None
+        self._reconnect_thread = None
+        self._reconnect_attempt = 0
+        self._stop_reconnect = threading.Event()
+        self._user_disconnected = False  # True if user explicitly disconnected
+
     def is_connected(self) -> bool:
         """Check if device is connected."""
         return self._is_connected
+
+    def set_auto_reconnect(self, enabled: bool, interval: float = 3.0, max_attempts: int = 10):
+        """
+        Configure auto-reconnect settings.
+
+        Args:
+            enabled: Enable/disable auto-reconnect
+            interval: Seconds between reconnection attempts
+            max_attempts: Maximum number of attempts (0 = unlimited)
+        """
+        self._auto_reconnect_enabled = enabled
+        self._reconnect_interval = max(1.0, interval)
+        self._max_reconnect_attempts = max(0, max_attempts)
+        logger.info(f"Auto-reconnect: enabled={enabled}, interval={interval}s, max_attempts={max_attempts}")
+
+    def is_auto_reconnect_enabled(self) -> bool:
+        """Check if auto-reconnect is enabled."""
+        return self._auto_reconnect_enabled
+
+    def stop_reconnect(self):
+        """Stop any ongoing reconnection attempts."""
+        self._stop_reconnect.set()
+        if self._reconnect_thread and self._reconnect_thread.is_alive():
+            self._reconnect_thread.join(timeout=1.0)
+        self._reconnect_thread = None
+        self._reconnect_attempt = 0
+        logger.info("Reconnection attempts stopped")
 
     def get_available_serial_ports(self) -> List[str]:
         """Get list of available serial ports."""
@@ -91,6 +141,9 @@ class DeviceController(QObject):
         Returns:
             True if connection successful
         """
+        # Stop any ongoing reconnection attempts
+        self.stop_reconnect()
+
         connection_type = config.get("type", "")
 
         try:
@@ -116,6 +169,9 @@ class DeviceController(QObject):
 
             self._connection_type = connection_type
             self._is_connected = True
+            self._user_disconnected = False
+            self._last_connection_config = config.copy()  # Save for auto-reconnect
+            self._reconnect_attempt = 0
             self.connected.emit()
 
             # Subscribe to telemetry after connection is established
@@ -194,7 +250,12 @@ class DeviceController(QObject):
         raise NotImplementedError("Bluetooth connection not yet implemented")
 
     def disconnect(self):
-        """Disconnect from device."""
+        """Disconnect from device (user-initiated)."""
+        # Mark as user-disconnected to prevent auto-reconnect
+        self._user_disconnected = True
+
+        # Stop any ongoing reconnection attempts
+        self.stop_reconnect()
 
         # Stop receive thread first
         self._stop_receive_thread()
@@ -211,7 +272,7 @@ class DeviceController(QObject):
                 self._telemetry_enabled = False
                 self.disconnected.emit()
 
-                logger.info("Disconnected from device")
+                logger.info("Disconnected from device (user-initiated)")
 
             except Exception as e:
                 logger.error(f"Error disconnecting: {e}")
@@ -321,25 +382,75 @@ class DeviceController(QObject):
             logger.error(f"Error processing config: {e}")
             return None
 
-    def write_configuration(self, config: dict) -> bool:
+    def write_configuration(self, config: dict, timeout: float = 10.0) -> bool:
         """
         Write configuration to device.
 
         Args:
             config: Configuration dictionary
+            timeout: Timeout in seconds for ACK
 
         Returns:
             True if successful
         """
+        import json
+
+        if not self._is_connected:
+            logger.warning("Cannot write config: not connected")
+            return False
 
         logger.info("Writing configuration to device...")
 
-        # TODO: Implement configuration write protocol
-        # - Serialize configuration
-        # - Send WRITE_CONFIG command
-        # - Wait for acknowledgment
+        # Serialize config to JSON
+        try:
+            config_json = json.dumps(config, ensure_ascii=False, separators=(',', ':'))
+            config_bytes = config_json.encode('utf-8')
+            logger.info(f"Config serialized: {len(config_bytes)} bytes")
+        except Exception as e:
+            logger.error(f"Failed to serialize config: {e}")
+            return False
 
-        return False
+        # Split into chunks (max 4000 bytes per chunk to stay under FRAME_MAX_PAYLOAD)
+        CHUNK_SIZE = 4000
+        chunks = []
+        for i in range(0, len(config_bytes), CHUNK_SIZE):
+            chunks.append(config_bytes[i:i + CHUNK_SIZE])
+
+        total_chunks = len(chunks)
+        logger.info(f"Sending config in {total_chunks} chunks")
+
+        # Reset ACK state
+        self._config_ack_event.clear()
+        self._config_ack_success = False
+        self._config_ack_error = 0
+
+        # Send each chunk
+        for chunk_idx, chunk_data in enumerate(chunks):
+            # Build payload: chunk_idx (2B) + total_chunks (2B) + data
+            payload = struct.pack('<HH', chunk_idx, total_chunks) + chunk_data
+            frame = self._build_frame(MessageType.SET_CONFIG, payload)
+
+            logger.debug(f"Sending chunk {chunk_idx + 1}/{total_chunks}, {len(chunk_data)} bytes")
+
+            if not self._send_frame(frame):
+                logger.error(f"Failed to send config chunk {chunk_idx}")
+                return False
+
+            # Small delay between chunks to not overwhelm device
+            time.sleep(0.01)
+
+        # Wait for CONFIG_ACK after all chunks sent
+        logger.info("All chunks sent, waiting for ACK...")
+        if not self._config_ack_event.wait(timeout):
+            logger.error(f"Timeout waiting for config ACK ({timeout}s)")
+            return False
+
+        if self._config_ack_success:
+            logger.info("Configuration written successfully")
+            return True
+        else:
+            logger.error(f"Config write failed, error code: {self._config_ack_error}")
+            return False
 
     def update_firmware(self, firmware_path: str, progress_callback=None) -> bool:
         """
@@ -442,6 +553,80 @@ class DeviceController(QObject):
         self.disconnected.emit()
         self.error.emit("Connection lost")
 
+        # Start auto-reconnect if enabled and not user-disconnected
+        if (self._auto_reconnect_enabled and
+            not self._user_disconnected and
+            self._last_connection_config):
+            self._start_reconnect()
+
+    def _start_reconnect(self):
+        """Start auto-reconnect background thread."""
+        if self._reconnect_thread and self._reconnect_thread.is_alive():
+            return  # Already reconnecting
+
+        self._stop_reconnect.clear()
+        self._reconnect_attempt = 0
+        self._reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
+        self._reconnect_thread.start()
+        logger.info("Auto-reconnect started")
+
+    def _reconnect_loop(self):
+        """Background loop for reconnection attempts."""
+        while not self._stop_reconnect.is_set():
+            self._reconnect_attempt += 1
+
+            # Check if max attempts reached
+            if self._max_reconnect_attempts > 0 and self._reconnect_attempt > self._max_reconnect_attempts:
+                logger.warning(f"Max reconnection attempts ({self._max_reconnect_attempts}) reached")
+                self.reconnect_failed.emit()
+                break
+
+            logger.info(f"Reconnection attempt {self._reconnect_attempt}/{self._max_reconnect_attempts or '∞'}")
+            self.reconnecting.emit(self._reconnect_attempt, self._max_reconnect_attempts)
+
+            # Wait before attempting
+            if self._stop_reconnect.wait(self._reconnect_interval):
+                break  # Stop requested
+
+            # Try to reconnect
+            try:
+                config = self._last_connection_config
+                connection_type = config.get("type", "")
+
+                if connection_type == "USB Serial":
+                    port = config.get("port", "")
+                    baudrate = config.get("baudrate", 115200)
+                    self._connect_usb(port, baudrate)
+                elif connection_type == "Emulator":
+                    address = config.get("address", "localhost:9876")
+                    self._connect_emulator(address)
+                elif connection_type == "WiFi":
+                    ip = config.get("ip", "")
+                    port = config.get("port", 8080)
+                    self._connect_wifi(f"{ip}:{port}")
+                elif connection_type == "Bluetooth":
+                    device = config.get("device", "")
+                    self._connect_bluetooth(device)
+
+                # Success!
+                self._connection_type = connection_type
+                self._is_connected = True
+                self._reconnect_attempt = 0
+                self.connected.emit()
+
+                # Resubscribe to telemetry
+                if connection_type == "Emulator":
+                    self.subscribe_telemetry()
+
+                logger.info(f"Reconnected via {connection_type}")
+                break
+
+            except Exception as e:
+                logger.debug(f"Reconnection attempt {self._reconnect_attempt} failed: {e}")
+                # Continue trying
+
+        logger.debug("Reconnect loop ended")
+
     def _process_rx_buffer(self):
         """Process received data and extract frames."""
         logger.debug(f"Processing rx buffer: {len(self._rx_buffer)} bytes")
@@ -505,10 +690,24 @@ class DeviceController(QObject):
                     self.log_received.emit(level, source, message)
 
             elif msg_type == MessageType.CONFIG_ACK:
-                logger.info("Config ACK received")
+                # Parse ACK: success (1B) + error_code (1B) + reserved (1B)
+                if len(payload) >= 2:
+                    self._config_ack_success = payload[0] == 1
+                    self._config_ack_error = payload[1]
+                else:
+                    self._config_ack_success = True
+                    self._config_ack_error = 0
+                self._config_ack_event.set()
+                logger.info(f"Config ACK received: success={self._config_ack_success}, error={self._config_ack_error}")
 
             elif msg_type == MessageType.FLASH_ACK:
-                logger.info("Flash save ACK received")
+                # Parse ACK: success (1B) + error_code (2B)
+                if len(payload) >= 1:
+                    self._flash_ack_success = payload[0] == 1
+                else:
+                    self._flash_ack_success = True
+                self._flash_ack_event.set()
+                logger.info(f"Flash save ACK received: success={self._flash_ack_success}")
 
             elif msg_type == MessageType.RESTART_ACK:
                 logger.info("Restart ACK received")
@@ -592,14 +791,35 @@ class DeviceController(QObject):
             return True
         return False
 
-    def save_to_flash(self) -> bool:
+    def save_to_flash(self, timeout: float = 5.0) -> bool:
         """Save current configuration to flash."""
+        if not self._is_connected:
+            logger.warning("Cannot save to flash: not connected")
+            return False
+
+        # Reset ACK state
+        self._flash_ack_event.clear()
+        self._flash_ack_success = False
+
         frame = self._build_frame(MessageType.SAVE_TO_FLASH)
 
-        if self._send_frame(frame):
-            logger.info("Save to flash requested")
+        if not self._send_frame(frame):
+            logger.error("Failed to send SAVE_TO_FLASH command")
+            return False
+
+        logger.info("Save to flash requested, waiting for ACK...")
+
+        # Wait for FLASH_ACK
+        if not self._flash_ack_event.wait(timeout):
+            logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
+            return False
+
+        if self._flash_ack_success:
+            logger.info("Configuration saved to flash successfully")
             return True
-        return False
+        else:
+            logger.error("Flash save failed")
+            return False
 
     def restart_device(self) -> bool:
         """Restart the device."""

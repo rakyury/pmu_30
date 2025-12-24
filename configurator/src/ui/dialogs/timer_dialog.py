@@ -19,8 +19,9 @@ class TimerDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.TIMER)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.TIMER, existing_channels)
 
         # Increase height to avoid scrollbar
         self.setMinimumHeight(520)

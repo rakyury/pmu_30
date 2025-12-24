@@ -29,6 +29,9 @@
 #include "stm32h7xx_hal.h"
 #include <string.h>
 #include <stdbool.h>
+#ifdef _WIN32
+#include <stdio.h>
+#endif
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -54,6 +57,7 @@ static TIM_HandleTypeDef* htim_pwm;
 static ADC_HandleTypeDef* hadc_current;
 static ADC_HandleTypeDef* hadc_status;
 static uint8_t spi_diag_enabled = 0;  /* SPI diagnostics enabled flag */
+static uint8_t manual_override[PMU30_NUM_OUTPUTS];  /* Manual override flags (prevents logic from overwriting) */
 
 /* GPIO pin mapping for PROFET control (example - adjust to actual hardware) */
 typedef struct {
@@ -299,6 +303,7 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
                          GPIO_PIN_SET);
         channels[channel].state = PMU_PROFET_STATE_ON;
         channels[channel].pwm_duty = 1000; /* 100% */
+        channels[channel].on_time_ms = 0;  /* Reset grace period for fault detection */
     } else {
         /* Turn OFF */
         HAL_GPIO_WritePin(profet_gpio[channel].port,
@@ -310,6 +315,61 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
     }
 
     return HAL_OK;
+}
+
+/**
+ * @brief Set channel state with manual override (prevents logic from overwriting)
+ * @param channel Channel number (0-29)
+ * @param state 0=OFF, 1=ON
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_SetStateManual(uint8_t channel, uint8_t state)
+{
+#ifdef _WIN32
+    printf("[PROFET] SetStateManual: ch=%d, state=%d\n", channel, state);
+#endif
+    HAL_StatusTypeDef result = PMU_PROFET_SetState(channel, state);
+    if (result == HAL_OK) {
+        manual_override[channel] = 1;
+#ifdef _WIN32
+        printf("[PROFET] Manual override SET for ch=%d, new_state=%d\n", channel, channels[channel].state);
+#endif
+    }
+    return result;
+}
+
+/**
+ * @brief Check if channel has manual override set
+ * @param channel Channel number (0-29)
+ * @retval 1 if override set, 0 otherwise
+ */
+uint8_t PMU_PROFET_HasManualOverride(uint8_t channel)
+{
+    if (!IS_VALID_CHANNEL(channel)) {
+        return 0;
+    }
+    return manual_override[channel];
+}
+
+/**
+ * @brief Clear manual override for channel
+ * @param channel Channel number (0-29)
+ * @retval None
+ */
+void PMU_PROFET_ClearManualOverride(uint8_t channel)
+{
+    if (IS_VALID_CHANNEL(channel)) {
+        manual_override[channel] = 0;
+    }
+}
+
+/**
+ * @brief Clear all manual overrides
+ * @retval None
+ */
+void PMU_PROFET_ClearAllManualOverrides(void)
+{
+    memset(manual_override, 0, sizeof(manual_override));
 }
 
 /**
@@ -582,8 +642,10 @@ static void PROFET_UpdateDiagnostics(uint8_t channel)
 
     /* Open load detection (<50mA when ON)
      * Only check after channel has been on for a while (500ms grace period)
-     * This allows current sensing to stabilize after turn-on */
-    if (channels[channel].on_time_ms > 500 &&
+     * This allows current sensing to stabilize after turn-on
+     * Skip if manual override is set (WebUI controlled) */
+    if (!manual_override[channel] &&
+        channels[channel].on_time_ms > 500 &&
         channels[channel].pwm_duty > 500 &&
         current < PROFET_OPEN_LOAD_MA) {
         /* Only flag open load if PWM > 50% and channel has been on long enough */
@@ -594,11 +656,18 @@ static void PROFET_UpdateDiagnostics(uint8_t channel)
     uint16_t status_adc = PROFET_ReadStatusADC(channel);
     uint32_t status_mv = (status_adc * 3300UL) / 4095;
 
+#ifdef _WIN32
+    /* Emulator mode: Use temperature directly from emulator state
+     * The SPI stub returns temperature from emulator, not ADC-derived
+     */
+    int16_t temp_C = PMU_SPI_GetTemperature(channel);
+#else
     /* Estimate temperature from status voltage
      * STATUS pin voltage decreases with temperature
      * Typical: 5V @ 25°C, decreases ~2mV/°C
      */
     int16_t temp_C = 25 + (int16_t)((5000 - status_mv) / PROFET_TEMP_COEFF_MV_C);
+#endif
     channels[channel].temperature_C = temp_C;
 
     /* Overtemperature detection */

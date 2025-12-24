@@ -10,8 +10,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QFont
 from typing import Dict, Any, Optional, List
+import logging
 
 from models.channel import ChannelType, CHANNEL_PREFIX_MAP
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectTree(QWidget):
@@ -36,6 +39,7 @@ class ProjectTree(QWidget):
         "Outputs": {
             "subfolders": {
                 "Power Outputs": {"channel_type": ChannelType.POWER_OUTPUT},
+                "H-Bridge Motors": {"channel_type": ChannelType.HBRIDGE},
                 "CAN Outputs": {"channel_type": ChannelType.CAN_TX},
             }
         },
@@ -44,6 +48,7 @@ class ProjectTree(QWidget):
                 "Logic": {"channel_type": ChannelType.LOGIC},
                 "Math": {"channel_type": ChannelType.NUMBER},
                 "Filters": {"channel_type": ChannelType.FILTER},
+                "PID Controllers": {"channel_type": ChannelType.PID},
             }
         },
         "Tables": {
@@ -66,6 +71,11 @@ class ProjectTree(QWidget):
         "Scripts": {
             "subfolders": {
                 "Lua Scripts": {"channel_type": ChannelType.LUA_SCRIPT},
+            }
+        },
+        "Peripherals": {
+            "subfolders": {
+                "CAN Keypads": {"channel_type": ChannelType.BLINKMARINE_KEYPAD},
             }
         },
     }
@@ -230,10 +240,26 @@ class ProjectTree(QWidget):
         self.duplicate_btn.setEnabled(can_duplicate)
 
     def _on_item_double_clicked(self, item, column):
-        """Handle double click - edit item."""
+        """Handle double click - edit item directly (not via selection)."""
+        if item is None:
+            logger.debug("Double-click: item is None")
+            return
+
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data and data.get("type") == "channel":
-            self._edit_item()
+        if not data:
+            logger.debug("Double-click: no data on item")
+            return
+
+        if data.get("type") == "channel":
+            channel_type = data.get("channel_type")
+            if channel_type:
+                logger.info(f"Double-click edit: {channel_type.value} - {data.get('data', {}).get('id', 'unnamed')}")
+                # Emit signal directly with item data (bypass selectedItems)
+                self.item_edited.emit(channel_type.value, data)
+            else:
+                logger.warning("Double-click: channel has no type")
+        else:
+            logger.debug(f"Double-click on non-channel: {data.get('type')}")
 
     def _show_context_menu(self, position):
         """Show context menu."""
@@ -301,17 +327,24 @@ class ProjectTree(QWidget):
             parent = item.parent()
             if parent:
                 import copy
+                from ui.dialogs.base_channel_dialog import get_next_channel_id
                 new_data = copy.deepcopy(data)
 
-                # Update ID
+                # Generate new channel_id and update name
                 channel_data = new_data.get("data", {})
-                old_id = channel_data.get("id", "")
-                channel_data["id"] = f"{old_id}_copy"
-                channel_data["name"] = channel_data.get("name", "") + " (Copy)"
+                all_channels = self.get_all_channels()
+                channel_data["channel_id"] = get_next_channel_id(all_channels)
+                old_name = channel_data.get("name", channel_data.get("id", ""))
+                channel_data["name"] = f"{old_name} (Copy)"
+                # Remove old 'id' field if present (use channel_id instead)
+                channel_data.pop("id", None)
+
+                # Display format: "Name [#ID]"
+                display_text = f"{channel_data['name']} [#{channel_data['channel_id']}]"
 
                 # Add new item
                 new_item = QTreeWidgetItem(parent)
-                new_item.setText(0, channel_data.get("id", "Copy"))
+                new_item.setText(0, display_text)
                 new_item.setText(1, item.text(1))
                 new_item.setData(0, Qt.ItemDataRole.UserRole, new_data)
 
@@ -343,9 +376,10 @@ class ProjectTree(QWidget):
                     self.configuration_changed.emit()
 
     def _edit_item(self):
-        """Edit selected item."""
+        """Edit selected item (from Edit button)."""
         items = self.tree.selectedItems()
         if not items:
+            logger.debug("Edit button: no items selected")
             return
 
         item = items[0]
@@ -354,7 +388,12 @@ class ProjectTree(QWidget):
         if data and data.get("type") == "channel":
             channel_type = data.get("channel_type")
             if channel_type:
+                logger.info(f"Edit button: {channel_type.value} - {data.get('data', {}).get('id', 'unnamed')}")
                 self.item_edited.emit(channel_type.value, data)
+            else:
+                logger.warning("Edit button: channel has no type")
+        else:
+            logger.debug(f"Edit button: item is not a channel")
 
     # ========== Add channel methods ==========
 
@@ -372,16 +411,17 @@ class ProjectTree(QWidget):
             return None
 
         item = QTreeWidgetItem(folder)
-        prefix = CHANNEL_PREFIX_MAP.get(channel_type, "")
-        channel_id = channel_data.get("id", "unnamed")
+        # Use 'name' field for display (new system), fallback to 'id' for backwards compatibility
+        channel_name = channel_data.get("name", channel_data.get("id", "unnamed"))
+        channel_id = channel_data.get("channel_id", "")
 
-        # Add prefix if not present
-        if prefix and not channel_id.startswith(prefix):
-            display_id = f"{prefix}{channel_id}"
+        # Display format: "Name [#ID]" if channel_id exists
+        if channel_id:
+            display_text = f"{channel_name} [#{channel_id}]"
         else:
-            display_id = channel_id
+            display_text = channel_name
 
-        item.setText(0, display_id)
+        item.setText(0, display_text)
         item.setText(1, self._get_channel_details(channel_type, channel_data))
 
         item.setData(0, Qt.ItemDataRole.UserRole, {
@@ -400,10 +440,13 @@ class ProjectTree(QWidget):
             return subtype.replace("_", " ").title()
 
         elif channel_type == ChannelType.ANALOG_INPUT:
-            return f"A{data.get('input_pin', 0)}"
+            return f"A{data.get('input_pin', 0) + 1}"
 
         elif channel_type == ChannelType.POWER_OUTPUT:
-            return f"Ch{data.get('channel', 0)}"
+            pins = data.get('pins', [data.get('channel', 0)])
+            if isinstance(pins, list) and pins:
+                return ", ".join([f"O{p + 1}" for p in pins])
+            return f"O{data.get('channel', 0) + 1}"
 
         elif channel_type == ChannelType.LOGIC:
             op = data.get("operation", "and").upper()
@@ -471,6 +514,33 @@ class ProjectTree(QWidget):
             status = "[ON]" if enabled else "[OFF]"
             return f"{trigger} {status}"
 
+        elif channel_type == ChannelType.PID:
+            kp = data.get("kp", 1.0)
+            ki = data.get("ki", 0.0)
+            kd = data.get("kd", 0.0)
+            enabled = data.get("enabled", True)
+            status = "[ON]" if enabled else "[OFF]"
+            return f"P:{kp:.2f} I:{ki:.2f} D:{kd:.2f} {status}"
+
+        elif channel_type == ChannelType.HBRIDGE:
+            bridge = data.get("bridge_number", 0)
+            mode = data.get("mode", "coast")
+            if hasattr(mode, 'value'):
+                mode = mode.value
+            preset = data.get("motor_preset", "custom")
+            if hasattr(preset, 'value'):
+                preset = preset.value
+            enabled = data.get("enabled", True)
+            status = "[ON]" if enabled else "[OFF]"
+            return f"HB{bridge + 1} {mode} ({preset}) {status}"
+
+        elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
+            keypad_type = data.get("keypad_type", "2x6")
+            rx_id = data.get("rx_base_id", 0x100)
+            can_bus = data.get("can_bus", 1)
+            button_count = 12 if keypad_type == "2x6" else 16
+            return f"{keypad_type} ({button_count} btns) CAN{can_bus} RX:0x{rx_id:03X}"
+
         return ""
 
     # ========== Legacy add methods (for compatibility) ==========
@@ -520,16 +590,20 @@ class ProjectTree(QWidget):
             self.add_channel(ChannelType.CAN_RX, can_data)
 
     def add_hbridge(self, hbridge_data: Dict[str, Any]):
-        """Add H-Bridge to tree (legacy - maps to power output)."""
-        self.add_channel(ChannelType.POWER_OUTPUT, hbridge_data)
+        """Add H-Bridge motor to tree."""
+        self.add_channel(ChannelType.HBRIDGE, hbridge_data)
 
     def add_pid_controller(self, pid_data: Dict[str, Any]):
-        """Add PID controller to tree (legacy - maps to number)."""
-        self.add_channel(ChannelType.NUMBER, pid_data)
+        """Add PID controller to tree."""
+        self.add_channel(ChannelType.PID, pid_data)
 
     def add_lua_script(self, lua_data: Dict[str, Any]):
         """Add LUA script to tree."""
         self.add_channel(ChannelType.LUA_SCRIPT, lua_data)
+
+    def add_blinkmarine_keypad(self, keypad_data: Dict[str, Any]):
+        """Add BlinkMarine CAN keypad to tree."""
+        self.add_channel(ChannelType.BLINKMARINE_KEYPAD, keypad_data)
 
     # ========== Update and get methods ==========
 
@@ -548,16 +622,17 @@ class ProjectTree(QWidget):
         if not channel_type:
             return False
 
-        # Update display
-        prefix = CHANNEL_PREFIX_MAP.get(channel_type, "")
-        channel_id = new_data.get("id", "unnamed")
+        # Update display - use 'name' field (new system), fallback to 'id' for backwards compatibility
+        channel_name = new_data.get("name", new_data.get("id", "unnamed"))
+        channel_id = new_data.get("channel_id", "")
 
-        if prefix and not channel_id.startswith(prefix):
-            display_id = f"{prefix}{channel_id}"
+        # Display format: "Name [#ID]" if channel_id exists
+        if channel_id:
+            display_text = f"{channel_name} [#{channel_id}]"
         else:
-            display_id = channel_id
+            display_text = channel_name
 
-        item.setText(0, display_id)
+        item.setText(0, display_text)
         item.setText(1, self._get_channel_details(channel_type, new_data))
 
         # Update stored data
@@ -592,6 +667,18 @@ class ProjectTree(QWidget):
             channels.extend(self.get_channels_by_type(channel_type))
         return channels
 
+    def find_channel_item(self, channel_id: str) -> Optional[QTreeWidgetItem]:
+        """Find tree item by channel ID."""
+        for folder in self.folders.values():
+            for i in range(folder.childCount()):
+                item = folder.child(i)
+                item_id = item.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(item_id, dict):
+                    item_id = item_id.get('id', '')
+                if item_id == channel_id:
+                    return item
+        return None
+
     # ========== Legacy get methods ==========
 
     def get_all_outputs(self) -> List[Dict[str, Any]]:
@@ -618,13 +705,105 @@ class ProjectTree(QWidget):
         return self.get_channels_by_type(ChannelType.TIMER)
 
     def get_all_hbridges(self) -> List[Dict[str, Any]]:
-        return []  # Mapped to power outputs
+        """Get all H-Bridge motor channels."""
+        return self.get_channels_by_type(ChannelType.HBRIDGE)
 
     def get_all_pid_controllers(self) -> List[Dict[str, Any]]:
-        return []  # Mapped to numbers
+        return self.get_channels_by_type(ChannelType.PID)
 
     def get_all_lua_scripts(self) -> List[Dict[str, Any]]:
         return self.get_channels_by_type(ChannelType.LUA_SCRIPT)
+
+    def get_all_blinkmarine_keypads(self) -> List[Dict[str, Any]]:
+        """Get all BlinkMarine CAN keypads."""
+        return self.get_channels_by_type(ChannelType.BLINKMARINE_KEYPAD)
+
+    def get_all_used_output_pins(self, exclude_channel_id: str = None) -> List[int]:
+        """Get all output pins currently in use by power outputs.
+
+        Args:
+            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
+
+        Returns:
+            List of used output pin numbers (0-29)
+        """
+        used_pins = []
+        for output in self.get_all_outputs():
+            # Skip the channel being edited (check 'name' first, then 'id' for backwards compatibility)
+            channel_name = output.get('name', output.get('id', ''))
+            if exclude_channel_id and channel_name == exclude_channel_id:
+                continue
+            # Collect all pins from this output (can have 1-3 pins)
+            pins = output.get('pins', [])
+            if isinstance(pins, list):
+                used_pins.extend(pins)
+            elif isinstance(pins, int):
+                used_pins.append(pins)
+            # Also check legacy 'channel' field
+            channel = output.get('channel')
+            if channel is not None and channel not in used_pins:
+                used_pins.append(channel)
+        return used_pins
+
+    def get_all_used_analog_input_pins(self, exclude_channel_id: str = None) -> List[int]:
+        """Get all analog input pins currently in use.
+
+        Args:
+            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
+
+        Returns:
+            List of used analog input pin numbers (0-19)
+        """
+        used_pins = []
+        for inp in self.get_channels_by_type(ChannelType.ANALOG_INPUT):
+            # Check 'name' first, then 'id' for backwards compatibility
+            channel_name = inp.get('name', inp.get('id', ''))
+            if exclude_channel_id and channel_name == exclude_channel_id:
+                continue
+            channel = inp.get('channel')
+            if channel is not None:
+                used_pins.append(channel)
+        return used_pins
+
+    def get_all_used_digital_input_pins(self, exclude_channel_id: str = None) -> List[int]:
+        """Get all digital input pins currently in use.
+
+        Args:
+            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
+
+        Returns:
+            List of used digital input pin numbers
+        """
+        used_pins = []
+        for inp in self.get_channels_by_type(ChannelType.DIGITAL_INPUT):
+            # Check 'name' first, then 'id' for backwards compatibility
+            channel_name = inp.get('name', inp.get('id', ''))
+            if exclude_channel_id and channel_name == exclude_channel_id:
+                continue
+            channel = inp.get('channel')
+            if channel is not None:
+                used_pins.append(channel)
+        return used_pins
+
+    def get_all_used_hbridge_numbers(self, exclude_channel_id: str = None) -> List[int]:
+        """Get all H-Bridge numbers currently in use.
+
+        Args:
+            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
+
+        Returns:
+            List of used H-Bridge numbers (0-3)
+        """
+        used_bridges = []
+        for hb in self.get_channels_by_type(ChannelType.HBRIDGE):
+            # Check 'name' first, then 'id' for backwards compatibility
+            channel_name = hb.get('name', hb.get('id', ''))
+            if exclude_channel_id and channel_name == exclude_channel_id:
+                continue
+            bridge = hb.get('bridge_number')
+            if bridge is not None:
+                used_bridges.append(bridge)
+        return used_bridges
 
     def clear_all(self):
         """Clear all channels from tree (keep folder structure)."""

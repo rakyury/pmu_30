@@ -88,12 +88,13 @@ class VariablesInspector(QWidget):
 
         # Set column widths
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_VALUE, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.COL_UNIT, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.COL_UNIT, QHeaderView.ResizeMode.Stretch)
 
+        self.table.setColumnWidth(self.COL_NAME, 180)
         self.table.setColumnWidth(self.COL_VALUE, 80)
-        self.table.setColumnWidth(self.COL_UNIT, 60)
+        self.table.setColumnWidth(self.COL_UNIT, 40)
 
         self.table.setAlternatingRowColors(False)  # We use custom row colors
         self.table.verticalHeader().setVisible(False)

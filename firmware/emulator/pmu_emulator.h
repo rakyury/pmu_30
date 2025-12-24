@@ -61,6 +61,23 @@ typedef struct {
 } PMU_Emu_ADC_Channel_t;
 
 /**
+ * @brief Digital input emulation data
+ */
+typedef struct {
+    bool state;                 /**< Current input state (true=HIGH, false=LOW) */
+    bool inverted;              /**< Invert logic (true=active low) */
+    bool pull_up;               /**< Internal pull-up enabled */
+    bool pull_down;             /**< Internal pull-down enabled */
+    uint32_t debounce_ms;       /**< Debounce time in ms */
+    uint32_t last_change_ms;    /**< Timestamp of last state change */
+    bool debounced_state;       /**< State after debounce */
+    bool edge_rising;           /**< Rising edge detected flag */
+    bool edge_falling;          /**< Falling edge detected flag */
+    uint32_t pulse_count;       /**< Rising edge counter */
+    uint32_t frequency_hz;      /**< Measured frequency (if applicable) */
+} PMU_Emu_Digital_Input_t;
+
+/**
  * @brief CAN message injection structure
  */
 typedef struct {
@@ -83,27 +100,185 @@ typedef struct {
  */
 typedef struct {
     uint8_t state;              /**< ECUMaster state (0=OFF,1=ON,2=OC,3=OT,4=SC,5=OL,6=PWM,7=DIS) */
+    uint8_t prev_state;         /**< Previous state for edge detection */
     uint16_t pwm_duty;          /**< PWM duty (0-1000) */
     uint16_t current_mA;        /**< Simulated current */
     int16_t temperature_C;      /**< Simulated temperature */
     uint8_t fault_flags;        /**< Fault flags */
     float load_resistance_ohm;  /**< Load resistance for current calc */
+    /* Realistic simulation fields */
+    uint16_t inrush_remaining_ms;  /**< Inrush current period countdown */
+    float inrush_multiplier;       /**< Inrush current multiplier (1.0-10.0) */
+    float thermal_energy_J;        /**< Accumulated thermal energy for temp calc */
+    uint16_t soft_start_ms;        /**< Soft-start ramp time */
+    uint16_t soft_start_elapsed;   /**< Elapsed soft-start time */
 } PMU_Emu_PROFET_Channel_t;
+
+/**
+ * @brief Motor physics parameters for realistic simulation
+ */
+typedef struct {
+    /* Motor electrical parameters */
+    float Kt;                   /**< Torque constant (Nm/A) - typical 0.01-0.1 for small motors */
+    float Ke;                   /**< Back-EMF constant (V/(rad/s)) - usually equal to Kt */
+    float Rm;                   /**< Motor resistance (Ohm) - winding resistance */
+    float Lm;                   /**< Motor inductance (H) - winding inductance */
+
+    /* Motor mechanical parameters */
+    float Jm;                   /**< Motor rotor inertia (kg·m²) */
+    float Jl;                   /**< Load inertia (kg·m²) */
+    float gear_ratio;           /**< Gear ratio (output/input) - 1.0 for direct drive */
+
+    /* Friction parameters */
+    float Bf;                   /**< Viscous friction coefficient (Nm/(rad/s)) */
+    float Tf;                   /**< Coulomb (static) friction torque (Nm) */
+    float Ts;                   /**< Stiction torque (Nm) - breakaway torque */
+    float stiction_velocity;    /**< Velocity threshold for stiction (rad/s) */
+
+    /* Position limits */
+    float pos_min_rad;          /**< Minimum position (rad) */
+    float pos_max_rad;          /**< Maximum position (rad) */
+    float end_stop_stiffness;   /**< End-stop spring constant (Nm/rad) */
+
+    /* Thermal parameters */
+    float thermal_resistance;   /**< Thermal resistance junction-ambient (K/W) */
+    float thermal_capacitance;  /**< Thermal mass (J/K) */
+} PMU_Emu_MotorParams_t;
+
+/**
+ * @brief Motor dynamic state for simulation
+ */
+typedef struct {
+    /* Electrical state */
+    float current_A;            /**< Actual motor current (A) */
+    float voltage_V;            /**< Applied voltage (V) */
+    float back_emf_V;           /**< Back-EMF voltage (V) */
+
+    /* Mechanical state */
+    float omega;                /**< Angular velocity (rad/s) */
+    float omega_prev;           /**< Previous angular velocity for accel calc */
+    float theta;                /**< Angular position (rad) */
+    float torque_motor;         /**< Motor torque (Nm) */
+    float torque_friction;      /**< Friction torque (Nm) */
+    float torque_load;          /**< External load torque (Nm) */
+    float acceleration;         /**< Angular acceleration (rad/s²) */
+
+    /* Thermal state */
+    float temperature_C;        /**< Motor temperature (°C) */
+    float power_dissipated_W;   /**< Power dissipation (W) */
+
+    /* State flags */
+    uint8_t at_end_stop;        /**< At end stop (1=min, 2=max, 0=free) */
+    uint8_t stalled;            /**< Motor stalled flag */
+    uint32_t stall_time_ms;     /**< Time in stall condition */
+} PMU_Emu_MotorState_t;
 
 /**
  * @brief H-Bridge output emulation state
  */
 typedef struct {
-    uint8_t mode;               /**< Operating mode */
-    uint8_t state;              /**< State (IDLE, RUNNING, etc.) */
+    uint8_t mode;               /**< Operating mode (0=COAST,1=FWD,2=REV,3=BRAKE) */
+    uint8_t state;              /**< State (IDLE, RUNNING, PARKING, PARKED, FAULT) */
     uint16_t duty_cycle;        /**< PWM duty (0-1000) */
-    uint16_t current_mA;        /**< Simulated current */
+    uint16_t current_mA;        /**< Simulated current (mA) */
     uint16_t position;          /**< Position feedback (0-1000) */
     uint16_t target_position;   /**< Target position */
-    float motor_speed;          /**< Motor speed (units/sec) */
-    float load_inertia;         /**< Load inertia factor */
+    float motor_speed;          /**< Motor speed (deprecated - use motor_state.omega) */
+    float load_inertia;         /**< Load inertia factor (deprecated) */
     uint8_t fault_flags;        /**< Fault flags */
+
+    /* Realistic motor simulation */
+    PMU_Emu_MotorParams_t motor_params;  /**< Motor physics parameters */
+    PMU_Emu_MotorState_t motor_state;    /**< Motor dynamic state */
 } PMU_Emu_HBridge_Channel_t;
+
+/**
+ * @brief WiFi module emulation state
+ */
+typedef enum {
+    PMU_EMU_WIFI_STATE_OFF = 0,
+    PMU_EMU_WIFI_STATE_INIT,
+    PMU_EMU_WIFI_STATE_SCANNING,
+    PMU_EMU_WIFI_STATE_CONNECTING,
+    PMU_EMU_WIFI_STATE_CONNECTED,
+    PMU_EMU_WIFI_STATE_AP_MODE,
+    PMU_EMU_WIFI_STATE_ERROR
+} PMU_Emu_WiFi_State_t;
+
+typedef struct {
+    PMU_Emu_WiFi_State_t state;     /**< Current WiFi state */
+    bool enabled;                    /**< WiFi enabled */
+    bool ap_mode;                    /**< Access Point mode active */
+    char ssid[33];                   /**< Connected/configured SSID */
+    char ip_addr[16];                /**< IP address */
+    int8_t rssi;                     /**< Signal strength dBm (-100 to 0) */
+    uint8_t channel;                 /**< WiFi channel (1-13) */
+    uint32_t tx_bytes;               /**< Transmitted bytes */
+    uint32_t rx_bytes;               /**< Received bytes */
+    uint8_t clients_connected;       /**< Number of clients (AP mode) */
+    uint32_t uptime_s;               /**< Connection uptime seconds */
+} PMU_Emu_WiFi_t;
+
+/**
+ * @brief Bluetooth module emulation state
+ */
+typedef enum {
+    PMU_EMU_BT_STATE_OFF = 0,
+    PMU_EMU_BT_STATE_INIT,
+    PMU_EMU_BT_STATE_ADVERTISING,
+    PMU_EMU_BT_STATE_CONNECTED,
+    PMU_EMU_BT_STATE_PAIRING,
+    PMU_EMU_BT_STATE_ERROR
+} PMU_Emu_BT_State_t;
+
+typedef struct {
+    PMU_Emu_BT_State_t state;       /**< Current Bluetooth state */
+    bool enabled;                    /**< Bluetooth enabled */
+    bool ble_mode;                   /**< BLE mode (vs Classic) */
+    char device_name[33];            /**< Device name */
+    char peer_address[18];           /**< Connected peer MAC address */
+    int8_t rssi;                     /**< Signal strength dBm */
+    uint32_t tx_bytes;               /**< Transmitted bytes */
+    uint32_t rx_bytes;               /**< Received bytes */
+    bool authenticated;              /**< Peer authenticated */
+    uint32_t uptime_s;               /**< Connection uptime seconds */
+} PMU_Emu_Bluetooth_t;
+
+/**
+ * @brief LIN bus emulation state
+ */
+typedef enum {
+    PMU_EMU_LIN_STATE_OFF = 0,
+    PMU_EMU_LIN_STATE_IDLE,
+    PMU_EMU_LIN_STATE_ACTIVE,
+    PMU_EMU_LIN_STATE_SLEEP,
+    PMU_EMU_LIN_STATE_ERROR
+} PMU_Emu_LIN_State_t;
+
+#define PMU_EMU_LIN_BUS_COUNT       2
+#define PMU_EMU_LIN_FRAME_COUNT     32
+#define PMU_EMU_LIN_RX_QUEUE_SIZE   16
+
+typedef struct {
+    uint8_t frame_id;               /**< LIN frame ID (0-63) */
+    uint8_t data[8];                /**< Frame data */
+    uint8_t length;                 /**< Data length */
+    uint32_t timestamp;             /**< Reception timestamp */
+} PMU_Emu_LIN_Frame_t;
+
+typedef struct {
+    PMU_Emu_LIN_State_t state;      /**< Bus state */
+    bool enabled;                    /**< Bus enabled */
+    bool is_master;                  /**< Master mode */
+    uint32_t baudrate;               /**< Baud rate */
+    uint32_t frames_rx;              /**< Received frames count */
+    uint32_t frames_tx;              /**< Transmitted frames count */
+    uint32_t errors;                 /**< Error count */
+    PMU_Emu_LIN_Frame_t rx_queue[PMU_EMU_LIN_RX_QUEUE_SIZE];
+    uint8_t rx_queue_head;           /**< RX queue head index */
+    uint8_t rx_queue_count;          /**< RX queue count */
+    uint8_t frame_data[PMU_EMU_LIN_FRAME_COUNT][8]; /**< Frame data buffers */
+} PMU_Emu_LIN_Bus_t;
 
 /**
  * @brief Protection system emulation state
@@ -130,6 +305,9 @@ typedef struct {
     /* ADC Channels */
     PMU_Emu_ADC_Channel_t adc[20];
 
+    /* Digital Inputs */
+    PMU_Emu_Digital_Input_t digital_inputs[16];
+
     /* CAN Bus */
     PMU_Emu_CAN_Message_t can_rx_queue[64];
     uint8_t can_rx_count;
@@ -144,11 +322,20 @@ typedef struct {
     /* Protection System */
     PMU_Emu_Protection_t protection;
 
+    /* Communication Modules */
+    PMU_Emu_WiFi_t wifi;
+    PMU_Emu_Bluetooth_t bluetooth;
+    PMU_Emu_LIN_Bus_t lin[PMU_EMU_LIN_BUS_COUNT];
+
     /* Timing */
     uint32_t tick_ms;
     uint32_t uptime_seconds;
     uint32_t uptime_accum_ms;   /**< Millisecond accumulator for uptime */
     float time_scale;           /**< Time scaling factor (1.0 = real-time) */
+
+    /* Flash Storage */
+    int16_t flash_temp_C;       /**< Simulated flash temperature */
+    uint16_t flash_file_count;  /**< Number of files in flash */
 
     /* Callbacks */
     PMU_Emu_OutputCallback_t on_profet_change;
@@ -163,6 +350,7 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 
 #define PMU_EMU_ADC_CHANNELS        20
+#define PMU_EMU_DIGITAL_INPUTS      16
 #define PMU_EMU_PROFET_CHANNELS     30
 #define PMU_EMU_HBRIDGE_CHANNELS    4
 #define PMU_EMU_CAN_BUSES           4
@@ -267,6 +455,91 @@ int PMU_Emu_ADC_SetNoise(uint8_t channel, bool enable, uint16_t amplitude);
  * @param values Array of 20 raw values
  */
 void PMU_Emu_ADC_SetAll(const uint16_t* values);
+
+/* ============================================================================
+ * Digital Input Emulation
+ * ============================================================================ */
+
+/**
+ * @brief Set digital input state
+ * @param channel Channel number (0-15)
+ * @param state Input state (true=HIGH, false=LOW)
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_DI_SetState(uint8_t channel, bool state);
+
+/**
+ * @brief Get digital input state (after debounce)
+ * @param channel Channel number (0-15)
+ * @retval Current debounced state, or false on error
+ */
+bool PMU_Emu_DI_GetState(uint8_t channel);
+
+/**
+ * @brief Set digital input configuration
+ * @param channel Channel number (0-15)
+ * @param inverted Invert logic
+ * @param pull_up Enable pull-up
+ * @param debounce_ms Debounce time in ms
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_DI_Configure(uint8_t channel, bool inverted, bool pull_up, uint32_t debounce_ms);
+
+/**
+ * @brief Generate pulse on digital input
+ * @param channel Channel number (0-15)
+ * @param duration_ms Pulse duration in milliseconds
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_DI_Pulse(uint8_t channel, uint32_t duration_ms);
+
+/**
+ * @brief Toggle digital input state
+ * @param channel Channel number (0-15)
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_DI_Toggle(uint8_t channel);
+
+/**
+ * @brief Set all digital inputs at once
+ * @param states Bitmask of states (bit 0 = channel 0, etc.)
+ */
+void PMU_Emu_DI_SetAll(uint16_t states);
+
+/**
+ * @brief Get all digital inputs as bitmask
+ * @retval Bitmask of debounced states
+ */
+uint16_t PMU_Emu_DI_GetAll(void);
+
+/**
+ * @brief Get rising edge flag and clear it
+ * @param channel Channel number (0-15)
+ * @retval true if rising edge detected since last call
+ */
+bool PMU_Emu_DI_GetRisingEdge(uint8_t channel);
+
+/**
+ * @brief Get falling edge flag and clear it
+ * @param channel Channel number (0-15)
+ * @retval true if falling edge detected since last call
+ */
+bool PMU_Emu_DI_GetFallingEdge(uint8_t channel);
+
+/**
+ * @brief Get pulse count and optionally reset
+ * @param channel Channel number (0-15)
+ * @param reset Reset counter after reading
+ * @retval Pulse count
+ */
+uint32_t PMU_Emu_DI_GetPulseCount(uint8_t channel, bool reset);
+
+/**
+ * @brief Get digital input structure pointer
+ * @param channel Channel number (0-15)
+ * @retval Pointer to digital input state, or NULL on error
+ */
+const PMU_Emu_Digital_Input_t* PMU_Emu_DI_GetChannel(uint8_t channel);
 
 /* ============================================================================
  * CAN Bus Injection
@@ -383,13 +656,44 @@ void PMU_Emu_PROFET_SetCallback(PMU_Emu_OutputCallback_t callback);
 const PMU_Emu_HBridge_Channel_t* PMU_Emu_HBridge_GetState(uint8_t bridge);
 
 /**
- * @brief Set H-Bridge motor parameters
+ * @brief Set H-Bridge motor parameters (legacy API)
  * @param bridge Bridge number (0-3)
  * @param speed Motor speed in units/sec
  * @param inertia Load inertia factor
  * @retval 0 on success, -1 on error
  */
 int PMU_Emu_HBridge_SetMotorParams(uint8_t bridge, float speed, float inertia);
+
+/**
+ * @brief Set detailed motor physics parameters
+ * @param bridge Bridge number (0-3)
+ * @param params Motor parameters structure
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_HBridge_SetMotorPhysics(uint8_t bridge, const PMU_Emu_MotorParams_t* params);
+
+/**
+ * @brief Set motor preset configuration
+ * @param bridge Bridge number (0-3)
+ * @param preset Preset name: "wiper", "valve", "window", "seat", "custom"
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_HBridge_SetMotorPreset(uint8_t bridge, const char* preset);
+
+/**
+ * @brief Apply external load torque to motor
+ * @param bridge Bridge number (0-3)
+ * @param torque_Nm Load torque in Newton-meters (positive opposes motion)
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_HBridge_SetLoadTorque(uint8_t bridge, float torque_Nm);
+
+/**
+ * @brief Get motor dynamic state
+ * @param bridge Bridge number (0-3)
+ * @retval Pointer to motor state, or NULL on error
+ */
+const PMU_Emu_MotorState_t* PMU_Emu_HBridge_GetMotorState(uint8_t bridge);
 
 /**
  * @brief Set H-Bridge position feedback directly
@@ -412,6 +716,23 @@ int PMU_Emu_HBridge_InjectFault(uint8_t bridge, uint8_t fault_flags);
  * @param callback Callback function
  */
 void PMU_Emu_HBridge_SetCallback(PMU_Emu_OutputCallback_t callback);
+
+/**
+ * @brief Set H-Bridge mode and PWM duty cycle
+ * @param bridge Bridge number (0-3)
+ * @param mode Operating mode (0=COAST, 1=FORWARD, 2=REVERSE, 3=BRAKE)
+ * @param duty PWM duty cycle (0-1000 = 0-100%)
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_HBridge_SetMode(uint8_t bridge, uint8_t mode, uint16_t duty);
+
+/**
+ * @brief Set H-Bridge target position for PID control
+ * @param bridge Bridge number (0-3)
+ * @param target Target position (0-1000)
+ * @retval 0 on success, -1 on error
+ */
+int PMU_Emu_HBridge_SetTarget(uint8_t bridge, uint16_t target);
 
 /* ============================================================================
  * Protection System Emulation
@@ -498,6 +819,205 @@ void PMU_Emu_PrintState(void);
  * @param size Buffer size
  */
 void PMU_Emu_GetStatsString(char* buffer, size_t size);
+
+/* ============================================================================
+ * WiFi Module Emulation
+ * ============================================================================ */
+
+/**
+ * @brief Get WiFi module state
+ * @retval Pointer to WiFi state
+ */
+const PMU_Emu_WiFi_t* PMU_Emu_WiFi_GetState(void);
+
+/**
+ * @brief Enable/disable WiFi module
+ * @param enabled Enable flag
+ */
+void PMU_Emu_WiFi_SetEnabled(bool enabled);
+
+/**
+ * @brief Set WiFi connection state
+ * @param state WiFi state
+ */
+void PMU_Emu_WiFi_SetState(PMU_Emu_WiFi_State_t state);
+
+/**
+ * @brief Set WiFi connection info
+ * @param ssid SSID name
+ * @param rssi Signal strength dBm
+ * @param channel WiFi channel
+ */
+void PMU_Emu_WiFi_SetConnection(const char* ssid, int8_t rssi, uint8_t channel);
+
+/**
+ * @brief Set WiFi IP address
+ * @param ip IP address string
+ */
+void PMU_Emu_WiFi_SetIP(const char* ip);
+
+/**
+ * @brief Simulate WiFi data transfer
+ * @param tx_bytes Bytes transmitted
+ * @param rx_bytes Bytes received
+ */
+void PMU_Emu_WiFi_AddTraffic(uint32_t tx_bytes, uint32_t rx_bytes);
+
+/* ============================================================================
+ * Bluetooth Module Emulation
+ * ============================================================================ */
+
+/**
+ * @brief Get Bluetooth module state
+ * @retval Pointer to Bluetooth state
+ */
+const PMU_Emu_Bluetooth_t* PMU_Emu_BT_GetState(void);
+
+/**
+ * @brief Enable/disable Bluetooth module
+ * @param enabled Enable flag
+ */
+void PMU_Emu_BT_SetEnabled(bool enabled);
+
+/**
+ * @brief Set Bluetooth state
+ * @param state Bluetooth state
+ */
+void PMU_Emu_BT_SetState(PMU_Emu_BT_State_t state);
+
+/**
+ * @brief Set Bluetooth connection info
+ * @param peer_address Peer MAC address
+ * @param rssi Signal strength dBm
+ */
+void PMU_Emu_BT_SetConnection(const char* peer_address, int8_t rssi);
+
+/**
+ * @brief Simulate Bluetooth data transfer
+ * @param tx_bytes Bytes transmitted
+ * @param rx_bytes Bytes received
+ */
+void PMU_Emu_BT_AddTraffic(uint32_t tx_bytes, uint32_t rx_bytes);
+
+/**
+ * @brief Set WiFi AP mode
+ * @param ap_mode true for AP mode, false for Station mode
+ */
+void PMU_Emu_WiFi_SetAPMode(bool ap_mode);
+
+/**
+ * @brief Connect WiFi to network (simulated)
+ * @param ssid Network SSID
+ */
+void PMU_Emu_WiFi_Connect(const char* ssid);
+
+/**
+ * @brief Disconnect WiFi
+ */
+void PMU_Emu_WiFi_Disconnect(void);
+
+/**
+ * @brief Set Bluetooth BLE mode
+ * @param ble_mode true for BLE, false for Classic Bluetooth
+ */
+void PMU_Emu_BT_SetBLEMode(bool ble_mode);
+
+/**
+ * @brief Set Bluetooth advertising state
+ * @param advertising true to start advertising, false to stop
+ */
+void PMU_Emu_BT_SetAdvertising(bool advertising);
+
+/* ============================================================================
+ * LIN Bus Emulation
+ * ============================================================================ */
+
+/**
+ * @brief Get LIN bus state
+ * @param bus LIN bus number (0 or 1)
+ * @retval Pointer to LIN bus state
+ */
+const PMU_Emu_LIN_Bus_t* PMU_Emu_LIN_GetBus(uint8_t bus);
+
+/**
+ * @brief Enable/disable LIN bus
+ * @param bus LIN bus number
+ * @param enabled Enable flag
+ */
+void PMU_Emu_LIN_SetEnabled(uint8_t bus, bool enabled);
+
+/**
+ * @brief Set LIN bus as master or slave
+ * @param bus LIN bus number
+ * @param is_master true for master mode
+ */
+void PMU_Emu_LIN_SetMasterMode(uint8_t bus, bool is_master);
+
+/**
+ * @brief Inject LIN frame (simulate reception)
+ * @param bus LIN bus number
+ * @param frame_id Frame ID (0-63)
+ * @param data Frame data
+ * @param length Data length
+ */
+void PMU_Emu_LIN_InjectFrame(uint8_t bus, uint8_t frame_id,
+                             const uint8_t* data, uint8_t length);
+
+/**
+ * @brief Transmit LIN frame (from emulator as master)
+ * @param bus LIN bus number
+ * @param frame_id Frame ID
+ * @param data Frame data
+ * @param length Data length
+ */
+void PMU_Emu_LIN_Transmit(uint8_t bus, uint8_t frame_id,
+                          const uint8_t* data, uint8_t length);
+
+/**
+ * @brief Request LIN frame (master sends header only)
+ * @param bus LIN bus number
+ * @param frame_id Frame ID to request
+ */
+void PMU_Emu_LIN_RequestFrame(uint8_t bus, uint8_t frame_id);
+
+/**
+ * @brief Handle received LIN frame (internal callback)
+ * @param bus LIN bus number
+ * @param frame_id Frame ID
+ * @param data Frame data
+ * @param length Data length
+ */
+void PMU_Emu_LIN_HandleRx(uint8_t bus, uint8_t frame_id,
+                          const uint8_t* data, uint8_t length);
+
+/**
+ * @brief Send LIN wakeup signal
+ * @param bus LIN bus number
+ */
+void PMU_Emu_LIN_SendWakeup(uint8_t bus);
+
+/**
+ * @brief Set LIN bus to sleep mode
+ * @param bus LIN bus number
+ */
+void PMU_Emu_LIN_SetSleep(uint8_t bus);
+
+/**
+ * @brief Get LIN frame data
+ * @param bus LIN bus number
+ * @param frame_id Frame ID
+ * @param data Output buffer (8 bytes)
+ * @retval 0 on success, -1 if frame not found
+ */
+int PMU_Emu_LIN_GetFrameData(uint8_t bus, uint8_t frame_id, uint8_t* data);
+
+/**
+ * @brief Set LIN frame data (for slave response)
+ * @param bus LIN bus number
+ * @param frame_id Frame ID
+ * @param data Frame data (8 bytes)
+ */
+void PMU_Emu_LIN_SetFrameData(uint8_t bus, uint8_t frame_id, const uint8_t* data);
 
 #ifdef __cplusplus
 }

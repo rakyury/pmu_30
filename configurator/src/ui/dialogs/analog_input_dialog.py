@@ -39,8 +39,13 @@ class AnalogInputDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.ANALOG_INPUT)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 used_pins: Optional[List[int]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        self.used_pins = used_pins or []
+        # Get current channel if editing (to allow keeping same pin)
+        self.current_channel = config.get('channel') if config else None
+        super().__init__(parent, config, available_channels, ChannelType.ANALOG_INPUT, existing_channels)
 
         self._create_settings_group()
         self._create_switch_group()
@@ -70,7 +75,9 @@ class AnalogInputDialog(BaseChannelDialog):
         layout.addWidget(QLabel("Pin:"), row, 0)
         self.pin_combo = QComboBox()
         for i in range(20):
-            self.pin_combo.addItem(f"A{i + 1}", i)
+            # Only show pins that are not in use (or the current pin if editing)
+            if i not in self.used_pins or i == self.current_channel:
+                self.pin_combo.addItem(f"A{i + 1}", i)
         layout.addWidget(self.pin_combo, row, 1)
 
         layout.addWidget(QLabel("Type:"), row, 2)

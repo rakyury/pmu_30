@@ -24,6 +24,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_can.h"
 #include "pmu_logic.h"
+#include "pmu_blinkmarine.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 #include <math.h>
@@ -1118,6 +1119,11 @@ void PMU_CAN_ProcessInputs(void)
  */
 void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc)
 {
+    /* Check BlinkMarine keypads first - they have their own ID range */
+    if (PMU_BlinkMarine_HandleRxMessage(bus, can_id, data, dlc)) {
+        return;  /* Message was handled by BlinkMarine keypad */
+    }
+
     /* Find matching message object */
     PMU_CAN_MessageObject_t* msg = CAN_FindMessageByCanId(bus, can_id);
 

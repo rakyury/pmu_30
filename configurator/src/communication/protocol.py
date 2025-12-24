@@ -47,8 +47,9 @@ class MessageType(IntEnum):
     # Channel control
     SET_CHANNEL = 0x40
     CHANNEL_ACK = 0x41
-    GET_CHANNEL = 0x42
-    CHANNEL_DATA = 0x43
+    SET_HBRIDGE = 0x42       # Set H-Bridge mode and PWM
+    GET_CHANNEL = 0x43       # Shifted from 0x42
+    CHANNEL_DATA = 0x44      # Shifted from 0x43
 
     # Error handling
     ERROR = 0x50
@@ -267,6 +268,24 @@ class FrameBuilder:
         """
         payload = struct.pack("<Hf", channel_id, value)
         return ProtocolFrame(msg_type=MessageType.SET_CHANNEL, payload=payload)
+
+    @staticmethod
+    def set_hbridge(bridge: int, mode: int, duty: int, target: int = 0) -> ProtocolFrame:
+        """
+        Create a SET_HBRIDGE frame.
+
+        Args:
+            bridge: Bridge number (0-3)
+            mode: Operating mode (0=COAST, 1=FORWARD, 2=REVERSE, 3=BRAKE, 4=WIPER_PARK, 5=PID)
+            duty: PWM duty cycle (0-1000 = 0-100%)
+            target: Target position for PID mode (0-1000)
+
+        Returns:
+            ProtocolFrame ready to send
+        """
+        # Pack: bridge(1) + mode(1) + duty(2) + target(2)
+        payload = struct.pack("<BBHH", bridge, mode, duty, target)
+        return ProtocolFrame(msg_type=MessageType.SET_HBRIDGE, payload=payload)
 
     @staticmethod
     def get_channel(channel_id: int) -> ProtocolFrame:

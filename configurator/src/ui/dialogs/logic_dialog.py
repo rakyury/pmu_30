@@ -88,8 +88,9 @@ class LogicDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.LOGIC)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.LOGIC, existing_channels)
 
         self._create_operation_group()
         self._create_params_group()

@@ -9,20 +9,33 @@ from PyQt6.QtWidgets import (
     QCheckBox, QLabel
 )
 from PyQt6.QtCore import Qt
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .channel_selector_dialog import ChannelSelectorDialog
+from .base_channel_dialog import get_next_channel_id
 
 
 class OutputConfigDialog(QDialog):
     """Dialog for configuring a single high-side output channel."""
 
-    def __init__(self, parent=None, output_config: Optional[Dict[str, Any]] = None, used_channels=None, available_channels=None):
+    def __init__(self, parent=None, output_config: Optional[Dict[str, Any]] = None,
+                 used_channels=None, available_channels=None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent)
         self.output_config = output_config
         self.used_channels = used_channels or []
         self.available_channels = available_channels or {}  # Dict of all available channels/functions
+        self.existing_channels = existing_channels or []
 
-        self.setWindowTitle("Output Channel Configuration")
+        # Determine if editing existing or creating new
+        self.is_edit_mode = bool(output_config and output_config.get("channel_id") is not None)
+
+        # Store or generate channel_id
+        if self.is_edit_mode:
+            self._channel_id = output_config.get("channel_id", 0)
+        else:
+            self._channel_id = get_next_channel_id(existing_channels)
+
+        self.setWindowTitle("Edit Output" if self.is_edit_mode else "New Output")
         self.setModal(True)
         self.resize(600, 480)
 
@@ -30,6 +43,13 @@ class OutputConfigDialog(QDialog):
 
         if output_config:
             self._load_config(output_config)
+        else:
+            # Auto-generate name for new outputs
+            self._auto_generate_name()
+
+    def _auto_generate_name(self):
+        """Auto-generate name for new output."""
+        self.name_edit.setText(f"Output {self._channel_id}")
 
     def _init_ui(self):
         """Initialize UI components."""
@@ -39,6 +59,12 @@ class OutputConfigDialog(QDialog):
         basic_group = QGroupBox("Basic Settings")
         basic_layout = QFormLayout()
 
+        # Channel ID (read-only, auto-generated)
+        self.channel_id_label = QLabel(str(self._channel_id))
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #666;")
+        basic_layout.addRow("Channel ID:", self.channel_id_label)
+
+        # Name (editable)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., Fuel Pump, Starter, Headlights")
         basic_layout.addRow("Name: *", self.name_edit)
@@ -51,18 +77,21 @@ class OutputConfigDialog(QDialog):
         self.pin1_combo = QComboBox()
         self.pin1_combo.setToolTip("Primary output pin (O1-O30)")
         self._populate_available_pins(self.pin1_combo)
+        self.pin1_combo.currentIndexChanged.connect(self._on_pin_selection_changed)
         pins_layout.addWidget(QLabel("Pin 1:"))
         pins_layout.addWidget(self.pin1_combo)
 
         self.pin2_combo = QComboBox()
         self.pin2_combo.setToolTip("Optional second pin for higher current")
         self._populate_available_pins(self.pin2_combo, include_none=True)
+        self.pin2_combo.currentIndexChanged.connect(self._on_pin_selection_changed)
         pins_layout.addWidget(QLabel("Pin 2:"))
         pins_layout.addWidget(self.pin2_combo)
 
         self.pin3_combo = QComboBox()
         self.pin3_combo.setToolTip("Optional third pin for maximum current")
         self._populate_available_pins(self.pin3_combo, include_none=True)
+        self.pin3_combo.currentIndexChanged.connect(self._on_pin_selection_changed)
         pins_layout.addWidget(QLabel("Pin 3:"))
         pins_layout.addWidget(self.pin3_combo)
 
@@ -262,30 +291,103 @@ class OutputConfigDialog(QDialog):
                 QMessageBox.warning(self, "Validation Error", "Pin 3 cannot be the same as Pin 1 or Pin 2!")
                 self.pin3_combo.setFocus()
                 return
+            pins.append(pin3)
+
+        # Validate that none of the selected pins are already used by other outputs
+        current_pins = []
+        if self.output_config:
+            current_pins = self.output_config.get("pins", [])
+
+        for pin in pins:
+            if pin in self.used_channels and pin not in current_pins:
+                QMessageBox.warning(
+                    self, "Validation Error",
+                    f"Pin O{pin + 1} is already used by another output!"
+                )
+                return
 
         self.accept()
 
-    def _populate_available_pins(self, combo: QComboBox, include_none: bool = False):
-        """Populate pin dropdown with available pins."""
+    def _populate_available_pins(self, combo: QComboBox, include_none: bool = False, exclude_pins: list = None):
+        """Populate pin dropdown with available pins.
+
+        Args:
+            combo: The combobox to populate
+            include_none: Whether to include "None" option
+            exclude_pins: Additional pins to exclude (from other combos in the form)
+        """
+        # Save current selection
+        current_selection = combo.currentData()
+
         combo.clear()
 
         # Add "None" option for optional pins
         if include_none:
             combo.addItem("None", -1)
 
-        # Get currently used pins if editing
+        # Get currently used pins if editing (allow these pins for this output)
         current_pins = []
         if self.output_config:
             current_pins = self.output_config.get("pins", [])
 
+        # Combine used channels with pins to exclude from form
+        exclude_set = set(self.used_channels)
+        if exclude_pins:
+            exclude_set.update(exclude_pins)
+
         # Add available pins (O1-O30)
         for pin in range(30):
-            if pin not in self.used_channels or pin in current_pins:
+            if pin not in exclude_set or pin in current_pins:
                 combo.addItem(f"O{pin + 1}", pin)
 
         # If no pins available and not optional, add a placeholder
         if combo.count() == 0 and not include_none:
             combo.addItem("No pins available", -1)
+
+        # Restore selection if possible
+        if current_selection is not None:
+            index = combo.findData(current_selection)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+    def _on_pin_selection_changed(self):
+        """Handle pin selection change - update other combos to exclude selected pins."""
+        # Get currently selected pins from each combo
+        pin1 = self.pin1_combo.currentData()
+        pin2 = self.pin2_combo.currentData()
+        pin3 = self.pin3_combo.currentData()
+
+        # Build exclusion lists for each combo (exclude pins selected in OTHER combos)
+        exclude_for_pin1 = []
+        exclude_for_pin2 = []
+        exclude_for_pin3 = []
+
+        if pin1 is not None and pin1 >= 0:
+            exclude_for_pin2.append(pin1)
+            exclude_for_pin3.append(pin1)
+
+        if pin2 is not None and pin2 >= 0:
+            exclude_for_pin1.append(pin2)
+            exclude_for_pin3.append(pin2)
+
+        if pin3 is not None and pin3 >= 0:
+            exclude_for_pin1.append(pin3)
+            exclude_for_pin2.append(pin3)
+
+        # Block signals to prevent recursion
+        self.pin1_combo.blockSignals(True)
+        self.pin2_combo.blockSignals(True)
+        self.pin3_combo.blockSignals(True)
+
+        # Repopulate combos with updated exclusions
+        self._populate_available_pins(self.pin1_combo, include_none=False, exclude_pins=exclude_for_pin1)
+        self._populate_available_pins(self.pin2_combo, include_none=True, exclude_pins=exclude_for_pin2)
+        self._populate_available_pins(self.pin3_combo, include_none=True, exclude_pins=exclude_for_pin3)
+
+        # Unblock signals
+        self.pin1_combo.blockSignals(False)
+        self.pin2_combo.blockSignals(False)
+        self.pin3_combo.blockSignals(False)
 
     def _on_control_function_changed(self, text: str):
         """Handle control function change - disable checkbox if function is set."""
@@ -326,8 +428,11 @@ class OutputConfigDialog(QDialog):
             self.duty_function_edit.setText(channel)
 
     def _load_config(self, config: Dict[str, Any]):
-        """Load configuration into dialog."""
-        self.name_edit.setText(config.get("name", ""))
+        """Load configuration into dialog.
+
+        Supports both nested format (pwm.duty_value) and flat format (duty_fixed).
+        """
+        self.name_edit.setText(config.get("name", config.get("id", "")))
 
         # Load pins (up to 3)
         pins = config.get("pins", [])
@@ -344,36 +449,52 @@ class OutputConfigDialog(QDialog):
             if index >= 0:
                 self.pin3_combo.setCurrentIndex(index)
 
-        # Control settings
-        self.control_function_edit.setText(config.get("control_function", ""))
+        # Control settings - check both nested and flat formats
+        control_func = config.get("control_function", config.get("source_channel", ""))
+        self.control_function_edit.setText(control_func)
         self.enabled_check.setChecked(config.get("enabled", True))
 
-        # Protection settings
+        # Protection settings - check both nested and flat formats
         protection = config.get("protection", {})
-        self.current_limit_spin.setValue(protection.get("current_limit", 10.0))
-        self.inrush_current_spin.setValue(protection.get("inrush_current", 20.0))
-        self.inrush_time_spin.setValue(protection.get("inrush_time_ms", 500))
-        self.retry_count_spin.setValue(protection.get("retry_count", 3))
-        self.retry_forever_check.setChecked(protection.get("retry_forever", False))
-        self.retry_delay_spin.setValue(protection.get("retry_delay_ms", 1000))
+        self.current_limit_spin.setValue(
+            protection.get("current_limit", config.get("current_limit_a", 10.0)))
+        self.inrush_current_spin.setValue(
+            protection.get("inrush_current", config.get("inrush_current_a", 20.0)))
+        self.inrush_time_spin.setValue(
+            protection.get("inrush_time_ms", config.get("inrush_time_ms", 500)))
+        self.retry_count_spin.setValue(
+            protection.get("retry_count", config.get("retry_count", 3)))
+        self.retry_forever_check.setChecked(
+            protection.get("retry_forever", config.get("retry_forever", False)))
+        self.retry_delay_spin.setValue(
+            protection.get("retry_delay_ms", config.get("retry_delay_ms", 1000)))
 
-        # PWM settings
+        # PWM settings - check both nested and flat formats
         pwm = config.get("pwm", {})
-        self.pwm_enabled_check.setChecked(pwm.get("enabled", False))
-        self.pwm_freq_spin.setValue(pwm.get("frequency", 1000))
+        self.pwm_enabled_check.setChecked(
+            pwm.get("enabled", config.get("pwm_enabled", False)))
+        self.pwm_freq_spin.setValue(
+            pwm.get("frequency", config.get("pwm_frequency_hz", 1000)))
 
-        # Duty settings (both value and function are always available)
-        self.pwm_duty_spin.setValue(pwm.get("duty_value", 50.0))
-        self.duty_function_edit.setText(pwm.get("duty_function", ""))
+        # Duty settings - support both formats:
+        # - nested: pwm.duty_value, pwm.duty_function
+        # - flat: duty_fixed, duty_channel
+        duty_value = pwm.get("duty_value", config.get("duty_fixed", 50.0))
+        duty_func = pwm.get("duty_function", config.get("duty_channel", ""))
+        self.pwm_duty_spin.setValue(duty_value)
+        self.duty_function_edit.setText(duty_func)
 
-        # Soft start
-        self.soft_start_check.setChecked(pwm.get("soft_start_enabled", False))
-        self.soft_start_duration_spin.setValue(pwm.get("soft_start_duration_ms", 1000))
+        # Soft start - check both formats
+        self.soft_start_check.setChecked(
+            pwm.get("soft_start_enabled", config.get("soft_start_ms", 0) > 0))
+        self.soft_start_duration_spin.setValue(
+            pwm.get("soft_start_duration_ms", config.get("soft_start_ms", 1000)))
 
     def get_config(self) -> Dict[str, Any]:
-        """Get configuration from dialog."""
-        import re
+        """Get configuration from dialog.
 
+        Outputs both nested and flat formats for compatibility.
+        """
         # Collect selected pins (1-3)
         pins = []
         pin1 = self.pin1_combo.currentData()
@@ -389,24 +510,35 @@ class OutputConfigDialog(QDialog):
             pins.append(pin3)
 
         name = self.name_edit.text().strip()
-
-        # Generate ID from name if editing existing config, preserve original id
-        # Otherwise create id from name (lowercase, replace spaces with underscores)
-        if self.output_config and self.output_config.get("id"):
-            channel_id = self.output_config.get("id")
-        else:
-            # Convert name to valid id: lowercase, alphanumeric and underscores only
-            channel_id = re.sub(r'[^a-z0-9_]', '_', name.lower())
-            channel_id = re.sub(r'_+', '_', channel_id).strip('_')
-            if not channel_id:
-                channel_id = f"out_{pins[0] if pins else 0}"
+        duty_value = self.pwm_duty_spin.value()
+        duty_func = self.duty_function_edit.text()
+        pwm_enabled = self.pwm_enabled_check.isChecked()
+        pwm_freq = self.pwm_freq_spin.value()
+        soft_start_enabled = self.soft_start_check.isChecked()
+        soft_start_ms = self.soft_start_duration_spin.value() if soft_start_enabled else 0
 
         config = {
-            "id": channel_id,
+            "channel_id": self._channel_id,
+            "channel_type": "power_output",
             "pins": pins,
             "name": name,
+            "id": name,  # Alias for compatibility
             "enabled": self.enabled_check.isChecked(),
             "control_function": self.control_function_edit.text(),
+            "source_channel": self.control_function_edit.text(),  # Flat format alias
+            # Flat format fields for model compatibility
+            "pwm_enabled": pwm_enabled,
+            "pwm_frequency_hz": pwm_freq,
+            "duty_fixed": duty_value,
+            "duty_channel": duty_func,
+            "soft_start_ms": soft_start_ms,
+            "current_limit_a": self.current_limit_spin.value(),
+            "inrush_current_a": self.inrush_current_spin.value(),
+            "inrush_time_ms": self.inrush_time_spin.value(),
+            "retry_count": self.retry_count_spin.value(),
+            "retry_forever": self.retry_forever_check.isChecked(),
+            "retry_delay_ms": self.retry_delay_spin.value(),
+            # Nested format for backward compatibility
             "protection": {
                 "current_limit": self.current_limit_spin.value(),
                 "inrush_current": self.inrush_current_spin.value(),
@@ -416,11 +548,11 @@ class OutputConfigDialog(QDialog):
                 "retry_delay_ms": self.retry_delay_spin.value()
             },
             "pwm": {
-                "enabled": self.pwm_enabled_check.isChecked(),
-                "frequency": self.pwm_freq_spin.value(),
-                "duty_value": self.pwm_duty_spin.value(),
-                "duty_function": self.duty_function_edit.text(),
-                "soft_start_enabled": self.soft_start_check.isChecked(),
+                "enabled": pwm_enabled,
+                "frequency": pwm_freq,
+                "duty_value": duty_value,
+                "duty_function": duty_func,
+                "soft_start_enabled": soft_start_enabled,
                 "soft_start_duration_ms": self.soft_start_duration_spin.value()
             }
         }

@@ -21,6 +21,10 @@ from .can_messages_manager_dialog import CANMessagesManagerDialog
 from .can_import_dialog import CANImportDialog
 from .channel_selector_dialog import ChannelSelectorDialog
 from .lua_script_tree_dialog import LuaScriptTreeDialog
+from .hbridge_dialog import HBridgeDialog
+from .blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
+from .wifi_settings_dialog import WiFiSettingsDialog
+from .bluetooth_settings_dialog import BluetoothSettingsDialog
 
 __all__ = [
     'BaseGPIODialog',
@@ -44,4 +48,8 @@ __all__ = [
     'CANImportDialog',
     'ChannelSelectorDialog',
     'LuaScriptTreeDialog',
+    'HBridgeDialog',
+    'BlinkMarineKeypadDialog',
+    'WiFiSettingsDialog',
+    'BluetoothSettingsDialog',
 ]

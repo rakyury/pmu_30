@@ -635,18 +635,52 @@ class ConfigManager:
 
     def _ensure_channel_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Ensure all channels have an 'id' field.
+        Ensure all channels have a valid 'id' field.
         Auto-generates id from 'name' if missing.
+        Sanitizes invalid IDs (containing invalid characters).
         """
         import re
+
+        def sanitize_id(raw_id: str) -> str:
+            """Sanitize an ID to contain only valid characters."""
+            # Replace common separators with underscores
+            sanitized = raw_id.replace(".", "_").replace("-", "_").replace(" ", "_")
+            # Remove any remaining invalid characters
+            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
+            # Ensure it starts with a letter
+            if sanitized and not sanitized[0].isalpha():
+                sanitized = "ch_" + sanitized
+            # Collapse multiple underscores
+            sanitized = re.sub(r'_+', '_', sanitized)
+            # Remove trailing underscores
+            sanitized = sanitized.strip("_")
+            return sanitized
+
+        def is_valid_id(channel_id: str) -> bool:
+            """Check if ID matches the required pattern."""
+            return bool(re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', channel_id))
 
         channels = config.get("channels", [])
         existing_ids = set()
 
-        # First pass - collect existing IDs
+        # First pass - collect existing valid IDs and sanitize invalid ones
         for ch in channels:
             if "id" in ch and ch["id"]:
-                existing_ids.add(ch["id"])
+                if is_valid_id(ch["id"]):
+                    existing_ids.add(ch["id"])
+                else:
+                    # Sanitize invalid ID
+                    old_id = ch["id"]
+                    new_id = sanitize_id(old_id)
+                    # Ensure uniqueness
+                    base_id = new_id
+                    counter = 1
+                    while new_id in existing_ids:
+                        new_id = f"{base_id}_{counter}"
+                        counter += 1
+                    ch["id"] = new_id
+                    existing_ids.add(new_id)
+                    logger.warning(f"Sanitized invalid channel ID: '{old_id}' -> '{new_id}'")
 
         # Second pass - generate missing IDs
         for ch in channels:

@@ -95,6 +95,8 @@ typedef struct {
     uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
     uint32_t lua_scripts;         /**< Number of Lua scripts loaded */
+    uint32_t pid_controllers;     /**< Number of PID controllers loaded */
+    uint32_t blinkmarine_keypads; /**< Number of BlinkMarine keypads loaded */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
     bool stream_enabled;          /**< Standard CAN Stream enabled */
@@ -180,6 +182,22 @@ const char* PMU_JSON_GetLastError(void);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_JSON_ClearConfig(void);
+
+/**
+ * @brief Update power outputs based on their source channels
+ * Call this function at 100Hz or faster in the control loop
+ */
+void PMU_PowerOutput_Update(void);
+
+/**
+ * @brief Clear power output storage (call before reloading config)
+ */
+void PMU_PowerOutput_ClearConfig(void);
+
+/**
+ * @brief Get power output configuration count
+ */
+uint8_t PMU_PowerOutput_GetCount(void);
 
 #ifdef __cplusplus
 }

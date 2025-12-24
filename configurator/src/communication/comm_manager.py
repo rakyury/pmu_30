@@ -407,6 +407,27 @@ class CommManager:
             logger.error(f"Set channel failed: {e}")
             return False
 
+    async def set_hbridge(self, bridge: int, mode: int, duty: int, target: int = 0) -> bool:
+        """
+        Set H-Bridge mode and PWM.
+
+        Args:
+            bridge: Bridge number (0-3)
+            mode: Operating mode (0=COAST, 1=FWD, 2=REV, 3=BRAKE, 4=WIPER_PARK, 5=PID)
+            duty: PWM duty cycle (0-1000)
+            target: Target position for PID mode (0-1000)
+
+        Returns:
+            True if successful
+        """
+        frame = FrameBuilder.set_hbridge(bridge, mode, duty, target)
+        try:
+            response = await self.send_and_wait(frame, MessageType.CHANNEL_ACK, timeout=1.0)
+            return True
+        except Exception as e:
+            logger.error(f"Set H-Bridge failed: {e}")
+            return False
+
     async def get_configuration(self) -> bytes:
         """
         Download configuration from device.

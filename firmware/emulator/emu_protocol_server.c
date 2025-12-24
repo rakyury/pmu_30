@@ -610,11 +610,15 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
         case EMU_MSG_GET_CONFIG: {
             /* Read config from last_config.json and send it */
             const char* config_file = "last_config.json";
+            printf("[SRV] GET_CONFIG request received, opening %s\n", config_file);
+            fflush(stdout);
             FILE* f = fopen(config_file, "rb");
 
             if (!f) {
                 /* No config file - send empty config */
                 LOG_SERVER("GET_CONFIG: No config file found, sending empty config");
+                printf("[SRV] GET_CONFIG: File not found!\n");
+                fflush(stdout);
                 resp[0] = 0;  /* Chunk index low */
                 resp[1] = 0;  /* Chunk index high */
                 resp[2] = 1;  /* Total chunks low */
@@ -908,10 +912,12 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     memcpy(buffer + offset, &current, 4);
     offset += 4;
 
-    /* ADC values (20 x 2 bytes) - from firmware channels if available */
+    /* ADC values (20 x 2 bytes) - always send raw ADC for analog monitor display
+     * Note: Channel values (0/1 for switches) are for logic conditions,
+     * but the analog monitor should always show the real voltage */
     for (int i = 0; i < 20; i++) {
-        int32_t ch_val = PMU_Channel_GetValue(i);  /* Channels 0-19 are inputs */
-        uint16_t adc = (ch_val != 0) ? (uint16_t)ch_val : emu->adc[i].raw_value;
+        /* Always use raw emulator ADC value for display (10-bit to 12-bit) */
+        uint16_t adc = emu->adc[i].raw_value << 2;
         memcpy(buffer + offset, &adc, 2);
         offset += 2;
     }

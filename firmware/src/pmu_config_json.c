@@ -18,6 +18,10 @@
 #include "pmu_logic_functions.h"
 #include "pmu_channel.h"
 #include "pmu_can_stream.h"
+#include "pmu_pid.h"
+#include "pmu_blinkmarine.h"
+#include "pmu_wifi.h"
+#include "pmu_bluetooth.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -40,6 +44,13 @@
 static char last_error[PMU_JSON_MAX_ERROR_LEN] = {0};
 static uint32_t load_start_time = 0;
 
+/* Storage for input configurations (persistent for PMU_ADC_SetConfig) */
+static PMU_InputConfig_t input_config_storage[PMU30_NUM_ADC_INPUTS];
+
+/* Storage for power output configurations (persistent for runtime control) */
+static PMU_PowerOutputConfig_t power_output_storage[PMU30_NUM_OUTPUTS];
+static uint8_t power_output_count = 0;
+
 /* Private function prototypes -----------------------------------------------*/
 /* v2.0 channel parsing */
 static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stats);
@@ -56,6 +67,8 @@ static bool JSON_ParseSwitch(cJSON* channel_obj);
 static bool JSON_ParseEnum(cJSON* channel_obj);
 static bool JSON_ParseCanRx(cJSON* channel_obj);
 static bool JSON_ParseCanTx(cJSON* channel_obj);
+static bool JSON_ParsePID(cJSON* channel_obj);
+static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj);
 static PMU_GPIOType_t JSON_ParseGPIOType(const char* type_str);
 
 /* v1.0 legacy parsing */
@@ -430,6 +443,8 @@ HAL_StatusTypeDef PMU_JSON_ClearConfig(void)
 {
     /* Reset all configurations to defaults */
     PMU_Config_Init();
+    /* Clear power output storage */
+    PMU_PowerOutput_ClearConfig();
     return HAL_OK;
 }
 
@@ -918,6 +933,155 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
         PMU_CAN_ConfigureBus(PMU_CAN_BUS_2, &bus_config);
     }
 
+    /* Parse WiFi configuration */
+    cJSON* wifi = cJSON_GetObjectItem(settings_obj, "wifi");
+    if (wifi && cJSON_IsObject(wifi)) {
+        PMU_WiFi_Config_t wifi_config;
+        PMU_WiFi_SetDefaultAPConfig(&wifi_config);
+
+        wifi_config.enabled = JSON_GetBool(wifi, "enabled", false);
+
+        /* Mode: "ap", "sta", "ap_sta" */
+        const char* mode_str = JSON_GetString(wifi, "mode", "ap");
+        if (strcmp(mode_str, "sta") == 0) {
+            wifi_config.mode = PMU_WIFI_MODE_STA;
+        } else if (strcmp(mode_str, "ap_sta") == 0) {
+            wifi_config.mode = PMU_WIFI_MODE_AP_STA;
+        } else {
+            wifi_config.mode = PMU_WIFI_MODE_AP;
+        }
+
+        /* Hostname */
+        const char* hostname = JSON_GetString(wifi, "hostname", "pmu30");
+        strncpy(wifi_config.hostname, hostname, PMU_WIFI_HOSTNAME_MAX_LEN);
+
+        /* AP configuration */
+        cJSON* ap = cJSON_GetObjectItem(wifi, "ap");
+        if (ap && cJSON_IsObject(ap)) {
+            const char* ssid = JSON_GetString(ap, "ssid", PMU_WIFI_DEFAULT_AP_SSID);
+            const char* pass = JSON_GetString(ap, "password", PMU_WIFI_DEFAULT_AP_PASS);
+            strncpy(wifi_config.ap.ssid, ssid, PMU_WIFI_SSID_MAX_LEN);
+            strncpy(wifi_config.ap.password, pass, PMU_WIFI_PASS_MAX_LEN);
+            wifi_config.ap.channel = (uint8_t)JSON_GetInt(ap, "channel", 6);
+            wifi_config.ap.hidden = JSON_GetBool(ap, "hidden", false) ? 1 : 0;
+            wifi_config.ap.max_clients = (uint8_t)JSON_GetInt(ap, "max_clients", 4);
+
+            const char* sec = JSON_GetString(ap, "security", "wpa2");
+            if (strcmp(sec, "open") == 0) wifi_config.ap.security = PMU_WIFI_SEC_OPEN;
+            else if (strcmp(sec, "wpa") == 0) wifi_config.ap.security = PMU_WIFI_SEC_WPA;
+            else if (strcmp(sec, "wpa3") == 0) wifi_config.ap.security = PMU_WIFI_SEC_WPA3;
+            else wifi_config.ap.security = PMU_WIFI_SEC_WPA2;
+        }
+
+        /* STA configuration */
+        cJSON* sta = cJSON_GetObjectItem(wifi, "sta");
+        if (sta && cJSON_IsObject(sta)) {
+            const char* ssid = JSON_GetString(sta, "ssid", "");
+            const char* pass = JSON_GetString(sta, "password", "");
+            strncpy(wifi_config.sta.ssid, ssid, PMU_WIFI_SSID_MAX_LEN);
+            strncpy(wifi_config.sta.password, pass, PMU_WIFI_PASS_MAX_LEN);
+            wifi_config.sta.auto_reconnect = JSON_GetBool(sta, "auto_reconnect", true) ? 1 : 0;
+            wifi_config.sta.dhcp = JSON_GetBool(sta, "dhcp", true) ? 1 : 0;
+
+            /* Static IP (if DHCP disabled) */
+            if (!wifi_config.sta.dhcp) {
+                const char* ip = JSON_GetString(sta, "ip", "192.168.1.100");
+                const char* gw = JSON_GetString(sta, "gateway", "192.168.1.1");
+                const char* nm = JSON_GetString(sta, "netmask", "255.255.255.0");
+                /* TODO: Parse IP strings to uint32_t */
+                (void)ip; (void)gw; (void)nm;
+            }
+        }
+
+        /* Web server configuration */
+        cJSON* web = cJSON_GetObjectItem(wifi, "web");
+        if (web && cJSON_IsObject(web)) {
+            wifi_config.web.enabled = JSON_GetBool(web, "enabled", true);
+            wifi_config.web.http_port = (uint16_t)JSON_GetInt(web, "http_port", 80);
+            wifi_config.web.ws_port = (uint16_t)JSON_GetInt(web, "ws_port", 81);
+            wifi_config.web.auth_enabled = JSON_GetBool(web, "auth_enabled", false) ? 1 : 0;
+
+            if (wifi_config.web.auth_enabled) {
+                const char* user = JSON_GetString(web, "username", "admin");
+                const char* pass = JSON_GetString(web, "password", "");
+                strncpy(wifi_config.web.username, user, 31);
+                strncpy(wifi_config.web.password, pass, 31);
+            }
+        }
+
+        PMU_WiFi_ApplyConfig(&wifi_config);
+        printf("[JSON] WiFi configured: mode=%s enabled=%d\n",
+               mode_str, wifi_config.enabled);
+    }
+
+    /* Parse Bluetooth configuration */
+    cJSON* bt = cJSON_GetObjectItem(settings_obj, "bluetooth");
+    if (bt && cJSON_IsObject(bt)) {
+        PMU_BT_Config_t bt_config;
+        PMU_BT_SetDefaultConfig(&bt_config);
+
+        bt_config.enabled = JSON_GetBool(bt, "enabled", false);
+
+        /* Mode: "classic", "ble", "dual" */
+        const char* bt_mode_str = JSON_GetString(bt, "mode", "ble");
+        if (strcmp(bt_mode_str, "classic") == 0) {
+            bt_config.mode = PMU_BT_MODE_CLASSIC;
+        } else if (strcmp(bt_mode_str, "dual") == 0) {
+            bt_config.mode = PMU_BT_MODE_DUAL;
+        } else {
+            bt_config.mode = PMU_BT_MODE_BLE;
+        }
+
+        /* Classic configuration */
+        cJSON* classic = cJSON_GetObjectItem(bt, "classic");
+        if (classic && cJSON_IsObject(classic)) {
+            const char* name = JSON_GetString(classic, "device_name", PMU_BT_DEFAULT_DEVICE_NAME);
+            const char* pin = JSON_GetString(classic, "pin", PMU_BT_DEFAULT_PIN);
+            strncpy(bt_config.classic.device_name, name, sizeof(bt_config.classic.device_name) - 1);
+            strncpy(bt_config.classic.pin, pin, sizeof(bt_config.classic.pin) - 1);
+            bt_config.classic.discoverable = JSON_GetBool(classic, "discoverable", true) ? 1 : 0;
+            bt_config.classic.connectable = JSON_GetBool(classic, "connectable", true) ? 1 : 0;
+            bt_config.classic.max_connections = (uint8_t)JSON_GetInt(classic, "max_connections", 1);
+
+            const char* sec = JSON_GetString(classic, "security", "auth");
+            if (strcmp(sec, "none") == 0) bt_config.classic.security = PMU_BT_SEC_NONE;
+            else if (strcmp(sec, "pair") == 0) bt_config.classic.security = PMU_BT_SEC_PAIR_ONLY;
+            else if (strcmp(sec, "secure") == 0) bt_config.classic.security = PMU_BT_SEC_SECURE;
+            else bt_config.classic.security = PMU_BT_SEC_AUTH;
+        }
+
+        /* BLE configuration */
+        cJSON* ble = cJSON_GetObjectItem(bt, "ble");
+        if (ble && cJSON_IsObject(ble)) {
+            const char* name = JSON_GetString(ble, "device_name", PMU_BT_DEFAULT_DEVICE_NAME);
+            strncpy(bt_config.ble.device_name, name, sizeof(bt_config.ble.device_name) - 1);
+            bt_config.ble.advertising_enabled = JSON_GetBool(ble, "advertising", true) ? 1 : 0;
+            bt_config.ble.adv_interval_ms = (uint16_t)JSON_GetInt(ble, "adv_interval_ms", 100);
+            bt_config.ble.conn_interval_min = (uint16_t)JSON_GetInt(ble, "conn_interval_min", 20);
+            bt_config.ble.conn_interval_max = (uint16_t)JSON_GetInt(ble, "conn_interval_max", 40);
+            bt_config.ble.supervision_timeout = (uint16_t)JSON_GetInt(ble, "supervision_timeout", 400);
+            bt_config.ble.require_bonding = JSON_GetBool(ble, "require_bonding", false) ? 1 : 0;
+
+            const char* sec = JSON_GetString(ble, "security", "pair");
+            if (strcmp(sec, "none") == 0) bt_config.ble.security = PMU_BT_SEC_NONE;
+            else if (strcmp(sec, "auth") == 0) bt_config.ble.security = PMU_BT_SEC_AUTH;
+            else if (strcmp(sec, "secure") == 0) bt_config.ble.security = PMU_BT_SEC_SECURE;
+            else bt_config.ble.security = PMU_BT_SEC_PAIR_ONLY;
+        }
+
+        /* Telemetry service configuration */
+        cJSON* telem = cJSON_GetObjectItem(bt, "telemetry");
+        if (telem && cJSON_IsObject(telem)) {
+            bt_config.telemetry.enabled = JSON_GetBool(telem, "enabled", true);
+            bt_config.telemetry.update_rate_ms = (uint16_t)JSON_GetInt(telem, "update_rate_ms", 100);
+            bt_config.telemetry.notify_changes = JSON_GetBool(telem, "notify_changes", false) ? 1 : 0;
+        }
+
+        PMU_BT_ApplyConfig(&bt_config);
+        printf("[JSON] Bluetooth configured: mode=%s enabled=%d\n",
+               bt_mode_str, bt_config.enabled);
+    }
+
     /* TODO: Parse power settings */
     /* TODO: Parse safety settings */
 
@@ -1246,6 +1410,9 @@ static PMU_ChannelType_t JSON_ParseChannelType(const char* type_str)
     if (strcmp(type_str, "timer") == 0) return PMU_CHANNEL_TYPE_TIMER;
     if (strcmp(type_str, "filter") == 0) return PMU_CHANNEL_TYPE_FILTER;
     if (strcmp(type_str, "enum") == 0) return PMU_CHANNEL_TYPE_ENUM;
+    if (strcmp(type_str, "lua_script") == 0) return PMU_CHANNEL_TYPE_LUA_SCRIPT;
+    if (strcmp(type_str, "pid") == 0) return PMU_CHANNEL_TYPE_PID;
+    if (strcmp(type_str, "blinkmarine_keypad") == 0) return PMU_CHANNEL_TYPE_BLINKMARINE_KEYPAD;
     return PMU_CHANNEL_TYPE_COUNT; /* Invalid */
 }
 
@@ -1355,6 +1522,16 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
                 if (success && stats) stats->can_tx++;
                 break;
 
+            case PMU_CHANNEL_TYPE_PID:
+                success = JSON_ParsePID(channel);
+                if (success && stats) stats->pid_controllers++;
+                break;
+
+            case PMU_CHANNEL_TYPE_BLINKMARINE_KEYPAD:
+                success = JSON_ParseBlinkMarineKeypad(channel);
+                if (success && stats) stats->blinkmarine_keypads++;
+                break;
+
             default:
                 JSON_SetError("Channel %s: unknown channel_type '%s'", id, channel_type_str);
                 continue;
@@ -1429,6 +1606,8 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
 
     /* Copy ID */
     const char* id = JSON_GetString(channel_obj, "id", "");
+    printf("[CONFIG] Parsing analog input: id='%s'\n", id);
+    fflush(stdout);
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Parse subtype */
@@ -1484,8 +1663,106 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
         }
     }
 
-    /* TODO: Register analog input channel */
-    (void)config;
+    /* Register the analog input with ADC system */
+    uint8_t pin = config.input_pin;
+    if (pin < PMU30_NUM_ADC_INPUTS) {
+        uint8_t adc_channel = pin;  /* input_pin is already 0-based */
+
+        /* Create PMU_InputConfig_t from PMU_AnalogInputConfig_t */
+        PMU_InputConfig_t* adc_config = &input_config_storage[adc_channel];
+        memset(adc_config, 0, sizeof(PMU_InputConfig_t));
+
+        adc_config->channel = pin + 1;  /* Display as 1-based (A1, A2, ...) */
+        strncpy(adc_config->name, config.id, sizeof(adc_config->name) - 1);
+
+        /* Map subtype to legacy input type */
+        switch (config.subtype) {
+            case PMU_AI_SUBTYPE_SWITCH_ACTIVE_LOW:
+                adc_config->type = PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW;
+                break;
+            case PMU_AI_SUBTYPE_SWITCH_ACTIVE_HIGH:
+                adc_config->type = PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH;
+                break;
+            case PMU_AI_SUBTYPE_ROTARY_SWITCH:
+                adc_config->type = PMU_LEGACY_INPUT_ROTARY_SWITCH;
+                break;
+            case PMU_AI_SUBTYPE_LINEAR:
+                adc_config->type = PMU_LEGACY_INPUT_LINEAR_ANALOG;
+                break;
+            case PMU_AI_SUBTYPE_CALIBRATED:
+                adc_config->type = PMU_LEGACY_INPUT_CALIBRATED_ANALOG;
+                break;
+            default:
+                adc_config->type = PMU_LEGACY_INPUT_LINEAR_ANALOG;
+                break;
+        }
+
+        /* Copy threshold values */
+        adc_config->threshold_high_mv = config.threshold_high_mv;
+        adc_config->threshold_low_mv = config.threshold_low_mv;
+        adc_config->debounce_ms = config.debounce_ms;
+
+        /* Copy scaling values */
+        if (config.max_voltage_mv > config.min_voltage_mv) {
+            float voltage_range = (config.max_voltage_mv - config.min_voltage_mv) / 1000.0f;
+            float value_range = config.max_value - config.min_value;
+            adc_config->multiplier = value_range / voltage_range;
+            adc_config->offset = config.min_value - (config.min_voltage_mv / 1000.0f) * adc_config->multiplier;
+        } else {
+            adc_config->multiplier = 1.0f;
+            adc_config->offset = 0.0f;
+        }
+
+        adc_config->decimal_places = config.decimal_places;
+        adc_config->filter_samples = 4;  /* Default filter size */
+
+        /* Copy calibration points for calibrated analog inputs */
+        adc_config->calibration_count = config.calibration_count;
+        for (int i = 0; i < config.calibration_count && i < PMU_MAX_CALIBRATION_POINTS; i++) {
+            adc_config->calibration[i].voltage = config.calibration[i].voltage;
+            adc_config->calibration[i].value = config.calibration[i].value;
+        }
+
+        /* Configure ADC channel */
+        HAL_StatusTypeDef adc_result = PMU_ADC_SetConfig(adc_channel, adc_config);
+        printf("[CONFIG] ADC ch%d: type=%d thresh_hi=%dmV thresh_lo=%dmV result=%d\n",
+               adc_channel, adc_config->type, adc_config->threshold_high_mv,
+               adc_config->threshold_low_mv, adc_result);
+        fflush(stdout);
+
+        /* Register channel with channel system */
+        PMU_Channel_t channel = {0};
+        channel.channel_id = adc_channel;  /* Input channels use 0-19 */
+        strncpy(channel.name, config.id, sizeof(channel.name) - 1);
+
+        /* Determine hw_class based on subtype */
+        switch (config.subtype) {
+            case PMU_AI_SUBTYPE_SWITCH_ACTIVE_LOW:
+            case PMU_AI_SUBTYPE_SWITCH_ACTIVE_HIGH:
+                channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SWITCH;
+                channel.min_value = 0;
+                channel.max_value = 1;
+                break;
+            case PMU_AI_SUBTYPE_ROTARY_SWITCH:
+                channel.hw_class = PMU_CHANNEL_CLASS_INPUT_ROTARY;
+                channel.min_value = 0;
+                channel.max_value = config.positions > 0 ? config.positions - 1 : 7;
+                break;
+            default:
+                channel.hw_class = PMU_CHANNEL_CLASS_INPUT_ANALOG;
+                channel.min_value = (int32_t)config.min_value;
+                channel.max_value = (int32_t)config.max_value;
+                break;
+        }
+
+        channel.physical_index = adc_channel;
+        channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+
+        HAL_StatusTypeDef ch_result = PMU_Channel_Register(&channel);
+        printf("[CONFIG] Channel ch%d '%s' class=0x%02X result=%d\n",
+               adc_channel, config.id, channel.hw_class, ch_result);
+        fflush(stdout);
+    }
 #else
     (void)channel_obj;
 #endif
@@ -1613,6 +1890,12 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
     }
     printf("], enabled=%d, source='%s', pwm=%d, duty=%.1f%%\n",
            enabled, config.source_channel, config.pwm_enabled, config.duty_fixed);
+
+    /* Store configuration for runtime control */
+    if (power_output_count < PMU30_NUM_OUTPUTS) {
+        memcpy(&power_output_storage[power_output_count], &config, sizeof(PMU_PowerOutputConfig_t));
+        power_output_count++;
+    }
 
 #else
     (void)channel_obj;
@@ -2144,6 +2427,216 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
     (void)channel_obj;
 #endif
     return true;
+}
+
+/**
+ * @brief Parse PID controller channel
+ */
+static bool JSON_ParsePID(cJSON* channel_obj)
+{
+#ifdef JSON_PARSING_ENABLED
+    PMU_PIDConfig_t config = {0};
+
+    /* Copy ID */
+    const char* id = JSON_GetString(channel_obj, "id", "");
+    strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
+
+    /* Input/Output channels */
+    const char* setpoint_ch = JSON_GetString(channel_obj, "setpoint_channel", "");
+    strncpy(config.setpoint_channel, setpoint_ch, PMU_CHANNEL_ID_LEN - 1);
+
+    const char* process_ch = JSON_GetString(channel_obj, "process_channel", "");
+    strncpy(config.process_channel, process_ch, PMU_CHANNEL_ID_LEN - 1);
+
+    const char* output_ch = JSON_GetString(channel_obj, "output_channel", "");
+    strncpy(config.output_channel, output_ch, PMU_CHANNEL_ID_LEN - 1);
+
+    /* PID parameters */
+    config.kp = JSON_GetFloat(channel_obj, "kp", 1.0f);
+    config.ki = JSON_GetFloat(channel_obj, "ki", 0.0f);
+    config.kd = JSON_GetFloat(channel_obj, "kd", 0.0f);
+
+    /* Setpoint value (used if setpoint_channel is empty) */
+    config.setpoint_value = JSON_GetFloat(channel_obj, "setpoint_value", 0.0f);
+
+    /* Output limits */
+    config.output_min = JSON_GetFloat(channel_obj, "output_min", 0.0f);
+    config.output_max = JSON_GetFloat(channel_obj, "output_max", 100.0f);
+
+    /* Advanced settings */
+    config.sample_time_ms = (uint16_t)JSON_GetInt(channel_obj, "sample_time_ms", 100);
+    config.anti_windup = JSON_GetBool(channel_obj, "anti_windup", true);
+    config.derivative_filter = JSON_GetBool(channel_obj, "derivative_filter", true);
+    config.derivative_filter_coeff = JSON_GetFloat(channel_obj, "derivative_filter_coeff", 0.1f);
+
+    /* Control options */
+    config.enabled = JSON_GetBool(channel_obj, "enabled", true);
+    config.reversed = JSON_GetBool(channel_obj, "reversed", false);
+
+    /* Register PID controller */
+    HAL_StatusTypeDef status = PMU_PID_AddController(&config);
+    if (status != HAL_OK) {
+        JSON_SetError("Failed to add PID controller '%s'", id);
+        return false;
+    }
+
+    printf("[JSON] Parsed PID: %s Kp=%.2f Ki=%.2f Kd=%.2f\n",
+           id, config.kp, config.ki, config.kd);
+#else
+    (void)channel_obj;
+#endif
+    return true;
+}
+
+/**
+ * @brief Parse BlinkMarine keypad channel
+ */
+static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
+{
+#ifdef JSON_PARSING_ENABLED
+    PMU_BlinkMarine_Keypad_t keypad = {0};
+
+    /* Copy ID and name */
+    const char* id = JSON_GetString(channel_obj, "id", "");
+    strncpy(keypad.id, id, sizeof(keypad.id) - 1);
+
+    const char* name = JSON_GetString(channel_obj, "name", id);
+    strncpy(keypad.name, name, sizeof(keypad.name) - 1);
+
+    /* Keypad type */
+    const char* type_str = JSON_GetString(channel_obj, "keypad_type", "2x6");
+    if (strcmp(type_str, "2x8") == 0) {
+        keypad.type = PMU_BLINKMARINE_2X8;
+    } else {
+        keypad.type = PMU_BLINKMARINE_2X6;
+    }
+
+    /* CAN configuration */
+    keypad.can_bus = (PMU_CAN_Bus_t)JSON_GetInt(channel_obj, "can_bus", 1);
+    keypad.rx_base_id = (uint32_t)JSON_GetInt(channel_obj, "rx_base_id", PMU_BM_DEFAULT_RX_ID);
+    keypad.tx_base_id = (uint32_t)JSON_GetInt(channel_obj, "tx_base_id", PMU_BM_DEFAULT_TX_ID);
+    keypad.enabled = JSON_GetBool(channel_obj, "enabled", true);
+
+    /* LED mode - default for all buttons */
+    int led_mode = JSON_GetInt(channel_obj, "led_mode", 0);
+
+    /* Parse buttons configuration */
+    cJSON* buttons_array = cJSON_GetObjectItem(channel_obj, "buttons");
+    if (buttons_array && cJSON_IsArray(buttons_array)) {
+        int button_count = cJSON_GetArraySize(buttons_array);
+        uint8_t max_buttons = PMU_BlinkMarine_GetButtonCount(keypad.type);
+
+        for (int i = 0; i < button_count && i < max_buttons; i++) {
+            cJSON* button = cJSON_GetArrayItem(buttons_array, i);
+            if (!button || !cJSON_IsObject(button)) continue;
+
+            PMU_BM_ButtonConfig_t* btn = &keypad.buttons[i];
+
+            /* Button channel mapping */
+            const char* channel_id = JSON_GetString(button, "channel_id", "");
+            strncpy(btn->channel_id, channel_id, sizeof(btn->channel_id) - 1);
+            btn->enabled = JSON_GetBool(button, "enabled", true);
+
+            /* LED colors */
+            btn->led_on_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_on_color", PMU_BM_LED_GREEN);
+            btn->led_off_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_off_color", PMU_BM_LED_OFF);
+            btn->led_mode = (PMU_BM_LedCtrlMode_t)led_mode;
+
+            /* Button-specific LED mode override */
+            if (cJSON_HasObjectItem(button, "led_mode")) {
+                btn->led_mode = (PMU_BM_LedCtrlMode_t)JSON_GetInt(button, "led_mode", led_mode);
+            }
+        }
+    }
+
+    /* Add keypad */
+    HAL_StatusTypeDef status = PMU_BlinkMarine_AddKeypad(&keypad);
+    if (status != HAL_OK) {
+        JSON_SetError("Failed to add BlinkMarine keypad '%s'", id);
+        return false;
+    }
+
+    printf("[JSON] Parsed BlinkMarine keypad: %s type=%s CAN%d RX:0x%03X TX:0x%03X\n",
+           id, type_str, keypad.can_bus, (unsigned int)keypad.rx_base_id, (unsigned int)keypad.tx_base_id);
+#else
+    (void)channel_obj;
+#endif
+    return true;
+}
+
+/**
+ * @brief Update power outputs based on their source channels
+ * Call this function at 100Hz or faster in the control loop
+ */
+void PMU_PowerOutput_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    for (uint8_t i = 0; i < power_output_count; i++) {
+        PMU_PowerOutputConfig_t* cfg = &power_output_storage[i];
+
+        /* Skip outputs without source_channel (always on or disabled) */
+        if (strlen(cfg->source_channel) == 0) {
+            continue;
+        }
+
+        /* Resolve source channel to value */
+        const PMU_Channel_t* source_ch = PMU_Channel_GetByName(cfg->source_channel);
+        if (!source_ch) {
+            /* Source channel not found - skip */
+            continue;
+        }
+
+        int32_t source_value = source_ch->value;
+        bool output_active = (source_value > 0);
+
+        /* Apply to all configured pins */
+        for (int p = 0; p < cfg->output_pin_count; p++) {
+            uint8_t pin = cfg->output_pins[p];
+            if (pin >= 30) continue;
+
+            /* Skip if manual override is set */
+            if (PMU_PROFET_HasManualOverride(pin)) {
+                continue;
+            }
+
+            if (output_active) {
+                if (cfg->pwm_enabled) {
+                    /* Use fixed duty or resolve duty_channel */
+                    float duty = cfg->duty_fixed;
+                    if (strlen(cfg->duty_channel) > 0) {
+                        const PMU_Channel_t* duty_ch = PMU_Channel_GetByName(cfg->duty_channel);
+                        if (duty_ch) {
+                            duty = (float)duty_ch->value / 10.0f; /* Assume 0-1000 -> 0-100% */
+                        }
+                    }
+                    uint16_t duty_permille = (uint16_t)(duty * 10.0f);
+                    PMU_PROFET_SetPWM(pin, duty_permille);
+                } else {
+                    PMU_PROFET_SetState(pin, 1);
+                }
+            } else {
+                PMU_PROFET_SetState(pin, 0);
+            }
+        }
+    }
+#endif
+}
+
+/**
+ * @brief Clear power output storage (call before reloading config)
+ */
+void PMU_PowerOutput_ClearConfig(void)
+{
+    memset(power_output_storage, 0, sizeof(power_output_storage));
+    power_output_count = 0;
+}
+
+/**
+ * @brief Get power output configuration count
+ */
+uint8_t PMU_PowerOutput_GetCount(void)
+{
+    return power_output_count;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

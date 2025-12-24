@@ -533,6 +533,9 @@ typedef struct {
     char unit[16];                  /* Measurement unit */
     uint8_t decimal_places;         /* Display decimal places (0-3) */
     uint8_t filter_samples;         /* Moving average filter samples */
+    /* Calibration table for CALIBRATED_ANALOG type */
+    uint8_t calibration_count;      /* Number of calibration points (0-16) */
+    PMU_CalibrationPoint_t calibration[PMU_MAX_CALIBRATION_POINTS];
 } PMU_InputConfig_t;
 
 /**

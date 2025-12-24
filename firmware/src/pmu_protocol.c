@@ -68,6 +68,7 @@ static void Protocol_HandleStartStream(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStopStream(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleSetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet);
@@ -454,6 +455,10 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
             Protocol_HandleSetPWM(packet);
             break;
 
+        case PMU_CMD_SET_HBRIDGE:
+            Protocol_HandleSetHBridge(packet);
+            break;
+
         case PMU_CMD_GET_OUTPUTS:
             Protocol_HandleGetOutputs(packet);
             break;
@@ -643,6 +648,52 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet)
         }
     } else {
         Protocol_SendNACK(PMU_CMD_SET_PWM, "Invalid data");
+    }
+}
+
+/**
+ * @brief Handle SET_HBRIDGE command
+ * Packet data format:
+ *   data[0] = bridge number (0-3)
+ *   data[1] = mode (0=COAST, 1=FORWARD, 2=REVERSE, 3=BRAKE, 4=WIPER_PARK, 5=PID)
+ *   data[2..3] = duty cycle (0-1000) - little endian
+ *   Optional: data[4..5] = target position (0-1000) for PID mode
+ */
+static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length >= 4) {
+        uint8_t bridge = packet->data[0];
+        uint8_t mode = packet->data[1];
+        uint16_t duty = packet->data[2] | (packet->data[3] << 8);
+
+        if (bridge < 4) {
+            /* Convert mode enum */
+            PMU_HBridge_Mode_t hb_mode;
+            switch (mode) {
+                case 0: hb_mode = PMU_HBRIDGE_MODE_COAST; break;
+                case 1: hb_mode = PMU_HBRIDGE_MODE_FORWARD; break;
+                case 2: hb_mode = PMU_HBRIDGE_MODE_REVERSE; break;
+                case 3: hb_mode = PMU_HBRIDGE_MODE_BRAKE; break;
+                case 4: hb_mode = PMU_HBRIDGE_MODE_WIPER_PARK; break;
+                case 5: hb_mode = PMU_HBRIDGE_MODE_PID; break;
+                default: hb_mode = PMU_HBRIDGE_MODE_COAST; break;
+            }
+
+            /* Set mode and duty */
+            PMU_HBridge_SetMode(bridge, hb_mode, duty);
+
+            /* If PID mode and target position provided */
+            if (mode == 5 && packet->length >= 6) {
+                uint16_t target = packet->data[4] | (packet->data[5] << 8);
+                PMU_HBridge_SetPosition(bridge, target);
+            }
+
+            Protocol_SendACK(PMU_CMD_SET_HBRIDGE);
+        } else {
+            Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, "Invalid bridge");
+        }
+    } else {
+        Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, "Invalid data");
     }
 }
 

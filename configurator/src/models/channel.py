@@ -15,6 +15,7 @@ class ChannelType(Enum):
     DIGITAL_INPUT = "digital_input"
     ANALOG_INPUT = "analog_input"
     POWER_OUTPUT = "power_output"
+    HBRIDGE = "hbridge"
     CAN_RX = "can_rx"
     CAN_TX = "can_tx"
     LOGIC = "logic"
@@ -26,6 +27,8 @@ class ChannelType(Enum):
     FILTER = "filter"
     ENUM = "enum"
     LUA_SCRIPT = "lua_script"
+    PID = "pid"
+    BLINKMARINE_KEYPAD = "blinkmarine_keypad"
 
 
 class DigitalInputSubtype(Enum):
@@ -1565,11 +1568,298 @@ class LuaScriptChannel(ChannelBase):
         return errors
 
 
+@dataclass
+class PIDChannel(ChannelBase):
+    """PID controller channel"""
+    # Input/Output channels
+    setpoint_channel: str = ""           # Channel providing setpoint value
+    process_channel: str = ""            # Channel providing process variable (feedback)
+    output_channel: str = ""             # Channel to write output to (optional, for driving outputs)
+
+    # PID parameters
+    kp: float = 1.0                      # Proportional gain
+    ki: float = 0.0                      # Integral gain
+    kd: float = 0.0                      # Derivative gain
+
+    # Setpoint (used if setpoint_channel is empty)
+    setpoint_value: float = 0.0
+
+    # Output limits
+    output_min: float = 0.0
+    output_max: float = 100.0
+
+    # Advanced settings
+    sample_time_ms: int = 100            # PID loop execution period
+    anti_windup: bool = True             # Prevent integral windup
+    derivative_filter: bool = True       # Apply low-pass filter to derivative term
+    derivative_filter_coeff: float = 0.1 # Filter coefficient (0-1)
+
+    # Control options
+    enabled: bool = True
+    reversed: bool = False               # Reverse acting controller
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.PID
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "setpoint_channel": self.setpoint_channel,
+            "process_channel": self.process_channel,
+            "output_channel": self.output_channel,
+            "kp": self.kp,
+            "ki": self.ki,
+            "kd": self.kd,
+            "setpoint_value": self.setpoint_value,
+            "output_min": self.output_min,
+            "output_max": self.output_max,
+            "sample_time_ms": self.sample_time_ms,
+            "anti_windup": self.anti_windup,
+            "derivative_filter": self.derivative_filter,
+            "derivative_filter_coeff": self.derivative_filter_coeff,
+            "enabled": self.enabled,
+            "reversed": self.reversed,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PIDChannel':
+        return cls(
+            id=data.get("id", ""),
+            channel_type=ChannelType.PID,
+            setpoint_channel=data.get("setpoint_channel", ""),
+            process_channel=data.get("process_channel", ""),
+            output_channel=data.get("output_channel", ""),
+            kp=data.get("kp", 1.0),
+            ki=data.get("ki", 0.0),
+            kd=data.get("kd", 0.0),
+            setpoint_value=data.get("setpoint_value", 0.0),
+            output_min=data.get("output_min", 0.0),
+            output_max=data.get("output_max", 100.0),
+            sample_time_ms=data.get("sample_time_ms", 100),
+            anti_windup=data.get("anti_windup", True),
+            derivative_filter=data.get("derivative_filter", True),
+            derivative_filter_coeff=data.get("derivative_filter_coeff", 0.1),
+            enabled=data.get("enabled", True),
+            reversed=data.get("reversed", False),
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.setpoint_channel:
+            channels.append(self.setpoint_channel)
+        if self.process_channel:
+            channels.append(self.process_channel)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+        if not self.process_channel:
+            errors.append("Process variable channel is required")
+        if self.sample_time_ms < 1:
+            errors.append("Sample time must be at least 1ms")
+        if self.output_min >= self.output_max:
+            errors.append("Output min must be less than output max")
+        if self.derivative_filter_coeff < 0 or self.derivative_filter_coeff > 1:
+            errors.append("Derivative filter coefficient must be between 0 and 1")
+        return errors
+
+
+class HBridgeMode(Enum):
+    """H-Bridge operating modes"""
+    COAST = "coast"           # Both switches OFF - motor coasts
+    FORWARD = "forward"       # Forward direction
+    REVERSE = "reverse"       # Reverse direction
+    BRAKE = "brake"           # Active brake (both switches ON)
+    WIPER_PARK = "wiper_park" # Wiper park sequence
+    PID_POSITION = "pid_position"  # PID position control
+
+
+class HBridgeMotorPreset(Enum):
+    """Predefined motor configurations"""
+    WIPER = "wiper"           # Windshield wiper motor
+    WINDOW = "window"         # Power window motor
+    SEAT = "seat"             # Seat adjustment motor
+    VALVE = "valve"           # Valve actuator
+    PUMP = "pump"             # Fluid pump motor
+    CUSTOM = "custom"         # User-defined parameters
+
+
+@dataclass
+class HBridgeChannel(ChannelBase):
+    """H-Bridge motor control channel (Dual H-Bridge output)
+
+    Similar to Ecumaster Dual H-Bridge:
+    - Forward/Reverse/Brake/Coast control
+    - PWM speed control
+    - Position feedback with potentiometer
+    - Wiper park mode
+    - PID position control
+    - Current sensing and protection
+    """
+    # H-Bridge hardware
+    bridge_number: int = 0                     # 0-3 (HB1-HB4)
+
+    # Control source
+    source_channel: str = ""                   # Channel for activation
+    mode: HBridgeMode = HBridgeMode.FORWARD    # Operating mode
+
+    # Direction control (for separate FWD/REV sources)
+    direction_channel: str = ""                # Channel for direction (optional)
+    direction_inverted: bool = False           # Invert direction logic
+
+    # PWM control
+    pwm_enabled: bool = True
+    pwm_frequency_hz: int = 1000               # 100-10000 Hz typical
+    duty_channel: str = ""                     # Channel for duty cycle
+    duty_fixed: float = 100.0                  # Fixed duty if no channel (0-100%)
+    soft_start_ms: int = 0                     # Soft-start ramp time
+
+    # Position control
+    position_enabled: bool = False             # Enable position feedback
+    position_input_pin: int = 0                # Analog input for position (0-19)
+    position_min: float = 0.0                  # Position at 0V (or min pot)
+    position_max: float = 100.0                # Position at 5V (or max pot)
+    position_park: float = 0.0                 # Park position for wiper mode
+
+    # PID position control
+    pid_enabled: bool = False
+    pid_setpoint_channel: str = ""             # Channel for target position
+    pid_setpoint_value: float = 50.0           # Fixed setpoint if no channel
+    pid_kp: float = 1.0
+    pid_ki: float = 0.1
+    pid_kd: float = 0.05
+
+    # Protection settings
+    current_limit_a: float = 30.0              # Overcurrent limit
+    stall_current_a: float = 25.0              # Stall detection threshold
+    stall_time_ms: int = 500                   # Time before stall fault
+    overtemp_c: float = 125.0                  # Over-temperature limit
+    retry_count: int = 3                       # Retries before lockout
+
+    # Motor preset
+    motor_preset: HBridgeMotorPreset = HBridgeMotorPreset.WIPER
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.HBRIDGE
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "bridge_number": self.bridge_number,
+            "source_channel": self.source_channel,
+            "mode": self.mode.value if isinstance(self.mode, HBridgeMode) else self.mode,
+            "direction_channel": self.direction_channel,
+            "direction_inverted": self.direction_inverted,
+            "pwm_enabled": self.pwm_enabled,
+            "pwm_frequency_hz": self.pwm_frequency_hz,
+            "duty_channel": self.duty_channel,
+            "duty_fixed": self.duty_fixed,
+            "soft_start_ms": self.soft_start_ms,
+            "position_enabled": self.position_enabled,
+            "position_input_pin": self.position_input_pin,
+            "position_min": self.position_min,
+            "position_max": self.position_max,
+            "position_park": self.position_park,
+            "pid_enabled": self.pid_enabled,
+            "pid_setpoint_channel": self.pid_setpoint_channel,
+            "pid_setpoint_value": self.pid_setpoint_value,
+            "pid_kp": self.pid_kp,
+            "pid_ki": self.pid_ki,
+            "pid_kd": self.pid_kd,
+            "current_limit_a": self.current_limit_a,
+            "stall_current_a": self.stall_current_a,
+            "stall_time_ms": self.stall_time_ms,
+            "overtemp_c": self.overtemp_c,
+            "retry_count": self.retry_count,
+            "motor_preset": self.motor_preset.value if isinstance(self.motor_preset, HBridgeMotorPreset) else self.motor_preset,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'HBridgeChannel':
+        # Parse mode
+        mode_str = data.get("mode", "forward")
+        try:
+            mode = HBridgeMode(mode_str)
+        except ValueError:
+            mode = HBridgeMode.FORWARD
+
+        # Parse motor preset
+        preset_str = data.get("motor_preset", "wiper")
+        try:
+            motor_preset = HBridgeMotorPreset(preset_str)
+        except ValueError:
+            motor_preset = HBridgeMotorPreset.CUSTOM
+
+        return cls(
+            id=data.get("id", ""),
+            channel_type=ChannelType.HBRIDGE,
+            bridge_number=data.get("bridge_number", 0),
+            source_channel=data.get("source_channel", ""),
+            mode=mode,
+            direction_channel=data.get("direction_channel", ""),
+            direction_inverted=data.get("direction_inverted", False),
+            pwm_enabled=data.get("pwm_enabled", True),
+            pwm_frequency_hz=data.get("pwm_frequency_hz", 1000),
+            duty_channel=data.get("duty_channel", ""),
+            duty_fixed=data.get("duty_fixed", 100.0),
+            soft_start_ms=data.get("soft_start_ms", 0),
+            position_enabled=data.get("position_enabled", False),
+            position_input_pin=data.get("position_input_pin", 0),
+            position_min=data.get("position_min", 0.0),
+            position_max=data.get("position_max", 100.0),
+            position_park=data.get("position_park", 0.0),
+            pid_enabled=data.get("pid_enabled", False),
+            pid_setpoint_channel=data.get("pid_setpoint_channel", ""),
+            pid_setpoint_value=data.get("pid_setpoint_value", 50.0),
+            pid_kp=data.get("pid_kp", 1.0),
+            pid_ki=data.get("pid_ki", 0.1),
+            pid_kd=data.get("pid_kd", 0.05),
+            current_limit_a=data.get("current_limit_a", 30.0),
+            stall_current_a=data.get("stall_current_a", 25.0),
+            stall_time_ms=data.get("stall_time_ms", 500),
+            overtemp_c=data.get("overtemp_c", 125.0),
+            retry_count=data.get("retry_count", 3),
+            motor_preset=motor_preset,
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.source_channel:
+            channels.append(self.source_channel)
+        if self.direction_channel:
+            channels.append(self.direction_channel)
+        if self.duty_channel:
+            channels.append(self.duty_channel)
+        if self.pid_setpoint_channel:
+            channels.append(self.pid_setpoint_channel)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+        if not 0 <= self.bridge_number <= 3:
+            errors.append("Bridge number must be between 0 and 3 (HB1-HB4)")
+        if self.pwm_frequency_hz < 100 or self.pwm_frequency_hz > 20000:
+            errors.append("PWM frequency must be between 100 and 20000 Hz")
+        if self.duty_fixed < 0 or self.duty_fixed > 100:
+            errors.append("Duty cycle must be between 0 and 100%")
+        if self.position_enabled:
+            if not 0 <= self.position_input_pin <= 19:
+                errors.append("Position input pin must be between 0 and 19 (A1-A20)")
+        if self.pid_enabled and not self.position_enabled:
+            errors.append("Position feedback must be enabled for PID control")
+        if self.current_limit_a <= 0 or self.current_limit_a > 30:
+            errors.append("Current limit must be between 0 and 30A")
+        return errors
+
+
 # Channel Type to Class mapping
 CHANNEL_CLASS_MAP = {
     ChannelType.DIGITAL_INPUT: DigitalInputChannel,
     ChannelType.ANALOG_INPUT: AnalogInputChannel,
     ChannelType.POWER_OUTPUT: PowerOutputChannel,
+    ChannelType.HBRIDGE: HBridgeChannel,
     ChannelType.LOGIC: LogicChannel,
     ChannelType.NUMBER: NumberChannel,
     ChannelType.TIMER: TimerChannel,
@@ -1581,6 +1871,7 @@ CHANNEL_CLASS_MAP = {
     ChannelType.CAN_RX: CanRxChannel,
     ChannelType.CAN_TX: CanTxChannel,
     ChannelType.LUA_SCRIPT: LuaScriptChannel,
+    ChannelType.PID: PIDChannel,
 }
 
 
@@ -1611,6 +1902,7 @@ CHANNEL_PREFIX_MAP = {
     ChannelType.DIGITAL_INPUT: "di_",
     ChannelType.ANALOG_INPUT: "ai_",
     ChannelType.POWER_OUTPUT: "out_",
+    ChannelType.HBRIDGE: "hb_",
     ChannelType.LOGIC: "l_",
     ChannelType.NUMBER: "n_",
     ChannelType.TIMER: "tm_",
@@ -1622,6 +1914,7 @@ CHANNEL_PREFIX_MAP = {
     ChannelType.CAN_RX: "crx_",
     ChannelType.CAN_TX: "ctx_",
     ChannelType.LUA_SCRIPT: "lua_",
+    ChannelType.PID: "pid_",
 }
 
 
@@ -1636,6 +1929,7 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.DIGITAL_INPUT: "Digital Input",
         ChannelType.ANALOG_INPUT: "Analog Input",
         ChannelType.POWER_OUTPUT: "Power Output",
+        ChannelType.HBRIDGE: "H-Bridge Motor",
         ChannelType.LOGIC: "Logic Function",
         ChannelType.NUMBER: "Math/Number",
         ChannelType.TIMER: "Timer",
@@ -1647,6 +1941,7 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.CAN_RX: "CAN Input",
         ChannelType.CAN_TX: "CAN Output",
         ChannelType.LUA_SCRIPT: "Lua Script",
+        ChannelType.PID: "PID Controller",
     }
     return names.get(channel_type, channel_type.value)
 
@@ -1657,6 +1952,7 @@ GPIOBase = ChannelBase
 DigitalInputGPIO = DigitalInputChannel
 AnalogInputGPIO = AnalogInputChannel
 PowerOutputGPIO = PowerOutputChannel
+HBridgeGPIO = HBridgeChannel
 LogicGPIO = LogicChannel
 NumberGPIO = NumberChannel
 TimerGPIO = TimerChannel
@@ -1667,6 +1963,7 @@ Table3DGPIO = Table3DChannel
 SwitchGPIO = SwitchChannel
 CanRxGPIO = CanRxChannel
 CanTxGPIO = CanTxChannel
+PIDGPIO = PIDChannel
 GPIO_CLASS_MAP = CHANNEL_CLASS_MAP
 GPIOFactory = ChannelFactory
 GPIO_PREFIX_MAP = CHANNEL_PREFIX_MAP

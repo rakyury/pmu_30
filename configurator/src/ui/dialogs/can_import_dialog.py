@@ -18,6 +18,9 @@ from pathlib import Path
 
 from utils.canx_parser import CanxParser, CanxData, CanxChannel, CanxMob, CanxFrame
 from utils.dbc_parser import DbcParser, DbcData, DbcSignal, DbcMessage
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CANImportDialog(QDialog):
@@ -201,10 +204,12 @@ class CANImportDialog(QDialog):
         ext = path.suffix.lower()
 
         try:
+            logger.info(f"Loading file: {filepath}")
             if ext == ".canx":
                 parser = CanxParser()
                 self.parsed_data = parser.parse_file(filepath)
                 self.file_type = "canx"
+                logger.info(f"Parsed {len(self.parsed_data.mobs)} MOBs")
             elif ext == ".dbc":
                 parser = DbcParser()
                 self.parsed_data = parser.parse_file(filepath)
@@ -220,14 +225,19 @@ class CANImportDialog(QDialog):
             self.name_edit.setText(path.stem)
 
             # Update settings from parsed data
+            logger.info("Updating settings from data...")
             self._update_settings_from_data()
+            logger.info("Settings updated")
 
             # Populate channel tree
+            logger.info("Populating channels...")
             self._populate_channels()
+            logger.info("Channels populated")
 
             self.import_btn.setEnabled(True)
 
         except Exception as e:
+            logger.exception(f"Error loading file: {e}")
             QMessageBox.critical(
                 self, "Parse Error",
                 f"Failed to parse file:\n{str(e)}"
@@ -238,13 +248,13 @@ class CANImportDialog(QDialog):
         if isinstance(self.parsed_data, CanxData) and self.parsed_data.mobs:
             mob = self.parsed_data.mobs[0]
             # Set CAN bus
-            self.can_bus_combo.setCurrentIndex(mob.can_bus - 1)
+            self.can_bus_combo.setCurrentIndex(mob.can_bus_if - 1)
             # Set base ID from first frame
             if mob.frames:
                 frame = mob.frames[0]
-                is_extended = frame.id > 0x7FF
+                is_extended = frame.can_id > 0x7FF
                 self.id_type_combo.setCurrentIndex(1 if is_extended else 0)
-                self.base_id_spin.setValue(frame.id)
+                self.base_id_spin.setValue(frame.can_id)
 
         elif isinstance(self.parsed_data, DbcData) and self.parsed_data.messages:
             msg = self.parsed_data.messages[0]
@@ -254,6 +264,7 @@ class CANImportDialog(QDialog):
 
     def _populate_channels(self):
         """Populate the channel tree with parsed data."""
+        logger.debug("_populate_channels: clearing tree")
         self.channel_tree.clear()
         self.channel_tree.blockSignals(True)
 
@@ -264,15 +275,20 @@ class CANImportDialog(QDialog):
         selected_channels = 0
 
         if isinstance(self.parsed_data, CanxData):
+            logger.debug("_populate_channels: populating CANX channels")
             self._populate_canx_channels(show_frames, filter_text)
         elif isinstance(self.parsed_data, DbcData):
+            logger.debug("_populate_channels: populating DBC channels")
             self._populate_dbc_channels(show_frames, filter_text)
 
+        logger.debug("_populate_channels: expanding all")
         self.channel_tree.expandAll()
         self.channel_tree.blockSignals(False)
 
         # Update stats
+        logger.debug("_populate_channels: updating stats")
         self._update_stats()
+        logger.debug("_populate_channels: done")
 
     def _populate_canx_channels(self, show_frames: bool, filter_text: str):
         """Populate tree with CANX data."""
@@ -280,7 +296,7 @@ class CANImportDialog(QDialog):
             if show_frames:
                 for frame in mob.frames:
                     frame_item = QTreeWidgetItem([
-                        f"Frame {frame.offset} (0x{frame.id:X})",
+                        f"Frame {frame.offset} (0x{frame.can_id:X})",
                         f"{frame.frequency}Hz",
                         "",
                         ""
@@ -535,7 +551,7 @@ class CANImportDialog(QDialog):
 
         # Get base frame ID
         base_frame = mob.frames[0] if mob.frames else None
-        base_can_id = base_frame.id if base_frame else 0
+        base_can_id = base_frame.can_id if base_frame else 0
         frequency = base_frame.frequency if base_frame else 50
 
         msg_config = {

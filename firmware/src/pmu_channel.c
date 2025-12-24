@@ -386,6 +386,20 @@ const PMU_Channel_t* PMU_Channel_GetByName(const char* name)
 }
 
 /**
+ * @brief Get channel index (ID) by string name
+ * @param name Channel name/ID string
+ * @retval Channel ID (0-1023) or 0xFFFF if not found
+ */
+uint16_t PMU_Channel_GetIndexByID(const char* name)
+{
+    const PMU_Channel_t* ch = PMU_Channel_GetByName(name);
+    if (ch) {
+        return ch->channel_id;
+    }
+    return 0xFFFF;
+}
+
+/**
  * @brief Update all channels (called at 1kHz)
  * @retval None
  */
@@ -536,15 +550,21 @@ HAL_StatusTypeDef PMU_Channel_SetEnabled(uint16_t channel_id, bool enabled)
  */
 static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel)
 {
-#ifndef UNIT_TEST
+#if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
     switch (channel->hw_class) {
-        case PMU_CHANNEL_INPUT_ANALOG:
-        case PMU_CHANNEL_INPUT_DIGITAL:
-        case PMU_CHANNEL_INPUT_SWITCH:
-        case PMU_CHANNEL_INPUT_ROTARY:
-        case PMU_CHANNEL_INPUT_FREQUENCY:
-            /* Read from ADC module */
-            return PMU_ADC_GetRawValue(channel->physical_index);
+        case PMU_CHANNEL_CLASS_INPUT_DIGITAL:
+        case PMU_CHANNEL_CLASS_INPUT_SWITCH:
+            /* Return digital state (0 or 1) for switch inputs */
+            return (int32_t)PMU_ADC_GetDigitalState(channel->physical_index);
+
+        case PMU_CHANNEL_CLASS_INPUT_ANALOG:
+        case PMU_CHANNEL_CLASS_INPUT_ROTARY:
+            /* Return raw ADC value for analog inputs */
+            return (int32_t)PMU_ADC_GetRawValue(channel->physical_index);
+
+        case PMU_CHANNEL_CLASS_INPUT_FREQUENCY:
+            /* Return frequency in Hz */
+            return (int32_t)PMU_ADC_GetFrequency(channel->physical_index);
 
         default:
             return 0;

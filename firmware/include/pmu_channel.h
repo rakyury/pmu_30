@@ -217,6 +217,13 @@ const PMU_Channel_t* PMU_Channel_GetInfo(uint16_t channel_id);
 const PMU_Channel_t* PMU_Channel_GetByName(const char* name);
 
 /**
+ * @brief Get channel ID by name string
+ * @param name Channel name/ID string
+ * @retval Channel ID (0-1023) or 0xFFFF if not found
+ */
+uint16_t PMU_Channel_GetIndexByID(const char* name);
+
+/**
  * @brief Update all channels (called at 1kHz)
  * @retval None
  */

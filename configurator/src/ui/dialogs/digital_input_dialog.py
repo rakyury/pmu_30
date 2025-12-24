@@ -30,8 +30,13 @@ class DigitalInputDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.DIGITAL_INPUT)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 used_pins: Optional[List[int]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        self.used_pins = used_pins or []
+        # Get current channel if editing (to allow keeping same pin)
+        self.current_channel = config.get('channel') if config else None
+        super().__init__(parent, config, available_channels, ChannelType.DIGITAL_INPUT, existing_channels)
 
         self._create_type_group()
         self._create_hardware_group()
@@ -65,7 +70,9 @@ class DigitalInputDialog(BaseChannelDialog):
         layout.addWidget(QLabel("Input Pin:"), 0, 2)
         self.input_pin_combo = QComboBox()
         for i in range(8):
-            self.input_pin_combo.addItem(f"D{i + 1}", i)
+            # Only show pins that are not in use (or the current pin if editing)
+            if i not in self.used_pins or i == self.current_channel:
+                self.input_pin_combo.addItem(f"D{i + 1}", i)
         layout.addWidget(self.input_pin_combo, 0, 3)
 
         type_group.setLayout(layout)

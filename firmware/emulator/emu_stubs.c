@@ -76,11 +76,9 @@ uint32_t HAL_GetUIDw0(void)
  * The emulator calls these functions directly in PMU_Emu_Tick().
  */
 
-__attribute__((weak))
-void PMU_ADC_Update(void)
-{
-    /* Stub - ADC update is handled by emulator */
-}
+/* PMU_ADC_Update() - using real implementation from pmu_adc.c
+ * The emulator updates adc_dma_buffer in Emu_UpdateADC(),
+ * then PMU_ADC_Update() processes the values and updates digital_state. */
 
 /* PMU_PROFET_Update() - using real implementation from pmu_profet.c
  * The stub SPI functions (PMU_SPI_GetCurrent, etc.) return emulator state,

@@ -133,8 +133,20 @@ class CanxChannel:
 
     def to_can_input_config(self, message_ref: str) -> Dict[str, Any]:
         """Convert to CAN input channel configuration dict."""
-        # Sanitize ID for our model (replace dots with underscores, add prefix)
-        channel_id = "crx_" + self.id.replace(".", "_").replace("-", "_")
+        # Sanitize ID for our model - only allow letters, numbers, underscores
+        # Replace common separators with underscores, remove other invalid chars
+        sanitized = self.id.replace(".", "_").replace("-", "_").replace(" ", "_")
+        # Remove any remaining invalid characters
+        sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
+        # Ensure it starts with a letter
+        if sanitized and not sanitized[0].isalpha():
+            sanitized = "ch_" + sanitized
+        # Collapse multiple underscores
+        while "__" in sanitized:
+            sanitized = sanitized.replace("__", "_")
+        # Remove trailing underscores
+        sanitized = sanitized.strip("_")
+        channel_id = "crx_" + sanitized
 
         # Determine if we need custom bit format
         data_format = self.data_format

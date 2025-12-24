@@ -72,11 +72,11 @@ class PMUMonitorWidget(QWidget):
         # Header
         header_layout = QHBoxLayout()
 
-        header_layout.addStretch()
-
-        self.status_label = QLabel("Disconnected", self)
+        self.status_label = QLabel("Offline", self)
         self.status_label.setStyleSheet("color: #888;")
         header_layout.addWidget(self.status_label)
+
+        header_layout.addStretch()
 
         layout.addLayout(header_layout)
 
@@ -248,10 +248,10 @@ class PMUMonitorWidget(QWidget):
         self._connected = connected
 
         if connected:
-            self.status_label.setText("Connected")
+            self.status_label.setText("Online")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
-            self.status_label.setText("Disconnected")
+            self.status_label.setText("Offline")
             self.status_label.setStyleSheet("color: #888;")
             # Reset all values to "?"
             for key in self._values:

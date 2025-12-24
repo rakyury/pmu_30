@@ -14,7 +14,8 @@ from PyQt6.QtGui import QAction, QActionGroup
 
 from .widgets import (
     ProjectTree, OutputMonitor, AnalogMonitor, VariablesInspector,
-    PMUMonitorWidget
+    PMUMonitorWidget, HBridgeMonitor, PIDTuner, CANMonitor, DataLoggerWidget,
+    ChannelGraphWidget, LogViewerWidget
 )
 
 # Channel dialogs
@@ -39,6 +40,12 @@ from .dialogs.can_messages_manager_dialog import CANMessagesManagerDialog
 from .dialogs.can_import_dialog import CANImportDialog
 from .dialogs.connection_dialog import ConnectionDialog
 from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
+from .dialogs.pid_controller_dialog import PIDControllerDialog
+from .dialogs.hbridge_dialog import HBridgeDialog
+from .dialogs.config_diff_dialog import ConfigDiffDialog
+from .dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
+from .dialogs.wifi_settings_dialog import WiFiSettingsDialog
+from .dialogs.bluetooth_settings_dialog import BluetoothSettingsDialog
 
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
@@ -161,9 +168,38 @@ class MainWindowProfessional(QMainWindow):
         self.analog_monitor = AnalogMonitor()
         self.monitor_tabs.addTab(self.analog_monitor, "Analog")
 
+        # H-Bridge Monitor tab
+        self.hbridge_monitor = HBridgeMonitor()
+        self.hbridge_monitor.hbridge_command.connect(self._on_hbridge_command)
+        self.monitor_tabs.addTab(self.hbridge_monitor, "H-Bridge")
+
         # Variables Inspector tab
         self.variables_inspector = VariablesInspector()
         self.monitor_tabs.addTab(self.variables_inspector, "Variables")
+
+        # PID Tuner tab
+        self.pid_tuner = PIDTuner()
+        self.pid_tuner.parameters_changed.connect(self._on_pid_parameters_changed)
+        self.pid_tuner.controller_reset.connect(self._on_pid_controller_reset)
+        self.monitor_tabs.addTab(self.pid_tuner, "PID Tuner")
+
+        # CAN Monitor tab
+        self.can_monitor = CANMonitor()
+        self.can_monitor.send_message.connect(self._on_can_send_message)
+        self.monitor_tabs.addTab(self.can_monitor, "CAN Live")
+
+        # Data Logger tab (professional ECU-style logging)
+        self.data_logger = DataLoggerWidget()
+        self.monitor_tabs.addTab(self.data_logger, "Data Logger")
+
+        # Channel Graph tab (dependency visualization)
+        self.channel_graph = ChannelGraphWidget()
+        self.channel_graph.channel_edit_requested.connect(self._on_graph_channel_edit)
+        self.monitor_tabs.addTab(self.channel_graph, "Dependencies")
+
+        # Log Viewer tab (firmware logs)
+        self.log_viewer = LogViewerWidget()
+        self.monitor_tabs.addTab(self.log_viewer, "Logs")
 
         self.monitor_dock.setWidget(self.monitor_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
@@ -256,9 +292,26 @@ class MainWindowProfessional(QMainWindow):
 
         device_menu.addSeparator()
 
+        compare_config_action = QAction("Compare Configurations...", self)
+        compare_config_action.setShortcut("Ctrl+Shift+C")
+        compare_config_action.triggered.connect(self.compare_configurations)
+        device_menu.addAction(compare_config_action)
+
+        device_menu.addSeparator()
+
         restart_action = QAction("Restart Device", self)
         restart_action.triggered.connect(self.restart_device)
         device_menu.addAction(restart_action)
+
+        device_menu.addSeparator()
+
+        wifi_settings_action = QAction("WiFi Settings...", self)
+        wifi_settings_action.triggered.connect(self.show_wifi_settings)
+        device_menu.addAction(wifi_settings_action)
+
+        bluetooth_settings_action = QAction("Bluetooth Settings...", self)
+        bluetooth_settings_action.triggered.connect(self.show_bluetooth_settings)
+        device_menu.addAction(bluetooth_settings_action)
 
         # Tools menu
         tools_menu = menubar.addMenu("Tools")
@@ -409,6 +462,12 @@ class MainWindowProfessional(QMainWindow):
             self._on_device_disconnected, Qt.ConnectionType.QueuedConnection)
         self.device_controller.error.connect(
             self._on_device_error, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.reconnecting.connect(
+            self._on_device_reconnecting, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.reconnect_failed.connect(
+            self._on_device_reconnect_failed, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.connected.connect(
+            self._on_device_connected, Qt.ConnectionType.QueuedConnection)
 
         # Internal signals for config loading from thread
         self._config_loaded_signal.connect(self._load_config_from_device)
@@ -423,11 +482,40 @@ class MainWindowProfessional(QMainWindow):
         self.output_monitor.set_connected(False)
         self.analog_monitor.set_connected(False)
         self.variables_inspector.set_connected(False)
+        self.pid_tuner.set_connected(False)
+        self.can_monitor.set_connected(False)
 
     def _on_device_error(self, error_msg: str):
         """Handle device error."""
         self.status_message.setText(f"Error: {error_msg}")
         logger.error(f"Device error: {error_msg}")
+
+    def _on_device_reconnecting(self, attempt: int, max_attempts: int):
+        """Handle reconnection attempt."""
+        max_str = str(max_attempts) if max_attempts > 0 else "∞"
+        self.device_status_label.setText("RECONNECTING...")
+        self.device_status_label.setStyleSheet("color: #f59e0b;")  # Orange/amber
+        self.status_message.setText(f"Reconnecting... attempt {attempt}/{max_str}")
+        logger.info(f"Reconnection attempt {attempt}/{max_str}")
+
+    def _on_device_reconnect_failed(self):
+        """Handle reconnection failure (all attempts exhausted)."""
+        self.device_status_label.setText("OFFLINE")
+        self.device_status_label.setStyleSheet("color: #ef4444;")
+        self.status_message.setText("Reconnection failed - all attempts exhausted")
+        logger.warning("All reconnection attempts exhausted")
+
+    def _on_device_connected(self):
+        """Handle device connection (including after reconnect)."""
+        self.device_status_label.setText("ONLINE")
+        self.device_status_label.setStyleSheet("color: #22c55e;")  # Green
+        self.status_message.setText("Connected to device")
+        self.pmu_monitor.set_connected(True)
+        self.output_monitor.set_connected(True)
+        self.analog_monitor.set_connected(True)
+        self.variables_inspector.set_connected(True)
+        self.pid_tuner.set_connected(True)
+        self.can_monitor.set_connected(True)
 
     def _on_item_add_requested(self, channel_type_str: str):
         """Handle request to add new item by Channel type."""
@@ -438,15 +526,20 @@ class MainWindowProfessional(QMainWindow):
 
         available_channels = self._get_available_channels()
 
+        # Get all existing channels for ID generation
+        existing_channels = self.project_tree.get_all_channels()
+
         if channel_type == ChannelType.DIGITAL_INPUT:
-            dialog = DigitalInputDialog(self, None, available_channels)
+            used_pins = self.project_tree.get_all_used_digital_input_pins()
+            dialog = DigitalInputDialog(self, None, available_channels, used_pins, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.ANALOG_INPUT:
-            dialog = AnalogInputDialog(self, None, available_channels)
+            used_pins = self.project_tree.get_all_used_analog_input_pins()
+            dialog = AnalogInputDialog(self, None, available_channels, used_pins, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -454,7 +547,8 @@ class MainWindowProfessional(QMainWindow):
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.POWER_OUTPUT:
-            dialog = OutputConfigDialog(self, None, [], available_channels)
+            used_pins = self.project_tree.get_all_used_output_pins()
+            dialog = OutputConfigDialog(self, None, used_pins, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -463,22 +557,31 @@ class MainWindowProfessional(QMainWindow):
                 # Apply channel state immediately to device
                 self._apply_output_to_device(config)
 
+        elif channel_type == ChannelType.HBRIDGE:
+            used_bridges = self.project_tree.get_all_used_hbridge_numbers()
+            dialog = HBridgeDialog(self, None, used_bridges, available_channels, existing_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
+                self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
+                self.configuration_changed.emit()
+
         elif channel_type == ChannelType.LOGIC:
-            dialog = LogicDialog(self, None, available_channels)
+            dialog = LogicDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.NUMBER:
-            dialog = NumberDialog(self, None, available_channels)
+            dialog = NumberDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.TIMER:
-            dialog = TimerDialog(self, None, available_channels)
+            dialog = TimerDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -492,28 +595,28 @@ class MainWindowProfessional(QMainWindow):
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.TABLE_2D:
-            dialog = Table2DDialog(self, None, available_channels)
+            dialog = Table2DDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.TABLE_3D:
-            dialog = Table3DDialog(self, None, available_channels)
+            dialog = Table3DDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.ENUM:
-            dialog = EnumDialog(self, None, available_channels)
+            dialog = EnumDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.FILTER:
-            dialog = FilterDialog(self, None, available_channels)
+            dialog = FilterDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -560,7 +663,21 @@ class MainWindowProfessional(QMainWindow):
                 self.configuration_changed.emit()
 
         elif channel_type == ChannelType.LUA_SCRIPT:
-            dialog = LuaScriptTreeDialog(self, None, available_channels)
+            dialog = LuaScriptTreeDialog(self, None, available_channels, existing_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
+                self.configuration_changed.emit()
+
+        elif channel_type == ChannelType.PID:
+            dialog = PIDControllerDialog(self, None, available_channels, existing_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
+                self.configuration_changed.emit()
+
+        elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
+            dialog = BlinkMarineKeypadDialog(self, None, available_channels, existing_channels)
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
@@ -568,118 +685,188 @@ class MainWindowProfessional(QMainWindow):
 
     def _on_item_edit_requested(self, channel_type_str: str, data: dict):
         """Handle request to edit item by Channel type."""
+        logger.info(f"Edit requested: type={channel_type_str}, id={data.get('data', {}).get('id', 'unknown')}")
+
         try:
             channel_type = ChannelType(channel_type_str)
         except ValueError:
+            logger.error(f"Invalid channel type: {channel_type_str}")
             return
 
         item_data = data.get("data", {})
+        if not item_data:
+            logger.warning("Edit requested but no item data provided")
+            return
+
         available_channels = self._get_available_channels()
+        logger.debug(f"Opening dialog for {channel_type.value}: {item_data.get('id', 'unnamed')}")
 
-        if channel_type == ChannelType.DIGITAL_INPUT:
-            dialog = DigitalInputDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+        # Prevent double-click re-entry while dialog is open
+        if hasattr(self, '_edit_dialog_open') and self._edit_dialog_open:
+            logger.warning("Edit dialog already open, ignoring duplicate request")
+            return
+        self._edit_dialog_open = True
 
-        elif channel_type == ChannelType.ANALOG_INPUT:
-            dialog = AnalogInputDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-                self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+        try:
+            # Get all existing channels for ID generation
+            existing_channels = self.project_tree.get_all_channels()
 
-        elif channel_type == ChannelType.POWER_OUTPUT:
-            dialog = OutputConfigDialog(self, item_data, [], available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
-                self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
-                # Apply channel state immediately to device (without flash save)
-                self._apply_output_to_device(updated_config)
+            if channel_type == ChannelType.DIGITAL_INPUT:
+                # Exclude current channel's pin from used list when editing
+                channel_id = item_data.get('name') if item_data else None
+                used_pins = self.project_tree.get_all_used_digital_input_pins(exclude_channel_id=channel_id)
+                dialog = DigitalInputDialog(self, item_data, available_channels, used_pins, existing_channels)
+                logger.debug("Opening DigitalInputDialog")
+                result = dialog.exec()
+                logger.debug(f"DigitalInputDialog result: {result}")
+                if result:
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+                    logger.info(f"Digital input updated: {updated_config.get('name')}")
 
-        elif channel_type == ChannelType.LOGIC:
-            dialog = LogicDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.ANALOG_INPUT:
+                # Exclude current channel's pin from used list when editing
+                channel_id = item_data.get('name') if item_data else None
+                used_pins = self.project_tree.get_all_used_analog_input_pins(exclude_channel_id=channel_id)
+                dialog = AnalogInputDialog(self, item_data, available_channels, used_pins, existing_channels)
+                logger.debug("Opening AnalogInputDialog")
+                result = dialog.exec()
+                logger.debug(f"AnalogInputDialog result: {result}")
+                if result:
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+                    self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+                    logger.info(f"Analog input updated: {updated_config.get('name')}")
 
-        elif channel_type == ChannelType.NUMBER:
-            dialog = NumberDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.POWER_OUTPUT:
+                # Exclude current channel's pins from used list when editing
+                channel_id = item_data.get('name') if item_data else None
+                used_pins = self.project_tree.get_all_used_output_pins(exclude_channel_id=channel_id)
+                dialog = OutputConfigDialog(self, item_data, used_pins, available_channels, existing_channels)
+                logger.debug("Opening OutputConfigDialog")
+                result = dialog.exec()
+                logger.debug(f"OutputConfigDialog result: {result}")
+                if result:
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+                    self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
+                    # Apply channel state immediately to device (without flash save)
+                    self._apply_output_to_device(updated_config)
+                    logger.info(f"Output updated and applied: {updated_config.get('name')}")
 
-        elif channel_type == ChannelType.TIMER:
-            dialog = TimerDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.HBRIDGE:
+                # Exclude current channel's bridge from used list when editing
+                channel_id = item_data.get('name') if item_data else None
+                used_bridges = self.project_tree.get_all_used_hbridge_numbers(exclude_channel_id=channel_id)
+                dialog = HBridgeDialog(self, item_data, used_bridges, available_channels, existing_channels)
+                logger.debug("Opening HBridgeDialog")
+                result = dialog.exec()
+                logger.debug(f"HBridgeDialog result: {result}")
+                if result:
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+                    self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
+                    logger.info(f"H-Bridge updated: {updated_config.get('name')}")
 
-        elif channel_type == ChannelType.SWITCH:
-            dialog = SwitchDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.LOGIC:
+                dialog = LogicDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.TABLE_2D:
-            dialog = Table2DDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.NUMBER:
+                dialog = NumberDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.TABLE_3D:
-            dialog = Table3DDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.TIMER:
+                dialog = TimerDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.ENUM:
-            dialog = EnumDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.SWITCH:
+                dialog = SwitchDialog(self, item_data, available_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.FILTER:
-            dialog = FilterDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.TABLE_2D:
+                dialog = Table2DDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.CAN_RX:
-            # CAN RX = CAN Input (signal extraction from CAN Message)
-            message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
-            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+            elif channel_type == ChannelType.TABLE_3D:
+                dialog = Table3DDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-            dialog = CANInputDialog(
-                self,
-                input_config=item_data,
-                message_ids=message_ids,
-                existing_channel_ids=existing_ids
-            )
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.ENUM:
+                dialog = EnumDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-        elif channel_type == ChannelType.CAN_TX:
-            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
-            available_channels = self._get_available_channels()
+            elif channel_type == ChannelType.FILTER:
+                dialog = FilterDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
 
-            dialog = CANOutputDialog(
-                self,
-                output_config=item_data,
-                existing_ids=existing_ids,
-                available_channels=available_channels
-            )
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+            elif channel_type == ChannelType.CAN_RX:
+                # CAN RX = CAN Input (signal extraction from CAN Message)
+                message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
+                existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
 
-        elif channel_type == ChannelType.LUA_SCRIPT:
-            dialog = LuaScriptTreeDialog(self, item_data, available_channels)
-            if dialog.exec():
-                updated_config = dialog.get_config()
-                self.project_tree.update_current_item(updated_config)
+                dialog = CANInputDialog(
+                    self,
+                    input_config=item_data,
+                    message_ids=message_ids,
+                    existing_channel_ids=existing_ids
+                )
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+
+            elif channel_type == ChannelType.CAN_TX:
+                existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+                available_channels = self._get_available_channels()
+
+                dialog = CANOutputDialog(
+                    self,
+                    output_config=item_data,
+                    existing_ids=existing_ids,
+                    available_channels=available_channels
+                )
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+
+            elif channel_type == ChannelType.LUA_SCRIPT:
+                dialog = LuaScriptTreeDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+
+            elif channel_type == ChannelType.PID:
+                dialog = PIDControllerDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+
+            elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
+                dialog = BlinkMarineKeypadDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+
+        except Exception as e:
+            logger.error(f"Error in channel edit dialog: {e}")
+        finally:
+            self._edit_dialog_open = False
 
     def _get_available_channels(self) -> dict:
         """Get all available channels for selection organized by Channel type."""
@@ -699,6 +886,7 @@ class MainWindowProfessional(QMainWindow):
             "can_rx": [],
             "can_tx": [],
             "lua_scripts": [],
+            "pid_controllers": [],
             # Legacy format for backwards compatibility
             "inputs_physical": [f"in.{i}" for i in range(20)],
             "outputs_physical": [f"out.{i}" for i in range(30)],
@@ -747,6 +935,9 @@ class MainWindowProfessional(QMainWindow):
         for ch in self.project_tree.get_channels_by_type(ChannelType.LUA_SCRIPT):
             channels["lua_scripts"].append(ch.get("id", ""))
 
+        for ch in self.project_tree.get_channels_by_type(ChannelType.PID):
+            channels["pid_controllers"].append(ch.get("id", ""))
+
         return channels
 
     def _on_config_changed(self):
@@ -778,16 +969,22 @@ class MainWindowProfessional(QMainWindow):
         """Open configuration file."""
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open Configuration", "",
-            "JSON Files (*.json);;All Files (*.*)"
+            "PMU-30 Configuration (*.pmu30 *.json);;All Files (*.*)"
         )
 
         if filename:
-            success, error_msg = self.config_manager.load_from_file(filename)
-            if success:
-                self._load_config_to_ui()
-                self.status_message.setText(f"Loaded: {filename}")
-            else:
-                QMessageBox.critical(self, "Error", error_msg)
+            self._load_configuration_file(filename)
+
+    def _load_configuration_file(self, filename: str):
+        """Load configuration from a specific file path."""
+        success, error_msg = self.config_manager.load_from_file(filename)
+        if success:
+            self._load_config_to_ui()
+            self.status_message.setText(f"Loaded: {filename}")
+            logger.info(f"Configuration loaded from file: {filename}")
+        else:
+            QMessageBox.critical(self, "Error", error_msg)
+            logger.error(f"Failed to load configuration: {error_msg}")
 
     def save_configuration(self) -> bool:
         """Save configuration."""
@@ -858,9 +1055,121 @@ class MainWindowProfessional(QMainWindow):
         # Update monitors
         self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
         self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+        self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
+
+        # Update PID tuner with available PID controllers
+        pid_controllers = [ch for ch in channels if ch.get("channel_type") == "pid"]
+        self.pid_tuner.set_controllers(pid_controllers)
+
+        # Update CAN monitor with CAN configuration
+        can_messages = config.get("can_messages", [])
+        can_inputs = [ch for ch in channels if ch.get("channel_type") == "can_rx"]
+        self.can_monitor.set_configuration(can_messages, can_inputs)
 
         # Update variables inspector
         self.variables_inspector.populate_from_config(self.config_manager)
+
+        # Update channel dependency graph
+        self._update_channel_graph(channels)
+
+    def _update_channel_graph(self, channels: list):
+        """Update channel dependency graph."""
+        # Prepare channel data with input_channels for graph
+        graph_data = []
+        for ch in channels:
+            ch_data = {
+                'id': ch.get('id', ''),
+                'name': ch.get('name', ch.get('id', '')),
+                'type': ch.get('channel_type', 'logic'),
+                'input_channels': []
+            }
+
+            # Extract input channels based on channel type
+            ch_type = ch.get('channel_type', '')
+
+            if ch_type == 'power_output':
+                if ch.get('source_channel'):
+                    ch_data['input_channels'].append(ch['source_channel'])
+                if ch.get('duty_channel'):
+                    ch_data['input_channels'].append(ch['duty_channel'])
+
+            elif ch_type == 'logic':
+                for inp in ch.get('inputs', []):
+                    if isinstance(inp, dict) and inp.get('channel'):
+                        ch_data['input_channels'].append(inp['channel'])
+                    elif isinstance(inp, str):
+                        ch_data['input_channels'].append(inp)
+                if ch.get('set_channel'):
+                    ch_data['input_channels'].append(ch['set_channel'])
+                if ch.get('reset_channel'):
+                    ch_data['input_channels'].append(ch['reset_channel'])
+                if ch.get('toggle_channel'):
+                    ch_data['input_channels'].append(ch['toggle_channel'])
+
+            elif ch_type == 'timer':
+                if ch.get('start_channel'):
+                    ch_data['input_channels'].append(ch['start_channel'])
+                if ch.get('stop_channel'):
+                    ch_data['input_channels'].append(ch['stop_channel'])
+
+            elif ch_type == 'filter':
+                if ch.get('input_channel'):
+                    ch_data['input_channels'].append(ch['input_channel'])
+
+            elif ch_type == 'table_2d':
+                if ch.get('x_axis_channel'):
+                    ch_data['input_channels'].append(ch['x_axis_channel'])
+
+            elif ch_type == 'table_3d':
+                if ch.get('x_axis_channel'):
+                    ch_data['input_channels'].append(ch['x_axis_channel'])
+                if ch.get('y_axis_channel'):
+                    ch_data['input_channels'].append(ch['y_axis_channel'])
+
+            elif ch_type == 'number':
+                for inp in ch.get('inputs', []):
+                    if isinstance(inp, dict) and inp.get('channel'):
+                        ch_data['input_channels'].append(inp['channel'])
+
+            elif ch_type == 'pid':
+                if ch.get('setpoint_channel'):
+                    ch_data['input_channels'].append(ch['setpoint_channel'])
+                if ch.get('process_channel'):
+                    ch_data['input_channels'].append(ch['process_channel'])
+
+            elif ch_type == 'hbridge':
+                if ch.get('source_channel'):
+                    ch_data['input_channels'].append(ch['source_channel'])
+                if ch.get('duty_channel'):
+                    ch_data['input_channels'].append(ch['duty_channel'])
+                if ch.get('direction_channel'):
+                    ch_data['input_channels'].append(ch['direction_channel'])
+                if ch.get('pid_setpoint_channel'):
+                    ch_data['input_channels'].append(ch['pid_setpoint_channel'])
+
+            elif ch_type == 'enum':
+                if ch.get('input_up_channel'):
+                    ch_data['input_channels'].append(ch['input_up_channel'])
+                if ch.get('input_down_channel'):
+                    ch_data['input_channels'].append(ch['input_down_channel'])
+
+            elif ch_type == 'can_tx':
+                for sig in ch.get('signals', []):
+                    if sig.get('source_channel'):
+                        ch_data['input_channels'].append(sig['source_channel'])
+
+            graph_data.append(ch_data)
+
+        self.channel_graph.set_channels(graph_data)
+
+    def _on_graph_channel_edit(self, channel_id: str):
+        """Handle double-click on graph node to edit channel."""
+        # Find channel in tree and open editor
+        logger.info(f"Edit channel from graph: {channel_id}")
+        item = self.project_tree.find_channel_item(channel_id)
+        if item:
+            self.project_tree.setCurrentItem(item)
+            self._on_project_item_double_clicked(item, 0)
 
     def _save_config_from_ui(self):
         """Save configuration from UI."""
@@ -916,6 +1225,8 @@ class MainWindowProfessional(QMainWindow):
         self.output_monitor.set_connected(False)
         self.analog_monitor.set_connected(False)
         self.variables_inspector.set_connected(False)
+        self.pid_tuner.set_connected(False)
+        self.can_monitor.set_connected(False)
 
     def read_from_device(self):
         """Read configuration from device."""
@@ -962,6 +1273,7 @@ class MainWindowProfessional(QMainWindow):
             # Update monitors
             self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
             self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+            self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
 
             # Store config in config_manager
             self.config_manager.load_from_dict(config)
@@ -1155,6 +1467,193 @@ class MainWindowProfessional(QMainWindow):
             else:
                 QMessageBox.warning(self, "Error", "Failed to restart device.")
 
+    def show_wifi_settings(self):
+        """Show WiFi settings dialog."""
+        # Get current WiFi config from system settings
+        system_settings = self.config_manager.get_system_settings()
+        wifi_config = {"wifi": system_settings.get("wifi", {})}
+
+        dialog = WiFiSettingsDialog(self, config=wifi_config)
+        if dialog.exec():
+            # Get updated config
+            new_config = dialog.get_config()
+
+            # Update WiFi in system settings
+            system_settings["wifi"] = new_config.get("wifi", {})
+            self.config_manager.update_system_settings(system_settings)
+
+            self.status_message.setText("WiFi settings updated")
+            self.configuration_changed.emit()
+            logger.info("WiFi settings updated")
+
+    def show_bluetooth_settings(self):
+        """Show Bluetooth settings dialog."""
+        # Get current Bluetooth config from system settings
+        system_settings = self.config_manager.get_system_settings()
+        bt_config = {"bluetooth": system_settings.get("bluetooth", {})}
+
+        dialog = BluetoothSettingsDialog(self, config=bt_config)
+        if dialog.exec():
+            # Get updated config
+            new_config = dialog.get_config()
+
+            # Update Bluetooth in system settings
+            system_settings["bluetooth"] = new_config.get("bluetooth", {})
+            self.config_manager.update_system_settings(system_settings)
+
+            self.status_message.setText("Bluetooth settings updated")
+            self.configuration_changed.emit()
+            logger.info("Bluetooth settings updated")
+
+    def compare_configurations(self):
+        """Compare device configuration with UI configuration."""
+        if not self.device_controller.is_connected():
+            QMessageBox.warning(
+                self,
+                "Not Connected",
+                "Please connect to device first to compare configurations."
+            )
+            return
+
+        self.status_message.setText("Reading configuration from device...")
+
+        # Read device config in background
+        def read_device_config():
+            return self.device_controller.read_configuration(timeout=10.0)
+
+        import threading
+        result = [None]
+        error = [None]
+
+        def worker():
+            try:
+                result[0] = read_device_config()
+            except Exception as e:
+                error[0] = str(e)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=15.0)
+
+        if error[0]:
+            QMessageBox.warning(self, "Error", f"Failed to read device config: {error[0]}")
+            return
+
+        device_config = result[0]
+        if not device_config:
+            QMessageBox.warning(self, "Error", "Failed to read configuration from device.")
+            return
+
+        # Get UI config
+        ui_config = self.config_manager.get_config()
+
+        # Show diff dialog
+        dialog = ConfigDiffDialog(self, device_config, ui_config)
+        result = dialog.exec()
+
+        if result == 1:  # Sync UI → Device
+            reply = QMessageBox.question(
+                self,
+                "Apply UI to Device",
+                "This will overwrite the device configuration with the UI configuration.\n\n"
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.write_to_device()
+
+        elif result == 2:  # Sync Device → UI
+            reply = QMessageBox.question(
+                self,
+                "Apply Device to UI",
+                "This will overwrite the UI configuration with the device configuration.\n\n"
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._load_config_from_device(device_config)
+                self.status_message.setText("Configuration loaded from device")
+
+    def _on_pid_parameters_changed(self, controller_id: str, params: dict):
+        """Handle PID parameter changes from tuner."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - parameters not sent to device")
+            return
+
+        # Update the channel configuration in config manager
+        channels = self.project_tree.get_all_channels()
+        for ch in channels:
+            if ch.get("id") == controller_id or ch.get("channel_id") == controller_id:
+                ch["kp"] = params.get("kp", ch.get("kp", 1.0))
+                ch["ki"] = params.get("ki", ch.get("ki", 0.0))
+                ch["kd"] = params.get("kd", ch.get("kd", 0.0))
+                ch["setpoint_value"] = params.get("setpoint", ch.get("setpoint_value", 0.0))
+                break
+
+        # TODO: Send live PID parameter update to device via protocol
+        # For now, log the change
+        logger.info(f"PID parameters changed for {controller_id}: Kp={params.get('kp')}, "
+                    f"Ki={params.get('ki')}, Kd={params.get('kd')}, SP={params.get('setpoint')}")
+        self.status_message.setText(f"PID {controller_id}: Kp={params.get('kp'):.3f} Ki={params.get('ki'):.3f} Kd={params.get('kd'):.3f}")
+
+    def _on_pid_controller_reset(self, controller_id: str):
+        """Handle PID controller reset request from tuner."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - reset not sent to device")
+            return
+
+        # TODO: Send PID reset command to device via protocol
+        logger.info(f"PID controller reset requested for {controller_id}")
+        self.status_message.setText(f"PID controller {controller_id} reset requested")
+
+    def _on_can_send_message(self, arb_id: int, data: bytes, is_extended: bool):
+        """Handle CAN message send request from CAN monitor."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - CAN message not sent")
+            return
+
+        # TODO: Send CAN message to device via protocol
+        id_str = f"0x{arb_id:08X}" if is_extended else f"0x{arb_id:03X}"
+        data_str = " ".join(f"{b:02X}" for b in data)
+        logger.info(f"CAN TX: {id_str} [{len(data)}] {data_str}")
+        self.status_message.setText(f"CAN TX: {id_str} [{len(data)}] {data_str}")
+
+    def _on_hbridge_command(self, bridge: int, command: str, pwm: int):
+        """Handle H-Bridge control command from monitor widget.
+
+        Args:
+            bridge: Bridge number (0-3)
+            command: Command string ("coast", "forward", "reverse", "brake", "stop")
+            pwm: PWM value (0-255)
+        """
+        # Convert command string to mode number
+        mode_map = {
+            "coast": 0,
+            "stop": 0,
+            "forward": 1,
+            "reverse": 2,
+            "brake": 3,
+            "wiper_park": 4,
+            "pid": 5
+        }
+        mode = mode_map.get(command.lower(), 0)
+
+        # Convert PWM 0-255 to duty 0-1000
+        duty = (pwm * 1000) // 255
+
+        if self.device_controller.is_connected():
+            # Send via protocol
+            import asyncio
+            asyncio.create_task(
+                self.device_controller.comm_manager.set_hbridge(bridge, mode, duty)
+            )
+            logger.info(f"H-Bridge command: HB{bridge + 1} mode={command} PWM={pwm}")
+            self.status_message.setText(f"H-Bridge HB{bridge + 1}: {command.upper()} PWM={pwm}")
+        else:
+            # Send to emulator via WebSocket if available
+            logger.info(f"H-Bridge command (no device): HB{bridge + 1} mode={command} PWM={pwm}")
+            self.status_message.setText(f"H-Bridge HB{bridge + 1}: {command.upper()} (not connected)")
+
     def _on_telemetry_received(self, telemetry):
         """Handle telemetry data from device."""
         try:
@@ -1187,14 +1686,8 @@ class MainWindowProfessional(QMainWindow):
 
             self.output_monitor.update_from_telemetry(states, duties, currents, battery_v)
 
-            # Update analog monitor with ADC values
-            for i, value in enumerate(telemetry.adc_values[:8]):
-                if i < len(self.analog_monitor.inputs_data):
-                    # Convert raw ADC (0-4095) to percentage (0-100)
-                    percent = (value / 4095.0) * 100
-                    voltage = (value / 4095.0) * 5.0  # Assume 5V reference
-                    # update_input_value(channel: int, value: float, voltage: float)
-                    self.analog_monitor.update_input_value(i, percent, voltage)
+            # Update analog monitor with ADC values (uses switch logic for switch inputs)
+            self.analog_monitor.update_from_telemetry(telemetry.adc_values)
 
             # Update variables inspector with telemetry data
             variables_data = {
@@ -1209,17 +1702,42 @@ class MainWindowProfessional(QMainWindow):
                 'profet_currents': currents,
                 'adc_values': list(telemetry.adc_values),
             }
+
+            # Add CAN RX channel values from telemetry (if available)
+            if hasattr(telemetry, 'can_rx_values') and telemetry.can_rx_values:
+                variables_data['can_rx_values'] = telemetry.can_rx_values
+            else:
+                # Get CAN inputs from config and show placeholder/last values
+                can_rx_values = {}
+                try:
+                    can_inputs = self.config_manager.get_can_inputs()
+                    for ch in can_inputs:
+                        ch_id = ch.get('id', '')
+                        if ch_id:
+                            # Use default value or "?" for now
+                            can_rx_values[ch_id] = ch.get('default_value', '?')
+                except Exception:
+                    pass
+                if can_rx_values:
+                    variables_data['can_rx_values'] = can_rx_values
+
             self.variables_inspector.update_from_telemetry(variables_data)
+
+            # Update data logger with telemetry data
+            self.data_logger.update_from_telemetry(data)
         except Exception as e:
             logger.error(f"Error processing telemetry: {e}")
 
     def _on_log_received(self, level: int, source: str, message: str):
         """Handle log message from device."""
-        level_names = {0: 'DEBUG', 1: 'INFO', 2: 'WARNING', 3: 'ERROR'}
+        level_names = {0: 'DEBUG', 1: 'INFO', 2: 'WARN', 3: 'ERROR'}
         level_name = level_names.get(level, 'INFO')
 
         log_text = f"[{source}] {message}"
         self.status_message.setText(log_text)
+
+        # Send to log viewer widget
+        self.log_viewer.add_log(level_name, source, message)
 
         # Log to Python logger as well
         if level == 0:
@@ -1260,9 +1778,9 @@ class MainWindowProfessional(QMainWindow):
         self.config_manager.modified = True
         self._on_config_changed()
 
-        # Refresh the project tree
+        # Refresh the project tree with updated channels
         if hasattr(self, 'project_tree'):
-            self.project_tree.refresh()
+            self.project_tree.load_channels(config.get("channels", []))
 
         logger.info(f"Imported {len(messages)} CAN message(s) and {len(channels)} CAN input(s)")
 

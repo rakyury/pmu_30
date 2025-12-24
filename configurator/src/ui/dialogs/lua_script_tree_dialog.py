@@ -185,13 +185,15 @@ pmu.setVirtual(0, timer)
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
         # Set channel type before calling super().__init__
         super().__init__(
             parent=parent,
             config=config,
             available_channels=available_channels,
-            channel_type=ChannelType.LUA_SCRIPT
+            channel_type=ChannelType.LUA_SCRIPT,
+            existing_channels=existing_channels
         )
 
         self.is_running = False

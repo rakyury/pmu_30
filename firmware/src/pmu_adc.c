@@ -39,7 +39,14 @@
 /* Private variables ---------------------------------------------------------*/
 static PMU_ADC_Input_t inputs[PMU30_NUM_ADC_INPUTS];
 static PMU_InputConfig_t* input_configs[PMU30_NUM_ADC_INPUTS];
+
+/* ADC DMA buffer - needs to be accessible from emulator */
+#ifdef PMU_EMULATOR
+uint16_t adc_dma_buffer[ADC_DMA_BUFFER_SIZE];
+#else
 static uint16_t adc_dma_buffer[ADC_DMA_BUFFER_SIZE];
+#endif
+
 static ADC_HandleTypeDef* hadc_inputs;
 
 #ifndef UNIT_TEST
@@ -428,17 +435,32 @@ HAL_StatusTypeDef PMU_ADC_SetConfig(uint8_t channel, PMU_InputConfig_t* config)
  * @brief Process Switch Active Low input
  * @param channel Input channel
  * @retval None
+ *
+ * Active LOW switch: connected between input and GND with pull-up
+ * - When switch OPEN (released): voltage is HIGH (pulled up) → output 0
+ * - When switch CLOSED (pressed): voltage is LOW (grounded) → output 1
  */
 static void ADC_ProcessSwitchActiveLow(uint8_t channel)
 {
     PMU_InputConfig_t* cfg = input_configs[channel];
     uint16_t voltage_mv = VOLTAGE_FROM_ADC(inputs[channel].raw_value);
 
-    /* Active low: LOW = pressed (1), HIGH = released (0) */
-    uint8_t new_state = (voltage_mv < cfg->threshold_low_mv) ? 1 : 0;
+    /* Active LOW with hysteresis (inverted logic):
+     * - State 1 (active/pressed) when voltage goes BELOW threshold_low
+     * - State 0 (inactive/released) when voltage goes ABOVE threshold_high
+     * - State stays the same when voltage is between thresholds */
+    uint8_t current_state = inputs[channel].digital_state;
+    uint8_t new_state = current_state;
+
+    if (voltage_mv < cfg->threshold_low_mv) {
+        new_state = 1;  /* LOW voltage = pressed (active) */
+    } else if (voltage_mv > cfg->threshold_high_mv) {
+        new_state = 0;  /* HIGH voltage = released (inactive) */
+    }
+    /* else: keep current state (hysteresis zone) */
 
     /* Debouncing */
-    if (new_state != inputs[channel].digital_state) {
+    if (new_state != current_state) {
         inputs[channel].debounce_counter++;
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
@@ -461,11 +483,22 @@ static void ADC_ProcessSwitchActiveHigh(uint8_t channel)
     PMU_InputConfig_t* cfg = input_configs[channel];
     uint16_t voltage_mv = VOLTAGE_FROM_ADC(inputs[channel].raw_value);
 
-    /* Active high: HIGH = pressed (1), LOW = released (0) */
-    uint8_t new_state = (voltage_mv > cfg->threshold_high_mv) ? 1 : 0;
+    /* Active high with hysteresis:
+     * - State changes to 1 (pressed) when voltage goes ABOVE threshold_high
+     * - State changes to 0 (released) when voltage goes BELOW threshold_low
+     * - State stays the same when voltage is between thresholds */
+    uint8_t current_state = inputs[channel].digital_state;
+    uint8_t new_state = current_state;
+
+    if (voltage_mv > cfg->threshold_high_mv) {
+        new_state = 1;  /* HIGH voltage = pressed */
+    } else if (voltage_mv < cfg->threshold_low_mv) {
+        new_state = 0;  /* LOW voltage = released */
+    }
+    /* else: keep current state (hysteresis zone) */
 
     /* Debouncing */
-    if (new_state != inputs[channel].digital_state) {
+    if (new_state != current_state) {
         inputs[channel].debounce_counter++;
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
@@ -598,20 +631,45 @@ static uint16_t ADC_ApplyFilter(uint8_t channel, uint16_t new_value)
 }
 
 /**
- * @brief Apply calibration curve to raw value
- * @param config Input configuration
+ * @brief Apply calibration curve to raw value using piecewise linear interpolation
+ * @param config Input configuration with calibration table
  * @param raw Raw ADC value
  * @retval Calibrated value
  */
 static float ADC_ApplyCalibration(PMU_InputConfig_t* config, uint16_t raw)
 {
-    /* For now, use simple linear calibration
-     * In full implementation, this could use lookup table with interpolation
-     * for non-linear sensors (temp sensors, pressure sensors, etc.)
-     */
-
     float voltage_v = VOLTAGE_FROM_ADC(raw) / 1000.0f;
-    return (voltage_v * config->multiplier) + config->offset;
+
+    /* If no calibration points, fall back to linear scaling */
+    if (config->calibration_count < 2) {
+        return (voltage_v * config->multiplier) + config->offset;
+    }
+
+    /* Find the interpolation segment */
+    /* Note: calibration points should be sorted by voltage (ascending) */
+    for (uint8_t i = 0; i < config->calibration_count - 1; i++) {
+        float v1 = config->calibration[i].voltage;
+        float v2 = config->calibration[i + 1].voltage;
+
+        if (voltage_v >= v1 && voltage_v <= v2) {
+            /* Interpolate between points i and i+1 */
+            float val1 = config->calibration[i].value;
+            float val2 = config->calibration[i + 1].value;
+
+            if (v2 != v1) {
+                return val1 + (voltage_v - v1) * (val2 - val1) / (v2 - v1);
+            } else {
+                return val1;
+            }
+        }
+    }
+
+    /* Outside calibration range - clamp to nearest endpoint */
+    if (voltage_v < config->calibration[0].voltage) {
+        return config->calibration[0].value;
+    } else {
+        return config->calibration[config->calibration_count - 1].value;
+    }
 }
 
 /**
@@ -637,8 +695,8 @@ static uint16_t ADC_ReadChannel(uint8_t channel)
         return adc_dma_buffer[channel] >> 2;  /* 12-bit to 10-bit */
     }
 
-#ifdef UNIT_TEST
-    /* For unit tests, return mid-scale dummy value */
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
+    /* For unit tests (but not emulator), return mid-scale dummy value */
     return 512;
 #else
     /* Out of range channel */

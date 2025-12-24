@@ -21,6 +21,7 @@ from PyQt6.QtGui import QIcon
 sys.path.insert(0, str(Path(__file__).parent))
 
 from ui.main_window_professional import MainWindowProfessional
+from ui.dialogs.startup_dialog import StartupDialog, StartupAction
 from utils.logger import setup_logger
 
 
@@ -43,9 +44,35 @@ def main():
     app.setOrganizationName("R2 m-sport")
     app.setApplicationVersion("1.0.0")
 
-    # Create and show main window
+    # Show startup dialog
+    action, file_path = StartupDialog.show_startup()
+
+    if action == StartupAction.CANCEL:
+        logger.info("User cancelled startup, exiting")
+        sys.exit(0)
+
+    # Create main window
     window = MainWindowProfessional()
-    window.show()
+
+    # Handle startup action
+    if action == StartupAction.CONNECT_DEVICE:
+        logger.info("Startup action: Connect to device")
+        window.show()
+        # Trigger connection dialog after window is shown
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, window.connect_device)
+
+    elif action == StartupAction.OPEN_FILE:
+        logger.info(f"Startup action: Open file {file_path}")
+        window.show()
+        # Load the file after window is shown
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, lambda: window._load_configuration_file(file_path))
+
+    elif action == StartupAction.NEW_CONFIG:
+        logger.info("Startup action: New configuration")
+        window.show()
+        # Already starts with empty config
 
     logger.info("Application started successfully")
 

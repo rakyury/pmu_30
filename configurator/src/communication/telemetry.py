@@ -35,6 +35,26 @@ class ChannelState(IntEnum):
     DISABLED = 7
 
 
+class HBridgeMode(IntEnum):
+    """H-Bridge operating modes."""
+    COAST = 0
+    FORWARD = 1
+    REVERSE = 2
+    BRAKE = 3
+    WIPER_PARK = 4
+    PID_POSITION = 5
+
+
+class HBridgeState(IntEnum):
+    """H-Bridge state values."""
+    IDLE = 0
+    RUNNING = 1
+    STALLED = 2
+    FAULT = 3
+    OVERCURRENT = 4
+    OVERTEMP = 5
+
+
 class FaultFlags(IntFlag):
     """System-wide fault flags (32 bits)."""
     NONE = 0
@@ -148,6 +168,29 @@ class TelemetryPacket:
                 ChannelState.FAULT_OPEN
             )
         ]
+
+    def get_hbridge_telemetry(self, bridge_id: int) -> Optional['HBridgeTelemetry']:
+        """Get basic H-Bridge telemetry for specified bridge.
+
+        Note: This provides basic state/position data from the standard telemetry packet.
+        Extended telemetry (current, speed, temperature) requires emulator or extended protocol.
+        """
+        if 0 <= bridge_id < 4:
+            state = self.hbridge_states[bridge_id]
+            position = self.hbridge_positions[bridge_id]
+            # Create basic telemetry from available data
+            return HBridgeTelemetry(
+                bridge_id=bridge_id,
+                mode=HBridgeMode(state & 0x07),  # Lower 3 bits = mode
+                state=HBridgeState((state >> 3) & 0x07),  # Next 3 bits = state
+                direction=(state >> 6) & 0x03,  # Top 2 bits = direction
+                position=position,
+            )
+        return None
+
+    def get_all_hbridge_telemetry(self) -> list['HBridgeTelemetry']:
+        """Get telemetry for all 4 H-Bridges."""
+        return [self.get_hbridge_telemetry(i) for i in range(4)]
 
     @property
     def calculated_total_current_ma(self) -> int:
@@ -424,3 +467,123 @@ class ChannelStatus:
             ChannelState.DISABLED: "Disabled",
         }
         return state_names.get(self.state, "Unknown")
+
+
+@dataclass
+class HBridgeTelemetry:
+    """Extended telemetry data for a single H-Bridge channel."""
+
+    bridge_id: int = 0
+
+    # Operating mode and state
+    mode: HBridgeMode = HBridgeMode.COAST
+    state: HBridgeState = HBridgeState.IDLE
+    direction: int = 0  # 0=coast, 1=forward, 2=reverse, 3=brake
+
+    # Control values
+    pwm: int = 0  # 0-255
+    target_position: int = 0
+
+    # Motor feedback
+    current_ma: int = 0  # Motor current in mA
+    position: int = 0  # Position feedback (raw ADC or encoder)
+    omega: float = 0.0  # Angular velocity (rad/s)
+    theta: float = 0.0  # Angular position (rad)
+    back_emf_v: float = 0.0  # Back-EMF voltage
+
+    # Thermal
+    temperature_c: float = 25.0  # Motor/driver temperature
+
+    # Motor physics (from emulator)
+    torque_nm: float = 0.0  # Motor torque (Nm)
+
+    # Status flags
+    stalled: bool = False
+    at_endstop: int = 0  # 0=free, 1=min, 2=max
+    fault: int = 0  # Fault code
+
+    @property
+    def current_a(self) -> float:
+        """Get current in amps."""
+        return self.current_ma / 1000.0
+
+    @property
+    def speed_rpm(self) -> float:
+        """Get motor speed in RPM."""
+        return abs(self.omega) * 9.549  # rad/s to RPM (30/pi)
+
+    @property
+    def position_degrees(self) -> float:
+        """Get position in degrees."""
+        return self.theta * 57.2958  # rad to degrees (180/pi)
+
+    @property
+    def duty_percent(self) -> float:
+        """Get PWM duty as percentage."""
+        return (self.pwm / 255.0) * 100.0
+
+    @property
+    def direction_str(self) -> str:
+        """Get human-readable direction string."""
+        return {0: "Coast", 1: "FWD", 2: "REV", 3: "Brake"}.get(self.direction, "?")
+
+    @property
+    def mode_str(self) -> str:
+        """Get human-readable mode string."""
+        mode_names = {
+            HBridgeMode.COAST: "Coast",
+            HBridgeMode.FORWARD: "Forward",
+            HBridgeMode.REVERSE: "Reverse",
+            HBridgeMode.BRAKE: "Brake",
+            HBridgeMode.WIPER_PARK: "Wiper Park",
+            HBridgeMode.PID_POSITION: "PID Position",
+        }
+        return mode_names.get(self.mode, "Unknown")
+
+    @property
+    def state_str(self) -> str:
+        """Get human-readable state string."""
+        state_names = {
+            HBridgeState.IDLE: "Idle",
+            HBridgeState.RUNNING: "Running",
+            HBridgeState.STALLED: "Stalled",
+            HBridgeState.FAULT: "Fault",
+            HBridgeState.OVERCURRENT: "Overcurrent",
+            HBridgeState.OVERTEMP: "Overtemp",
+        }
+        return state_names.get(self.state, "Unknown")
+
+    @property
+    def is_running(self) -> bool:
+        """Check if motor is running."""
+        return self.state == HBridgeState.RUNNING and self.pwm > 0
+
+    @property
+    def is_faulted(self) -> bool:
+        """Check if H-Bridge is in fault state."""
+        return self.state in (
+            HBridgeState.FAULT,
+            HBridgeState.OVERCURRENT,
+            HBridgeState.OVERTEMP
+        ) or self.fault != 0
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for HBridgeMonitor."""
+        return {
+            'bridge': self.bridge_id,
+            'mode': self.mode.value if isinstance(self.mode, HBridgeMode) else self.mode,
+            'state': self.state.value if isinstance(self.state, HBridgeState) else self.state,
+            'direction': self.direction,
+            'pwm': self.pwm,
+            'current': self.current_ma,
+            'omega': self.omega,
+            'theta': self.theta,
+            'backEmf': self.back_emf_v,
+            'torque': self.torque_nm,
+            'temp': self.temperature_c,
+            'stalled': 1 if self.stalled else 0,
+            'endstop': self.at_endstop,
+            'fault': self.fault,
+            'position': self.position,
+            'target': self.target_position,
+        }

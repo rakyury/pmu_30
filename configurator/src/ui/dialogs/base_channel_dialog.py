@@ -1,6 +1,10 @@
 """
 Base Channel Dialog
 Common base class for all Channel configuration dialogs
+
+Architecture:
+- channel_id: Numeric, auto-generated, unique across ALL channels (0-65535), NOT editable
+- name: User-defined string, editable
 """
 
 from PyQt6.QtWidgets import (
@@ -14,24 +18,85 @@ from typing import Dict, Any, Optional, List
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
 
 
+# Global channel ID counter - shared across all channel types
+# System channels use IDs 1000-1100, user channels use 1-999
+_next_user_channel_id = 1
+
+
+def get_next_channel_id(existing_channels: List[Dict[str, Any]] = None) -> int:
+    """Get next available channel ID based on existing channels."""
+    global _next_user_channel_id
+
+    used_ids = set()
+    if existing_channels:
+        for ch in existing_channels:
+            ch_id = ch.get("channel_id")
+            if ch_id is not None:
+                used_ids.add(ch_id)
+
+    # Find next free ID in user range (1-999)
+    for candidate in range(1, 1000):
+        if candidate not in used_ids:
+            return candidate
+
+    # Fallback - use global counter
+    while _next_user_channel_id in used_ids and _next_user_channel_id < 1000:
+        _next_user_channel_id += 1
+
+    result = _next_user_channel_id
+    _next_user_channel_id += 1
+    return result
+
+
 class BaseChannelDialog(QDialog):
     """Base dialog for configuring channels"""
+
+    # Prefixes for auto-generated names by channel type
+    NAME_PREFIXES = {
+        ChannelType.ANALOG_INPUT: "Analog ",
+        ChannelType.DIGITAL_INPUT: "Digital ",
+        ChannelType.POWER_OUTPUT: "Output ",
+        ChannelType.LOGIC: "Logic ",
+        ChannelType.NUMBER: "Number ",
+        ChannelType.TIMER: "Timer ",
+        ChannelType.SWITCH: "Switch ",
+        ChannelType.TABLE_2D: "Table2D ",
+        ChannelType.TABLE_3D: "Table3D ",
+        ChannelType.FILTER: "Filter ",
+        ChannelType.ENUM: "Enum ",
+        ChannelType.CAN_RX: "CAN_RX ",
+        ChannelType.CAN_TX: "CAN_TX ",
+        ChannelType.LUA_SCRIPT: "Script ",
+        ChannelType.PID: "PID ",
+    }
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None,
-                 channel_type: ChannelType = None):
+                 channel_type: ChannelType = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent)
 
         self.config = config or {}
         self.available_channels = available_channels or {}
         self.channel_type = channel_type
-        self.is_edit_mode = bool(config and config.get("id"))
+        self.existing_channels = existing_channels or []
+        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+
+        # Store or generate channel_id
+        if self.is_edit_mode:
+            self._channel_id = config.get("channel_id", 0)
+        else:
+            self._channel_id = get_next_channel_id(existing_channels)
 
         self._init_base_ui()
 
         if config:
             self._load_base_config(config)
+
+        if not self.is_edit_mode:
+            # Auto-generate name for new channels
+            self._auto_generate_name()
 
     def _init_base_ui(self):
         """Initialize base UI components"""
@@ -66,12 +131,15 @@ class BaseChannelDialog(QDialog):
         basic_group = QGroupBox("Basic Settings")
         basic_layout = QFormLayout()
 
-        # ID field
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("Unique identifier (e.g., ignition_switch)")
-        if self.is_edit_mode:
-            self.id_edit.setEnabled(False)  # Cannot change ID in edit mode
-        basic_layout.addRow("ID: *", self.id_edit)
+        # Channel ID field (read-only, numeric, auto-generated)
+        self.channel_id_label = QLabel(str(self._channel_id))
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #666;")
+        basic_layout.addRow("Channel ID:", self.channel_id_label)
+
+        # Name field (editable by user)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Enter channel name (e.g., Ignition Switch)")
+        basic_layout.addRow("Name: *", self.name_edit)
 
         basic_group.setLayout(basic_layout)
         self.content_layout.addWidget(basic_group)
@@ -94,19 +162,21 @@ class BaseChannelDialog(QDialog):
 
     def _load_base_config(self, config: Dict[str, Any]):
         """Load base configuration fields"""
-        self.id_edit.setText(config.get("id", ""))
+        self.name_edit.setText(config.get("name", ""))
+
+    def _auto_generate_name(self):
+        """Auto-generate name for new channel based on type and ID"""
+        prefix = self.NAME_PREFIXES.get(self.channel_type, "Channel ")
+        # Use channel_id as the number suffix
+        self.name_edit.setText(f"{prefix}{self._channel_id}")
 
     def _validate_base(self) -> List[str]:
         """Validate base fields, return list of errors"""
         errors = []
 
-        channel_id = self.id_edit.text().strip()
-        if not channel_id:
-            errors.append("ID is required")
-        elif not channel_id[0].isalpha():
-            errors.append("ID must start with a letter")
-        elif not all(c.isalnum() or c == '_' for c in channel_id):
-            errors.append("ID can only contain letters, numbers, and underscores")
+        name = self.name_edit.text().strip()
+        if not name:
+            errors.append("Name is required")
 
         return errors
 
@@ -132,7 +202,8 @@ class BaseChannelDialog(QDialog):
     def get_base_config(self) -> Dict[str, Any]:
         """Get base configuration fields"""
         return {
-            "id": self.id_edit.text().strip(),
+            "channel_id": self._channel_id,
+            "name": self.name_edit.text().strip(),
             "channel_type": self.channel_type.value if self.channel_type else ""
         }
 

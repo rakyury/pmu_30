@@ -104,6 +104,34 @@ void PMU_PROFET_Update(void);
 HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state);
 
 /**
+ * @brief Set channel state with manual override (prevents logic from overwriting)
+ * @param channel Channel number (0-29)
+ * @param state 0=OFF, 1=ON
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_SetStateManual(uint8_t channel, uint8_t state);
+
+/**
+ * @brief Check if channel has manual override set
+ * @param channel Channel number (0-29)
+ * @retval 1 if override set, 0 otherwise
+ */
+uint8_t PMU_PROFET_HasManualOverride(uint8_t channel);
+
+/**
+ * @brief Clear manual override for channel
+ * @param channel Channel number (0-29)
+ * @retval None
+ */
+void PMU_PROFET_ClearManualOverride(uint8_t channel);
+
+/**
+ * @brief Clear all manual overrides
+ * @retval None
+ */
+void PMU_PROFET_ClearAllManualOverrides(void);
+
+/**
  * @brief Set channel PWM duty cycle
  * @param channel Channel number (0-29)
  * @param duty Duty cycle (0-1000 = 0-100%)

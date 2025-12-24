@@ -27,6 +27,12 @@
 #include "emu_protocol_server.h"
 #include "emu_webui.h"
 #include "stm32_hal_emu.h"
+#include "pmu_pid.h"
+#include "pmu_blinkmarine.h"
+#include "pmu_wifi.h"
+#include "pmu_bluetooth.h"
+#include "pmu_log.h"
+#include "pmu_datalog.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,6 +193,26 @@ int main(int argc, char* argv[])
         fprintf(stderr, "Failed to initialize emulator\n");
         return 1;
     }
+
+    /* Initialize PID controllers */
+    PMU_PID_Init();
+
+    /* Initialize BlinkMarine keypads */
+    PMU_BlinkMarine_Init();
+
+    /* Initialize WiFi subsystem */
+    PMU_WiFi_Init();
+
+    /* Initialize Bluetooth subsystem */
+    PMU_BT_Init();
+
+    /* Initialize logging system */
+    PMU_Log_Init();
+    PMU_Log_SetLevel(PMU_LOG_LEVEL_DEBUG);
+
+    /* Initialize data logger */
+    PMU_DataLog_Init();
+    PMU_DataLog_RegisterDefaultChannels();
 
     /* Set callbacks */
     PMU_Emu_CAN_SetTxCallback(OnCanTx);

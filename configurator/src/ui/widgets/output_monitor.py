@@ -47,12 +47,30 @@ class OutputMonitor(QWidget):
         self.outputs_data = []
         self._connected = False
         self._peak_currents = {}  # Track peak currents per channel
+        self._row_to_index = {}   # Mapping from table row to outputs_data index
         self._init_ui()
+
+        # Initialize with default 30 outputs
+        self._init_default_outputs()
 
         # Update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_values)
         self.update_timer.start(100)  # Update every 100ms
+
+    def _init_default_outputs(self):
+        """Initialize with default 30 PROFET outputs (unconfigured - no names)."""
+        default_outputs = []
+        for i in range(30):
+            default_outputs.append({
+                'channel': i,
+                'name': '',  # Empty name for unconfigured pins
+                'enabled': True,
+                'pins': [i],
+                '_is_default': True  # Flag to indicate this is a default/unconfigured output
+            })
+        self.outputs_data = default_outputs
+        self._populate_table()
 
     def _init_ui(self):
         """Initialize UI."""
@@ -92,32 +110,81 @@ class OutputMonitor(QWidget):
         # Set column widths
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(self.COL_PIN, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(self.COL_NAME, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_STATUS, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_V, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_LOAD, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_CURR, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_PEAK, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(self.COL_VLTG, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(self.COL_TRIP, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(self.COL_TRIP, QHeaderView.ResizeMode.Stretch)
 
-        self.table.setColumnWidth(self.COL_PIN, 30)      # Pin
-        self.table.setColumnWidth(self.COL_STATUS, 45)   # Status
-        self.table.setColumnWidth(self.COL_V, 35)        # V (battery)
-        self.table.setColumnWidth(self.COL_LOAD, 40)     # Load
-        self.table.setColumnWidth(self.COL_CURR, 50)     # Curr
-        self.table.setColumnWidth(self.COL_PEAK, 50)     # Peak
-        self.table.setColumnWidth(self.COL_VLTG, 40)     # Vltg
-        self.table.setColumnWidth(self.COL_TRIP, 35)     # Trip
+        self.table.setColumnWidth(self.COL_PIN, 80)      # Pin (can show O1, O2, O3)
+        self.table.setColumnWidth(self.COL_NAME, 100)    # Name
+        self.table.setColumnWidth(self.COL_STATUS, 50)   # Status
+        self.table.setColumnWidth(self.COL_V, 40)        # V (battery)
+        self.table.setColumnWidth(self.COL_LOAD, 45)     # Load
+        self.table.setColumnWidth(self.COL_CURR, 55)     # Curr
+        self.table.setColumnWidth(self.COL_PEAK, 55)     # Peak
+        self.table.setColumnWidth(self.COL_VLTG, 45)     # Vltg
+        self.table.setColumnWidth(self.COL_TRIP, 25)     # Trip (smaller)
 
         self.table.setAlternatingRowColors(False)  # We'll use custom row colors
         self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Read-only
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select full rows
 
         layout.addWidget(self.table)
 
     def set_outputs(self, outputs: List[Dict]):
-        """Set outputs list."""
-        self.outputs_data = outputs
+        """
+        Set configured outputs - merges with defaults to keep all 30 outputs visible.
+        Configured outputs get their names and settings, unconfigured remain gray.
+        Secondary pins (used by multi-pin outputs) are hidden.
+        Only outputs with a valid name/id are considered "configured".
+        """
+        # Reset to defaults first
+        self._init_default_outputs()
+
+        # Track which pins are secondary (used but not as primary)
+        secondary_pins = set()
+
+        # Create mapping of configured outputs by primary pin
+        # Only include outputs that have a name (id)
+        configured_by_pin = {}
+        for out in outputs:
+            # Only consider outputs with a name as "configured"
+            name = out.get('id', out.get('name', ''))
+            if not name:
+                continue
+            pins = out.get('pins', [out.get('channel', -1)])
+            if pins:
+                primary_pin = pins[0]
+                if primary_pin >= 0:
+                    configured_by_pin[primary_pin] = out
+                    # Mark all non-primary pins as secondary (to hide)
+                    for pin in pins[1:]:
+                        if pin >= 0:
+                            secondary_pins.add(pin)
+
+        # Update configured outputs with their names and settings
+        for i, output_data in enumerate(self.outputs_data):
+            channel = output_data.get('channel', i)
+            if channel in secondary_pins:
+                # This pin is used as secondary by another output - hide it
+                output_data['_is_hidden'] = True
+                output_data['_is_default'] = True
+            elif channel in configured_by_pin:
+                cfg = configured_by_pin[channel]
+                output_data['name'] = cfg.get('id', cfg.get('name', ''))
+                output_data['pins'] = cfg.get('pins', [channel])
+                output_data['enabled'] = cfg.get('enabled', True)
+                output_data['_is_default'] = False
+                output_data['_is_hidden'] = False
+            else:
+                output_data['_is_default'] = True
+                output_data['_is_hidden'] = False
+
         self._populate_table()
 
     def set_connected(self, connected: bool):
@@ -151,23 +218,36 @@ class OutputMonitor(QWidget):
                 item.setText("0")
 
     def _populate_table(self):
-        """Populate table with outputs."""
-        self.table.setRowCount(len(self.outputs_data))
+        """Populate table with outputs (hidden secondary pins are skipped)."""
+        # Filter out hidden outputs
+        visible_outputs = [(i, out) for i, out in enumerate(self.outputs_data)
+                          if not out.get('_is_hidden', False)]
 
-        for row, output in enumerate(self.outputs_data):
-            channel = output.get('channel', 0)
+        self.table.setRowCount(len(visible_outputs))
 
-            # Pin (O1, O2, etc.)
-            pin_item = QTableWidgetItem(f"O{channel + 1}")
+        # Store mapping from table row to original index
+        self._row_to_index = {}
+
+        for row, (orig_idx, output) in enumerate(visible_outputs):
+            self._row_to_index[row] = orig_idx
+            is_default = output.get('_is_default', True)
+
+            # Get pins - can be single pin or multiple pins
+            pins = output.get('pins', [])
+            if not pins:
+                # Fallback to legacy 'channel' field
+                channel = output.get('channel', orig_idx)
+                pins = [channel]
+
+            # Pin (O1, O2, etc. or O1, O2, O3 for multiple)
+            pin_str = ", ".join([f"O{p + 1}" for p in pins])
+            pin_item = QTableWidgetItem(pin_str)
             pin_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_PIN, pin_item)
 
-            # Name
+            # Name - only show if configured (not default)
             name = output.get('name', '')
-            if name:
-                name_item = QTableWidgetItem(f"o_{name}")
-            else:
-                name_item = QTableWidgetItem("")
+            name_item = QTableWidgetItem(name if name else "")
             self.table.setItem(row, self.COL_NAME, name_item)
 
             # Status
@@ -201,19 +281,20 @@ class OutputMonitor(QWidget):
             self.table.setItem(row, self.COL_VLTG, vltg_item)
 
             # Trip (fault indicator)
-            trip_item = QTableWidgetItem("?")
+            trip_item = QTableWidgetItem("")
             trip_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_TRIP, trip_item)
 
-            # Set initial row color
-            self._set_row_color(row, self.COLOR_DISABLED)
-
-            # Dim disabled outputs
-            if not output.get('enabled', False):
+            # Set initial styling based on configured/default
+            if is_default:
+                self._set_row_color(row, self.COLOR_DISABLED)
+                # Gray text for unconfigured outputs
                 for col in range(9):
                     item = self.table.item(row, col)
                     if item:
                         item.setForeground(Qt.GlobalColor.gray)
+            else:
+                self._set_row_color(row, self.COLOR_NORMAL)
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""
@@ -268,16 +349,24 @@ class OutputMonitor(QWidget):
         state_names = ["OFF", "ON", "OC", "OT", "SC", "OL", "PWM", "DIS"]
         fault_states = [2, 3, 4, 5]  # OC, OT, SC, OL
 
-        for row in range(min(self.table.rowCount(), len(self.outputs_data))):
-            output_config = self.outputs_data[row]
+        for row in range(self.table.rowCount()):
+            # Get original output index from row mapping
+            orig_idx = self._row_to_index.get(row, row)
+            if orig_idx >= len(self.outputs_data):
+                continue
+
+            output_config = self.outputs_data[orig_idx]
+            # Consider unconfigured if _is_default flag is True OR if name is empty
+            name = output_config.get('name', '')
+            is_default = output_config.get('_is_default', True) or not name
 
             # Get list of physical pins for this output
-            pins = output_config.get('pins', [output_config.get('channel', row)])
+            pins = output_config.get('pins', [output_config.get('channel', orig_idx)])
             if not pins:
-                pins = [row]
+                pins = [orig_idx]
 
             # Use first pin as primary channel index for telemetry
-            channel_idx = pins[0] if pins else row
+            channel_idx = pins[0] if pins else orig_idx
 
             if channel_idx >= len(profet_states):
                 continue
@@ -295,8 +384,10 @@ class OutputMonitor(QWidget):
             # Check if output is disabled in config
             is_enabled = output_config.get('enabled', True)
 
-            # Override status if disabled in config
-            if not is_enabled:
+            # Override status if disabled in config or unconfigured
+            if is_default:
+                status_str = "-"  # Show dash for unconfigured
+            elif not is_enabled:
                 status_str = "DIS"
                 state = 7  # Treat as disabled for color
             else:
@@ -309,30 +400,32 @@ class OutputMonitor(QWidget):
             # V (battery voltage - same for all outputs)
             v_item = self.table.item(row, self.COL_V)
             if v_item:
-                v_item.setText(f"{battery_voltage:.1f}")
+                if is_default:
+                    v_item.setText("-")
+                else:
+                    v_item.setText(f"{battery_voltage:.1f}")
 
             # Load (duty cycle 0-1000 -> 0-100.0%)
             load_item = self.table.item(row, self.COL_LOAD)
             if load_item:
-                if is_enabled:
+                if is_default or not is_enabled:
+                    load_item.setText("-")
+                else:
                     duty_percent = duty / 10.0
                     load_item.setText(f"{duty_percent:.0f}%")
-                else:
-                    load_item.setText("-")
 
-            # Current in mA (show 0 or - for disabled)
+            # Current in mA (show - for disabled/unconfigured)
             curr_item = self.table.item(row, self.COL_CURR)
             if curr_item:
-                if is_enabled:
-                    if current_ma >= 1000:
-                        curr_item.setText(f"{current_ma/1000:.2f}A")
-                    else:
-                        curr_item.setText(f"{current_ma}")
-                else:
+                if is_default or not is_enabled:
                     curr_item.setText("-")
+                elif current_ma >= 1000:
+                    curr_item.setText(f"{current_ma/1000:.2f}A")
+                else:
+                    curr_item.setText(f"{current_ma}")
 
-            # Peak current tracking (only when enabled)
-            if is_enabled:
+            # Peak current tracking (only when configured and enabled)
+            if not is_default and is_enabled:
                 if row not in self._peak_currents:
                     self._peak_currents[row] = 0
                 if current_ma > self._peak_currents[row]:
@@ -340,19 +433,19 @@ class OutputMonitor(QWidget):
 
             peak_item = self.table.item(row, self.COL_PEAK)
             if peak_item:
-                if is_enabled:
+                if is_default or not is_enabled:
+                    peak_item.setText("-")
+                else:
                     peak = self._peak_currents.get(row, 0)
                     if peak >= 1000:
                         peak_item.setText(f"{peak/1000:.2f}A")
                     else:
                         peak_item.setText(f"{peak}")
-                else:
-                    peak_item.setText("-")
 
             # Output voltage estimation
             vltg_item = self.table.item(row, self.COL_VLTG)
             if vltg_item:
-                if not is_enabled:
+                if is_default or not is_enabled:
                     vltg_item.setText("-")
                 elif state == 1:  # ON
                     vltg_item.setText(f"{battery_voltage:.1f}")
@@ -362,22 +455,40 @@ class OutputMonitor(QWidget):
                 else:
                     vltg_item.setText("0.0")
 
-            # Trip indicator (fault flag)
+            # Trip indicator (fault flag) - show error icon for faults
             trip_item = self.table.item(row, self.COL_TRIP)
             if trip_item:
-                if state in fault_states:
-                    trip_item.setText("!")
+                if not is_default and state in fault_states:
+                    trip_item.setText("\u26a0")  # Warning sign ⚠
                 else:
                     trip_item.setText("")
 
-            # Set row color based on state
-            if not is_enabled:
+            # Check if PWM is configured for this output
+            is_pwm_configured = output_config.get("pwm_enabled", False)
+            if not is_pwm_configured:
+                pwm_cfg = output_config.get("pwm", {})
+                is_pwm_configured = pwm_cfg.get("enabled", False)
+
+            # Determine if output is in PWM mode:
+            # - state == 6 (firmware reports PWM)
+            # - OR duty is between 1-999 (partial PWM)
+            # - OR PWM is configured and output is active with non-100% duty
+            is_pwm_active = (state == 6 or
+                            (duty > 0 and duty < 1000) or
+                            (is_pwm_configured and state == 1 and duty < 1000))
+
+            # Set row color based on state:
+            # - Unconfigured (default) outputs stay gray
+            # - Configured outputs: colored based on state
+            if is_default:
+                self._set_row_color(row, self.COLOR_DISABLED)
+            elif not is_enabled:
                 self._set_row_color(row, self.COLOR_DISABLED)
             elif state in fault_states:
                 self._set_row_color(row, self.COLOR_FAULT)
-            elif state == 6:  # PWM
+            elif is_pwm_active:  # PWM mode (state=6 or partial duty)
                 self._set_row_color(row, self.COLOR_PWM)
-            elif state == 1:  # ON
+            elif state == 1:  # ON (100% duty)
                 self._set_row_color(row, self.COLOR_ACTIVE)
             else:  # OFF
                 self._set_row_color(row, self.COLOR_NORMAL)
