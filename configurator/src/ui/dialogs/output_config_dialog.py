@@ -23,8 +23,12 @@ class OutputConfigDialog(QDialog):
         super().__init__(parent)
         self.output_config = output_config
         self.used_channels = used_channels or []
-        self.available_channels = available_channels or {}  # Dict of all available channels/functions
+        self.available_channels = available_channels or {}  # Dict of (channel_id, name) tuples
         self.existing_channels = existing_channels or []
+
+        # Store selected channel IDs (numeric)
+        self._source_channel_id = None  # For control function
+        self._duty_channel_id = None    # For PWM duty source
 
         # Determine if editing existing or creating new
         self.is_edit_mode = bool(output_config and output_config.get("channel_id") is not None)
@@ -413,19 +417,38 @@ class OutputConfigDialog(QDialog):
         self.soft_start_check.setEnabled(enabled)
         self.soft_start_duration_spin.setEnabled(enabled and self.soft_start_check.isChecked())
 
+    def _get_channel_name_by_id(self, channel_id) -> str:
+        """Find channel name by its numeric channel_id."""
+        if channel_id is None:
+            return ""
+        for category, channels in self.available_channels.items():
+            for ch in channels:
+                if isinstance(ch, tuple) and len(ch) == 2:
+                    ch_id, name = ch
+                    if ch_id == channel_id:
+                        return name
+        # Fallback - return str of channel_id
+        return str(channel_id) if channel_id else ""
+
     def _browse_control_function(self):
         """Browse and select control function channel."""
-        current = self.control_function_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.control_function_edit.setText(channel)
+        channel_id = ChannelSelectorDialog.select_channel(
+            self, self._source_channel_id, self.available_channels
+        )
+        if channel_id is not None:
+            self._source_channel_id = channel_id
+            name = self._get_channel_name_by_id(channel_id)
+            self.control_function_edit.setText(name)
 
     def _browse_duty_function(self):
         """Browse and select duty function channel."""
-        current = self.duty_function_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.duty_function_edit.setText(channel)
+        channel_id = ChannelSelectorDialog.select_channel(
+            self, self._duty_channel_id, self.available_channels
+        )
+        if channel_id is not None:
+            self._duty_channel_id = channel_id
+            name = self._get_channel_name_by_id(channel_id)
+            self.duty_function_edit.setText(name)
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog.
@@ -449,10 +472,30 @@ class OutputConfigDialog(QDialog):
             if index >= 0:
                 self.pin3_combo.setCurrentIndex(index)
 
-        # Control settings - check both nested and flat formats
-        control_func = config.get("control_function", config.get("source_channel", ""))
-        self.control_function_edit.setText(control_func)
-        self.enabled_check.setChecked(config.get("enabled", True))
+        # Control settings - source_channel can be numeric (new) or string (legacy)
+        # Block signal to prevent _on_control_function_changed from resetting enabled
+        self.control_function_edit.blockSignals(True)
+        source_channel = config.get("source_channel", config.get("control_function"))
+        if source_channel is not None:
+            if isinstance(source_channel, int):
+                # Numeric channel_id - store and find name for display
+                self._source_channel_id = source_channel
+                display_name = self._get_channel_name_by_id(source_channel)
+                self.control_function_edit.setText(display_name if display_name else str(source_channel))
+            else:
+                # Legacy string format - display as-is
+                self.control_function_edit.setText(str(source_channel))
+                self._source_channel_id = None  # Can't determine numeric ID from string
+        else:
+            self.control_function_edit.setText("")
+            self._source_channel_id = None
+        self.control_function_edit.blockSignals(False)
+        # Set enabled state AFTER control function is set
+        enabled = config.get("enabled", True)
+        self.enabled_check.setChecked(enabled)
+        # If control function is set, disable the checkbox but keep its loaded value
+        if source_channel is not None:
+            self.enabled_check.setEnabled(False)
 
         # Protection settings - check both nested and flat formats
         protection = config.get("protection", {})
@@ -480,9 +523,19 @@ class OutputConfigDialog(QDialog):
         # - nested: pwm.duty_value, pwm.duty_function
         # - flat: duty_fixed, duty_channel
         duty_value = pwm.get("duty_value", config.get("duty_fixed", 50.0))
-        duty_func = pwm.get("duty_function", config.get("duty_channel", ""))
+        duty_channel = pwm.get("duty_function", config.get("duty_channel"))
         self.pwm_duty_spin.setValue(duty_value)
-        self.duty_function_edit.setText(duty_func)
+        if duty_channel is not None:
+            if isinstance(duty_channel, int):
+                self._duty_channel_id = duty_channel
+                display_name = self._get_channel_name_by_id(duty_channel)
+                self.duty_function_edit.setText(display_name if display_name else str(duty_channel))
+            else:
+                self.duty_function_edit.setText(str(duty_channel) if duty_channel else "")
+                self._duty_channel_id = None
+        else:
+            self.duty_function_edit.setText("")
+            self._duty_channel_id = None
 
         # Soft start - check both formats
         self.soft_start_check.setChecked(
@@ -511,7 +564,6 @@ class OutputConfigDialog(QDialog):
 
         name = self.name_edit.text().strip()
         duty_value = self.pwm_duty_spin.value()
-        duty_func = self.duty_function_edit.text()
         pwm_enabled = self.pwm_enabled_check.isChecked()
         pwm_freq = self.pwm_freq_spin.value()
         soft_start_enabled = self.soft_start_check.isChecked()
@@ -522,15 +574,14 @@ class OutputConfigDialog(QDialog):
             "channel_type": "power_output",
             "pins": pins,
             "name": name,
-            "id": name,  # Alias for compatibility
+            "id": name,  # String name for display
             "enabled": self.enabled_check.isChecked(),
-            "control_function": self.control_function_edit.text(),
-            "source_channel": self.control_function_edit.text(),  # Flat format alias
+            "source_channel": self._source_channel_id,  # Numeric channel_id for firmware
             # Flat format fields for model compatibility
             "pwm_enabled": pwm_enabled,
             "pwm_frequency_hz": pwm_freq,
             "duty_fixed": duty_value,
-            "duty_channel": duty_func,
+            "duty_channel": self._duty_channel_id,  # Numeric channel_id for firmware
             "soft_start_ms": soft_start_ms,
             "current_limit_a": self.current_limit_spin.value(),
             "inrush_current_a": self.inrush_current_spin.value(),
@@ -551,7 +602,7 @@ class OutputConfigDialog(QDialog):
                 "enabled": pwm_enabled,
                 "frequency": pwm_freq,
                 "duty_value": duty_value,
-                "duty_function": duty_func,
+                "duty_function": self._duty_channel_id,  # Numeric channel_id
                 "soft_start_enabled": soft_start_enabled,
                 "soft_start_duration_ms": self.soft_start_duration_spin.value()
             }

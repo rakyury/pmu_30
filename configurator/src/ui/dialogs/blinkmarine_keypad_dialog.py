@@ -33,9 +33,11 @@ class BlinkMarineKeypadDialog(QDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
+                 available_channels: Optional[Dict[str, List]] = None,
                  existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent)
         self.config = config or {}
+        self.available_channels = available_channels or {}
         self.existing_channels = existing_channels or []
         self.button_configs = {}  # {button_index: config_dict}
 

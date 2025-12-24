@@ -43,8 +43,8 @@ class AnalogInputDialog(BaseChannelDialog):
                  used_pins: Optional[List[int]] = None,
                  existing_channels: Optional[List[Dict[str, Any]]] = None):
         self.used_pins = used_pins or []
-        # Get current channel if editing (to allow keeping same pin)
-        self.current_channel = config.get('channel') if config else None
+        # Get current pin if editing (to allow keeping same pin)
+        self.current_pin = config.get('input_pin') if config else None
         super().__init__(parent, config, available_channels, ChannelType.ANALOG_INPUT, existing_channels)
 
         self._create_settings_group()
@@ -76,7 +76,7 @@ class AnalogInputDialog(BaseChannelDialog):
         self.pin_combo = QComboBox()
         for i in range(20):
             # Only show pins that are not in use (or the current pin if editing)
-            if i not in self.used_pins or i == self.current_channel:
+            if i not in self.used_pins or i == self.current_pin:
                 self.pin_combo.addItem(f"A{i + 1}", i)
         layout.addWidget(self.pin_combo, row, 1)
 
@@ -331,10 +331,11 @@ class AnalogInputDialog(BaseChannelDialog):
                 self.subtype_combo.setCurrentIndex(i)
                 break
 
-        # Pin
+        # Pin - find by data value, not index
         pin = config.get("input_pin", 0)
-        if 0 <= pin < self.pin_combo.count():
-            self.pin_combo.setCurrentIndex(pin)
+        index = self.pin_combo.findData(pin)
+        if index >= 0:
+            self.pin_combo.setCurrentIndex(index)
 
         # Pullup option
         pullup = config.get("pullup_option", "1m_down")

@@ -34,8 +34,8 @@ class DigitalInputDialog(BaseChannelDialog):
                  used_pins: Optional[List[int]] = None,
                  existing_channels: Optional[List[Dict[str, Any]]] = None):
         self.used_pins = used_pins or []
-        # Get current channel if editing (to allow keeping same pin)
-        self.current_channel = config.get('channel') if config else None
+        # Get current pin if editing (to allow keeping same pin)
+        self.current_pin = config.get('input_pin') if config else None
         super().__init__(parent, config, available_channels, ChannelType.DIGITAL_INPUT, existing_channels)
 
         self._create_type_group()
@@ -71,7 +71,7 @@ class DigitalInputDialog(BaseChannelDialog):
         self.input_pin_combo = QComboBox()
         for i in range(8):
             # Only show pins that are not in use (or the current pin if editing)
-            if i not in self.used_pins or i == self.current_channel:
+            if i not in self.used_pins or i == self.current_pin:
                 self.input_pin_combo.addItem(f"D{i + 1}", i)
         layout.addWidget(self.input_pin_combo, 0, 3)
 
@@ -214,10 +214,11 @@ class DigitalInputDialog(BaseChannelDialog):
                 self.subtype_combo.setCurrentIndex(i)
                 break
 
-        # Input pin
+        # Input pin - find by data value, not index
         pin = config.get("input_pin", 0)
-        if 0 <= pin < self.input_pin_combo.count():
-            self.input_pin_combo.setCurrentIndex(pin)
+        index = self.input_pin_combo.findData(pin)
+        if index >= 0:
+            self.input_pin_combo.setCurrentIndex(index)
 
         # Hardware settings
         self.pullup_check.setChecked(config.get("enable_pullup", False))

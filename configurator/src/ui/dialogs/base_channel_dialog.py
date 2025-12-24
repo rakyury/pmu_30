@@ -201,9 +201,11 @@ class BaseChannelDialog(QDialog):
 
     def get_base_config(self) -> Dict[str, Any]:
         """Get base configuration fields"""
+        name = self.name_edit.text().strip()
         return {
             "channel_id": self._channel_id,
-            "name": self.name_edit.text().strip(),
+            "id": name,  # String ID for display, firmware uses numeric channel_id
+            "name": name,
             "channel_type": self.channel_type.value if self.channel_type else ""
         }
 
