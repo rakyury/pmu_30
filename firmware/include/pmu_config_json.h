@@ -94,6 +94,9 @@ typedef struct {
     uint32_t enums;               /**< Number of enumerations */
     uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
+    uint32_t lin_frame_objects;   /**< Number of LIN frame objects (Level 1) */
+    uint32_t lin_rx;              /**< Number of LIN RX inputs (Level 2) */
+    uint32_t lin_tx;              /**< Number of LIN TX outputs (Level 2) */
     uint32_t lua_scripts;         /**< Number of Lua scripts loaded */
     uint32_t pid_controllers;     /**< Number of PID controllers loaded */
     uint32_t blinkmarine_keypads; /**< Number of BlinkMarine keypads loaded */

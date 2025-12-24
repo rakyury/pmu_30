@@ -14,6 +14,7 @@
 #include "pmu_profet.h"
 #include "pmu_hbridge.h"
 #include "pmu_can.h"
+#include "pmu_lin.h"
 #include "pmu_logic.h"
 #include "pmu_logic_functions.h"
 #include "pmu_channel.h"
@@ -84,6 +85,9 @@ static bool JSON_ParseCANBuses(cJSON* can_array);
 static bool JSON_ParseSystem(cJSON* system_obj);
 static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats);
 static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* stats);
+static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t* stats);
+static bool JSON_ParseLinRx(cJSON* channel);
+static bool JSON_ParseLinTx(cJSON* channel);
 static bool JSON_ParseLuaScripts(cJSON* scripts_array, PMU_JSON_LoadStats_t* stats);
 static PMU_LegacyInputType_t JSON_ParseInputType(const char* type_str);
 static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
@@ -188,6 +192,15 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
         cJSON* can_messages = cJSON_GetObjectItem(root, "can_messages");
         if (can_messages && cJSON_IsArray(can_messages)) {
             if (!JSON_ParseCanMessages(can_messages, &local_stats)) {
+                cJSON_Delete(root);
+                return PMU_JSON_ERROR_VALIDATION;
+            }
+        }
+
+        /* Parse LIN frame objects (Level 1 - v3.0) */
+        cJSON* lin_frame_objects = cJSON_GetObjectItem(root, "lin_frame_objects");
+        if (lin_frame_objects && cJSON_IsArray(lin_frame_objects)) {
+            if (!JSON_ParseLinFrameObjects(lin_frame_objects, &local_stats)) {
                 cJSON_Delete(root);
                 return PMU_JSON_ERROR_VALIDATION;
             }
@@ -1166,6 +1179,283 @@ static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* s
 }
 
 /**
+ * @brief Parse LIN frame objects array (Level 1 - v3.0)
+ *
+ * LIN frame objects define the base frame properties that LIN RX/TX channels reference.
+ * Similar to CAN messages, this is the two-level architecture for LIN.
+ *
+ * JSON format:
+ * {
+ *   "id": "frame_motor_control",
+ *   "name": "Motor Control Frame",
+ *   "bus": 0,
+ *   "frame_id": 16,
+ *   "frame_type": "unconditional",
+ *   "direction": "subscribe",
+ *   "checksum": "enhanced",
+ *   "length": 8,
+ *   "timeout_ms": 100,
+ *   "enabled": true
+ * }
+ */
+static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t* stats)
+{
+#ifdef JSON_PARSING_ENABLED
+    int count = cJSON_GetArraySize(frames_array);
+
+    for (int i = 0; i < count && i < PMU_LIN_MAX_FRAME_OBJECTS; i++) {
+        cJSON* frame = cJSON_GetArrayItem(frames_array, i);
+        if (!frame || !cJSON_IsObject(frame)) {
+            continue;
+        }
+
+        PMU_LIN_FrameObject_t config = {0};
+
+        /* Parse frame ID and name */
+        const char* id = JSON_GetString(frame, "id", "");
+        strncpy(config.id, id, PMU_LIN_ID_LEN - 1);
+
+        const char* name = JSON_GetString(frame, "name", "");
+        strncpy(config.name, name, PMU_LIN_ID_LEN - 1);
+
+        /* Parse LIN bus (1 or 2) */
+        int bus_val = JSON_GetInt(frame, "bus", 1);
+        config.bus = (bus_val >= 2) ? PMU_LIN_BUS_2 : PMU_LIN_BUS_1;
+
+        /* Parse frame ID (0-63) */
+        config.frame_id = (uint8_t)JSON_GetInt(frame, "frame_id", 0) & 0x3F;
+
+        /* Parse frame type */
+        const char* frame_type = JSON_GetString(frame, "frame_type", "unconditional");
+        if (strcmp(frame_type, "unconditional") == 0) {
+            config.frame_type = PMU_LIN_FRAME_TYPE_UNCONDITIONAL;
+        } else if (strcmp(frame_type, "event_triggered") == 0) {
+            config.frame_type = PMU_LIN_FRAME_TYPE_EVENT_TRIGGERED;
+        } else if (strcmp(frame_type, "sporadic") == 0) {
+            config.frame_type = PMU_LIN_FRAME_TYPE_SPORADIC;
+        } else if (strcmp(frame_type, "diagnostic") == 0) {
+            config.frame_type = PMU_LIN_FRAME_TYPE_DIAGNOSTIC;
+        } else {
+            config.frame_type = PMU_LIN_FRAME_TYPE_UNCONDITIONAL;
+        }
+
+        /* Parse direction */
+        const char* direction = JSON_GetString(frame, "direction", "subscribe");
+        if (strcmp(direction, "publish") == 0) {
+            config.direction = PMU_LIN_DIR_PUBLISH;
+        } else {
+            config.direction = PMU_LIN_DIR_SUBSCRIBE;
+        }
+
+        /* Parse checksum type */
+        const char* checksum = JSON_GetString(frame, "checksum", "enhanced");
+        if (strcmp(checksum, "classic") == 0) {
+            config.checksum = PMU_LIN_CHECKSUM_CLASSIC;
+        } else {
+            config.checksum = PMU_LIN_CHECKSUM_ENHANCED;
+        }
+
+        /* Parse other properties */
+        config.length = (uint8_t)JSON_GetInt(frame, "length", 8);
+        if (config.length > 8) config.length = 8;
+
+        config.timeout_ms = (uint16_t)JSON_GetInt(frame, "timeout_ms", 100);
+        config.enabled = JSON_GetBool(frame, "enabled", true);
+
+        /* Parse default data if provided */
+        cJSON* default_data = cJSON_GetObjectItem(frame, "default_data");
+        if (default_data && cJSON_IsArray(default_data)) {
+            int data_count = cJSON_GetArraySize(default_data);
+            for (int j = 0; j < data_count && j < 8; j++) {
+                cJSON* byte_val = cJSON_GetArrayItem(default_data, j);
+                if (byte_val && cJSON_IsNumber(byte_val)) {
+                    config.data[j] = (uint8_t)byte_val->valueint;
+                }
+            }
+        }
+
+        /* Register frame object with LIN subsystem */
+        if (PMU_LIN_AddFrameObject(&config) == HAL_OK) {
+            printf("[JSON] LIN frame '%s': bus=%d, id=0x%02X, dir=%s, type=%s\n",
+                   config.id, config.bus, config.frame_id,
+                   direction, frame_type);
+
+            if (stats) {
+                stats->lin_frame_objects++;
+            }
+        } else {
+            printf("[JSON] Failed to add LIN frame '%s'\n", config.id);
+        }
+    }
+
+#else
+    (void)frames_array;
+    (void)stats;
+#endif
+
+    return true;
+}
+
+/**
+ * @brief Parse LIN RX channel (Level 2 - v3.0)
+ *
+ * LIN RX channels extract signals from LIN frame objects.
+ *
+ * JSON format:
+ * {
+ *   "id": "lin_motor_speed",
+ *   "name": "Motor Speed",
+ *   "type": "lin_rx",
+ *   "frame_ref": "frame_motor_control",
+ *   "data_type": "unsigned",
+ *   "start_bit": 0,
+ *   "bit_length": 16,
+ *   "byte_order": "little",
+ *   "multiplier": 0.1,
+ *   "divider": 1.0,
+ *   "offset": 0.0,
+ *   "default_value": 0.0,
+ *   "timeout_behavior": "hold",
+ *   "enabled": true
+ * }
+ */
+static bool JSON_ParseLinRx(cJSON* channel)
+{
+#ifdef JSON_PARSING_ENABLED
+    const char* id = JSON_GetString(channel, "id", "");
+    const char* frame_ref = JSON_GetString(channel, "frame_ref", "");
+
+    PMU_LIN_Input_t input = {0};
+
+    strncpy(input.id, id, PMU_LIN_ID_LEN - 1);
+    strncpy(input.frame_ref, frame_ref, PMU_LIN_ID_LEN - 1);
+
+    /* Parse data type */
+    const char* data_type = JSON_GetString(channel, "data_type", "unsigned");
+    if (strcmp(data_type, "signed") == 0) {
+        input.data_type = PMU_LIN_DATA_TYPE_SIGNED;
+    } else if (strcmp(data_type, "boolean") == 0 || strcmp(data_type, "bool") == 0) {
+        input.data_type = PMU_LIN_DATA_TYPE_BOOL;
+    } else {
+        input.data_type = PMU_LIN_DATA_TYPE_UNSIGNED;
+    }
+
+    /* Parse bit position and length */
+    input.start_bit = (uint8_t)JSON_GetInt(channel, "start_bit", 0);
+    input.bit_length = (uint8_t)JSON_GetInt(channel, "bit_length", 8);
+
+    /* Parse byte order */
+    const char* byte_order = JSON_GetString(channel, "byte_order", "little");
+    input.byte_order = (strcmp(byte_order, "big") == 0) ? 1 : 0;
+
+    /* Parse scaling */
+    input.multiplier = JSON_GetFloat(channel, "multiplier", 1.0f);
+    input.divider = JSON_GetFloat(channel, "divider", 1.0f);
+    input.offset = JSON_GetFloat(channel, "offset", 0.0f);
+    input.default_value = JSON_GetFloat(channel, "default_value", 0.0f);
+
+    /* Parse timeout behavior */
+    const char* timeout_beh = JSON_GetString(channel, "timeout_behavior", "hold");
+    if (strcmp(timeout_beh, "zero") == 0) {
+        input.timeout_behavior = PMU_LIN_TIMEOUT_SET_ZERO;
+    } else if (strcmp(timeout_beh, "default") == 0) {
+        input.timeout_behavior = PMU_LIN_TIMEOUT_USE_DEFAULT;
+    } else {
+        input.timeout_behavior = PMU_LIN_TIMEOUT_HOLD_LAST;
+    }
+
+    /* Register input with LIN subsystem */
+    if (PMU_LIN_AddInput(&input) == HAL_OK) {
+        printf("[JSON] LIN RX '%s' -> frame='%s', bits=%d:%d, scale=%.3f/%.3f+%.3f\n",
+               id, frame_ref, input.start_bit, input.bit_length,
+               (double)input.multiplier, (double)input.divider, (double)input.offset);
+        return true;
+    }
+
+    printf("[JSON] Failed to add LIN RX '%s'\n", id);
+    return false;
+
+#else
+    (void)channel;
+    return true;
+#endif
+}
+
+/**
+ * @brief Parse LIN TX channel (Level 2 - v3.0)
+ *
+ * LIN TX channels pack signals into LIN frame objects for transmission.
+ *
+ * JSON format:
+ * {
+ *   "id": "lin_motor_command",
+ *   "name": "Motor Command",
+ *   "type": "lin_tx",
+ *   "frame_ref": "frame_motor_control",
+ *   "source": "channel_ref",
+ *   "data_type": "unsigned",
+ *   "start_bit": 0,
+ *   "bit_length": 16,
+ *   "byte_order": "little",
+ *   "multiplier": 1.0,
+ *   "divider": 0.1,
+ *   "offset": 0.0,
+ *   "enabled": true
+ * }
+ */
+static bool JSON_ParseLinTx(cJSON* channel)
+{
+#ifdef JSON_PARSING_ENABLED
+    const char* id = JSON_GetString(channel, "id", "");
+    const char* frame_ref = JSON_GetString(channel, "frame_ref", "");
+    const char* source = JSON_GetString(channel, "source", "");
+
+    PMU_LIN_Output_t output = {0};
+
+    strncpy(output.id, id, PMU_LIN_ID_LEN - 1);
+    strncpy(output.frame_ref, frame_ref, PMU_LIN_ID_LEN - 1);
+    strncpy(output.source_channel, source, PMU_LIN_ID_LEN - 1);
+
+    /* Parse data type */
+    const char* data_type = JSON_GetString(channel, "data_type", "unsigned");
+    if (strcmp(data_type, "signed") == 0) {
+        output.data_type = PMU_LIN_DATA_TYPE_SIGNED;
+    } else if (strcmp(data_type, "boolean") == 0 || strcmp(data_type, "bool") == 0) {
+        output.data_type = PMU_LIN_DATA_TYPE_BOOL;
+    } else {
+        output.data_type = PMU_LIN_DATA_TYPE_UNSIGNED;
+    }
+
+    /* Parse bit position and length */
+    output.start_bit = (uint8_t)JSON_GetInt(channel, "start_bit", 0);
+    output.bit_length = (uint8_t)JSON_GetInt(channel, "bit_length", 8);
+
+    /* Parse byte order */
+    const char* byte_order = JSON_GetString(channel, "byte_order", "little");
+    output.byte_order = (strcmp(byte_order, "big") == 0) ? 1 : 0;
+
+    /* Parse scaling (inverse of RX for TX) */
+    output.multiplier = JSON_GetFloat(channel, "multiplier", 1.0f);
+    output.divider = JSON_GetFloat(channel, "divider", 1.0f);
+    output.offset = JSON_GetFloat(channel, "offset", 0.0f);
+
+    /* Register output with LIN subsystem */
+    if (PMU_LIN_AddOutput(&output) == HAL_OK) {
+        printf("[JSON] LIN TX '%s' <- src='%s' -> frame='%s', bits=%d:%d\n",
+               id, source, frame_ref, output.start_bit, output.bit_length);
+        return true;
+    }
+
+    printf("[JSON] Failed to add LIN TX '%s'\n", id);
+    return false;
+
+#else
+    (void)channel;
+    return true;
+#endif
+}
+
+/**
  * @brief Parse Lua scripts array
  */
 static bool JSON_ParseLuaScripts(cJSON* scripts_array, PMU_JSON_LoadStats_t* stats)
@@ -1402,6 +1692,8 @@ static PMU_ChannelType_t JSON_ParseChannelType(const char* type_str)
     if (strcmp(type_str, "power_output") == 0) return PMU_CHANNEL_TYPE_POWER_OUTPUT;
     if (strcmp(type_str, "can_rx") == 0) return PMU_CHANNEL_TYPE_CAN_RX;
     if (strcmp(type_str, "can_tx") == 0) return PMU_CHANNEL_TYPE_CAN_TX;
+    if (strcmp(type_str, "lin_rx") == 0) return PMU_CHANNEL_TYPE_LIN_RX;
+    if (strcmp(type_str, "lin_tx") == 0) return PMU_CHANNEL_TYPE_LIN_TX;
     if (strcmp(type_str, "logic") == 0) return PMU_CHANNEL_TYPE_LOGIC;
     if (strcmp(type_str, "number") == 0) return PMU_CHANNEL_TYPE_NUMBER;
     if (strcmp(type_str, "table_2d") == 0) return PMU_CHANNEL_TYPE_TABLE_2D;
@@ -1520,6 +1812,16 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
             case PMU_CHANNEL_TYPE_CAN_TX:
                 success = JSON_ParseCanTx(channel);
                 if (success && stats) stats->can_tx++;
+                break;
+
+            case PMU_CHANNEL_TYPE_LIN_RX:
+                success = JSON_ParseLinRx(channel);
+                if (success && stats) stats->lin_rx++;
+                break;
+
+            case PMU_CHANNEL_TYPE_LIN_TX:
+                success = JSON_ParseLinTx(channel);
+                if (success && stats) stats->lin_tx++;
                 break;
 
             case PMU_CHANNEL_TYPE_PID:
