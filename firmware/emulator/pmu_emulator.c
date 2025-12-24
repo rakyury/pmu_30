@@ -337,19 +337,8 @@ void PMU_Emu_Tick(uint32_t delta_ms)
         logic_update_accum = 0;
     }
 
-    /* Debug output every 2 seconds */
-    if (debug_accum >= 2000) {
-        extern uint8_t PMU_ADC_GetDigitalState(uint8_t channel);
-        extern uint16_t PMU_ADC_GetRawValue(uint8_t channel);
-        int32_t ch_val = PMU_Channel_GetValue(0);
-        uint8_t dig_state = PMU_ADC_GetDigitalState(0);
-        uint16_t raw_val = PMU_ADC_GetRawValue(0);
-        /* Calculate voltage in mV: (raw * 3300) / 1024 */
-        uint16_t voltage_mv = (raw_val * 3300) / 1024;
-        printf("[DEBUG] Ch0: raw=%d voltage=%dmV dig_state=%d ch_val=%d\n",
-               raw_val, voltage_mv, dig_state, (int)ch_val);
-        debug_accum = 0;
-    }
+    /* Debug output disabled - was too spammy */
+    (void)debug_accum;
 
     /* CAN update */
     PMU_CAN_Update();

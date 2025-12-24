@@ -1576,6 +1576,21 @@ static void handle_webui_command(const char* json)
             EMU_WebUI_SendLog(1, "lin", msg);
         }
     }
+    /* Device restart action */
+    else if (strstr(json, "\"action\":\"restart_device\"")) {
+        printf("\n");
+        printf("+============================================================+\n");
+        printf("|          DEVICE RESTART REQUESTED (FROM WEBUI)             |\n");
+        printf("+============================================================+\n");
+        printf("\n");
+
+        EMU_WebUI_SendLog(2, "system", "Device restart requested from WebUI");
+
+        /* Reset emulator state - simulates device restart */
+        PMU_Emu_Reset();
+
+        EMU_WebUI_SendLog(1, "system", "Device restarted successfully");
+    }
 }
 
 static void send_http_response(SOCKET sock, int status, const char* content_type, const char* body, size_t body_len)
