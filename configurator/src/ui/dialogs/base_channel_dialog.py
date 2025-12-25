@@ -10,7 +10,7 @@ Architecture:
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QLabel,
-    QScrollArea, QWidget, QMessageBox
+    QWidget, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
@@ -51,11 +51,34 @@ def get_next_channel_id(existing_channels: List[Dict[str, Any]] = None) -> int:
 class BaseChannelDialog(QDialog):
     """Base dialog for configuring channels"""
 
-    # Prefixes for auto-generated names by channel type
+    # ID prefixes for channel identifiers (used in references)
+    ID_PREFIXES = {
+        ChannelType.ANALOG_INPUT: "ai_",
+        ChannelType.DIGITAL_INPUT: "di_",
+        ChannelType.POWER_OUTPUT: "o_",
+        ChannelType.HBRIDGE: "hb_",
+        ChannelType.LOGIC: "l_",
+        ChannelType.NUMBER: "n_",
+        ChannelType.TIMER: "t_",
+        ChannelType.SWITCH: "sw_",
+        ChannelType.TABLE_2D: "t2d_",
+        ChannelType.TABLE_3D: "t3d_",
+        ChannelType.FILTER: "f_",
+        ChannelType.ENUM: "e_",
+        ChannelType.CAN_RX: "can_rx_",
+        ChannelType.CAN_TX: "can_tx_",
+        ChannelType.LUA_SCRIPT: "lua_",
+        ChannelType.PID: "pid_",
+        ChannelType.HANDLER: "h_",
+        ChannelType.BLINKMARINE_KEYPAD: "bm_",
+    }
+
+    # Human-readable name prefixes for display names
     NAME_PREFIXES = {
         ChannelType.ANALOG_INPUT: "Analog ",
         ChannelType.DIGITAL_INPUT: "Digital ",
         ChannelType.POWER_OUTPUT: "Output ",
+        ChannelType.HBRIDGE: "H-Bridge ",
         ChannelType.LOGIC: "Logic ",
         ChannelType.NUMBER: "Number ",
         ChannelType.TIMER: "Timer ",
@@ -64,10 +87,12 @@ class BaseChannelDialog(QDialog):
         ChannelType.TABLE_3D: "Table3D ",
         ChannelType.FILTER: "Filter ",
         ChannelType.ENUM: "Enum ",
-        ChannelType.CAN_RX: "CAN_RX ",
-        ChannelType.CAN_TX: "CAN_TX ",
+        ChannelType.CAN_RX: "CAN RX ",
+        ChannelType.CAN_TX: "CAN TX ",
         ChannelType.LUA_SCRIPT: "Script ",
         ChannelType.PID: "PID ",
+        ChannelType.HANDLER: "Handler ",
+        ChannelType.BLINKMARINE_KEYPAD: "BlinkMarine ",
     }
 
     def __init__(self, parent=None,
@@ -104,27 +129,32 @@ class BaseChannelDialog(QDialog):
         type_name = get_channel_display_name(self.channel_type) if self.channel_type else "Channel"
         self.setWindowTitle(f"{title} {type_name}")
         self.setModal(True)
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
-        self.resize(650, 550)
+        self.setSizeGripEnabled(True)  # Allow resize if needed
 
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setSpacing(8)
 
-        # Create scroll area for content
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.scroll_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.scroll_widget)
+        # Content layout - directly in dialog, no scroll area
+        self.content_layout = QVBoxLayout()
+        self.content_layout.setSpacing(8)
+        self.main_layout.addLayout(self.content_layout)
 
         # Basic settings group (common for all channel types)
         self._create_basic_group()
 
-        self.scroll.setWidget(self.scroll_widget)
-        self.main_layout.addWidget(self.scroll)
+        # Add stretch to push buttons to bottom
+        self.main_layout.addStretch()
 
         # Buttons
         self._create_buttons()
+
+    def _finalize_ui(self):
+        """Call after subclass has added all content to adjust size"""
+        # Ensure dialog fits its content
+        self.adjustSize()
+        # Set minimum to current size for sanity, but allow growing
+        self.setMinimumSize(self.sizeHint())
 
     def _create_basic_group(self):
         """Create basic settings group"""
@@ -136,9 +166,15 @@ class BaseChannelDialog(QDialog):
         self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
         basic_layout.addRow("Channel ID:", self.channel_id_label)
 
-        # Name field (editable by user)
+        # Name field - the ONLY user-editable identifier
+        # Must be unique across all channels, used for references in logic
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Enter channel name (e.g., Ignition Switch)")
+        self.name_edit.setPlaceholderText("e.g., CoolantTemp, FanOutput, IgnitionSwitch")
+        self.name_edit.setToolTip(
+            "Unique channel name.\n"
+            "Used in UI and for references in logic.\n"
+            "Must be unique across all channels."
+        )
         basic_layout.addRow("Name: *", self.name_edit)
 
         basic_group.setLayout(basic_layout)
@@ -162,13 +198,17 @@ class BaseChannelDialog(QDialog):
 
     def _load_base_config(self, config: Dict[str, Any]):
         """Load base configuration fields"""
-        self.name_edit.setText(config.get("name", ""))
+        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
     def _auto_generate_name(self):
-        """Auto-generate name for new channel based on type and ID"""
-        prefix = self.NAME_PREFIXES.get(self.channel_type, "Channel ")
-        # Use channel_id as the number suffix
-        self.name_edit.setText(f"{prefix}{self._channel_id}")
+        """Auto-generate name for new channel based on type"""
+        # Generate human-readable name (e.g., Analog1, Output2, Timer3)
+        name_prefix = self.NAME_PREFIXES.get(self.channel_type, "Channel")
+        # Remove spaces for cleaner names that work better as identifiers
+        clean_prefix = name_prefix.strip().replace(" ", "")
+        self.name_edit.setText(f"{clean_prefix}{self._channel_id}")
 
     def _validate_base(self) -> List[str]:
         """Validate base fields, return list of errors"""
@@ -177,6 +217,22 @@ class BaseChannelDialog(QDialog):
         name = self.name_edit.text().strip()
         if not name:
             errors.append("Name is required")
+        elif not name[0].isalpha() and name[0] != '_':
+            errors.append("Name must start with a letter or underscore")
+        elif not all(c.isalnum() or c == '_' for c in name):
+            errors.append("Name can only contain letters, numbers, and underscores")
+
+        # Check for duplicate names (excluding current channel in edit mode)
+        if name and self.existing_channels:
+            for ch in self.existing_channels:
+                # Check both 'name' and 'id' for backwards compatibility
+                ch_name = ch.get("name", "") or ch.get("id", "")
+                if ch_name == name:
+                    # In edit mode, skip self
+                    if self.is_edit_mode and ch.get("channel_id") == self._channel_id:
+                        continue
+                    errors.append(f"Name '{name}' is already used by another channel")
+                    break
 
         return errors
 
@@ -204,8 +260,7 @@ class BaseChannelDialog(QDialog):
         name = self.name_edit.text().strip()
         return {
             "channel_id": self._channel_id,
-            "id": name,  # String ID for display, firmware uses numeric channel_id
-            "name": name,
+            "name": name,  # Primary identifier - unique, user-editable
             "channel_type": self.channel_type.value if self.channel_type else ""
         }
 

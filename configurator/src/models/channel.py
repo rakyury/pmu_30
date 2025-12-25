@@ -30,6 +30,8 @@ class ChannelType(Enum):
     PID = "pid"
     BLINKMARINE_KEYPAD = "blinkmarine_keypad"
     HANDLER = "handler"
+    WIPER = "wiper"          # Wiper control module
+    BLINKER = "blinker"      # Turn signal/hazard module
     # System channels (predefined, read-only)
     SYSTEM = "system"
     OUTPUT_STATUS = "output_status"
@@ -185,35 +187,45 @@ class TimerMode(Enum):
 
 @dataclass
 class ChannelBase:
-    """Base class for all channels"""
-    id: str
+    """Base class for all channels.
+
+    Architecture:
+    - channel_id: Numeric, unique identifier (0-65535), auto-generated, NOT editable
+    - name: User-defined string, editable, unique, used for display and references
+    """
+    name: str  # User-editable identifier (was 'id')
     channel_type: ChannelType
+    channel_id: int = 0  # Numeric unique ID, auto-generated
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
-            "id": self.id,
+            "channel_id": self.channel_id,
+            "name": self.name,
             "channel_type": self.channel_type.value
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ChannelBase':
         """Create from dictionary"""
+        # Backwards compatibility: try 'name' first, fall back to 'id'
+        name = data.get("name", "") or data.get("id", "")
         return cls(
-            id=data.get("id", ""),
-            channel_type=ChannelType(data.get("channel_type", "digital_input"))
+            name=name,
+            channel_type=ChannelType(data.get("channel_type", "digital_input")),
+            channel_id=data.get("channel_id", 0)
         )
 
     def validate(self) -> List[str]:
         """Validate configuration, return list of errors"""
         errors = []
-        if not self.id:
-            errors.append("ID is required")
+        if not self.name:
+            errors.append("Name is required")
         return errors
 
     def get_output_channels(self) -> List[str]:
         """Get list of channels this channel outputs"""
-        return [self.id]
+        return [self.name]
 
     def get_input_channels(self) -> List[str]:
         """Get list of channels this channel reads from"""
@@ -308,8 +320,9 @@ class DigitalInputChannel(ChannelBase):
             button_mode = ButtonMode.DIRECT
 
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.DIGITAL_INPUT,
+            channel_id=data.get("channel_id", 0),
             subtype=DigitalInputSubtype(data.get("subtype", "switch_active_low")),
             input_pin=data.get("input_pin", 0),
             enable_pullup=data.get("enable_pullup", False),
@@ -423,8 +436,9 @@ class AnalogInputChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AnalogInputChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.ANALOG_INPUT,
+            channel_id=data.get("channel_id", 0),
             subtype=AnalogInputSubtype(data.get("subtype", "linear")),
             input_pin=data.get("input_pin", 0),
             pullup_option=data.get("pullup_option", "1m_down"),
@@ -508,14 +522,15 @@ class PowerOutputChannel(ChannelBase):
         retry_count = data.get("retry_count", prot_obj.get("retry_count", 3))
         retry_forever = data.get("retry_forever", prot_obj.get("retry_forever", False))
 
-        # ID: use "id" first, fall back to "name"
-        channel_id = data.get("id", "")
-        if not channel_id:
-            channel_id = f"out_{data.get('name', 'unnamed')}"
+        # Name: try 'name' first, fall back to 'id' for backwards compatibility
+        name = data.get("name", "") or data.get("id", "")
+        if not name:
+            name = f"Output{data.get('channel_id', 0)}"
 
         return cls(
-            id=channel_id,
+            name=name,
             channel_type=ChannelType.POWER_OUTPUT,
+            channel_id=data.get("channel_id", 0),
             output_pins=output_pins,
             source_channel=source_channel,
             pwm_enabled=pwm_enabled,
@@ -697,8 +712,9 @@ class LogicChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LogicChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.LOGIC,
+            channel_id=data.get("channel_id", 0),
             operation=LogicOperation(data.get("operation", "is_true")),
             channel=data.get("channel", ""),
             channel_2=data.get("channel_2", ""),
@@ -868,8 +884,9 @@ class NumberChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'NumberChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.NUMBER,
+            channel_id=data.get("channel_id", 0),
             operation=MathOperation(data.get("operation", "constant")),
             inputs=data.get("inputs", []),
             input_multipliers=data.get("input_multipliers", []),
@@ -916,8 +933,9 @@ class TimerChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TimerChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.TIMER,
+            channel_id=data.get("channel_id", 0),
             start_channel=data.get("start_channel", ""),
             start_edge=EdgeType(data.get("start_edge", "rising")),
             stop_channel=data.get("stop_channel", ""),
@@ -973,8 +991,9 @@ class FilterChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'FilterChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.FILTER,
+            channel_id=data.get("channel_id", 0),
             filter_type=FilterType(data.get("filter_type", "moving_avg")),
             input_channel=data.get("input_channel", ""),
             window_size=data.get("window_size", 10),
@@ -1029,8 +1048,9 @@ class EnumChannel(ChannelBase):
     def from_dict(cls, data: Dict[str, Any]) -> 'EnumChannel':
         items = [EnumItem.from_dict(item) for item in data.get("items", [])]
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.ENUM,
+            channel_id=data.get("channel_id", 0),
             is_bitfield=data.get("is_bitfield", False),
             items=items
         )
@@ -1070,8 +1090,9 @@ class Table2DChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Table2DChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.TABLE_2D,
+            channel_id=data.get("channel_id", 0),
             x_axis_channel=data.get("x_axis_channel", ""),
             x_min=data.get("x_min", 0.0),
             x_max=data.get("x_max", 100.0),
@@ -1140,8 +1161,9 @@ class Table3DChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Table3DChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.TABLE_3D,
+            channel_id=data.get("channel_id", 0),
             x_axis_channel=data.get("x_axis_channel", ""),
             y_axis_channel=data.get("y_axis_channel", ""),
             x_min=data.get("x_min", 0.0),
@@ -1219,8 +1241,9 @@ class SwitchChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SwitchChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.SWITCH,
+            channel_id=data.get("channel_id", 0),
             switch_type=data.get("switch_type", "latching"),
             input_up_channel=data.get("input_up_channel", ""),
             input_up_edge=EdgeType(data.get("input_up_edge", "rising")),
@@ -1251,8 +1274,7 @@ class CanMessage:
     This is NOT a channel, but a container for CAN frame properties.
     Multiple CanRxChannels (CAN Inputs) can reference the same CanMessage.
     """
-    id: str                                    # Unique message ID (e.g., "msg_ecu_base")
-    name: str = ""                             # Human-readable name
+    name: str  # Unique identifier (user-editable)
     can_bus: int = 1                           # CAN bus (1-4)
     base_id: int = 0                           # Base CAN ID (11-bit or 29-bit)
     is_extended: bool = False                  # Extended (29-bit) ID
@@ -1266,7 +1288,6 @@ class CanMessage:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
-            "id": self.id,
             "name": self.name,
             "can_bus": self.can_bus,
             "base_id": self.base_id,
@@ -1289,8 +1310,7 @@ class CanMessage:
             msg_type = CanMessageType.NORMAL
 
         return cls(
-            id=data.get("id", ""),
-            name=data.get("name", ""),
+            name=data.get("name", "") or data.get("id", ""),
             can_bus=data.get("can_bus", 1),
             base_id=data.get("base_id", 0),
             is_extended=data.get("is_extended", False),
@@ -1441,8 +1461,9 @@ class CanRxChannel(ChannelBase):
             timeout_behavior = CanTimeoutBehavior.USE_DEFAULT
 
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.CAN_RX,
+            channel_id=data.get("channel_id", 0),
             # New fields
             message_ref=data.get("message_ref", ""),
             frame_offset=data.get("frame_offset", 0),
@@ -1548,8 +1569,9 @@ class CanTxChannel(ChannelBase):
     def from_dict(cls, data: Dict[str, Any]) -> 'CanTxChannel':
         signals = [CanTxSignal.from_dict(sig) for sig in data.get("signals", [])]
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.CAN_TX,
+            channel_id=data.get("channel_id", 0),
             can_bus=data.get("can_bus", 1),
             message_id=data.get("message_id", 0),
             is_extended=data.get("is_extended", False),
@@ -1580,7 +1602,6 @@ class LuaPriority(Enum):
 @dataclass
 class LuaScriptChannel(ChannelBase):
     """Lua script channel for custom logic"""
-    name: str = ""
     description: str = ""
     enabled: bool = True
     script: str = ""
@@ -1596,7 +1617,6 @@ class LuaScriptChannel(ChannelBase):
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
         data.update({
-            "name": self.name,
             "description": self.description,
             "enabled": self.enabled,
             "script": self.script,
@@ -1625,9 +1645,9 @@ class LuaScriptChannel(ChannelBase):
             priority = LuaPriority.NORMAL
 
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.LUA_SCRIPT,
-            name=data.get("name", ""),
+            channel_id=data.get("channel_id", 0),
             description=data.get("description", ""),
             enabled=data.get("enabled", True),
             script=data.get("script", ""),
@@ -1716,8 +1736,9 @@ class PIDChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PIDChannel':
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.PID,
+            channel_id=data.get("channel_id", 0),
             setpoint_channel=data.get("setpoint_channel", ""),
             process_channel=data.get("process_channel", ""),
             output_channel=data.get("output_channel", ""),
@@ -1796,37 +1817,64 @@ class HBridgeChannel(ChannelBase):
     mode: HBridgeMode = HBridgeMode.FORWARD    # Operating mode
 
     # Direction control (for separate FWD/REV sources)
-    direction_channel: str = ""                # Channel for direction (optional)
-    direction_inverted: bool = False           # Invert direction logic
+    direction_source_channel: str = ""         # Channel for direction (optional)
+    invert_direction: bool = False             # Invert direction logic
 
     # PWM control
     pwm_enabled: bool = True
-    pwm_frequency_hz: int = 1000               # 100-10000 Hz typical
-    duty_channel: str = ""                     # Channel for duty cycle
-    duty_fixed: float = 100.0                  # Fixed duty if no channel (0-100%)
+    pwm_mode: str = "fixed"                    # "fixed", "channel", "channel_offset" (bidirectional)
+    pwm_frequency: int = 1000                  # PWM frequency in Hz
+    pwm_value: int = 255                       # Fixed PWM value (0-255)
+    pwm_source_channel: str = ""               # Channel for PWM duty cycle
+    duty_limit_percent: int = 100              # Maximum duty cycle limit (0-100%)
     soft_start_ms: int = 0                     # Soft-start ramp time
 
     # Position control
-    position_enabled: bool = False             # Enable position feedback
-    position_input_pin: int = 0                # Analog input for position (0-19)
-    position_min: float = 0.0                  # Position at 0V (or min pot)
-    position_max: float = 100.0                # Position at 5V (or max pot)
+    position_feedback_enabled: bool = False    # Enable position feedback
+    position_source_channel: str = ""          # Channel for position feedback
+    target_position: int = 0                   # Fixed target position value
+    target_source_channel: str = ""            # Channel for target position
+    position_min: int = 0                      # Minimum position value
+    position_max: int = 65535                  # Maximum position value
+    position_deadband: int = 50                # Position tolerance (stops when within deadband)
     position_park: float = 0.0                 # Park position for wiper mode
 
+    # Valid voltage range (ECUMaster feature)
+    valid_voltage_min: float = 0.2             # Min valid feedback voltage (V)
+    valid_voltage_max: float = 4.8             # Max valid feedback voltage (V)
+
+    # Position margins (ECUMaster feature - avoid hitting end stops)
+    lower_margin: int = 50                     # Lower position margin
+    upper_margin: int = 50                     # Upper position margin
+
     # PID position control
-    pid_enabled: bool = False
-    pid_setpoint_channel: str = ""             # Channel for target position
-    pid_setpoint_value: float = 50.0           # Fixed setpoint if no channel
     pid_kp: float = 1.0
-    pid_ki: float = 0.1
-    pid_kd: float = 0.05
+    pid_ki: float = 0.0
+    pid_kd: float = 0.0
+    pid_kd_filter: float = 0.1                 # Derivative filter coefficient (0-1)
+    pid_output_min: int = -255                 # PID output min
+    pid_output_max: int = 255                  # PID output max
 
     # Protection settings
-    current_limit_a: float = 30.0              # Overcurrent limit
-    stall_current_a: float = 25.0              # Stall detection threshold
-    stall_time_ms: int = 500                   # Time before stall fault
-    overtemp_c: float = 125.0                  # Over-temperature limit
+    current_limit_a: float = 10.0              # Continuous overcurrent limit
+    inrush_current_a: float = 30.0             # Inrush current limit
+    inrush_time_ms: int = 500                  # Inrush time period
     retry_count: int = 3                       # Retries before lockout
+    retry_delay_ms: int = 1000                 # Delay between retries
+
+    # Stall detection
+    stall_detection_enabled: bool = True       # Enable stall detection
+    stall_current_threshold_a: float = 5.0     # Stall current threshold
+    stall_time_threshold_ms: int = 500         # Time before stall fault
+    overtemperature_threshold_c: int = 120     # Over-temperature limit
+
+    # Signal loss failsafe
+    failsafe_enabled: bool = True              # Enable signal loss protection
+    signal_timeout_ms: int = 100               # Signal timeout before failsafe
+    failsafe_mode: str = "park"                # "park", "brake", "coast", "custom_position"
+    failsafe_position: int = 0                 # Position to move to in failsafe
+    failsafe_pwm: int = 100                    # PWM for failsafe movement
+    auto_recovery: bool = True                 # Auto-recover when signal returns
 
     # Motor preset
     motor_preset: HBridgeMotorPreset = HBridgeMotorPreset.WIPER
@@ -1840,29 +1888,55 @@ class HBridgeChannel(ChannelBase):
             "bridge_number": self.bridge_number,
             "source_channel": self.source_channel,
             "mode": self.mode.value if isinstance(self.mode, HBridgeMode) else self.mode,
-            "direction_channel": self.direction_channel,
-            "direction_inverted": self.direction_inverted,
+            "direction_source_channel": self.direction_source_channel,
+            "invert_direction": self.invert_direction,
+            # PWM control
             "pwm_enabled": self.pwm_enabled,
-            "pwm_frequency_hz": self.pwm_frequency_hz,
-            "duty_channel": self.duty_channel,
-            "duty_fixed": self.duty_fixed,
+            "pwm_mode": self.pwm_mode,
+            "pwm_frequency": self.pwm_frequency,
+            "pwm_value": self.pwm_value,
+            "pwm_source_channel": self.pwm_source_channel,
+            "duty_limit_percent": self.duty_limit_percent,
             "soft_start_ms": self.soft_start_ms,
-            "position_enabled": self.position_enabled,
-            "position_input_pin": self.position_input_pin,
+            # Position control
+            "position_feedback_enabled": self.position_feedback_enabled,
+            "position_source_channel": self.position_source_channel,
+            "target_position": self.target_position,
+            "target_source_channel": self.target_source_channel,
             "position_min": self.position_min,
             "position_max": self.position_max,
+            "position_deadband": self.position_deadband,
             "position_park": self.position_park,
-            "pid_enabled": self.pid_enabled,
-            "pid_setpoint_channel": self.pid_setpoint_channel,
-            "pid_setpoint_value": self.pid_setpoint_value,
+            "valid_voltage_min": self.valid_voltage_min,
+            "valid_voltage_max": self.valid_voltage_max,
+            "lower_margin": self.lower_margin,
+            "upper_margin": self.upper_margin,
+            # PID
             "pid_kp": self.pid_kp,
             "pid_ki": self.pid_ki,
             "pid_kd": self.pid_kd,
+            "pid_kd_filter": self.pid_kd_filter,
+            "pid_output_min": self.pid_output_min,
+            "pid_output_max": self.pid_output_max,
+            # Protection
             "current_limit_a": self.current_limit_a,
-            "stall_current_a": self.stall_current_a,
-            "stall_time_ms": self.stall_time_ms,
-            "overtemp_c": self.overtemp_c,
+            "inrush_current_a": self.inrush_current_a,
+            "inrush_time_ms": self.inrush_time_ms,
             "retry_count": self.retry_count,
+            "retry_delay_ms": self.retry_delay_ms,
+            # Stall detection
+            "stall_detection_enabled": self.stall_detection_enabled,
+            "stall_current_threshold_a": self.stall_current_threshold_a,
+            "stall_time_threshold_ms": self.stall_time_threshold_ms,
+            "overtemperature_threshold_c": self.overtemperature_threshold_c,
+            # Failsafe
+            "failsafe_enabled": self.failsafe_enabled,
+            "signal_timeout_ms": self.signal_timeout_ms,
+            "failsafe_mode": self.failsafe_mode,
+            "failsafe_position": self.failsafe_position,
+            "failsafe_pwm": self.failsafe_pwm,
+            "auto_recovery": self.auto_recovery,
+            # Preset
             "motor_preset": self.motor_preset.value if isinstance(self.motor_preset, HBridgeMotorPreset) else self.motor_preset,
         })
         return data
@@ -1884,34 +1958,60 @@ class HBridgeChannel(ChannelBase):
             motor_preset = HBridgeMotorPreset.CUSTOM
 
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.HBRIDGE,
+            channel_id=data.get("channel_id", 0),
             bridge_number=data.get("bridge_number", 0),
             source_channel=data.get("source_channel", ""),
             mode=mode,
-            direction_channel=data.get("direction_channel", ""),
-            direction_inverted=data.get("direction_inverted", False),
+            direction_source_channel=data.get("direction_source_channel", ""),
+            invert_direction=data.get("invert_direction", False),
+            # PWM control
             pwm_enabled=data.get("pwm_enabled", True),
-            pwm_frequency_hz=data.get("pwm_frequency_hz", 1000),
-            duty_channel=data.get("duty_channel", ""),
-            duty_fixed=data.get("duty_fixed", 100.0),
+            pwm_mode=data.get("pwm_mode", "fixed"),
+            pwm_frequency=data.get("pwm_frequency", 1000),
+            pwm_value=data.get("pwm_value", 255),
+            pwm_source_channel=data.get("pwm_source_channel", ""),
+            duty_limit_percent=data.get("duty_limit_percent", 100),
             soft_start_ms=data.get("soft_start_ms", 0),
-            position_enabled=data.get("position_enabled", False),
-            position_input_pin=data.get("position_input_pin", 0),
-            position_min=data.get("position_min", 0.0),
-            position_max=data.get("position_max", 100.0),
+            # Position control
+            position_feedback_enabled=data.get("position_feedback_enabled", False),
+            position_source_channel=data.get("position_source_channel", ""),
+            target_position=data.get("target_position", 0),
+            target_source_channel=data.get("target_source_channel", ""),
+            position_min=data.get("position_min", 0),
+            position_max=data.get("position_max", 65535),
+            position_deadband=data.get("position_deadband", 50),
             position_park=data.get("position_park", 0.0),
-            pid_enabled=data.get("pid_enabled", False),
-            pid_setpoint_channel=data.get("pid_setpoint_channel", ""),
-            pid_setpoint_value=data.get("pid_setpoint_value", 50.0),
+            valid_voltage_min=data.get("valid_voltage_min", 0.2),
+            valid_voltage_max=data.get("valid_voltage_max", 4.8),
+            lower_margin=data.get("lower_margin", 50),
+            upper_margin=data.get("upper_margin", 50),
+            # PID
             pid_kp=data.get("pid_kp", 1.0),
-            pid_ki=data.get("pid_ki", 0.1),
-            pid_kd=data.get("pid_kd", 0.05),
-            current_limit_a=data.get("current_limit_a", 30.0),
-            stall_current_a=data.get("stall_current_a", 25.0),
-            stall_time_ms=data.get("stall_time_ms", 500),
-            overtemp_c=data.get("overtemp_c", 125.0),
+            pid_ki=data.get("pid_ki", 0.0),
+            pid_kd=data.get("pid_kd", 0.0),
+            pid_kd_filter=data.get("pid_kd_filter", 0.1),
+            pid_output_min=data.get("pid_output_min", -255),
+            pid_output_max=data.get("pid_output_max", 255),
+            # Protection
+            current_limit_a=data.get("current_limit_a", 10.0),
+            inrush_current_a=data.get("inrush_current_a", 30.0),
+            inrush_time_ms=data.get("inrush_time_ms", 500),
             retry_count=data.get("retry_count", 3),
+            retry_delay_ms=data.get("retry_delay_ms", 1000),
+            # Stall detection
+            stall_detection_enabled=data.get("stall_detection_enabled", True),
+            stall_current_threshold_a=data.get("stall_current_threshold_a", 5.0),
+            stall_time_threshold_ms=data.get("stall_time_threshold_ms", 500),
+            overtemperature_threshold_c=data.get("overtemperature_threshold_c", 120),
+            # Failsafe
+            failsafe_enabled=data.get("failsafe_enabled", True),
+            signal_timeout_ms=data.get("signal_timeout_ms", 100),
+            failsafe_mode=data.get("failsafe_mode", "park"),
+            failsafe_position=data.get("failsafe_position", 0),
+            failsafe_pwm=data.get("failsafe_pwm", 100),
+            auto_recovery=data.get("auto_recovery", True),
             motor_preset=motor_preset,
         )
 
@@ -1919,29 +2019,33 @@ class HBridgeChannel(ChannelBase):
         channels = []
         if self.source_channel:
             channels.append(self.source_channel)
-        if self.direction_channel:
-            channels.append(self.direction_channel)
-        if self.duty_channel:
-            channels.append(self.duty_channel)
-        if self.pid_setpoint_channel:
-            channels.append(self.pid_setpoint_channel)
+        if self.direction_source_channel:
+            channels.append(self.direction_source_channel)
+        if self.pwm_source_channel:
+            channels.append(self.pwm_source_channel)
+        if self.position_source_channel:
+            channels.append(self.position_source_channel)
+        if self.target_source_channel:
+            channels.append(self.target_source_channel)
         return channels
 
     def validate(self) -> List[str]:
         errors = super().validate()
         if not 0 <= self.bridge_number <= 3:
             errors.append("Bridge number must be between 0 and 3 (HB1-HB4)")
-        if self.pwm_frequency_hz < 100 or self.pwm_frequency_hz > 20000:
-            errors.append("PWM frequency must be between 100 and 20000 Hz")
-        if self.duty_fixed < 0 or self.duty_fixed > 100:
-            errors.append("Duty cycle must be between 0 and 100%")
-        if self.position_enabled:
-            if not 0 <= self.position_input_pin <= 19:
-                errors.append("Position input pin must be between 0 and 19 (A1-A20)")
-        if self.pid_enabled and not self.position_enabled:
-            errors.append("Position feedback must be enabled for PID control")
-        if self.current_limit_a <= 0 or self.current_limit_a > 30:
-            errors.append("Current limit must be between 0 and 30A")
+        if self.pwm_frequency not in [1000, 4000, 10000, 20000]:
+            errors.append("PWM frequency must be 1000, 4000, 10000, or 20000 Hz")
+        if self.duty_limit_percent < 0 or self.duty_limit_percent > 100:
+            errors.append("Duty limit must be between 0 and 100%")
+        if self.position_feedback_enabled:
+            if self.position_min >= self.position_max:
+                errors.append("Position min must be less than position max")
+            if self.valid_voltage_min >= self.valid_voltage_max:
+                errors.append("Valid voltage min must be less than valid voltage max")
+        if self.current_limit_a <= 0 or self.current_limit_a > 50:
+            errors.append("Current limit must be between 0 and 50A")
+        if self.inrush_current_a < self.current_limit_a:
+            errors.append("Inrush current should be greater than or equal to current limit")
         return errors
 
 
@@ -2051,8 +2155,9 @@ class HandlerChannel(ChannelBase):
             action = ActionType.WRITE_CHANNEL
 
         return cls(
-            id=data.get("id", ""),
+            name=data.get("name", "") or data.get("id", ""),
             channel_type=ChannelType.HANDLER,
+            channel_id=data.get("channel_id", 0),
             event=event,
             source_channel=data.get("source_channel", ""),
             threshold_value=data.get("threshold_value", 0.0),
@@ -2105,6 +2210,273 @@ class HandlerChannel(ChannelBase):
         return errors
 
 
+# ============================================================================
+# Wiper Module Channel
+# ============================================================================
+
+class WiperMode(Enum):
+    """Wiper operating modes"""
+    OFF = "off"
+    SLOW = "slow"
+    FAST = "fast"
+    INTERMITTENT = "intermittent"
+    WASH = "wash"
+
+
+@dataclass
+class WiperChannel(ChannelBase):
+    """Wiper control module channel
+
+    Features:
+    - Multi-speed control (slow/fast)
+    - Intermittent mode with adjustable delay
+    - Wash and wipe coordination
+    - Park position control
+    - Rain sensor input support
+    """
+    # Output assignment
+    hbridge_number: int = 0                    # H-Bridge for wiper motor (0-3)
+    output_speed: str = ""                     # Speed control channel (optional for relay-based)
+
+    # Control inputs
+    control_channel: str = ""                  # Main wiper switch input (0-4: off/int/slow/fast/wash)
+    wash_channel: str = ""                     # Wash button input
+    rain_sensor_channel: str = ""              # Rain sensor input (optional)
+
+    # Park detection
+    park_channel: str = ""                     # Park position sensor input
+    park_position: int = 50                    # Park position value (0-100)
+    park_timeout_ms: int = 5000                # Max time to reach park
+
+    # Speed settings
+    slow_pwm: int = 180                        # PWM value for slow speed (0-255)
+    fast_pwm: int = 255                        # PWM value for fast speed
+
+    # Intermittent settings
+    intermittent_min_ms: int = 1000            # Minimum intermittent delay
+    intermittent_max_ms: int = 10000           # Maximum intermittent delay
+    intermittent_delay_channel: str = ""       # Channel for variable delay (0-100%)
+
+    # Wash settings
+    wash_wipe_count: int = 3                   # Wipes after wash release
+    wash_wipe_delay_ms: int = 500              # Delay after wash before wipe
+
+    # Auto wipe on ignition
+    auto_wipe_on_start: bool = False           # Single wipe on ignition
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.WIPER
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "hbridge_number": self.hbridge_number,
+            "output_speed": self.output_speed,
+            "control_channel": self.control_channel,
+            "wash_channel": self.wash_channel,
+            "rain_sensor_channel": self.rain_sensor_channel,
+            "park_channel": self.park_channel,
+            "park_position": self.park_position,
+            "park_timeout_ms": self.park_timeout_ms,
+            "slow_pwm": self.slow_pwm,
+            "fast_pwm": self.fast_pwm,
+            "intermittent_min_ms": self.intermittent_min_ms,
+            "intermittent_max_ms": self.intermittent_max_ms,
+            "intermittent_delay_channel": self.intermittent_delay_channel,
+            "wash_wipe_count": self.wash_wipe_count,
+            "wash_wipe_delay_ms": self.wash_wipe_delay_ms,
+            "auto_wipe_on_start": self.auto_wipe_on_start,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'WiperChannel':
+        return cls(
+            name=data.get("name", ""),
+            channel_type=ChannelType.WIPER,
+            channel_id=data.get("channel_id", 0),
+            hbridge_number=data.get("hbridge_number", 0),
+            output_speed=data.get("output_speed", ""),
+            control_channel=data.get("control_channel", ""),
+            wash_channel=data.get("wash_channel", ""),
+            rain_sensor_channel=data.get("rain_sensor_channel", ""),
+            park_channel=data.get("park_channel", ""),
+            park_position=data.get("park_position", 50),
+            park_timeout_ms=data.get("park_timeout_ms", 5000),
+            slow_pwm=data.get("slow_pwm", 180),
+            fast_pwm=data.get("fast_pwm", 255),
+            intermittent_min_ms=data.get("intermittent_min_ms", 1000),
+            intermittent_max_ms=data.get("intermittent_max_ms", 10000),
+            intermittent_delay_channel=data.get("intermittent_delay_channel", ""),
+            wash_wipe_count=data.get("wash_wipe_count", 3),
+            wash_wipe_delay_ms=data.get("wash_wipe_delay_ms", 500),
+            auto_wipe_on_start=data.get("auto_wipe_on_start", False),
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.control_channel:
+            channels.append(self.control_channel)
+        if self.wash_channel:
+            channels.append(self.wash_channel)
+        if self.rain_sensor_channel:
+            channels.append(self.rain_sensor_channel)
+        if self.park_channel:
+            channels.append(self.park_channel)
+        if self.intermittent_delay_channel:
+            channels.append(self.intermittent_delay_channel)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+        if not 0 <= self.hbridge_number <= 3:
+            errors.append("H-Bridge number must be between 0 and 3")
+        if self.slow_pwm > self.fast_pwm:
+            errors.append("Slow PWM should be less than or equal to fast PWM")
+        if self.intermittent_min_ms >= self.intermittent_max_ms:
+            errors.append("Intermittent min delay must be less than max delay")
+        return errors
+
+
+# ============================================================================
+# Blinker (Turn Signal) Module Channel
+# ============================================================================
+
+class BlinkerMode(Enum):
+    """Blinker operating modes"""
+    OFF = "off"
+    LEFT = "left"
+    RIGHT = "right"
+    HAZARD = "hazard"
+
+
+@dataclass
+class BlinkerChannel(ChannelBase):
+    """Turn signal and hazard light control module
+
+    Features:
+    - Left/Right turn signal control
+    - Hazard lights (all flashing)
+    - Lane change tap (3-flash sequence)
+    - Configurable flash rate
+    - Thermal flasher emulation
+    - Trailer indicators support
+    """
+    # Output assignment
+    left_output: str = ""                      # Left indicator output channel
+    right_output: str = ""                     # Right indicator output channel
+    left_trailer_output: str = ""              # Left trailer indicator (optional)
+    right_trailer_output: str = ""             # Right trailer indicator (optional)
+
+    # Control inputs
+    left_channel: str = ""                     # Left turn signal input
+    right_channel: str = ""                    # Right turn signal input
+    hazard_channel: str = ""                   # Hazard button input
+
+    # Flash timing
+    flash_on_ms: int = 500                     # Flash ON duration
+    flash_off_ms: int = 500                    # Flash OFF duration
+    flash_rate_hz: float = 1.0                 # Alternative: flash rate in Hz
+
+    # Lane change tap
+    lane_change_enabled: bool = True           # Enable lane change tap
+    lane_change_flashes: int = 3               # Number of flashes for tap
+    lane_change_timeout_ms: int = 400          # Max time for tap detection
+
+    # Priority
+    hazard_priority: bool = True               # Hazard overrides turn signals
+
+    # Bulb check / thermal flasher emulation
+    fast_flash_on_bulb_out: bool = True        # Flash fast if bulb out
+    fast_flash_rate_hz: float = 2.0            # Fast flash rate
+
+    # Output mode
+    output_mode: str = "toggle"                # "toggle" or "momentary"
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.BLINKER
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "left_output": self.left_output,
+            "right_output": self.right_output,
+            "left_trailer_output": self.left_trailer_output,
+            "right_trailer_output": self.right_trailer_output,
+            "left_channel": self.left_channel,
+            "right_channel": self.right_channel,
+            "hazard_channel": self.hazard_channel,
+            "flash_on_ms": self.flash_on_ms,
+            "flash_off_ms": self.flash_off_ms,
+            "flash_rate_hz": self.flash_rate_hz,
+            "lane_change_enabled": self.lane_change_enabled,
+            "lane_change_flashes": self.lane_change_flashes,
+            "lane_change_timeout_ms": self.lane_change_timeout_ms,
+            "hazard_priority": self.hazard_priority,
+            "fast_flash_on_bulb_out": self.fast_flash_on_bulb_out,
+            "fast_flash_rate_hz": self.fast_flash_rate_hz,
+            "output_mode": self.output_mode,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'BlinkerChannel':
+        return cls(
+            name=data.get("name", ""),
+            channel_type=ChannelType.BLINKER,
+            channel_id=data.get("channel_id", 0),
+            left_output=data.get("left_output", ""),
+            right_output=data.get("right_output", ""),
+            left_trailer_output=data.get("left_trailer_output", ""),
+            right_trailer_output=data.get("right_trailer_output", ""),
+            left_channel=data.get("left_channel", ""),
+            right_channel=data.get("right_channel", ""),
+            hazard_channel=data.get("hazard_channel", ""),
+            flash_on_ms=data.get("flash_on_ms", 500),
+            flash_off_ms=data.get("flash_off_ms", 500),
+            flash_rate_hz=data.get("flash_rate_hz", 1.0),
+            lane_change_enabled=data.get("lane_change_enabled", True),
+            lane_change_flashes=data.get("lane_change_flashes", 3),
+            lane_change_timeout_ms=data.get("lane_change_timeout_ms", 400),
+            hazard_priority=data.get("hazard_priority", True),
+            fast_flash_on_bulb_out=data.get("fast_flash_on_bulb_out", True),
+            fast_flash_rate_hz=data.get("fast_flash_rate_hz", 2.0),
+            output_mode=data.get("output_mode", "toggle"),
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.left_channel:
+            channels.append(self.left_channel)
+        if self.right_channel:
+            channels.append(self.right_channel)
+        if self.hazard_channel:
+            channels.append(self.hazard_channel)
+        return channels
+
+    def get_output_channels(self) -> List[str]:
+        channels = []
+        if self.left_output:
+            channels.append(self.left_output)
+        if self.right_output:
+            channels.append(self.right_output)
+        if self.left_trailer_output:
+            channels.append(self.left_trailer_output)
+        if self.right_trailer_output:
+            channels.append(self.right_trailer_output)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+        if self.flash_on_ms < 100 or self.flash_on_ms > 2000:
+            errors.append("Flash ON time should be between 100ms and 2000ms")
+        if self.flash_off_ms < 100 or self.flash_off_ms > 2000:
+            errors.append("Flash OFF time should be between 100ms and 2000ms")
+        if self.lane_change_flashes < 1 or self.lane_change_flashes > 10:
+            errors.append("Lane change flashes should be between 1 and 10")
+        return errors
+
+
 # Channel Type to Class mapping
 CHANNEL_CLASS_MAP = {
     ChannelType.DIGITAL_INPUT: DigitalInputChannel,
@@ -2124,6 +2496,8 @@ CHANNEL_CLASS_MAP = {
     ChannelType.LUA_SCRIPT: LuaScriptChannel,
     ChannelType.PID: PIDChannel,
     ChannelType.HANDLER: HandlerChannel,
+    ChannelType.WIPER: WiperChannel,
+    ChannelType.BLINKER: BlinkerChannel,
 }
 
 

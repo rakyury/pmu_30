@@ -25,8 +25,6 @@ class HandlerDialog(BaseChannelDialog):
         super().__init__(parent, config, available_channels, ChannelType.HANDLER, existing_channels)
 
         self.setWindowTitle("Event Handler Configuration")
-        self.setMinimumHeight(600)
-        self.resize(650, 620)
 
         self._create_event_group()
         self._create_condition_group()
@@ -36,6 +34,9 @@ class HandlerDialog(BaseChannelDialog):
         # Load config if editing
         if config:
             self._load_specific_config(config)
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_event_group(self):
         """Create event configuration group"""

@@ -105,6 +105,9 @@ class LogicDialog(BaseChannelDialog):
         # Update visibility based on current operation
         self._on_operation_changed()
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _create_operation_group(self):
         """Create operation selection group"""
         op_group = QGroupBox("Operation")

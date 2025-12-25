@@ -144,9 +144,10 @@ class CANInputDialog(QDialog):
         self.input_config = input_config
         self.message_ids = message_ids or []
         self.existing_channel_ids = existing_channel_ids or []
-        self.editing_id = input_config.get("id", "") if input_config else ""
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        self.editing_name = (input_config.get("name", "") or input_config.get("id", "")) if input_config else ""
 
-        self.setWindowTitle("CAN Input" if not input_config else f"Edit CAN Input: {self.editing_id}")
+        self.setWindowTitle("CAN Input" if not input_config else f"Edit CAN Input: {self.editing_name}")
         self.setModal(True)
         self.resize(550, 650)
 
@@ -180,10 +181,10 @@ class CANInputDialog(QDialog):
         id_group = QGroupBox("Identification")
         id_layout = QFormLayout()
 
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("e.g., crx_engine_rpm")
-        self.id_edit.setToolTip("Unique channel ID (must start with crx_)")
-        id_layout.addRow("Channel ID: *", self.id_edit)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g., EngineRPM, CoolantTemp")
+        self.name_edit.setToolTip("Unique channel name")
+        id_layout.addRow("Name: *", self.name_edit)
 
         id_group.setLayout(id_layout)
         layout.addWidget(id_group)
@@ -359,44 +360,44 @@ class CANInputDialog(QDialog):
             # Remove internal notes
             template.pop("_note", None)
 
-            # Check if ID already exists and modify if needed
-            base_id = template.get("id", "crx_template")
-            final_id = base_id
+            # Check if name already exists and modify if needed
+            base_name = template.get("name", "") or template.get("id", "CANInput")
+            final_name = base_name
             counter = 1
-            while final_id in self.existing_channel_ids:
-                final_id = f"{base_id}_{counter}"
+            while final_name in self.existing_channel_ids:
+                final_name = f"{base_name}_{counter}"
                 counter += 1
-            template["id"] = final_id
+            template["name"] = final_name
 
             # Load the template configuration
             self._load_config(template)
 
     def _on_accept(self):
         """Validate and accept dialog."""
-        # Validate ID
-        channel_id = self.id_edit.text().strip()
-        if not channel_id:
-            QMessageBox.warning(self, "Validation Error", "Channel ID is required!")
-            self.id_edit.setFocus()
+        # Validate name
+        channel_name = self.name_edit.text().strip()
+        if not channel_name:
+            QMessageBox.warning(self, "Validation Error", "Channel name is required!")
+            self.name_edit.setFocus()
             return
 
-        # Check ID format
+        # Check name format
         import re
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', channel_id):
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', channel_name):
             QMessageBox.warning(
                 self, "Validation Error",
-                "Channel ID must start with a letter and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore and contain only letters, numbers, and underscores!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
             return
 
-        # Check for duplicate ID
-        if channel_id != self.editing_id and channel_id in self.existing_channel_ids:
+        # Check for duplicate name
+        if channel_name != self.editing_name and channel_name in self.existing_channel_ids:
             QMessageBox.warning(
                 self, "Validation Error",
-                f"Channel ID '{channel_id}' already exists!"
+                f"Channel name '{channel_name}' already exists!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
             return
 
         # Validate message reference
@@ -422,7 +423,9 @@ class CANInputDialog(QDialog):
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.id_edit.setText(config.get("id", ""))
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
         # Message reference
         message_ref = config.get("message_ref", "")
@@ -493,7 +496,7 @@ class CANInputDialog(QDialog):
         timeout_behavior = self.TIMEOUT_BEHAVIORS[timeout_behavior_index][1]
 
         config = {
-            "id": self.id_edit.text().strip(),
+            "name": self.name_edit.text().strip(),
             "channel_type": "can_rx",
             "message_ref": self.message_combo.currentData() or "",
             "frame_offset": self.frame_offset_spin.value(),

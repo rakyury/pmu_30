@@ -1,8 +1,9 @@
 """
 BlinkMarine CAN Keypad Configuration Dialog
-Supports 2x6 and 2x8 CAN keypads from BlinkMarine
+Supports PKP-2600-SI (2x6) and PKP-2800-SI (2x8) CAN keypads from BlinkMarine
 
-Protocol:
+Protocol: PKP2600SI J1939 User Manual Rev 1.5
+- Uses J1939 29-bit extended CAN IDs
 - Keypad sends button press/release events via CAN
 - PMU can control LED backlights via CAN TX
 """
@@ -11,7 +12,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLineEdit, QComboBox, QSpinBox, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-    QTabWidget, QWidget, QGridLayout, QFrame, QMessageBox
+    QTabWidget, QWidget, QGridLayout, QFrame, QMessageBox,
+    QSlider
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
@@ -19,17 +21,52 @@ from typing import Dict, Any, Optional, List
 
 
 class BlinkMarineKeypadDialog(QDialog):
-    """Dialog for configuring BlinkMarine CAN keypads."""
+    """Dialog for configuring BlinkMarine CAN keypads (PKP2600SI/PKP2800SI J1939)."""
 
-    # Keypad types
-    KEYPAD_2X6 = "2x6"
-    KEYPAD_2X8 = "2x8"
+    # Keypad types (matching firmware enum PMU_BlinkMarine_Type_t)
+    KEYPAD_PKP2600SI = 0  # 12 buttons (2x6)
+    KEYPAD_PKP2800SI = 1  # 16 buttons (2x8)
 
     # Button layout (rows x cols)
     KEYPAD_LAYOUTS = {
-        KEYPAD_2X6: (2, 6),
-        KEYPAD_2X8: (2, 8),
+        KEYPAD_PKP2600SI: (2, 6),
+        KEYPAD_PKP2800SI: (2, 8),
     }
+
+    # LED colors (matching firmware enum PMU_BM_LedColor_t)
+    LED_COLORS = [
+        ("Off", 0x00),
+        ("Red", 0x01),
+        ("Green", 0x02),
+        ("Blue", 0x03),
+        ("Yellow", 0x04),
+        ("Cyan", 0x05),
+        ("Magenta", 0x06),
+        ("White", 0x07),
+        ("Amber", 0x08),
+        ("Yellow-Green", 0x09),
+    ]
+
+    # LED states (matching firmware enum PMU_BM_LedState_t)
+    LED_STATES = [
+        ("Off", 0x00),
+        ("On", 0x01),
+        ("Blink", 0x02),
+        ("Alt Blink", 0x03),
+    ]
+
+    # LED control modes (matching firmware enum PMU_BM_LedCtrlMode_t)
+    LED_CTRL_MODES = [
+        ("Off (LED always off)", 0),
+        ("Follow Button", 1),
+        ("Channel Controlled", 2),
+        ("Toggle on Press", 3),
+    ]
+
+    # Default J1939 addresses
+    DEFAULT_SOURCE_ADDR = 0x21
+    DEFAULT_KEYPAD_ID = 0x21
+    DEFAULT_DEST_ADDR = 0xFF  # Broadcast
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
@@ -48,10 +85,10 @@ class BlinkMarineKeypadDialog(QDialog):
 
     def _init_ui(self):
         """Initialize UI components."""
-        self.setWindowTitle("BlinkMarine CAN Keypad")
+        self.setWindowTitle("BlinkMarine CAN Keypad (J1939)")
         self.setModal(True)
-        self.setMinimumSize(750, 650)
-        self.resize(850, 750)
+        self.setMinimumSize(800, 700)
+        self.resize(900, 800)
 
         layout = QVBoxLayout(self)
 
@@ -96,55 +133,77 @@ class BlinkMarineKeypadDialog(QDialog):
         identity_layout = QFormLayout()
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Steering Wheel Keypad")
+        self.name_edit.setPlaceholderText("e.g., SteeringKeypad, DashKeypad")
+        self.name_edit.setToolTip("Unique name for this keypad")
         identity_layout.addRow("Name: *", self.name_edit)
 
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("e.g., keypad_1")
-        identity_layout.addRow("ID:", self.id_edit)
-
         self.keypad_type_combo = QComboBox()
-        self.keypad_type_combo.addItems(["2x6 (12 buttons)", "2x8 (16 buttons)"])
+        self.keypad_type_combo.addItems([
+            "PKP-2600-SI (12 buttons, 2x6)",
+            "PKP-2800-SI (16 buttons, 2x8)"
+        ])
         self.keypad_type_combo.currentIndexChanged.connect(self._on_type_changed)
-        identity_layout.addRow("Type:", self.keypad_type_combo)
+        identity_layout.addRow("Model:", self.keypad_type_combo)
+
+        self.enabled_check = QCheckBox("Enabled")
+        self.enabled_check.setChecked(True)
+        identity_layout.addRow("", self.enabled_check)
 
         identity_group.setLayout(identity_layout)
         layout.addWidget(identity_group)
 
-        # CAN Configuration
-        can_group = QGroupBox("CAN Configuration")
+        # J1939 CAN Configuration
+        can_group = QGroupBox("J1939 CAN Configuration")
         can_layout = QFormLayout()
 
         self.can_bus_combo = QComboBox()
-        self.can_bus_combo.addItems(["CAN 1", "CAN 2"])
+        self.can_bus_combo.addItems(["CAN 1", "CAN 2", "CAN 3", "CAN 4"])
         can_layout.addRow("CAN Bus:", self.can_bus_combo)
 
-        # RX ID (buttons from keypad)
-        rx_layout = QHBoxLayout()
-        self.rx_id_edit = QLineEdit()
-        self.rx_id_edit.setPlaceholderText("0x100")
-        self.rx_id_edit.setMaximumWidth(100)
-        rx_layout.addWidget(self.rx_id_edit)
-        rx_layout.addWidget(QLabel("Keypad button events"))
-        rx_layout.addStretch()
-        can_layout.addRow("RX Base ID:", rx_layout)
+        # Source Address (keypad's address)
+        src_layout = QHBoxLayout()
+        self.source_addr_spin = QSpinBox()
+        self.source_addr_spin.setRange(0, 255)
+        self.source_addr_spin.setValue(self.DEFAULT_SOURCE_ADDR)
+        self.source_addr_spin.setPrefix("0x")
+        self.source_addr_spin.setDisplayIntegerBase(16)
+        src_layout.addWidget(self.source_addr_spin)
+        src_layout.addWidget(QLabel("(Keypad's J1939 source address, default 0x21)"))
+        src_layout.addStretch()
+        can_layout.addRow("Source Address:", src_layout)
 
-        # TX ID (LED control to keypad)
-        tx_layout = QHBoxLayout()
-        self.tx_id_edit = QLineEdit()
-        self.tx_id_edit.setPlaceholderText("0x101")
-        self.tx_id_edit.setMaximumWidth(100)
-        tx_layout.addWidget(self.tx_id_edit)
-        tx_layout.addWidget(QLabel("LED control commands"))
-        tx_layout.addStretch()
-        can_layout.addRow("TX Base ID:", tx_layout)
+        # Keypad Identifier
+        kpid_layout = QHBoxLayout()
+        self.keypad_id_spin = QSpinBox()
+        self.keypad_id_spin.setRange(0, 255)
+        self.keypad_id_spin.setValue(self.DEFAULT_KEYPAD_ID)
+        self.keypad_id_spin.setPrefix("0x")
+        self.keypad_id_spin.setDisplayIntegerBase(16)
+        kpid_layout.addWidget(self.keypad_id_spin)
+        kpid_layout.addWidget(QLabel("(Keypad identifier in messages, default 0x21)"))
+        kpid_layout.addStretch()
+        can_layout.addRow("Keypad ID:", kpid_layout)
 
-        self.extended_check = QCheckBox("Extended IDs (29-bit)")
+        # Destination Address (our address)
+        dest_layout = QHBoxLayout()
+        self.dest_addr_spin = QSpinBox()
+        self.dest_addr_spin.setRange(0, 255)
+        self.dest_addr_spin.setValue(self.DEFAULT_DEST_ADDR)
+        self.dest_addr_spin.setPrefix("0x")
+        self.dest_addr_spin.setDisplayIntegerBase(16)
+        dest_layout.addWidget(self.dest_addr_spin)
+        dest_layout.addWidget(QLabel("(Our address for receiving, 0xFF=broadcast)"))
+        dest_layout.addStretch()
+        can_layout.addRow("Dest Address:", dest_layout)
+
+        self.extended_check = QCheckBox("Use Extended IDs (29-bit J1939)")
+        self.extended_check.setChecked(True)
+        self.extended_check.setToolTip("J1939 protocol uses 29-bit extended CAN IDs")
         can_layout.addRow("", self.extended_check)
 
         self.timeout_spin = QSpinBox()
         self.timeout_spin.setRange(100, 30000)
-        self.timeout_spin.setValue(500)
+        self.timeout_spin.setValue(1000)
         self.timeout_spin.setSuffix(" ms")
         self.timeout_spin.setToolTip("Timeout before keypad is considered offline")
         can_layout.addRow("Timeout:", self.timeout_spin)
@@ -152,11 +211,49 @@ class BlinkMarineKeypadDialog(QDialog):
         can_group.setLayout(can_layout)
         layout.addWidget(can_group)
 
+        # Backlight configuration
+        backlight_group = QGroupBox("Backlight Settings")
+        backlight_layout = QFormLayout()
+
+        # LED brightness (0-63)
+        led_bright_layout = QHBoxLayout()
+        self.led_brightness_slider = QSlider(Qt.Orientation.Horizontal)
+        self.led_brightness_slider.setRange(0, 63)
+        self.led_brightness_slider.setValue(63)
+        self.led_brightness_slider.valueChanged.connect(self._on_led_brightness_changed)
+        led_bright_layout.addWidget(self.led_brightness_slider)
+        self.led_brightness_label = QLabel("100%")
+        self.led_brightness_label.setMinimumWidth(50)
+        led_bright_layout.addWidget(self.led_brightness_label)
+        backlight_layout.addRow("LED Brightness:", led_bright_layout)
+
+        # Backlight brightness (0-63)
+        bl_bright_layout = QHBoxLayout()
+        self.backlight_brightness_slider = QSlider(Qt.Orientation.Horizontal)
+        self.backlight_brightness_slider.setRange(0, 63)
+        self.backlight_brightness_slider.setValue(32)
+        self.backlight_brightness_slider.valueChanged.connect(self._on_backlight_brightness_changed)
+        bl_bright_layout.addWidget(self.backlight_brightness_slider)
+        self.backlight_brightness_label = QLabel("50%")
+        self.backlight_brightness_label.setMinimumWidth(50)
+        bl_bright_layout.addWidget(self.backlight_brightness_label)
+        backlight_layout.addRow("Backlight Brightness:", bl_bright_layout)
+
+        # Backlight color
+        self.backlight_color_combo = QComboBox()
+        for name, _ in self.LED_COLORS:
+            self.backlight_color_combo.addItem(name)
+        self.backlight_color_combo.setCurrentIndex(7)  # White
+        backlight_layout.addRow("Backlight Color:", self.backlight_color_combo)
+
+        backlight_group.setLayout(backlight_layout)
+        layout.addWidget(backlight_group)
+
         # Info
         info_label = QLabel(
-            "BlinkMarine keypads communicate via CAN bus.\n"
-            "RX ID: Keypad sends button press/release events\n"
-            "TX ID: PMU sends LED brightness/color commands"
+            "BlinkMarine PKP series keypads use J1939 protocol over CAN.\n"
+            "Protocol reference: PKP2600SI J1939 User Manual Rev 1.5\n"
+            "CAN ID format: 18EF[DA][SA] (Priority 6, PGN 0xEF00 Proprietary A)"
         )
         info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info_label)
@@ -164,6 +261,16 @@ class BlinkMarineKeypadDialog(QDialog):
         layout.addStretch()
 
         return tab
+
+    def _on_led_brightness_changed(self, value):
+        """Update LED brightness label."""
+        percent = int((value / 63) * 100)
+        self.led_brightness_label.setText(f"{percent}%")
+
+    def _on_backlight_brightness_changed(self, value):
+        """Update backlight brightness label."""
+        percent = int((value / 63) * 100)
+        self.backlight_brightness_label.setText(f"{percent}%")
 
     def _create_buttons_tab(self) -> QWidget:
         """Create button configuration tab."""
@@ -185,40 +292,44 @@ class BlinkMarineKeypadDialog(QDialog):
         layout.addWidget(keypad_group)
 
         # Button configuration table
-        config_group = QGroupBox("Button Actions")
+        config_group = QGroupBox("Button Configuration")
         config_layout = QVBoxLayout()
 
         self.buttons_table = QTableWidget()
-        self.buttons_table.setColumnCount(5)
+        self.buttons_table.setColumnCount(4)
         self.buttons_table.setHorizontalHeaderLabels([
-            "Button", "Name", "Channel", "Press Action", "Release Action"
+            "Key", "Enabled", "Name", "Virtual Channel"
         ])
 
         header = self.buttons_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
-        self.buttons_table.setColumnWidth(0, 60)
+        self.buttons_table.setColumnWidth(0, 50)
+        self.buttons_table.setColumnWidth(1, 70)
         self.buttons_table.verticalHeader().setVisible(False)
-        self.buttons_table.setMinimumHeight(300)  # Ensure table is tall enough for 16 buttons
-        self.buttons_table.itemDoubleClicked.connect(self._on_button_edit)
+        self.buttons_table.setMinimumHeight(350)
+        self.buttons_table.cellChanged.connect(self._on_button_cell_changed)
 
         config_layout.addWidget(self.buttons_table)
 
         # Quick action buttons
         quick_layout = QHBoxLayout()
 
-        self.assign_sequential_btn = QPushButton("Assign Sequential Channels")
-        self.assign_sequential_btn.setToolTip("Create digital input channels for each button")
+        self.enable_all_btn = QPushButton("Enable All")
+        self.enable_all_btn.clicked.connect(self._enable_all_buttons)
+        quick_layout.addWidget(self.enable_all_btn)
+
+        self.disable_all_btn = QPushButton("Disable All")
+        self.disable_all_btn.clicked.connect(self._disable_all_buttons)
+        quick_layout.addWidget(self.disable_all_btn)
+
+        self.assign_sequential_btn = QPushButton("Auto-Name Channels")
+        self.assign_sequential_btn.setToolTip("Generate virtual channel names based on keypad name")
         self.assign_sequential_btn.clicked.connect(self._assign_sequential)
         quick_layout.addWidget(self.assign_sequential_btn)
-
-        self.clear_assignments_btn = QPushButton("Clear All")
-        self.clear_assignments_btn.clicked.connect(self._clear_assignments)
-        quick_layout.addWidget(self.clear_assignments_btn)
 
         quick_layout.addStretch()
 
@@ -226,6 +337,14 @@ class BlinkMarineKeypadDialog(QDialog):
 
         config_group.setLayout(config_layout)
         layout.addWidget(config_group)
+
+        # Info
+        info_label = QLabel(
+            "Virtual channels are auto-created as Switch type channels.\n"
+            "Button presses set the channel value to 1, releases set it to 0."
+        )
+        info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
+        layout.addWidget(info_label)
 
         # Initialize grid
         self._update_button_grid()
@@ -237,47 +356,60 @@ class BlinkMarineKeypadDialog(QDialog):
         tab = QWidget()
         layout = QVBoxLayout(tab)
 
-        # LED Mode
-        mode_group = QGroupBox("LED Control Mode")
-        mode_layout = QFormLayout()
-
-        self.led_mode_combo = QComboBox()
-        self.led_mode_combo.addItems([
-            "Off (No LED control)",
-            "Mirror Input State",
-            "Channel Controlled",
-            "Custom Logic"
-        ])
-        self.led_mode_combo.currentIndexChanged.connect(self._on_led_mode_changed)
-        mode_layout.addRow("Mode:", self.led_mode_combo)
-
-        mode_group.setLayout(mode_layout)
-        layout.addWidget(mode_group)
-
         # LED Configuration Table
-        led_config_group = QGroupBox("LED Configuration")
+        led_config_group = QGroupBox("LED Configuration per Button")
         led_layout = QVBoxLayout()
 
         self.led_table = QTableWidget()
-        self.led_table.setColumnCount(5)
+        self.led_table.setColumnCount(6)
         self.led_table.setHorizontalHeaderLabels([
-            "Button", "LED Channel", "On Color", "Off Color", "Brightness"
+            "Key", "Control Mode", "On Color", "Off Color", "Alt Color", "LED Channel"
         ])
 
         header = self.led_table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+
+        self.led_table.setColumnWidth(0, 50)
+        self.led_table.setColumnWidth(2, 100)
+        self.led_table.setColumnWidth(3, 100)
+        self.led_table.setColumnWidth(4, 100)
 
         self.led_table.verticalHeader().setVisible(False)
+        self.led_table.setMinimumHeight(350)
 
         led_layout.addWidget(self.led_table)
 
         led_config_group.setLayout(led_layout)
         layout.addWidget(led_config_group)
 
-        # Color picker info
+        # Quick actions
+        quick_layout = QHBoxLayout()
+
+        set_follow_btn = QPushButton("Set All: Follow Button")
+        set_follow_btn.clicked.connect(lambda: self._set_all_led_mode(1))
+        quick_layout.addWidget(set_follow_btn)
+
+        set_off_btn = QPushButton("Set All: Off")
+        set_off_btn.clicked.connect(lambda: self._set_all_led_mode(0))
+        quick_layout.addWidget(set_off_btn)
+
+        quick_layout.addStretch()
+
+        layout.addLayout(quick_layout)
+
+        # Info
         info_label = QLabel(
-            "LED colors are 8-bit RGB values.\n"
-            "Some BlinkMarine models support full RGB, others only brightness."
+            "LED Control Modes:\n"
+            "  Off: LED is always off\n"
+            "  Follow Button: LED mirrors button state (on when pressed)\n"
+            "  Channel Controlled: LED state is controlled by a channel value\n"
+            "  Toggle on Press: LED toggles each time button is pressed\n\n"
+            "Alt Color is used for Alt Blink mode (alternates between On and Alt colors)"
         )
         info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info_label)
@@ -292,16 +424,14 @@ class BlinkMarineKeypadDialog(QDialog):
         self._update_buttons_table()
         self._update_led_table()
 
-    def _get_keypad_type(self) -> str:
+    def _get_keypad_type(self) -> int:
         """Get current keypad type."""
-        if self.keypad_type_combo.currentIndex() == 0:
-            return self.KEYPAD_2X6
-        return self.KEYPAD_2X8
+        return self.keypad_type_combo.currentIndex()
 
     def _get_button_count(self) -> int:
         """Get number of buttons for current type."""
         keypad_type = self._get_keypad_type()
-        rows, cols = self.KEYPAD_LAYOUTS[keypad_type]
+        rows, cols = self.KEYPAD_LAYOUTS.get(keypad_type, (2, 6))
         return rows * cols
 
     def _update_button_grid(self):
@@ -313,7 +443,7 @@ class BlinkMarineKeypadDialog(QDialog):
 
         # Get layout
         keypad_type = self._get_keypad_type()
-        rows, cols = self.KEYPAD_LAYOUTS[keypad_type]
+        rows, cols = self.KEYPAD_LAYOUTS.get(keypad_type, (2, 6))
 
         # Create button widgets
         for row in range(rows):
@@ -328,37 +458,41 @@ class BlinkMarineKeypadDialog(QDialog):
                 self.button_widgets.append(btn)
 
         self._update_buttons_table()
+        self._update_led_table()
 
     def _update_buttons_table(self):
         """Update buttons configuration table."""
+        self.buttons_table.blockSignals(True)
+
         button_count = self._get_button_count()
         self.buttons_table.setRowCount(button_count)
 
         for i in range(button_count):
-            # Button number
-            btn_item = QTableWidgetItem(f"B{i + 1}")
-            btn_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            btn_item.setFlags(btn_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.buttons_table.setItem(i, 0, btn_item)
+            # Key number (1-based like in protocol)
+            key_item = QTableWidgetItem(f"{i + 1}")
+            key_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.buttons_table.setItem(i, 0, key_item)
 
             # Get existing config
             config = self.button_configs.get(i, {})
 
+            # Enabled checkbox
+            enabled_check = QCheckBox()
+            enabled_check.setChecked(config.get("enabled", True))
+            enabled_check.setProperty("button_index", i)
+            enabled_check.stateChanged.connect(self._on_button_enabled_changed)
+            self.buttons_table.setCellWidget(i, 1, enabled_check)
+
             # Name
-            name_item = QTableWidgetItem(config.get("name", ""))
-            self.buttons_table.setItem(i, 1, name_item)
+            name_item = QTableWidgetItem(config.get("name", f"Button {i + 1}"))
+            self.buttons_table.setItem(i, 2, name_item)
 
-            # Channel
-            channel_item = QTableWidgetItem(config.get("channel", ""))
-            self.buttons_table.setItem(i, 2, channel_item)
+            # Virtual channel name
+            channel_item = QTableWidgetItem(config.get("virtual_channel", ""))
+            self.buttons_table.setItem(i, 3, channel_item)
 
-            # Press action
-            press_item = QTableWidgetItem(config.get("press_action", "Set High"))
-            self.buttons_table.setItem(i, 3, press_item)
-
-            # Release action
-            release_item = QTableWidgetItem(config.get("release_action", "Set Low"))
-            self.buttons_table.setItem(i, 4, release_item)
+        self.buttons_table.blockSignals(False)
 
     def _update_led_table(self):
         """Update LED configuration table."""
@@ -366,27 +500,50 @@ class BlinkMarineKeypadDialog(QDialog):
         self.led_table.setRowCount(button_count)
 
         for i in range(button_count):
-            # Button number
-            btn_item = QTableWidgetItem(f"B{i + 1}")
-            btn_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            btn_item.setFlags(btn_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.led_table.setItem(i, 0, btn_item)
+            config = self.button_configs.get(i, {})
 
-            # LED channel
-            led_channel_item = QTableWidgetItem("")
-            self.led_table.setItem(i, 1, led_channel_item)
+            # Key number
+            key_item = QTableWidgetItem(f"{i + 1}")
+            key_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            key_item.setFlags(key_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.led_table.setItem(i, 0, key_item)
+
+            # Control mode
+            mode_combo = QComboBox()
+            for name, _ in self.LED_CTRL_MODES:
+                mode_combo.addItem(name)
+            mode_combo.setCurrentIndex(config.get("led_ctrl_mode", 1))  # Default: Follow Button
+            mode_combo.setProperty("button_index", i)
+            mode_combo.currentIndexChanged.connect(self._on_led_mode_changed)
+            self.led_table.setCellWidget(i, 1, mode_combo)
 
             # On color
-            on_color_item = QTableWidgetItem("#00FF00")
-            self.led_table.setItem(i, 2, on_color_item)
+            on_color_combo = QComboBox()
+            for name, _ in self.LED_COLORS:
+                on_color_combo.addItem(name)
+            on_color_combo.setCurrentIndex(config.get("led_on_color", 2))  # Default: Green
+            on_color_combo.setProperty("button_index", i)
+            self.led_table.setCellWidget(i, 2, on_color_combo)
 
             # Off color
-            off_color_item = QTableWidgetItem("#000000")
-            self.led_table.setItem(i, 3, off_color_item)
+            off_color_combo = QComboBox()
+            for name, _ in self.LED_COLORS:
+                off_color_combo.addItem(name)
+            off_color_combo.setCurrentIndex(config.get("led_off_color", 0))  # Default: Off
+            off_color_combo.setProperty("button_index", i)
+            self.led_table.setCellWidget(i, 3, off_color_combo)
 
-            # Brightness
-            brightness_item = QTableWidgetItem("100%")
-            self.led_table.setItem(i, 4, brightness_item)
+            # Alt color (for alt blink)
+            alt_color_combo = QComboBox()
+            for name, _ in self.LED_COLORS:
+                alt_color_combo.addItem(name)
+            alt_color_combo.setCurrentIndex(config.get("led_secondary", 1))  # Default: Red
+            alt_color_combo.setProperty("button_index", i)
+            self.led_table.setCellWidget(i, 4, alt_color_combo)
+
+            # LED channel (for channel-controlled mode)
+            led_channel_item = QTableWidgetItem(config.get("led_channel_name", ""))
+            self.led_table.setItem(i, 5, led_channel_item)
 
     def _on_button_clicked(self):
         """Handle keypad button click (for selection)."""
@@ -394,80 +551,129 @@ class BlinkMarineKeypadDialog(QDialog):
         if sender:
             btn_index = sender.property("button_index")
             self.buttons_table.selectRow(btn_index)
+            self.tabs.setCurrentIndex(1)  # Switch to Buttons tab
 
-    def _on_button_edit(self, item):
-        """Handle button config edit."""
-        row = item.row()
-        col = item.column()
-
-        # Update button_configs
+    def _on_button_cell_changed(self, row, col):
+        """Handle button config cell change."""
         if row not in self.button_configs:
             self.button_configs[row] = {}
 
-        if col == 1:  # Name
-            self.button_configs[row]["name"] = item.text()
-        elif col == 2:  # Channel
-            self.button_configs[row]["channel"] = item.text()
-        elif col == 3:  # Press action
-            self.button_configs[row]["press_action"] = item.text()
-        elif col == 4:  # Release action
-            self.button_configs[row]["release_action"] = item.text()
+        if col == 2:  # Name
+            item = self.buttons_table.item(row, col)
+            if item:
+                self.button_configs[row]["name"] = item.text()
+        elif col == 3:  # Virtual channel
+            item = self.buttons_table.item(row, col)
+            if item:
+                self.button_configs[row]["virtual_channel"] = item.text()
+
+    def _on_button_enabled_changed(self, state):
+        """Handle button enabled checkbox change."""
+        sender = self.sender()
+        if sender:
+            btn_index = sender.property("button_index")
+            if btn_index not in self.button_configs:
+                self.button_configs[btn_index] = {}
+            self.button_configs[btn_index]["enabled"] = (state == Qt.CheckState.Checked.value)
+
+    def _on_led_mode_changed(self, index):
+        """Handle LED mode combo change."""
+        sender = self.sender()
+        if sender:
+            btn_index = sender.property("button_index")
+            if btn_index not in self.button_configs:
+                self.button_configs[btn_index] = {}
+            self.button_configs[btn_index]["led_ctrl_mode"] = index
+
+    def _enable_all_buttons(self):
+        """Enable all buttons."""
+        for i in range(self.buttons_table.rowCount()):
+            widget = self.buttons_table.cellWidget(i, 1)
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(True)
+
+    def _disable_all_buttons(self):
+        """Disable all buttons."""
+        for i in range(self.buttons_table.rowCount()):
+            widget = self.buttons_table.cellWidget(i, 1)
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(False)
 
     def _assign_sequential(self):
         """Assign sequential channel names to buttons."""
-        keypad_name = self.name_edit.text().strip() or "keypad"
-        keypad_id = self.id_edit.text().strip() or keypad_name.lower().replace(" ", "_")
+        keypad_name = self.name_edit.text().strip() or "Keypad"
+        # Use name as base for button channel names
+        clean_name = keypad_name.replace(" ", "_")
 
         button_count = self._get_button_count()
+        self.buttons_table.blockSignals(True)
+
         for i in range(button_count):
-            self.button_configs[i] = {
-                "name": f"Button {i + 1}",
-                "channel": f"{keypad_id}_btn{i + 1}",
-                "press_action": "Set High",
-                "release_action": "Set Low"
-            }
+            if i not in self.button_configs:
+                self.button_configs[i] = {}
 
-        self._update_buttons_table()
+            self.button_configs[i]["name"] = f"Button {i + 1}"
+            self.button_configs[i]["virtual_channel"] = f"{clean_name}_Btn{i + 1}"
+            self.button_configs[i]["enabled"] = True
 
-    def _clear_assignments(self):
-        """Clear all button assignments."""
-        self.button_configs.clear()
-        self._update_buttons_table()
+            # Update table
+            name_item = self.buttons_table.item(i, 2)
+            if name_item:
+                name_item.setText(f"Button {i + 1}")
+            channel_item = self.buttons_table.item(i, 3)
+            if channel_item:
+                channel_item.setText(f"{clean_name}_Btn{i + 1}")
+            enabled_widget = self.buttons_table.cellWidget(i, 1)
+            if isinstance(enabled_widget, QCheckBox):
+                enabled_widget.setChecked(True)
 
-    def _on_led_mode_changed(self):
-        """Handle LED mode change."""
-        mode = self.led_mode_combo.currentIndex()
-        self.led_table.setEnabled(mode > 0)
+        self.buttons_table.blockSignals(False)
+
+    def _set_all_led_mode(self, mode: int):
+        """Set all LED control modes."""
+        for i in range(self.led_table.rowCount()):
+            widget = self.led_table.cellWidget(i, 1)
+            if isinstance(widget, QComboBox):
+                widget.setCurrentIndex(mode)
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.name_edit.setText(config.get("name", ""))
-        self.id_edit.setText(config.get("id", ""))
+        # Name
+        name = config.get("name", "")
+        self.name_edit.setText(name)
 
         # Keypad type
-        keypad_type = config.get("keypad_type", self.KEYPAD_2X6)
-        if keypad_type == self.KEYPAD_2X8:
-            self.keypad_type_combo.setCurrentIndex(1)
-        else:
-            self.keypad_type_combo.setCurrentIndex(0)
+        keypad_type = config.get("type", self.KEYPAD_PKP2600SI)
+        self.keypad_type_combo.setCurrentIndex(keypad_type)
+
+        # Enabled
+        self.enabled_check.setChecked(config.get("enabled", True))
 
         # CAN config
         self.can_bus_combo.setCurrentIndex(config.get("can_bus", 1) - 1)
-        self.rx_id_edit.setText(f"0x{config.get('rx_base_id', 0x100):03X}")
-        self.tx_id_edit.setText(f"0x{config.get('tx_base_id', 0x101):03X}")
-        self.extended_check.setChecked(config.get("extended_id", False))
-        self.timeout_spin.setValue(config.get("timeout_ms", 500))
+        self.source_addr_spin.setValue(config.get("source_address", self.DEFAULT_SOURCE_ADDR))
+        self.keypad_id_spin.setValue(config.get("keypad_identifier", self.DEFAULT_KEYPAD_ID))
+        self.dest_addr_spin.setValue(config.get("destination_address", self.DEFAULT_DEST_ADDR))
+        self.extended_check.setChecked(config.get("use_extended_id", True))
+        self.timeout_spin.setValue(config.get("timeout_ms", 1000))
+
+        # Brightness
+        self.led_brightness_slider.setValue(config.get("led_brightness", 63))
+        self.backlight_brightness_slider.setValue(config.get("backlight_brightness", 32))
+        self.backlight_color_combo.setCurrentIndex(config.get("backlight_color", 7))
 
         # Button configs
-        self.button_configs = config.get("buttons", {})
-        # Convert string keys to int if needed
-        self.button_configs = {
-            int(k) if isinstance(k, str) else k: v
-            for k, v in self.button_configs.items()
-        }
-
-        # LED mode
-        self.led_mode_combo.setCurrentIndex(config.get("led_mode", 0))
+        buttons = config.get("buttons", [])
+        if isinstance(buttons, list):
+            for i, btn_config in enumerate(buttons):
+                if isinstance(btn_config, dict):
+                    self.button_configs[i] = btn_config
+        elif isinstance(buttons, dict):
+            # Legacy format with dict
+            self.button_configs = {
+                int(k) if isinstance(k, str) else k: v
+                for k, v in buttons.items()
+            }
 
         self._update_button_grid()
 
@@ -478,60 +684,72 @@ class BlinkMarineKeypadDialog(QDialog):
         if not self.name_edit.text().strip():
             errors.append("Name is required")
 
-        # Validate CAN IDs
-        try:
-            rx_text = self.rx_id_edit.text().strip()
-            if rx_text:
-                int(rx_text.replace("0x", "").replace("0X", ""), 16)
-        except ValueError:
-            errors.append("Invalid RX ID format")
-
-        try:
-            tx_text = self.tx_id_edit.text().strip()
-            if tx_text:
-                int(tx_text.replace("0x", "").replace("0X", ""), 16)
-        except ValueError:
-            errors.append("Invalid TX ID format")
-
         if errors:
             QMessageBox.warning(self, "Validation Error", "\n".join(errors))
             return
 
         self.accept()
 
+    def _collect_button_configs(self) -> List[Dict[str, Any]]:
+        """Collect button configurations from tables."""
+        button_count = self._get_button_count()
+        buttons = []
+
+        for i in range(button_count):
+            # Get from buttons table
+            enabled_widget = self.buttons_table.cellWidget(i, 1)
+            enabled = enabled_widget.isChecked() if isinstance(enabled_widget, QCheckBox) else True
+
+            name_item = self.buttons_table.item(i, 2)
+            name = name_item.text() if name_item else f"Button {i + 1}"
+
+            channel_item = self.buttons_table.item(i, 3)
+            virtual_channel = channel_item.text() if channel_item else ""
+
+            # Get from LED table
+            mode_widget = self.led_table.cellWidget(i, 1)
+            led_ctrl_mode = mode_widget.currentIndex() if isinstance(mode_widget, QComboBox) else 1
+
+            on_color_widget = self.led_table.cellWidget(i, 2)
+            led_on_color = on_color_widget.currentIndex() if isinstance(on_color_widget, QComboBox) else 2
+
+            off_color_widget = self.led_table.cellWidget(i, 3)
+            led_off_color = off_color_widget.currentIndex() if isinstance(off_color_widget, QComboBox) else 0
+
+            alt_color_widget = self.led_table.cellWidget(i, 4)
+            led_secondary = alt_color_widget.currentIndex() if isinstance(alt_color_widget, QComboBox) else 1
+
+            led_channel_item = self.led_table.item(i, 5)
+            led_channel_name = led_channel_item.text() if led_channel_item else ""
+
+            buttons.append({
+                "enabled": enabled,
+                "name": name,
+                "virtual_channel": virtual_channel,
+                "led_on_color": led_on_color,
+                "led_off_color": led_off_color,
+                "led_secondary": led_secondary,
+                "led_ctrl_mode": led_ctrl_mode,
+                "led_channel_name": led_channel_name,
+            })
+
+        return buttons
+
     def get_config(self) -> Dict[str, Any]:
         """Get keypad configuration."""
-        # Parse CAN IDs
-        rx_text = self.rx_id_edit.text().strip()
-        rx_id = int(rx_text.replace("0x", "").replace("0X", ""), 16) if rx_text else 0x100
-
-        tx_text = self.tx_id_edit.text().strip()
-        tx_id = int(tx_text.replace("0x", "").replace("0X", ""), 16) if tx_text else 0x101
-
-        # Read button configs from table
-        for row in range(self.buttons_table.rowCount()):
-            name_item = self.buttons_table.item(row, 1)
-            channel_item = self.buttons_table.item(row, 2)
-            press_item = self.buttons_table.item(row, 3)
-            release_item = self.buttons_table.item(row, 4)
-
-            self.button_configs[row] = {
-                "name": name_item.text() if name_item else "",
-                "channel": channel_item.text() if channel_item else "",
-                "press_action": press_item.text() if press_item else "Set High",
-                "release_action": release_item.text() if release_item else "Set Low"
-            }
-
         return {
             "channel_type": "blinkmarine_keypad",
             "name": self.name_edit.text().strip(),
-            "id": self.id_edit.text().strip() or self.name_edit.text().strip().lower().replace(" ", "_"),
-            "keypad_type": self._get_keypad_type(),
+            "type": self._get_keypad_type(),
+            "enabled": self.enabled_check.isChecked(),
             "can_bus": self.can_bus_combo.currentIndex() + 1,
-            "rx_base_id": rx_id,
-            "tx_base_id": tx_id,
-            "extended_id": self.extended_check.isChecked(),
+            "source_address": self.source_addr_spin.value(),
+            "keypad_identifier": self.keypad_id_spin.value(),
+            "destination_address": self.dest_addr_spin.value(),
+            "use_extended_id": self.extended_check.isChecked(),
             "timeout_ms": self.timeout_spin.value(),
-            "buttons": self.button_configs,
-            "led_mode": self.led_mode_combo.currentIndex(),
+            "led_brightness": self.led_brightness_slider.value(),
+            "backlight_brightness": self.backlight_brightness_slider.value(),
+            "backlight_color": self.backlight_color_combo.currentIndex(),
+            "buttons": self._collect_button_configs(),
         }

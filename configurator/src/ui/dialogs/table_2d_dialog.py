@@ -25,9 +25,6 @@ class Table2DDialog(BaseChannelDialog):
                  existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent, config, available_channels, ChannelType.TABLE_2D, existing_channels)
 
-        # Increase dialog size for table content
-        self.resize(650, 500)
-
         self._create_axis_group()
         self._create_table_group()
 
@@ -41,6 +38,9 @@ class Table2DDialog(BaseChannelDialog):
             self._load_specific_config(config)
 
         self._update_columns_label()
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_axis_group(self):
         """Create axis configuration group"""

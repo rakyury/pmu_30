@@ -26,8 +26,12 @@ from .blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
 from .wifi_settings_dialog import WiFiSettingsDialog
 from .bluetooth_settings_dialog import BluetoothSettingsDialog
 from .handler_dialog import HandlerDialog
+from .wiper_dialog import WiperDialog
+from .blinker_dialog import BlinkerDialog
+from .dialog_factory import DialogFactory
 
 __all__ = [
+    'DialogFactory',
     'BaseChannelDialog',
     'DigitalInputDialog',
     'AnalogInputDialog',
@@ -54,4 +58,6 @@ __all__ = [
     'WiFiSettingsDialog',
     'BluetoothSettingsDialog',
     'HandlerDialog',
+    'WiperDialog',
+    'BlinkerDialog',
 ]

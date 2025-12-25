@@ -452,14 +452,14 @@ void EMU_WebUI_SendTelemetry(void)
         for (uint8_t b = 0; b < btn_count; b++) {
             if (kp->buttons[b].state) button_states |= (1 << b);
             if (b < 16) {
-                led_states_low |= ((uint32_t)kp->buttons[b].led_state << (b * 2));
+                led_states_low |= ((uint32_t)kp->buttons[b].current_led_state << (b * 2));
             }
         }
 
         p += snprintf(p, end - p,
             "{\"id\":\"%s\",\"type\":\"%s\",\"online\":%d,\"buttons\":%d,\"leds\":%u}",
-            kp->id,
-            kp->type == PMU_BLINKMARINE_2X6 ? "2x6" : "2x8",
+            kp->name,
+            kp->type == PMU_BLINKMARINE_PKP2600SI ? "2x6" : "2x8",
             kp->online,
             button_states,
             (unsigned int)led_states_low);
@@ -1392,26 +1392,20 @@ static void handle_webui_command(const char* json)
 
         PMU_BlinkMarine_Keypad_t* kp = PMU_BlinkMarine_GetKeypadByIndex((uint8_t)idx);
         if (kp && btn >= 0 && btn < PMU_BlinkMarine_GetButtonCount(kp->type)) {
-            /* Simulate button state change via CAN message */
-            /* Build current button mask from all button states */
-            uint8_t btn_count = PMU_BlinkMarine_GetButtonCount(kp->type);
-            uint16_t btn_mask = 0;
-            for (uint8_t b = 0; b < btn_count; b++) {
-                if (kp->buttons[b].state) btn_mask |= (1 << b);
-            }
-            /* Apply the new state */
-            if (state) {
-                btn_mask |= (1 << btn);
-            } else {
-                btn_mask &= ~(1 << btn);
-            }
-            uint8_t data[2] = {btn_mask & 0xFF, (btn_mask >> 8) & 0xFF};
-            PMU_BlinkMarine_HandleRxMessage(kp->can_bus, kp->rx_base_id, data, 2);
+            /* Use SimulateButton for proper J1939 button simulation */
+            HAL_StatusTypeDef result = PMU_BlinkMarine_SimulateButton(
+                (uint8_t)idx, (uint8_t)btn, state ? 1 : 0);
 
             char msg[80];
-            snprintf(msg, sizeof(msg), "Keypad %s button %d: %s",
-                     kp->id, btn, state ? "PRESSED" : "RELEASED");
-            EMU_WebUI_SendLog(1, "keypad", msg);
+            if (result == HAL_OK) {
+                snprintf(msg, sizeof(msg), "Keypad %s button %d: %s",
+                         kp->name, btn + 1, state ? "PRESSED" : "RELEASED");
+                EMU_WebUI_SendLog(1, "keypad", msg);
+            } else {
+                snprintf(msg, sizeof(msg), "Keypad %s button %d: FAILED",
+                         kp->name, btn + 1);
+                EMU_WebUI_SendLog(2, "keypad", msg);
+            }
         }
     }
 

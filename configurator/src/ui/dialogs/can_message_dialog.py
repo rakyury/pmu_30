@@ -107,9 +107,10 @@ class CANMessageDialog(QDialog):
         super().__init__(parent)
         self.message_config = message_config
         self.existing_ids = existing_ids or []
-        self.editing_id = message_config.get("id", "") if message_config else ""
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        self.editing_name = (message_config.get("name", "") or message_config.get("id", "")) if message_config else ""
 
-        self.setWindowTitle("CAN Message Object" if not message_config else f"Edit CAN Message: {self.editing_id}")
+        self.setWindowTitle("CAN Message Object" if not message_config else f"Edit CAN Message: {self.editing_name}")
         self.setModal(True)
         self.resize(500, 450)
 
@@ -143,15 +144,10 @@ class CANMessageDialog(QDialog):
         id_group = QGroupBox("Identification")
         id_layout = QFormLayout()
 
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("e.g., msg_ecu_base")
-        self.id_edit.setToolTip("Unique identifier for this message (letters, numbers, underscores)")
-        id_layout.addRow("Message ID: *", self.id_edit)
-
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., ECU Base Data")
-        self.name_edit.setToolTip("Human-readable name for display")
-        id_layout.addRow("Name:", self.name_edit)
+        self.name_edit.setPlaceholderText("e.g., ECU_Base, LinkDash")
+        self.name_edit.setToolTip("Unique name for this message")
+        id_layout.addRow("Name: *", self.name_edit)
 
         id_group.setLayout(id_layout)
         layout.addWidget(id_group)
@@ -284,52 +280,53 @@ class CANMessageDialog(QDialog):
         if template_name in self.TEMPLATES:
             template = self.TEMPLATES[template_name].copy()
 
-            # Check if ID already exists and modify if needed
-            base_id = template.get("id", "msg_template")
-            final_id = base_id
+            # Check if name already exists and modify if needed
+            base_name = template.get("name", "") or template.get("id", "msg_template")
+            final_name = base_name
             counter = 1
-            while final_id in self.existing_ids:
-                final_id = f"{base_id}_{counter}"
+            while final_name in self.existing_ids:
+                final_name = f"{base_name}_{counter}"
                 counter += 1
-            template["id"] = final_id
+            template["name"] = final_name
 
             # Load the template configuration
             self._load_config(template)
 
     def _on_accept(self):
         """Validate and accept dialog."""
-        # Validate ID
-        msg_id = self.id_edit.text().strip()
-        if not msg_id:
-            QMessageBox.warning(self, "Validation Error", "Message ID is required!")
-            self.id_edit.setFocus()
+        # Validate name
+        msg_name = self.name_edit.text().strip()
+        if not msg_name:
+            QMessageBox.warning(self, "Validation Error", "Message name is required!")
+            self.name_edit.setFocus()
             return
 
-        # Check ID format
+        # Check name format
         import re
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', msg_id):
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', msg_name):
             QMessageBox.warning(
                 self, "Validation Error",
-                "Message ID must start with a letter and contain only letters, numbers, and underscores!"
+                "Message name must start with a letter or underscore and contain only letters, numbers, and underscores!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
             return
 
-        # Check for duplicate ID (only if creating new or ID changed)
-        if msg_id != self.editing_id and msg_id in self.existing_ids:
+        # Check for duplicate name (only if creating new or name changed)
+        if msg_name != self.editing_name and msg_name in self.existing_ids:
             QMessageBox.warning(
                 self, "Validation Error",
-                f"Message ID '{msg_id}' already exists!"
+                f"Message name '{msg_name}' already exists!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
             return
 
         self.accept()
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.id_edit.setText(config.get("id", ""))
-        self.name_edit.setText(config.get("name", ""))
+        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
         # CAN Bus (1-4 -> index 0-3)
         can_bus = config.get("can_bus", 1)
@@ -367,9 +364,9 @@ class CANMessageDialog(QDialog):
         msg_type_index = self.type_combo.currentIndex()
         msg_type = self.MESSAGE_TYPES[msg_type_index][1]
 
+        name = self.name_edit.text().strip()
         config = {
-            "id": self.id_edit.text().strip(),
-            "name": self.name_edit.text().strip(),
+            "name": name,  # Primary identifier - unique, user-editable
             "can_bus": self.can_bus_combo.currentIndex() + 1,  # 0-3 -> 1-4
             "base_id": self.base_id_spin.value(),
             "is_extended": self.extended_check.isChecked(),

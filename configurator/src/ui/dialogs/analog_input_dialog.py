@@ -63,6 +63,9 @@ class AnalogInputDialog(BaseChannelDialog):
         # Update visibility based on current subtype
         self._on_subtype_changed()
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _create_settings_group(self):
         """Create main settings group"""
         settings_group = QGroupBox("Input Settings")

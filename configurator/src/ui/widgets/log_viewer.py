@@ -159,12 +159,11 @@ class LogViewerWidget(QWidget):
         self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.log_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # Dark theme styling
+        # Dark theme styling (matching other monitors - pure black)
         self.log_text.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
+                background-color: #000000;
                 color: #d4d4d4;
-                border: 1px solid #333;
             }
         """)
 

@@ -25,8 +25,8 @@ class LuaScriptTreeDialog(BaseChannelDialog):
     """Dialog for configuring Lua scripts in the project tree."""
 
     # Signal emitted when user wants to run script on device
-    run_requested = pyqtSignal(str, str)  # script_id, script_code
-    stop_requested = pyqtSignal(str)  # script_id
+    run_requested = pyqtSignal(str, str)  # script_name, script_code
+    stop_requested = pyqtSignal(str)  # script_name
 
     TRIGGER_TYPES = [
         ("Manual", LuaTriggerType.MANUAL),
@@ -201,6 +201,9 @@ pmu.setVirtual(0, timer)
 
         if config:
             self._load_lua_config(config)
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _init_lua_ui(self):
         """Initialize Lua-specific UI components."""
@@ -652,9 +655,9 @@ pmu.setVirtual(0, timer)
             if result == QMessageBox.StandardButton.No:
                 return
 
-        script_id = self.id_edit.text().strip() or "unnamed"
+        script_name = self.name_edit.text().strip() or "unnamed"
 
-        self._log_console(f"Loading script '{script_id}'...", "info")
+        self._log_console(f"Loading script '{script_name}'...", "info")
         self.status_label.setText("Running...")
         self.status_label.setStyleSheet("color: #569CD6; font-weight: bold;")
 
@@ -663,7 +666,7 @@ pmu.setVirtual(0, timer)
         self.stop_btn.setEnabled(True)
 
         # Emit signal for external handling
-        self.run_requested.emit(script_id, script)
+        self.run_requested.emit(script_name, script)
 
         # Simulate execution for now (actual implementation would come from LuaExecutor)
         self._log_console("Script loaded successfully", "success")
@@ -671,10 +674,10 @@ pmu.setVirtual(0, timer)
 
     def _stop_execution(self):
         """Stop script execution."""
-        script_id = self.id_edit.text().strip() or "unnamed"
+        script_name = self.name_edit.text().strip() or "unnamed"
 
         self._log_console("Stopping script...", "warning")
-        self.stop_requested.emit(script_id)
+        self.stop_requested.emit(script_name)
 
         self.is_running = False
         self.run_btn.setEnabled(True)

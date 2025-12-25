@@ -50,10 +50,6 @@ class DigitalInputDialog(BaseChannelDialog):
         self.current_pin = config.get('input_pin') if config else None
         super().__init__(parent, config, available_channels, ChannelType.DIGITAL_INPUT, existing_channels)
 
-        # Increase dialog size to fit all content without scrollbar
-        self.setMinimumHeight(480)
-        self.resize(600, 500)
-
         self._create_type_group()
         self._create_hardware_group()
         self._create_button_function_group()
@@ -70,6 +66,9 @@ class DigitalInputDialog(BaseChannelDialog):
 
         # Update visibility based on current subtype
         self._on_subtype_changed()
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_type_group(self):
         """Create type selection group with two-column layout"""

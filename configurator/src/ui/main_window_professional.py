@@ -2,6 +2,12 @@
 Main Window - Modern Style
 Dock-based layout with project tree and monitoring panels
 Unified Channel architecture support
+
+Refactored with mixins for better maintainability:
+- MainWindowChannelsMixin: Channel CRUD operations
+- MainWindowDeviceMixin: Device communication
+- MainWindowTelemetryMixin: Telemetry handling
+- MainWindowConfigMixin: Configuration file operations
 """
 
 import logging
@@ -12,10 +18,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup
 
+# Import mixins (available for gradual migration)
+from .mixins import (
+    MainWindowChannelsMixin,
+    MainWindowDeviceMixin,
+    MainWindowTelemetryMixin,
+    MainWindowConfigMixin
+)
+
 from .widgets import (
     ProjectTree, OutputMonitor, AnalogMonitor, DigitalMonitor, VariablesInspector,
     PMUMonitorWidget, HBridgeMonitor, PIDTuner, CANMonitor, DataLoggerWidget,
-    ChannelGraphWidget, LogViewerWidget
+    ChannelGraphWidget, LogViewerWidget, ChannelSearchDialog, ConnectionStatusWidget
 )
 
 # Channel dialogs
@@ -51,7 +65,14 @@ from .dialogs.bluetooth_settings_dialog import BluetoothSettingsDialog
 from controllers.device_controller import DeviceController
 from models.config_manager import ConfigManager
 from models.channel import ChannelType
+from models import (
+    get_undo_manager, AddChannelCommand, RemoveChannelCommand, UpdateChannelCommand
+)
 from utils.theme import ThemeManager
+from utils import (
+    ErrorHandler, get_error_handler, set_error_handler,
+    ErrorCategory, ErrorSeverity
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +91,14 @@ class MainWindowProfessional(QMainWindow):
         # Initialize managers
         self.config_manager = ConfigManager()
         self.device_controller = DeviceController()
+
+        # Initialize centralized error handler
+        self.error_handler = ErrorHandler(parent=self, max_history=100)
+        set_error_handler(self.error_handler)
+        self.error_handler.install_global_handler()
+
+        # Initialize undo manager
+        self.undo_manager = get_undo_manager()
 
         # Settings for saving/restoring layout
         self.settings = QSettings("R2msport", "PMU30Configurator")
@@ -163,19 +192,23 @@ class MainWindowProfessional(QMainWindow):
 
         # Output Monitor tab
         self.output_monitor = OutputMonitor()
+        self.output_monitor.channel_edit_requested.connect(self._on_monitor_channel_edit)
         self.monitor_tabs.addTab(self.output_monitor, "Outputs")
 
         # Analog Monitor tab
         self.analog_monitor = AnalogMonitor()
+        self.analog_monitor.channel_edit_requested.connect(self._on_monitor_channel_edit)
         self.monitor_tabs.addTab(self.analog_monitor, "Analog")
 
         # Digital Input Monitor tab
         self.digital_monitor = DigitalMonitor()
+        self.digital_monitor.channel_edit_requested.connect(self._on_monitor_channel_edit)
         self.monitor_tabs.addTab(self.digital_monitor, "Digital")
 
         # H-Bridge Monitor tab
         self.hbridge_monitor = HBridgeMonitor()
         self.hbridge_monitor.hbridge_command.connect(self._on_hbridge_command)
+        self.hbridge_monitor.channel_edit_requested.connect(self._on_monitor_channel_edit)
         self.monitor_tabs.addTab(self.hbridge_monitor, "H-Bridge")
 
         # Variables Inspector tab
@@ -193,7 +226,9 @@ class MainWindowProfessional(QMainWindow):
         self.can_monitor.send_message.connect(self._on_can_send_message)
         self.monitor_tabs.addTab(self.can_monitor, "CAN Live")
 
-        # Data Logger is now a separate dock widget (see below)
+        # Data Logger tab
+        self.data_logger = DataLoggerWidget()
+        self.monitor_tabs.addTab(self.data_logger, "Data Logger")
 
         # Channel Graph tab (dependency visualization)
         self.channel_graph = ChannelGraphWidget()
@@ -207,20 +242,6 @@ class MainWindowProfessional(QMainWindow):
 
         self.monitor_dock.setWidget(self.monitor_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
-
-        # === BOTTOM AREA: Data Logger ===
-        self.data_logger_dock = QDockWidget("Data Logger", self)
-        self.data_logger_dock.setAllowedAreas(
-            Qt.DockWidgetArea.BottomDockWidgetArea |
-            Qt.DockWidgetArea.TopDockWidgetArea |
-            Qt.DockWidgetArea.LeftDockWidgetArea |
-            Qt.DockWidgetArea.RightDockWidgetArea
-        )
-        self.data_logger = DataLoggerWidget()
-        self.data_logger_dock.setWidget(self.data_logger)
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_logger_dock)
-        # Hide by default - can be shown via View menu
-        self.data_logger_dock.hide()
 
         # For backwards compatibility
         self.pmu_monitor_dock = self.monitor_dock
@@ -262,6 +283,28 @@ class MainWindowProfessional(QMainWindow):
 
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
+
+        # Undo/Redo actions
+        self.undo_action = QAction("Undo", self)
+        self.undo_action.setShortcut("Ctrl+Z")
+        self.undo_action.setEnabled(False)
+        self.undo_action.triggered.connect(self._on_undo)
+        edit_menu.addAction(self.undo_action)
+
+        self.redo_action = QAction("Redo", self)
+        self.redo_action.setShortcut("Ctrl+Y")
+        self.redo_action.setEnabled(False)
+        self.redo_action.triggered.connect(self._on_redo)
+        edit_menu.addAction(self.redo_action)
+
+        edit_menu.addSeparator()
+
+        search_action = QAction("Search Channels...", self)
+        search_action.setShortcut("Ctrl+F")
+        search_action.triggered.connect(self._show_channel_search)
+        edit_menu.addAction(search_action)
+
+        edit_menu.addSeparator()
 
         can_messages_action = QAction("CAN Messages...", self)
         can_messages_action.setShortcut("Ctrl+M")
@@ -336,11 +379,6 @@ class MainWindowProfessional(QMainWindow):
         monitor_action.setShortcut("F8")
         windows_menu.addAction(monitor_action)
 
-        data_logger_action = self.data_logger_dock.toggleViewAction()
-        data_logger_action.setText("Data Logger (Bottom)")
-        data_logger_action.setShortcut("Ctrl+D")
-        windows_menu.addAction(data_logger_action)
-
         windows_menu.addSeparator()
 
         # Monitor tab shortcuts
@@ -388,32 +426,33 @@ class MainWindowProfessional(QMainWindow):
 
     def _setup_statusbar(self):
         """Setup status bar."""
+        from .widgets.led_indicator import LEDIndicatorBar, OutputChannelLEDBar
+
         self.statusbar = QStatusBar()
         self.setStatusBar(self.statusbar)
 
         self.status_message = QLabel("Ready")
-        self.statusbar.addWidget(self.status_message)
+        self.statusbar.addWidget(self.status_message, 1)  # Stretch factor
 
-        self.statusbar.addWidget(QLabel(" | "))
+        # Output channel LED bar (40 channels like firmware)
+        self.output_leds = OutputChannelLEDBar()
+        self.statusbar.addPermanentWidget(self.output_leds)
 
-        self.device_status_label = QLabel("OFFLINE")
-        self.device_status_label.setStyleSheet("color: #ef4444;")
-        self.statusbar.addWidget(self.device_status_label)
+        # System LED indicator panel (firmware-style)
+        self.led_indicator = LEDIndicatorBar()
+        self.statusbar.addPermanentWidget(self.led_indicator)
 
-        self.statusbar.addWidget(QLabel(" | "))
+        # Enhanced connection status widget
+        self.connection_status = ConnectionStatusWidget(self.device_controller)
+        self.statusbar.addPermanentWidget(self.connection_status)
 
-        self.can1_label = QLabel("CAN1:")
-        self.statusbar.addWidget(self.can1_label)
+        # Keep device_status_label for backward compatibility (used by other methods)
+        self.device_status_label = self.connection_status.status_label
 
-        self.statusbar.addWidget(QLabel(" | "))
-
-        self.can2_label = QLabel("CAN2: ?")
-        self.statusbar.addWidget(self.can2_label)
-
-        self.statusbar.addWidget(QLabel(" | "))
-
-        self.outputs_status_label = QLabel("OUTPUTS:")
-        self.statusbar.addPermanentWidget(self.outputs_status_label)
+        # Keep these for backward compatibility (referenced elsewhere)
+        self.can1_label = QLabel("")
+        self.can2_label = QLabel("")
+        self.outputs_status_label = QLabel("")
 
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._update_statusbar)
@@ -451,6 +490,15 @@ class MainWindowProfessional(QMainWindow):
         self._config_loaded_signal.connect(self._load_config_from_device)
         self._config_load_error_signal.connect(self._show_read_error)
 
+        # Error handler signals for centralized error display
+        self.error_handler.error_occurred.connect(self._on_error_handler_error)
+        self.error_handler.warning_occurred.connect(self._on_error_handler_warning)
+        self.error_handler.info_message.connect(self._on_error_handler_info)
+
+        # Undo manager signals
+        self.undo_manager.can_undo_changed.connect(self.undo_action.setEnabled)
+        self.undo_manager.can_redo_changed.connect(self.redo_action.setEnabled)
+
     def _on_device_disconnected(self):
         """Handle device disconnection."""
         self.device_status_label.setText("OFFLINE")
@@ -463,6 +511,12 @@ class MainWindowProfessional(QMainWindow):
         self.variables_inspector.set_connected(False)
         self.pid_tuner.set_connected(False)
         self.can_monitor.set_connected(False)
+        # Update LED indicators
+        self.led_indicator.set_connection_status(False, False)
+        self.led_indicator.set_can_status(1, False)
+        self.led_indicator.set_can_status(2, False)
+        self.led_indicator.set_output_status(0, 0)
+        self.output_leds.set_all_disconnected()
 
     def _on_device_error(self, error_msg: str):
         """Handle device error."""
@@ -476,6 +530,8 @@ class MainWindowProfessional(QMainWindow):
         self.device_status_label.setStyleSheet("color: #f59e0b;")  # Orange/amber
         self.status_message.setText(f"Reconnecting... attempt {attempt}/{max_str}")
         logger.info(f"Reconnection attempt {attempt}/{max_str}")
+        # Update LED indicator
+        self.led_indicator.set_connection_status(False, True)
 
     def _on_device_reconnect_failed(self):
         """Handle reconnection failure (all attempts exhausted)."""
@@ -496,6 +552,68 @@ class MainWindowProfessional(QMainWindow):
         self.variables_inspector.set_connected(True)
         self.pid_tuner.set_connected(True)
         self.can_monitor.set_connected(True)
+        # Update LED indicator
+        self.led_indicator.set_connection_status(True, False)
+        self.led_indicator.set_can_status(1, True)
+        self.led_indicator.set_can_status(2, True)
+
+    # ========== Error Handler Slots ==========
+
+    def _on_error_handler_error(self, error_info):
+        """Handle centralized error from ErrorHandler."""
+        self.status_message.setText(f"Error: {error_info.message}")
+        self.status_message.setStyleSheet("color: #ef4444;")  # Red
+        # Reset style after 5 seconds
+        QTimer.singleShot(5000, lambda: self.status_message.setStyleSheet(""))
+
+    def _on_error_handler_warning(self, message: str):
+        """Handle warning message from ErrorHandler."""
+        self.status_message.setText(f"Warning: {message}")
+        self.status_message.setStyleSheet("color: #f59e0b;")  # Orange
+        QTimer.singleShot(5000, lambda: self.status_message.setStyleSheet(""))
+
+    def _on_error_handler_info(self, message: str):
+        """Handle info message from ErrorHandler."""
+        self.status_message.setText(message)
+
+    # ========== Undo/Redo Operations ==========
+
+    def _on_undo(self):
+        """Handle Undo action."""
+        if self.undo_manager.can_undo():
+            description = self.undo_manager.get_undo_description()
+            if self.undo_manager.undo():
+                self.status_message.setText(f"Undo: {description}")
+                self.configuration_changed.emit()
+
+    def _on_redo(self):
+        """Handle Redo action."""
+        if self.undo_manager.can_redo():
+            description = self.undo_manager.get_redo_description()
+            if self.undo_manager.redo():
+                self.status_message.setText(f"Redo: {description}")
+                self.configuration_changed.emit()
+
+    # ========== Channel Search ==========
+
+    def _show_channel_search(self):
+        """Show the channel search dialog."""
+        dialog = ChannelSearchDialog(self, self.project_tree)
+        dialog.channel_selected.connect(self._navigate_to_channel)
+        dialog.exec()
+
+    def _navigate_to_channel(self, channel_type, channel_data: dict):
+        """Navigate to a channel in the project tree."""
+        channel_name = channel_data.get("name", channel_data.get("id", ""))
+        if channel_name:
+            # Find and select the channel in project tree
+            item = self.project_tree.find_channel_item_by_name(channel_name)
+            if item:
+                self.project_tree.tree.setCurrentItem(item)
+                self.project_tree.tree.scrollToItem(item)
+                self.status_message.setText(f"Navigated to: {channel_name}")
+
+    # ========== Channel Operations ==========
 
     def _on_item_add_requested(self, channel_type_str: str):
         """Handle request to add new item by Channel type."""
@@ -867,13 +985,13 @@ class MainWindowProfessional(QMainWindow):
                     self.project_tree.update_current_item(updated_config)
 
             elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
-                old_keypad_id = item_data.get("id", "")
+                old_keypad_name = item_data.get("name", "")
                 dialog = BlinkMarineKeypadDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
                     # Sync virtual channels for keypad buttons (ECUMaster style)
-                    self._sync_keypad_button_channels(updated_config, old_keypad_id)
+                    self._sync_keypad_button_channels(updated_config, old_keypad_name)
 
             elif channel_type == ChannelType.HANDLER:
                 dialog = HandlerDialog(self, item_data, available_channels, existing_channels)
@@ -967,34 +1085,40 @@ class MainWindowProfessional(QMainWindow):
 
         return channels
 
-    def _sync_keypad_button_channels(self, keypad_config: dict, old_keypad_id: str = None):
+    def _sync_keypad_button_channels(self, keypad_config: dict, old_keypad_name: str = None):
         """
         Sync virtual channels for keypad buttons (ECUMaster style).
 
         Each button on a BlinkMarine keypad creates a virtual digital input channel
-        with ID format: {keypad_id}.btn{N} (e.g., "keypad1.btn1", "keypad1.btn2")
+        with name format: "{KeypadName} - Button {N}" (e.g., "SteeringKeypad - Button 1")
 
         These channels can be used as Control Function sources for power outputs.
         """
         from models.channel import DigitalInputSubtype, ButtonMode
 
-        keypad_id = keypad_config.get("id", "")
+        keypad_name = keypad_config.get("name", "")
+        if not keypad_name:
+            logger.warning("Keypad has no name, skipping button channel sync")
+            return
+
         keypad_type = keypad_config.get("keypad_type", "2x6")
         button_count = 12 if keypad_type == "2x6" else 16
         button_configs = keypad_config.get("buttons", {})
 
-        # If keypad ID changed, remove old button channels
-        if old_keypad_id and old_keypad_id != keypad_id:
-            self._remove_keypad_button_channels(old_keypad_id)
+        # If keypad name changed, remove old button channels
+        if old_keypad_name and old_keypad_name != keypad_name:
+            self._remove_keypad_button_channels(old_keypad_name)
 
         # Create/update virtual channels for each button
         for btn_idx in range(button_count):
-            btn_channel_id = f"{keypad_id}.btn{btn_idx + 1}"
             btn_config = button_configs.get(btn_idx, button_configs.get(str(btn_idx), {}))
 
             # Get button-specific settings
-            btn_name = btn_config.get("name", f"Button {btn_idx + 1}")
+            btn_label = btn_config.get("name", f"Button {btn_idx + 1}")
             press_action = btn_config.get("press_action", "Set High")
+
+            # Channel name format: "KeypadName - Button N"
+            channel_name = f"{keypad_name} - {btn_label}"
 
             # Determine button mode from press action
             if "Toggle" in press_action:
@@ -1007,38 +1131,51 @@ class MainWindowProfessional(QMainWindow):
             # Create virtual channel config
             channel_config = {
                 "channel_type": "digital_input",
-                "id": btn_channel_id,
-                "name": f"{keypad_config.get('name', keypad_id)} - {btn_name}",
+                "name": channel_name,
                 "subtype": DigitalInputSubtype.KEYPAD_BUTTON.value,
-                "keypad_id": keypad_id,
+                "keypad_name": keypad_name,
                 "button_index": btn_idx,
                 "button_mode": button_mode,
                 "invert": False,
             }
 
-            # Check if channel already exists
-            existing = self._find_channel_by_id(btn_channel_id)
+            # Check if channel already exists by name
+            existing = self._find_channel_by_name(channel_name)
             if existing:
                 # Update existing channel
-                self.project_tree.update_channel_by_id(btn_channel_id, channel_config)
+                self.project_tree.update_channel_by_name(channel_name, channel_config)
             else:
                 # Add new channel
                 self.project_tree.add_channel(ChannelType.DIGITAL_INPUT, channel_config)
 
-        logger.info(f"Synced {button_count} button channels for keypad '{keypad_id}'")
+        logger.info(f"Synced {button_count} button channels for keypad '{keypad_name}'")
 
-    def _remove_keypad_button_channels(self, keypad_id: str):
-        """Remove all button channels for a keypad."""
-        for btn_idx in range(16):  # Max buttons
-            btn_channel_id = f"{keypad_id}.btn{btn_idx + 1}"
-            self.project_tree.remove_channel_by_id(btn_channel_id)
-        logger.info(f"Removed button channels for keypad '{keypad_id}'")
-
-    def _find_channel_by_id(self, channel_id: str) -> dict:
-        """Find a channel by its ID."""
+    def _remove_keypad_button_channels(self, keypad_name: str):
+        """Remove all button channels for a keypad by matching name prefix."""
+        prefix = f"{keypad_name} - "
+        removed_count = 0
+        # Find and remove all channels that start with the keypad name prefix
         all_channels = self.project_tree.get_all_channels()
         for ch in all_channels:
-            if ch.get("id") == channel_id:
+            ch_name = ch.get("name", "")
+            if ch_name.startswith(prefix) and ch.get("subtype") == "keypad_button":
+                if self.project_tree.remove_channel_by_name(ch_name):
+                    removed_count += 1
+        logger.info(f"Removed {removed_count} button channels for keypad '{keypad_name}'")
+
+    def _find_channel_by_name(self, channel_name: str) -> dict:
+        """Find a channel by its name."""
+        all_channels = self.project_tree.get_all_channels()
+        for ch in all_channels:
+            if ch.get("name") == channel_name:
+                return ch
+        return None
+
+    def _find_channel_by_id(self, channel_id: str) -> dict:
+        """Find a channel by its ID (legacy, also checks name for compatibility)."""
+        all_channels = self.project_tree.get_all_channels()
+        for ch in all_channels:
+            if ch.get("id") == channel_id or ch.get("name") == channel_id:
                 return ch
         return None
 
@@ -1094,6 +1231,7 @@ class MainWindowProfessional(QMainWindow):
 
         self.config_manager.new_config()
         self.project_tree.clear_all()
+        self.undo_manager.clear()  # Clear undo history for new config
         self.status_message.setText("Created new configuration")
 
     def open_configuration(self):
@@ -1212,6 +1350,9 @@ class MainWindowProfessional(QMainWindow):
         # Update channel dependency graph
         self._update_channel_graph(channels)
 
+        # Clear undo history after loading config
+        self.undo_manager.clear()
+
     def _update_channel_graph(self, channels: list):
         """Update channel dependency graph."""
         # Prepare channel data with input_channels for graph
@@ -1308,6 +1449,18 @@ class MainWindowProfessional(QMainWindow):
         # Find channel in tree and open editor
         logger.info(f"Edit channel from graph: {channel_id}")
         item = self.project_tree.find_channel_item(channel_id)
+        if item:
+            self.project_tree.setCurrentItem(item)
+            self._on_project_item_double_clicked(item, 0)
+
+    def _on_monitor_channel_edit(self, channel_type: str, channel_config: dict):
+        """Handle double-click on monitor table to edit channel."""
+        logger.info(f"Edit channel from monitor: type={channel_type}, name={channel_config.get('name', '')}")
+        # Find the channel in tree by name and open editor
+        channel_name = channel_config.get('name', '')
+        if not channel_name:
+            return
+        item = self.project_tree.find_channel_item(channel_name)
         if item:
             self.project_tree.setCurrentItem(item)
             self._on_project_item_double_clicked(item, 0)
@@ -1973,8 +2126,59 @@ class MainWindowProfessional(QMainWindow):
 
             # Update data logger with telemetry data
             self.data_logger.update_from_telemetry(data)
+
+            # Update LED indicator
+            self._update_led_indicator(telemetry, states)
+
         except Exception as e:
             logger.error(f"Error processing telemetry: {e}")
+
+    def _update_led_indicator(self, telemetry, output_states: list):
+        """Update LED indicator bar from telemetry data."""
+        from .widgets.led_indicator import SystemStatus
+
+        try:
+            # Count active outputs and faults
+            active_count = sum(1 for s in output_states if s in (1, 2))  # ON or PWM
+            fault_count = 0
+
+            # Check fault flags from telemetry - per-channel faults
+            fault_flags = telemetry.fault_flags.value if hasattr(telemetry.fault_flags, 'value') else telemetry.fault_flags
+
+            # Create per-channel fault list (convert bitmask to list)
+            channel_faults = []
+            for i in range(min(len(output_states), 40)):
+                if fault_flags and (fault_flags & (1 << i)):
+                    channel_faults.append(1)
+                    fault_count += 1
+                else:
+                    channel_faults.append(0)
+
+            # Update output channel LEDs (40 channels)
+            self.output_leds.update_all_channels(output_states[:40], channel_faults)
+
+            self.led_indicator.set_output_status(active_count, fault_count)
+
+            # Update system status based on protection
+            system_status = telemetry.system_status if hasattr(telemetry, 'system_status') else 0
+            if system_status >= 4:  # Critical
+                self.led_indicator.set_system_status(SystemStatus.CRITICAL)
+            elif system_status >= 3:  # Fault
+                self.led_indicator.set_system_status(SystemStatus.FAULT)
+            elif system_status >= 2:  # Warning
+                self.led_indicator.set_system_status(SystemStatus.WARNING)
+            else:
+                self.led_indicator.set_system_status(SystemStatus.CONNECTED)
+
+            # Flash telemetry LED
+            self.led_indicator.telemetry_received()
+
+            # CAN bus status (simplified - just show as online when connected)
+            self.led_indicator.set_can_status(1, True, True)
+            self.led_indicator.set_can_status(2, True, False)
+
+        except Exception as e:
+            logger.debug(f"LED indicator update error: {e}")
 
     def _on_log_received(self, level: int, source: str, message: str):
         """Handle log message from device."""
@@ -2113,10 +2317,6 @@ class MainWindowProfessional(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
 
-        # Data Logger dock - reset to bottom, hidden by default
-        self.data_logger_dock.hide()
-        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_logger_dock)
-
         # Reset to first tab (PMU Monitor)
         self.monitor_tabs.setCurrentIndex(0)
 
@@ -2154,4 +2354,6 @@ class MainWindowProfessional(QMainWindow):
                 event.ignore()
                 return
 
+        # Cleanup error handler
+        self.error_handler.uninstall_global_handler()
         event.accept()

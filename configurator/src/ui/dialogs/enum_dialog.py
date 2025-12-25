@@ -137,6 +137,9 @@ class EnumDialog(BaseChannelDialog):
         if config:
             self._load_specific_config(config)
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _create_settings_group(self):
         """Create settings group"""
         settings_group = QGroupBox("Enumeration Settings")

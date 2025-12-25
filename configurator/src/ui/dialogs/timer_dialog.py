@@ -22,16 +22,15 @@ class TimerDialog(BaseChannelDialog):
                  existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent, config, available_channels, ChannelType.TIMER, existing_channels)
 
-        # Increase height to avoid scrollbar
-        self.setMinimumHeight(520)
-        self.resize(600, 540)
-
         self._create_trigger_group()
         self._create_settings_group()
 
         # Load config if editing
         if config:
             self._load_specific_config(config)
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_trigger_group(self):
         """Create start/stop trigger settings group with two-column layout"""

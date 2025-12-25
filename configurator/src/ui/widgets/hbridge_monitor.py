@@ -6,7 +6,7 @@ Real-time monitoring of H-Bridge motor controller channels
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QPushButton, QHBoxLayout, QLabel, QProgressBar,
-    QSlider, QSpinBox, QGroupBox
+    QSlider, QSpinBox, QGroupBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
@@ -16,17 +16,20 @@ from typing import Dict, List, Any
 class HBridgeMonitor(QWidget):
     """H-Bridge motor channels monitor widget with real-time telemetry display."""
 
+    # Signal emitted when user double-clicks a channel to edit it
+    channel_edit_requested = pyqtSignal(str, dict)  # (channel_type, channel_config)
+
     # Signals for H-Bridge control commands
     hbridge_command = pyqtSignal(int, str, int)  # (bridge_number, command, pwm_value)
     # Commands: "coast", "forward", "reverse", "brake", "stop"
 
-    # Colors for different states (dark theme)
-    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
-    COLOR_FORWARD = QColor(0, 80, 0)          # Dark green
-    COLOR_REVERSE = QColor(0, 0, 100)         # Dark blue
+    # Colors for different states (dark theme - matching Variables Inspector)
+    COLOR_NORMAL = QColor(0, 0, 0)            # Pure black (matching Variables Inspector)
+    COLOR_FORWARD = QColor(50, 80, 50)        # Dark green
+    COLOR_REVERSE = QColor(40, 40, 100)       # Dark blue
     COLOR_BRAKE = QColor(80, 80, 0)           # Dark yellow
-    COLOR_FAULT = QColor(100, 0, 0)           # Dark red
-    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
+    COLOR_FAULT = QColor(80, 40, 40)          # Dark red
+    COLOR_DISABLED = QColor(60, 60, 60)       # Dark gray
     COLOR_STALLED = QColor(100, 60, 0)        # Dark orange
 
     # Column indices
@@ -63,6 +66,7 @@ class HBridgeMonitor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.hbridges_data = []
         self._connected = False
         self._telemetry = {}  # Store latest telemetry per bridge
@@ -132,18 +136,18 @@ class HBridgeMonitor(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
-        # Dark theme styling
+        # Dark theme styling (matching Variables Inspector - pure black)
         self.table.setStyleSheet("""
             QTableWidget {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
                 gridline-color: #333333;
-                border: 1px solid #333333;
             }
             QTableWidget::item {
+                background-color: #000000;
                 color: #ffffff;
-                padding: 2px;
             }
             QTableWidget::item:selected {
                 background-color: #0078d4;
@@ -238,7 +242,7 @@ class HBridgeMonitor(QWidget):
         self.pwm_spin.setValue(value)
         self.pwm_spin.blockSignals(False)
         percent = (value / 255.0) * 100
-        self.pwm_percent_label.setText(f"{percent:.0f}%")
+        self.pwm_percent_label.setText(f"{percent:.2f}%")
 
     def _on_pwm_spin_changed(self, value: int):
         """Handle PWM spinbox change."""
@@ -246,7 +250,7 @@ class HBridgeMonitor(QWidget):
         self.pwm_slider.setValue(value)
         self.pwm_slider.blockSignals(False)
         percent = (value / 255.0) * 100
-        self.pwm_percent_label.setText(f"{percent:.0f}%")
+        self.pwm_percent_label.setText(f"{percent:.2f}%")
 
     def _get_selected_bridge(self) -> int:
         """Get selected bridge number or -1 if none selected."""
@@ -413,7 +417,7 @@ class HBridgeMonitor(QWidget):
             pwm_percent = (pwm / 255.0) * 100
             pwm_item = self.table.item(row, self.COL_PWM)
             if pwm_item:
-                pwm_item.setText(f"{pwm_percent:.0f}%")
+                pwm_item.setText(f"{pwm_percent:.2f}%")
 
             # Current
             current = telemetry.get('current', 0)
@@ -422,7 +426,7 @@ class HBridgeMonitor(QWidget):
                 if current >= 1000:
                     curr_item.setText(f"{current/1000:.2f}A")
                 else:
-                    curr_item.setText(f"{current:.0f}mA")
+                    curr_item.setText(f"{current:.2f}mA")
 
             # Speed (omega in rad/s -> RPM)
             omega = telemetry.get('omega', 0)
@@ -430,22 +434,22 @@ class HBridgeMonitor(QWidget):
             speed_item = self.table.item(row, self.COL_SPEED)
             if speed_item:
                 if rpm > 0.1:
-                    speed_item.setText(f"{rpm:.0f}")
+                    speed_item.setText(f"{rpm:.2f}")
                 else:
-                    speed_item.setText("0")
+                    speed_item.setText("0.00")
 
             # Position (theta in radians -> degrees or raw)
             theta = telemetry.get('theta', 0)
             degrees = (theta * 180.0 / 3.14159)  # rad to degrees
             pos_item = self.table.item(row, self.COL_POSITION)
             if pos_item:
-                pos_item.setText(f"{degrees:.1f}")
+                pos_item.setText(f"{degrees:.2f}")
 
             # Temperature
             temp = telemetry.get('temp', 25)
             temp_item = self.table.item(row, self.COL_TEMP)
             if temp_item:
-                temp_item.setText(f"{temp:.0f}C")
+                temp_item.setText(f"{temp:.2f}C")
 
             # Status
             state = telemetry.get('state', 0)
@@ -488,3 +492,10 @@ class HBridgeMonitor(QWidget):
     def get_channel_count(self) -> int:
         """Get number of configured H-Bridge channels."""
         return len(self.hbridges_data)
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Handle double-click on table cell - emit signal to edit the channel."""
+        if row < 0 or row >= len(self.hbridges_data):
+            return
+        hbridge_data = self.hbridges_data[row]
+        self.channel_edit_requested.emit('hbridge', hbridge_data)

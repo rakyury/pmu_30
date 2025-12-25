@@ -67,7 +67,8 @@ PMU_CONFIG_SCHEMA = {
                             "digital_input", "analog_input", "power_output",
                             "can_rx", "can_tx", "logic", "number",
                             "table_2d", "table_3d", "switch", "timer",
-                            "filter", "enum"
+                            "filter", "enum", "pid", "hbridge",
+                            "lua_script", "handler", "blinkmarine_keypad"
                         ]
                     },
                     "enabled": {"type": "boolean"},
@@ -406,20 +407,21 @@ class ConfigValidator:
 
         # Validate can_messages (Level 1)
         can_messages = config.get("can_messages", [])
-        all_message_ids = set()
+        all_message_ids = set()  # Message IDs for reference validation
         if isinstance(can_messages, list):
             for i, msg in enumerate(can_messages):
                 if isinstance(msg, dict):
-                    msg_id = msg.get("id", "")
-                    if msg_id:
-                        if msg_id in all_message_ids:
-                            errors.append(f"Duplicate CAN message ID: '{msg_id}'")
-                        all_message_ids.add(msg_id)
+                    # Try 'name' first, fall back to 'id' for backwards compatibility
+                    msg_name = msg.get("name", "") or msg.get("id", "")
+                    if msg_name:
+                        if msg_name in all_message_ids:
+                            errors.append(f"Duplicate CAN message name: '{msg_name}'")
+                        all_message_ids.add(msg_name)
 
                     # Validate required fields
                     path = f"can_messages[{i}]"
-                    if not msg_id:
-                        errors.append(f"{path}.id is required")
+                    if not msg_name:
+                        errors.append(f"{path}.name is required")
                     if "can_bus" not in msg:
                         errors.append(f"{path}.can_bus is required")
                     elif not isinstance(msg["can_bus"], int) or not (1 <= msg["can_bus"] <= 4):
@@ -651,8 +653,9 @@ class ConfigValidator:
         for ch in channels:
             if not isinstance(ch, dict):
                 continue
-            ch_id = ch.get("id", "")
-            if not ch_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            ch_name = ch.get("name", "") or ch.get("id", "")
+            if not ch_name:
                 continue
 
             deps = set()
@@ -696,7 +699,7 @@ class ConfigValidator:
                     if isinstance(sig, dict) and sig.get("source_channel"):
                         deps.add(sig["source_channel"])
 
-            dependencies[ch_id] = deps
+            dependencies[ch_name] = deps
 
         # Find cycles using DFS
         cycles = []

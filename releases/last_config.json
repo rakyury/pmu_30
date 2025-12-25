@@ -961,6 +961,139 @@
       "min_value": 0.0,
       "max_value": 10.0,
       "unit": "bar"
+    },
+    {
+      "channel_id": 70,
+      "channel_type": "filter",
+      "id": "CoolantTempSmooth",
+      "name": "Coolant Temp Smoothed",
+      "input_channel": "CoolantTemp",
+      "filter_type": "moving_avg",
+      "window_size": 10,
+      "time_constant": 0.1
+    },
+    {
+      "channel_id": 71,
+      "channel_type": "filter",
+      "id": "OilPressureSmooth",
+      "name": "Oil Pressure Smoothed",
+      "input_channel": "OilPressure",
+      "filter_type": "low_pass",
+      "window_size": 10,
+      "time_constant": 0.2
+    },
+    {
+      "channel_id": 72,
+      "channel_type": "filter",
+      "id": "BatteryVoltageStable",
+      "name": "Battery Voltage Stable",
+      "input_channel": "BatteryVoltage",
+      "filter_type": "median",
+      "window_size": 5,
+      "time_constant": 0.1
+    },
+    {
+      "channel_id": 80,
+      "channel_type": "table_2d",
+      "id": "FanSpeedCurve",
+      "name": "Fan Speed Curve",
+      "x_channel": "CoolantTempSmooth",
+      "x_min": 70.0,
+      "x_max": 110.0,
+      "x_step": 10.0,
+      "decimal_places": 0,
+      "data": [0, 0, 30, 60, 100]
+    },
+    {
+      "channel_id": 81,
+      "channel_type": "table_2d",
+      "id": "PumpPressureCurve",
+      "name": "Fuel Pump Pressure Curve",
+      "x_channel": "ThrottlePos",
+      "x_min": 0.0,
+      "x_max": 100.0,
+      "x_step": 25.0,
+      "decimal_places": 0,
+      "data": [50, 60, 75, 90, 100]
+    },
+    {
+      "channel_id": 85,
+      "channel_type": "enum",
+      "id": "GearPosition",
+      "name": "Gear Position",
+      "is_bitfield": false,
+      "items": [
+        {"value": 0, "text": "N", "color": "#808080"},
+        {"value": 1, "text": "1", "color": "#00FF00"},
+        {"value": 2, "text": "2", "color": "#00FF00"},
+        {"value": 3, "text": "3", "color": "#00FF00"},
+        {"value": 4, "text": "4", "color": "#00FF00"},
+        {"value": 5, "text": "5", "color": "#00FF00"},
+        {"value": 6, "text": "6", "color": "#00FF00"},
+        {"value": -1, "text": "R", "color": "#FF0000"}
+      ]
+    },
+    {
+      "channel_id": 86,
+      "channel_type": "enum",
+      "id": "SystemStatus",
+      "name": "System Status",
+      "is_bitfield": true,
+      "items": [
+        {"value": 1, "text": "Low Oil", "color": "#FF0000"},
+        {"value": 2, "text": "Overheat", "color": "#FF4400"},
+        {"value": 4, "text": "Low Fuel", "color": "#FFAA00"},
+        {"value": 8, "text": "Low Battery", "color": "#FFFF00"},
+        {"value": 16, "text": "Fault", "color": "#FF0000"}
+      ]
+    },
+    {
+      "channel_id": 90,
+      "channel_type": "pid",
+      "id": "BoostController",
+      "name": "Boost Controller",
+      "setpoint_channel": "TargetBoost",
+      "setpoint_value": 1.0,
+      "process_channel": "ECU_MAP",
+      "output_channel": null,
+      "kp": 2.0,
+      "ki": 0.5,
+      "kd": 0.1,
+      "output_min": 0.0,
+      "output_max": 100.0,
+      "i_min": -50.0,
+      "i_max": 50.0,
+      "sample_time_ms": 20,
+      "enabled": true
+    },
+    {
+      "channel_id": 91,
+      "channel_type": "pid",
+      "id": "IdleController",
+      "name": "Idle Controller",
+      "setpoint_channel": null,
+      "setpoint_value": 850.0,
+      "process_channel": "ECU_RPM",
+      "output_channel": null,
+      "kp": 1.5,
+      "ki": 0.3,
+      "kd": 0.05,
+      "output_min": 0.0,
+      "output_max": 100.0,
+      "i_min": -30.0,
+      "i_max": 30.0,
+      "sample_time_ms": 50,
+      "enabled": false
+    },
+    {
+      "channel_id": 63,
+      "channel_type": "number",
+      "id": "TargetBoost",
+      "name": "Target Boost",
+      "value": 1.0,
+      "min_value": 0.0,
+      "max_value": 2.5,
+      "unit": "bar"
     }
   ],
   "system": {

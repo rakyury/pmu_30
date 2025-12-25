@@ -27,6 +27,20 @@ class HBridgeDialog(QDialog):
         ("pid_position", "PID Position Control"),
     ]
 
+    # PWM Source modes (matching ECUMaster)
+    PWM_SOURCE_MODES = [
+        ("fixed", "Fixed Value"),
+        ("channel", "Channel"),
+        ("channel_offset", "Channel (Bidirectional)"),
+    ]
+
+    # Direction Source modes
+    DIR_SOURCE_MODES = [
+        ("fixed", "Fixed"),
+        ("channel", "Channel"),
+        ("channel_inverted", "Channel (Inverted)"),
+    ]
+
     # Motor presets matching emulator
     MOTOR_PRESETS = [
         ("wiper", "Wiper Motor"),
@@ -98,6 +112,7 @@ class HBridgeDialog(QDialog):
         protection_layout = QVBoxLayout(protection_tab)
         protection_layout.addWidget(self._create_protection_group())
         protection_layout.addWidget(self._create_stall_group())
+        protection_layout.addWidget(self._create_failsafe_group())
         protection_layout.addStretch()
         tabs.addTab(protection_tab, "Protection")
 
@@ -200,30 +215,63 @@ class HBridgeDialog(QDialog):
         dir_layout.addWidget(self.direction_source_btn)
         layout.addLayout(dir_layout, 2, 1, 1, 3)
 
-        # PWM Value
-        layout.addWidget(QLabel("PWM Value:"), 3, 0)
+        # PWM Source Mode (Fixed / Channel / Bidirectional)
+        layout.addWidget(QLabel("PWM Mode:"), 3, 0)
+        self.pwm_mode_combo = QComboBox()
+        for value, label in self.PWM_SOURCE_MODES:
+            self.pwm_mode_combo.addItem(label, value)
+        self.pwm_mode_combo.currentIndexChanged.connect(self._on_pwm_mode_changed)
+        self.pwm_mode_combo.setToolTip(
+            "Fixed: Use fixed PWM value\n"
+            "Channel: PWM from channel (0-100%)\n"
+            "Bidirectional: 0-50%=Rev, 50-100%=Fwd (like ECUMaster offset mode)"
+        )
+        layout.addWidget(self.pwm_mode_combo, 3, 1)
+
+        # PWM Value (fixed)
+        layout.addWidget(QLabel("PWM Value:"), 3, 2)
         self.pwm_spin = QSpinBox()
         self.pwm_spin.setRange(0, 255)
         self.pwm_spin.setValue(255)
         self.pwm_spin.setToolTip("Fixed PWM value (0-255)")
-        layout.addWidget(self.pwm_spin, 3, 1)
+        layout.addWidget(self.pwm_spin, 3, 3)
 
         # PWM Source Channel
-        layout.addWidget(QLabel("PWM Source:"), 3, 2)
+        layout.addWidget(QLabel("PWM Source:"), 4, 0)
         pwm_layout = QHBoxLayout()
         self.pwm_source_edit = QLineEdit()
-        self.pwm_source_edit.setPlaceholderText("Optional...")
+        self.pwm_source_edit.setPlaceholderText("Select channel...")
         self.pwm_source_edit.setReadOnly(True)
         pwm_layout.addWidget(self.pwm_source_edit, stretch=1)
         self.pwm_source_btn = QPushButton("...")
         self.pwm_source_btn.setMaximumWidth(30)
         self.pwm_source_btn.clicked.connect(self._browse_pwm_source)
         pwm_layout.addWidget(self.pwm_source_btn)
-        layout.addLayout(pwm_layout, 3, 3)
+        layout.addLayout(pwm_layout, 4, 1, 1, 3)
+
+        # Duty Cycle Limit
+        layout.addWidget(QLabel("Duty Limit:"), 5, 0)
+        self.duty_limit_spin = QSpinBox()
+        self.duty_limit_spin.setRange(0, 100)
+        self.duty_limit_spin.setValue(100)
+        self.duty_limit_spin.setSuffix(" %")
+        self.duty_limit_spin.setToolTip("Maximum PWM duty cycle (limits output power)")
+        layout.addWidget(self.duty_limit_spin, 5, 1)
+
+        # PWM Frequency
+        layout.addWidget(QLabel("PWM Freq:"), 5, 2)
+        self.pwm_freq_combo = QComboBox()
+        self.pwm_freq_combo.addItem("1 kHz", 1000)
+        self.pwm_freq_combo.addItem("4 kHz", 4000)
+        self.pwm_freq_combo.addItem("10 kHz", 10000)
+        self.pwm_freq_combo.addItem("20 kHz", 20000)
+        self.pwm_freq_combo.setCurrentIndex(0)  # Default 1kHz
+        self.pwm_freq_combo.setToolTip("PWM output frequency")
+        layout.addWidget(self.pwm_freq_combo, 5, 3)
 
         # Invert Direction
         self.invert_direction_check = QCheckBox("Invert Direction")
-        layout.addWidget(self.invert_direction_check, 4, 0, 1, 2)
+        layout.addWidget(self.invert_direction_check, 6, 0, 1, 2)
 
         group.setLayout(layout)
         return group
@@ -291,6 +339,40 @@ class HBridgeDialog(QDialog):
         self.deadband_spin.setToolTip("Position tolerance (stops when within deadband)")
         layout.addWidget(self.deadband_spin, 4, 1)
 
+        # Valid voltage range (ECUMaster feature)
+        layout.addWidget(QLabel("Valid Min V:"), 5, 0)
+        self.valid_voltage_min_spin = QDoubleSpinBox()
+        self.valid_voltage_min_spin.setRange(0.0, 5.0)
+        self.valid_voltage_min_spin.setValue(0.2)
+        self.valid_voltage_min_spin.setSuffix(" V")
+        self.valid_voltage_min_spin.setDecimals(2)
+        self.valid_voltage_min_spin.setToolTip("Min valid feedback voltage (output disabled if below)")
+        layout.addWidget(self.valid_voltage_min_spin, 5, 1)
+
+        layout.addWidget(QLabel("Valid Max V:"), 5, 2)
+        self.valid_voltage_max_spin = QDoubleSpinBox()
+        self.valid_voltage_max_spin.setRange(0.0, 5.0)
+        self.valid_voltage_max_spin.setValue(4.8)
+        self.valid_voltage_max_spin.setSuffix(" V")
+        self.valid_voltage_max_spin.setDecimals(2)
+        self.valid_voltage_max_spin.setToolTip("Max valid feedback voltage (output disabled if above)")
+        layout.addWidget(self.valid_voltage_max_spin, 5, 3)
+
+        # Position margins (ECUMaster feature - avoid hitting end stops)
+        layout.addWidget(QLabel("Lower Margin:"), 6, 0)
+        self.lower_margin_spin = QSpinBox()
+        self.lower_margin_spin.setRange(0, 1000)
+        self.lower_margin_spin.setValue(50)
+        self.lower_margin_spin.setToolTip("Lower position margin to avoid hitting end stop")
+        layout.addWidget(self.lower_margin_spin, 6, 1)
+
+        layout.addWidget(QLabel("Upper Margin:"), 6, 2)
+        self.upper_margin_spin = QSpinBox()
+        self.upper_margin_spin.setRange(0, 1000)
+        self.upper_margin_spin.setValue(50)
+        self.upper_margin_spin.setToolTip("Upper position margin to avoid hitting end stop")
+        layout.addWidget(self.upper_margin_spin, 6, 3)
+
         group.setLayout(layout)
         return group
 
@@ -325,6 +407,20 @@ class HBridgeDialog(QDialog):
         self.kd_spin.setDecimals(3)
         self.kd_spin.setSingleStep(0.01)
         layout.addWidget(self.kd_spin, 1, 1)
+
+        # Kd Filter (ECUMaster feature - reduces rattle)
+        layout.addWidget(QLabel("Kd Filter:"), 1, 2)
+        self.kd_filter_spin = QDoubleSpinBox()
+        self.kd_filter_spin.setRange(0.0, 1.0)
+        self.kd_filter_spin.setValue(0.1)
+        self.kd_filter_spin.setDecimals(2)
+        self.kd_filter_spin.setSingleStep(0.05)
+        self.kd_filter_spin.setToolTip(
+            "Derivative filter coefficient (0-1)\n"
+            "Higher value = more filtering, reduces rattle\n"
+            "Lower value = faster response"
+        )
+        layout.addWidget(self.kd_filter_spin, 1, 3)
 
         # Output limits
         layout.addWidget(QLabel("Min Output:"), 2, 0)
@@ -434,6 +530,94 @@ class HBridgeDialog(QDialog):
         group.setLayout(layout)
         return group
 
+    def _create_failsafe_group(self) -> QGroupBox:
+        """Create signal loss failsafe settings group."""
+        group = QGroupBox("Signal Loss Failsafe")
+        layout = QGridLayout()
+
+        # Enable failsafe
+        self.failsafe_enabled_check = QCheckBox("Enable Signal Loss Protection")
+        self.failsafe_enabled_check.setChecked(True)
+        self.failsafe_enabled_check.setToolTip(
+            "When enabled, H-Bridge will go to safe mode if control signal is lost"
+        )
+        self.failsafe_enabled_check.toggled.connect(self._on_failsafe_toggled)
+        layout.addWidget(self.failsafe_enabled_check, 0, 0, 1, 4)
+
+        # Signal timeout
+        layout.addWidget(QLabel("Signal Timeout:"), 1, 0)
+        self.signal_timeout_spin = QSpinBox()
+        self.signal_timeout_spin.setRange(10, 5000)
+        self.signal_timeout_spin.setValue(100)
+        self.signal_timeout_spin.setSuffix(" ms")
+        self.signal_timeout_spin.setToolTip(
+            "Time without valid control signal before entering safe mode\n"
+            "(CAN message timeout, wire break detection, etc.)"
+        )
+        layout.addWidget(self.signal_timeout_spin, 1, 1)
+
+        # Failsafe mode
+        layout.addWidget(QLabel("Safe Mode:"), 1, 2)
+        self.failsafe_mode_combo = QComboBox()
+        self.failsafe_mode_combo.addItem("Park Position", "park")
+        self.failsafe_mode_combo.addItem("Brake (Hold)", "brake")
+        self.failsafe_mode_combo.addItem("Coast (Free)", "coast")
+        self.failsafe_mode_combo.addItem("Custom Position", "custom_position")
+        self.failsafe_mode_combo.currentIndexChanged.connect(self._on_failsafe_mode_changed)
+        self.failsafe_mode_combo.setToolTip(
+            "Action when control signal is lost:\n"
+            "- Park Position: Move to configured park position\n"
+            "- Brake: Active brake (hold position)\n"
+            "- Coast: Free spin (release motor)\n"
+            "- Custom Position: Move to specific position"
+        )
+        layout.addWidget(self.failsafe_mode_combo, 1, 3)
+
+        # Custom failsafe position
+        layout.addWidget(QLabel("Safe Position:"), 2, 0)
+        self.failsafe_position_spin = QSpinBox()
+        self.failsafe_position_spin.setRange(0, 65535)
+        self.failsafe_position_spin.setValue(0)
+        self.failsafe_position_spin.setToolTip(
+            "Target position for safe mode (used with Park or Custom Position modes)"
+        )
+        layout.addWidget(self.failsafe_position_spin, 2, 1)
+
+        # Failsafe PWM (for safe mode operation)
+        layout.addWidget(QLabel("Safe Mode PWM:"), 2, 2)
+        self.failsafe_pwm_spin = QSpinBox()
+        self.failsafe_pwm_spin.setRange(0, 255)
+        self.failsafe_pwm_spin.setValue(100)
+        self.failsafe_pwm_spin.setToolTip(
+            "PWM value to use when moving to safe position"
+        )
+        layout.addWidget(self.failsafe_pwm_spin, 2, 3)
+
+        # Recovery options
+        self.auto_recovery_check = QCheckBox("Auto Recovery on Signal Restore")
+        self.auto_recovery_check.setChecked(True)
+        self.auto_recovery_check.setToolTip(
+            "Automatically resume normal operation when control signal returns"
+        )
+        layout.addWidget(self.auto_recovery_check, 3, 0, 1, 4)
+
+        group.setLayout(layout)
+        return group
+
+    def _on_failsafe_toggled(self, enabled):
+        """Handle failsafe enable toggle."""
+        self.signal_timeout_spin.setEnabled(enabled)
+        self.failsafe_mode_combo.setEnabled(enabled)
+        self.failsafe_position_spin.setEnabled(enabled)
+        self.failsafe_pwm_spin.setEnabled(enabled)
+        self.auto_recovery_check.setEnabled(enabled)
+
+    def _on_failsafe_mode_changed(self, index):
+        """Handle failsafe mode change."""
+        mode = self.failsafe_mode_combo.currentData()
+        # Enable position only for park and custom_position modes
+        self.failsafe_position_spin.setEnabled(mode in ("park", "custom_position"))
+
     def _populate_bridge_combo(self):
         """Populate H-Bridge dropdown with available bridges."""
         self.bridge_combo.clear()
@@ -505,6 +689,16 @@ class HBridgeDialog(QDialog):
             self.stall_current_spin.setValue(defaults["stall_current"])
             self.stall_time_spin.setValue(defaults["stall_time"])
 
+    def _on_pwm_mode_changed(self, index):
+        """Handle PWM mode change - enable/disable relevant controls."""
+        mode = self.pwm_mode_combo.currentData()
+        is_fixed = mode == "fixed"
+        is_channel = mode in ("channel", "channel_offset")
+
+        self.pwm_spin.setEnabled(is_fixed)
+        self.pwm_source_edit.setEnabled(is_channel)
+        self.pwm_source_btn.setEnabled(is_channel)
+
     def _on_mode_changed(self, index):
         """Handle mode change - enable/disable position controls."""
         mode = self.mode_combo.currentData()
@@ -529,9 +723,14 @@ class HBridgeDialog(QDialog):
         self.position_min_spin.setEnabled(enabled)
         self.position_max_spin.setEnabled(enabled)
         self.deadband_spin.setEnabled(enabled)
+        self.valid_voltage_min_spin.setEnabled(enabled)
+        self.valid_voltage_max_spin.setEnabled(enabled)
+        self.lower_margin_spin.setEnabled(enabled)
+        self.upper_margin_spin.setEnabled(enabled)
         self.kp_spin.setEnabled(enabled)
         self.ki_spin.setEnabled(enabled)
         self.kd_spin.setEnabled(enabled)
+        self.kd_filter_spin.setEnabled(enabled)
         self.pid_min_spin.setEnabled(enabled)
         self.pid_max_spin.setEnabled(enabled)
 
@@ -599,8 +798,20 @@ class HBridgeDialog(QDialog):
         self.direction_source_edit.setText(config.get("direction_source_channel", ""))
         self.pwm_source_edit.setText(config.get("pwm_source_channel", ""))
 
-        # PWM value
+        # PWM mode and settings
+        pwm_mode = config.get("pwm_mode", "fixed")
+        index = self.pwm_mode_combo.findData(pwm_mode)
+        if index >= 0:
+            self.pwm_mode_combo.setCurrentIndex(index)
         self.pwm_spin.setValue(config.get("pwm_value", 255))
+        self.duty_limit_spin.setValue(config.get("duty_limit_percent", 100))
+
+        # PWM frequency
+        pwm_freq = config.get("pwm_frequency", 1000)
+        index = self.pwm_freq_combo.findData(pwm_freq)
+        if index >= 0:
+            self.pwm_freq_combo.setCurrentIndex(index)
+
         self.invert_direction_check.setChecked(config.get("invert_direction", False))
 
         # Position control
@@ -612,10 +823,19 @@ class HBridgeDialog(QDialog):
         self.position_max_spin.setValue(config.get("position_max", 65535))
         self.deadband_spin.setValue(config.get("position_deadband", 50))
 
+        # Valid voltage range (ECUMaster feature)
+        self.valid_voltage_min_spin.setValue(config.get("valid_voltage_min", 0.2))
+        self.valid_voltage_max_spin.setValue(config.get("valid_voltage_max", 4.8))
+
+        # Position margins (ECUMaster feature)
+        self.lower_margin_spin.setValue(config.get("lower_margin", 50))
+        self.upper_margin_spin.setValue(config.get("upper_margin", 50))
+
         # PID
         self.kp_spin.setValue(config.get("pid_kp", 1.0))
         self.ki_spin.setValue(config.get("pid_ki", 0.0))
         self.kd_spin.setValue(config.get("pid_kd", 0.0))
+        self.kd_filter_spin.setValue(config.get("pid_kd_filter", 0.1))
         self.pid_min_spin.setValue(config.get("pid_output_min", -255))
         self.pid_max_spin.setValue(config.get("pid_output_max", 255))
 
@@ -632,9 +852,24 @@ class HBridgeDialog(QDialog):
         self.stall_time_spin.setValue(config.get("stall_time_threshold_ms", 500))
         self.overtemp_spin.setValue(config.get("overtemperature_threshold_c", 120))
 
+        # Failsafe settings
+        self.failsafe_enabled_check.setChecked(config.get("failsafe_enabled", True))
+        self.signal_timeout_spin.setValue(config.get("signal_timeout_ms", 100))
+        failsafe_mode = config.get("failsafe_mode", "park")
+        if hasattr(failsafe_mode, 'value'):
+            failsafe_mode = failsafe_mode.value
+        index = self.failsafe_mode_combo.findData(failsafe_mode)
+        if index >= 0:
+            self.failsafe_mode_combo.setCurrentIndex(index)
+        self.failsafe_position_spin.setValue(config.get("failsafe_position", 0))
+        self.failsafe_pwm_spin.setValue(config.get("failsafe_pwm", 100))
+        self.auto_recovery_check.setChecked(config.get("auto_recovery", True))
+
         # Update control states
         self._on_mode_changed(0)
+        self._on_pwm_mode_changed(0)
         self._on_stall_detection_toggled(self.stall_detection_check.isChecked())
+        self._on_failsafe_toggled(self.failsafe_enabled_check.isChecked())
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
@@ -649,8 +884,11 @@ class HBridgeDialog(QDialog):
             "direction": self.direction_combo.currentData(),
             "source_channel": self.source_channel_edit.text(),
             "direction_source_channel": self.direction_source_edit.text(),
+            "pwm_mode": self.pwm_mode_combo.currentData(),
             "pwm_value": self.pwm_spin.value(),
             "pwm_source_channel": self.pwm_source_edit.text(),
+            "duty_limit_percent": self.duty_limit_spin.value(),
+            "pwm_frequency": self.pwm_freq_combo.currentData(),
             "invert_direction": self.invert_direction_check.isChecked(),
 
             # Position control
@@ -661,11 +899,16 @@ class HBridgeDialog(QDialog):
             "position_min": self.position_min_spin.value(),
             "position_max": self.position_max_spin.value(),
             "position_deadband": self.deadband_spin.value(),
+            "valid_voltage_min": self.valid_voltage_min_spin.value(),
+            "valid_voltage_max": self.valid_voltage_max_spin.value(),
+            "lower_margin": self.lower_margin_spin.value(),
+            "upper_margin": self.upper_margin_spin.value(),
 
             # PID
             "pid_kp": self.kp_spin.value(),
             "pid_ki": self.ki_spin.value(),
             "pid_kd": self.kd_spin.value(),
+            "pid_kd_filter": self.kd_filter_spin.value(),
             "pid_output_min": self.pid_min_spin.value(),
             "pid_output_max": self.pid_max_spin.value(),
 
@@ -681,6 +924,14 @@ class HBridgeDialog(QDialog):
             "stall_current_threshold_a": self.stall_current_spin.value(),
             "stall_time_threshold_ms": self.stall_time_spin.value(),
             "overtemperature_threshold_c": self.overtemp_spin.value(),
+
+            # Failsafe (signal loss protection)
+            "failsafe_enabled": self.failsafe_enabled_check.isChecked(),
+            "signal_timeout_ms": self.signal_timeout_spin.value(),
+            "failsafe_mode": self.failsafe_mode_combo.currentData(),
+            "failsafe_position": self.failsafe_position_spin.value(),
+            "failsafe_pwm": self.failsafe_pwm_spin.value(),
+            "auto_recovery": self.auto_recovery_check.isChecked(),
         }
 
         return config

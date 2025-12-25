@@ -14,9 +14,9 @@ ECUMaster channel naming convention:
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QHBoxLayout, QLabel
+    QHeaderView, QPushButton, QHBoxLayout, QLabel, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from typing import Dict, List
 
@@ -24,12 +24,15 @@ from typing import Dict, List
 class OutputMonitor(QWidget):
     """Output channels monitor widget with real-time telemetry display."""
 
-    # Colors for different states (dark theme)
-    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
-    COLOR_ACTIVE = QColor(0, 80, 0)           # Dark green
-    COLOR_FAULT = QColor(100, 0, 0)           # Dark red
+    # Signal emitted when user double-clicks a channel to edit it
+    channel_edit_requested = pyqtSignal(str, dict)  # (channel_type, channel_config)
+
+    # Colors for different states (dark theme - matching Variables Inspector)
+    COLOR_NORMAL = QColor(0, 0, 0)            # Pure black (matching Variables Inspector)
+    COLOR_ACTIVE = QColor(50, 80, 50)         # Dark green
+    COLOR_FAULT = QColor(80, 40, 40)          # Dark red
     COLOR_PWM = QColor(0, 50, 80)             # Dark blue
-    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
+    COLOR_DISABLED = QColor(60, 60, 60)       # Dark gray
 
     # Column indices - matching ECUMaster layout
     COL_PIN = 0
@@ -44,6 +47,7 @@ class OutputMonitor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.outputs_data = []
         self._connected = False
         self._peak_currents = {}  # Track peak currents per channel
@@ -134,17 +138,19 @@ class OutputMonitor(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Read-only
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select full rows
 
-        # Dark theme styling
+        # Double-click to edit channel
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+
+        # Dark theme styling (matching Variables Inspector - pure black)
         self.table.setStyleSheet("""
             QTableWidget {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
                 gridline-color: #333333;
-                border: 1px solid #333333;
             }
             QTableWidget::item {
+                background-color: #000000;
                 color: #ffffff;
-                padding: 2px;
             }
             QTableWidget::item:selected {
                 background-color: #0078d4;
@@ -155,11 +161,26 @@ class OutputMonitor(QWidget):
                 color: #ffffff;
                 padding: 4px;
                 border: 1px solid #333333;
-                font-weight: bold;
             }
         """)
 
         layout.addWidget(self.table)
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Handle double-click on a cell to open edit dialog."""
+        # Get the output data for this row
+        if row not in self._row_to_index:
+            return
+
+        idx = self._row_to_index[row]
+        if idx < 0 or idx >= len(self.outputs_data):
+            return
+
+        output_data = self.outputs_data[idx]
+
+        # Emit signal to open edit dialog
+        # channel_type is 'power_output' for PROFET outputs
+        self.channel_edit_requested.emit('power_output', output_data)
 
     def set_outputs(self, outputs: List[Dict]):
         """
@@ -344,10 +365,10 @@ class OutputMonitor(QWidget):
 
                 # Update voltage
                 if voltage > 0:
-                    self.table.item(row, self.COL_VLTG).setText(f"{voltage:.1f}")
+                    self.table.item(row, self.COL_VLTG).setText(f"{voltage:.2f}")
 
                 # Update load (duty)
-                self.table.item(row, self.COL_LOAD).setText(f"{load:.0f}%")
+                self.table.item(row, self.COL_LOAD).setText(f"{load:.2f}%")
 
                 # Set row color based on status
                 if status in ["OC", "OT", "SC", "OL"]:
@@ -424,7 +445,7 @@ class OutputMonitor(QWidget):
                 if is_default:
                     v_item.setText("-")
                 else:
-                    v_item.setText(f"{battery_voltage:.1f}")
+                    v_item.setText(f"{battery_voltage:.2f}")
 
             # Load (duty cycle 0-1000 -> 0-100.0%)
             load_item = self.table.item(row, self.COL_LOAD)
@@ -433,7 +454,7 @@ class OutputMonitor(QWidget):
                     load_item.setText("-")
                 else:
                     duty_percent = duty / 10.0
-                    load_item.setText(f"{duty_percent:.0f}%")
+                    load_item.setText(f"{duty_percent:.2f}%")
 
             # Current in mA (show - for unconfigured)
             curr_item = self.table.item(row, self.COL_CURR)
@@ -469,12 +490,12 @@ class OutputMonitor(QWidget):
                 if is_default:
                     vltg_item.setText("-")
                 elif state == 1:  # ON
-                    vltg_item.setText(f"{battery_voltage:.1f}")
+                    vltg_item.setText(f"{battery_voltage:.2f}")
                 elif state == 6:  # PWM
                     output_voltage = battery_voltage * (duty / 1000.0)
-                    vltg_item.setText(f"{output_voltage:.1f}")
+                    vltg_item.setText(f"{output_voltage:.2f}")
                 else:
-                    vltg_item.setText("0.0")
+                    vltg_item.setText("0.00")
 
             # Trip indicator (fault flag) - show error icon for faults
             trip_item = self.table.item(row, self.COL_TRIP)

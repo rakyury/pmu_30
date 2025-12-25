@@ -244,7 +244,7 @@ class ChannelGraphScene(QGraphicsScene):
         self.node_items: Dict[str, ChannelNodeItem] = {}
         self.edges: List[EdgeItem] = []
 
-        self.setBackgroundBrush(QBrush(QColor('#1e1e1e')))
+        self.setBackgroundBrush(QBrush(QColor('#000000')))  # Pure black to match other monitors
 
     def build_graph(self, channels: List[Dict[str, Any]]):
         """Build graph from channel list."""

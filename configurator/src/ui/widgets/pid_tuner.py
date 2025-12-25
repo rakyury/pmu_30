@@ -173,7 +173,7 @@ class PIDTuner(QWidget):
 
         if HAS_PYQTGRAPH:
             # Configure pyqtgraph for dark theme
-            pg.setConfigOptions(antialias=True, background='#1f2937', foreground='#e5e7eb')
+            pg.setConfigOptions(antialias=True, background='#000000', foreground='#e5e7eb')
 
             # Create plot widget
             self.plot_widget = pg.PlotWidget()

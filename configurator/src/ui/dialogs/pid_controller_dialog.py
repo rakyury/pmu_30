@@ -33,6 +33,9 @@ class PIDControllerDialog(BaseChannelDialog):
         if config:
             self._load_pid_config(config)
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _init_pid_ui(self):
         """Initialize PID-specific UI components with tabs."""
         # Create tab widget

@@ -191,9 +191,32 @@ class CANMonitor(QWidget):
         self.stream_table.setColumnWidth(4, 35)  # DLC
 
         self.stream_table.verticalHeader().setVisible(False)
-        self.stream_table.setAlternatingRowColors(True)
+        self.stream_table.setAlternatingRowColors(False)
         self.stream_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.stream_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        # Dark theme styling (matching other monitors - pure black)
+        self.stream_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #000000;
+                color: #ffffff;
+                gridline-color: #333333;
+            }
+            QTableWidget::item {
+                background-color: #000000;
+                color: #ffffff;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+            }
+        """)
 
         layout.addWidget(self.stream_table)
 
@@ -227,8 +250,31 @@ class CANMonitor(QWidget):
         self.decoded_table.setColumnWidth(3, 50)   # Age
 
         self.decoded_table.verticalHeader().setVisible(False)
-        self.decoded_table.setAlternatingRowColors(True)
+        self.decoded_table.setAlternatingRowColors(False)
         self.decoded_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+
+        # Dark theme styling (matching other monitors - pure black)
+        self.decoded_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #000000;
+                color: #ffffff;
+                gridline-color: #333333;
+            }
+            QTableWidget::item {
+                background-color: #000000;
+                color: #ffffff;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+            }
+        """)
 
         layout.addWidget(self.decoded_table)
 

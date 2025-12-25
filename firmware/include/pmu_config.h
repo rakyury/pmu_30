@@ -511,16 +511,93 @@ typedef struct {
 } PMU_OutputConfig_t;
 
 /**
- * @brief PMU H-Bridge Configuration
+ * @brief H-Bridge PWM source mode
+ */
+typedef enum {
+    PMU_HBRIDGE_PWM_FIXED = 0,      /* Fixed PWM value */
+    PMU_HBRIDGE_PWM_CHANNEL,        /* PWM from channel (0-100%) */
+    PMU_HBRIDGE_PWM_BIDIRECTIONAL   /* Bidirectional: 0-50%=Rev, 50-100%=Fwd */
+} PMU_HBridge_PwmMode_t;
+
+/**
+ * @brief H-Bridge failsafe mode
+ */
+typedef enum {
+    PMU_HBRIDGE_FAILSAFE_PARK = 0,  /* Move to park position */
+    PMU_HBRIDGE_FAILSAFE_BRAKE,     /* Active brake (hold) */
+    PMU_HBRIDGE_FAILSAFE_COAST,     /* Coast (free spin) */
+    PMU_HBRIDGE_FAILSAFE_CUSTOM     /* Move to custom position */
+} PMU_HBridge_FailsafeMode_t;
+
+/**
+ * @brief PMU H-Bridge Configuration (ECUMaster-style)
  */
 typedef struct {
-    uint8_t bridge;                 /* Bridge number (1-4) */
+    /* Basic settings */
+    char name[32];                  /* Channel name */
+    uint8_t bridge;                 /* Bridge number (0-3) */
     bool enabled;                   /* Bridge enabled */
-    uint16_t current_limit_mA;      /* Current limit in mA (0-30000) */
-    uint16_t pwm_frequency_hz;      /* PWM frequency in Hz (10-20000) */
-    bool brake_on_stop;             /* Enable active braking */
-    bool wiper_park_enabled;        /* Wiper park function enabled */
-    uint8_t park_input_channel;     /* Input channel for park sensor */
+    uint8_t mode;                   /* Operating mode (coast/forward/reverse/brake/wiper_park/pid_position) */
+    char motor_preset[16];          /* Motor preset (wiper/window/seat/valve/pump/custom) */
+
+    /* Control sources */
+    char source_channel[32];        /* Activation source channel */
+    char direction_source_channel[32]; /* Direction source channel */
+    bool invert_direction;          /* Invert direction logic */
+
+    /* PWM control */
+    PMU_HBridge_PwmMode_t pwm_mode; /* PWM source mode */
+    uint16_t pwm_frequency;         /* PWM frequency in Hz (1000/4000/10000/20000) */
+    uint8_t pwm_value;              /* Fixed PWM value (0-255) */
+    char pwm_source_channel[32];    /* PWM source channel */
+    uint8_t duty_limit_percent;     /* Max duty cycle (0-100%) */
+
+    /* Position control */
+    bool position_feedback_enabled; /* Enable position feedback */
+    char position_source_channel[32]; /* Position feedback source */
+    uint16_t target_position;       /* Fixed target position */
+    char target_source_channel[32]; /* Target position source */
+    uint16_t position_min;          /* Minimum position value */
+    uint16_t position_max;          /* Maximum position value */
+    uint16_t position_deadband;     /* Position tolerance */
+    float position_park;            /* Park position for wiper mode */
+
+    /* Valid voltage range (ECUMaster feature) */
+    float valid_voltage_min;        /* Min valid feedback voltage (V) */
+    float valid_voltage_max;        /* Max valid feedback voltage (V) */
+
+    /* Position margins (ECUMaster feature) */
+    uint16_t lower_margin;          /* Lower position margin */
+    uint16_t upper_margin;          /* Upper position margin */
+
+    /* PID control */
+    float pid_kp;                   /* Proportional gain */
+    float pid_ki;                   /* Integral gain */
+    float pid_kd;                   /* Derivative gain */
+    float pid_kd_filter;            /* Derivative filter (0-1) */
+    int16_t pid_output_min;         /* PID output min */
+    int16_t pid_output_max;         /* PID output max */
+
+    /* Current protection */
+    float current_limit_a;          /* Continuous current limit (A) */
+    float inrush_current_a;         /* Inrush current limit (A) */
+    uint16_t inrush_time_ms;        /* Inrush time period (ms) */
+    uint8_t retry_count;            /* Retry count before lockout */
+    uint16_t retry_delay_ms;        /* Delay between retries (ms) */
+
+    /* Stall detection */
+    bool stall_detection_enabled;   /* Enable stall detection */
+    float stall_current_threshold_a; /* Stall current threshold (A) */
+    uint16_t stall_time_threshold_ms; /* Stall time threshold (ms) */
+    int16_t overtemperature_threshold_c; /* Over-temperature limit (C) */
+
+    /* Signal loss failsafe */
+    bool failsafe_enabled;          /* Enable signal loss protection */
+    uint16_t signal_timeout_ms;     /* Signal timeout (ms) */
+    PMU_HBridge_FailsafeMode_t failsafe_mode; /* Failsafe action */
+    uint16_t failsafe_position;     /* Failsafe target position */
+    uint8_t failsafe_pwm;           /* Failsafe PWM value */
+    bool auto_recovery;             /* Auto-recover on signal return */
 } PMU_HBridgeConfig_t;
 
 /**

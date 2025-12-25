@@ -44,6 +44,9 @@ class FilterDialog(BaseChannelDialog):
         # Initialize visibility
         self._on_filter_type_changed()
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _create_filter_group(self):
         """Create filter settings group"""
         filter_group = QGroupBox("Filter Settings")

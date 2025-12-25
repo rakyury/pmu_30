@@ -5,7 +5,7 @@ Hierarchical tree view of all channels (unified architecture)
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QPushButton, QMenu, QMessageBox, QHeaderView
+    QPushButton, QMenu, QMessageBox, QHeaderView, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QPixmap, QPainter, QBrush
@@ -104,6 +104,7 @@ class ProjectTree(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._init_ui()
         self._create_folder_structure()
 
@@ -204,6 +205,33 @@ class ProjectTree(QWidget):
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Dark theme styling (matching monitors - pure black background, consistent selection)
+        self.tree.setStyleSheet("""
+            QTreeWidget {
+                background-color: #000000;
+                color: #ffffff;
+                gridline-color: #333333;
+            }
+            QTreeWidget::item {
+                background-color: #000000;
+                color: #ffffff;
+            }
+            QTreeWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QTreeWidget::branch {
+                background-color: #000000;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+            }
+        """)
+
         layout.addWidget(self.tree)
 
         # Buttons panel
@@ -1216,16 +1244,30 @@ class ProjectTree(QWidget):
             channels.extend(self.get_channels_by_type(channel_type))
         return channels
 
-    def find_channel_item(self, channel_id: str) -> Optional[QTreeWidgetItem]:
-        """Find tree item by channel ID."""
+    def find_channel_item(self, channel_id_or_name: str) -> Optional[QTreeWidgetItem]:
+        """Find tree item by channel ID or name."""
         for folder in self.folders.values():
             for i in range(folder.childCount()):
                 item = folder.child(i)
                 data = item.data(0, Qt.ItemDataRole.UserRole)
                 if isinstance(data, dict):
                     channel_data = data.get("data", data)
+                    # Check both id and name for compatibility
                     item_id = channel_data.get("id", "")
-                    if item_id == channel_id:
+                    item_name = channel_data.get("name", "")
+                    if item_id == channel_id_or_name or item_name == channel_id_or_name:
+                        return item
+        return None
+
+    def find_channel_item_by_name(self, name: str) -> Optional[QTreeWidgetItem]:
+        """Find tree item by channel name."""
+        for folder in self.folders.values():
+            for i in range(folder.childCount()):
+                item = folder.child(i)
+                data = item.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(data, dict):
+                    channel_data = data.get("data", data)
+                    if channel_data.get("name") == name:
                         return item
         return None
 
@@ -1276,8 +1318,13 @@ class ProjectTree(QWidget):
         self.configuration_changed.emit()
         return True
 
-    def remove_channel_by_id(self, channel_id: str) -> bool:
-        """Remove a channel by its ID."""
+    def remove_channel_by_id(self, channel_id: str, emit_signal: bool = True) -> bool:
+        """Remove a channel by its ID.
+
+        Args:
+            channel_id: ID of the channel to remove
+            emit_signal: Whether to emit configuration_changed signal (default True)
+        """
         item = self.find_channel_item(channel_id)
         if not item:
             return False
@@ -1285,7 +1332,81 @@ class ProjectTree(QWidget):
         parent = item.parent()
         if parent:
             parent.removeChild(item)
+            if emit_signal:
+                self.configuration_changed.emit()
+            return True
+        return False
+
+    def update_channel_by_name(self, channel_name: str, new_data: Dict[str, Any], emit_signal: bool = True) -> bool:
+        """Update a channel by its name.
+
+        Args:
+            channel_name: Name of the channel to update
+            new_data: New channel configuration data
+            emit_signal: Whether to emit configuration_changed signal (default True)
+        """
+        item = self.find_channel_item_by_name(channel_name)
+        if not item:
+            return False
+
+        old_data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not old_data or old_data.get("type") != "channel":
+            return False
+
+        channel_type = old_data.get("channel_type")
+        if not channel_type:
+            return False
+
+        # Update display
+        display_name = new_data.get("name", "unnamed")
+        ch_id = new_data.get("channel_id", "")
+
+        if ch_id:
+            display_text = f"{display_name} [#{ch_id}]"
+        else:
+            display_text = display_name
+
+        item.setText(0, display_text)
+        item.setText(1, self._get_channel_details(channel_type, new_data))
+        item.setText(2, self._get_channel_source(channel_type, new_data))
+
+        # Update status icon
+        status_color = self._get_channel_status_color(channel_type, new_data)
+        item.setIcon(0, self._create_status_icon(status_color))
+
+        # Update tooltip
+        tooltip = self._get_channel_tooltip(channel_type, new_data)
+        item.setToolTip(0, tooltip)
+        item.setToolTip(1, tooltip)
+        item.setToolTip(2, tooltip)
+
+        # Update stored data
+        item.setData(0, Qt.ItemDataRole.UserRole, {
+            "type": "channel",
+            "channel_type": channel_type,
+            "data": new_data
+        })
+
+        if emit_signal:
             self.configuration_changed.emit()
+        return True
+
+    def remove_channel_by_name(self, channel_name: str, emit_signal: bool = True) -> bool:
+        """Remove a channel by its name.
+
+        Args:
+            channel_name: Name of the channel to remove
+            emit_signal: Whether to emit configuration_changed signal (default True)
+        """
+        item = self.find_channel_item_by_name(channel_name)
+        if not item:
+            return False
+
+        parent = item.parent()
+        if parent:
+            parent.removeChild(item)
+            if emit_signal:
+                self.configuration_changed.emit()
             return True
         return False
 
@@ -1442,27 +1563,32 @@ class ProjectTree(QWidget):
         self.configuration_changed.emit()
 
     def _auto_collapse_large_folders(self, threshold: int = 10):
-        """Collapse folders that have more than threshold children."""
-        def process_item(item: QTreeWidgetItem):
-            child_count = item.childCount()
-            if child_count > threshold:
-                item.setExpanded(False)
-            else:
-                item.setExpanded(True)
-            # Process child folders recursively
-            for i in range(child_count):
-                child = item.child(i)
-                if child.childCount() > 0:
-                    process_item(child)
+        """Collapse subfolders that have more than threshold children.
 
+        Only collapses subfolders with channel items - does not auto-expand.
+        Top-level category folders are always expanded.
+        """
         # Process all top-level items (main category folders)
         for i in range(self.tree.topLevelItemCount()):
             top_item = self.tree.topLevelItem(i)
-            if top_item:
-                # Always expand top-level categories
-                top_item.setExpanded(True)
-                # Process subfolders
-                for j in range(top_item.childCount()):
-                    subfolder = top_item.child(j)
-                    if subfolder:
-                        process_item(subfolder)
+            if not top_item:
+                continue
+
+            # Always expand top-level categories
+            top_item.setExpanded(True)
+
+            # Process subfolders (channel type folders)
+            for j in range(top_item.childCount()):
+                subfolder = top_item.child(j)
+                if not subfolder:
+                    continue
+
+                child_count = subfolder.childCount()
+
+                # Collapse folders with many children
+                if child_count > threshold:
+                    subfolder.setExpanded(False)
+                elif child_count > 0:
+                    # Expand folders that have content but not too many
+                    subfolder.setExpanded(True)
+                # Empty folders stay collapsed (default state)

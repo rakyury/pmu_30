@@ -18,7 +18,7 @@ Channel naming conventions:
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QPushButton
+    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QBrush
@@ -44,16 +44,19 @@ class VariablesInspector(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._connected = False
         self._channels: Dict[str, Dict[str, Any]] = {}  # name -> {value, unit, type, active}
         self._channel_id_map: Dict[int, str] = {}  # channel_id -> stored_id for fast lookup
-        self._previous_values: Dict[str, Any] = {}  # For change detection
+        self._row_index_map: Dict[str, int] = {}  # channel_id -> row index for O(1) lookup
+        self._changed_rows: set = set()  # Track rows that need color reset
+        self._pending_updates: bool = False  # Flag for batched viewport updates
         self._init_ui()
 
-        # Update timer
+        # Update timer - only for color decay, runs less frequently
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_display)
-        self.update_timer.start(100)  # Update every 100ms
+        self.update_timer.start(250)  # Update every 250ms (was 100ms)
 
     def _init_ui(self):
         """Initialize UI."""
@@ -272,10 +275,19 @@ class VariablesInspector(QWidget):
         # Sort channels by name
         sorted_ids = sorted(self._channels.keys())
 
+        # Disable updates during bulk population for performance
+        self.table.setUpdatesEnabled(False)
+
         self.table.setRowCount(len(sorted_ids))
+
+        # Build row index map for O(1) lookup
+        self._row_index_map.clear()
 
         for row, ch_id in enumerate(sorted_ids):
             ch = self._channels[ch_id]
+
+            # Build reverse lookup map
+            self._row_index_map[ch_id] = row
 
             # Name (not editable)
             name_item = QTableWidgetItem(ch['name'])
@@ -298,6 +310,9 @@ class VariablesInspector(QWidget):
             # Initial color
             self._set_row_color(row, self.COLOR_DISABLED if not self._connected else self.COLOR_NORMAL)
 
+        # Re-enable updates and repaint once
+        self.table.setUpdatesEnabled(True)
+
         self.count_label.setText(f"{len(sorted_ids)} channels")
         self._apply_filter()
 
@@ -309,12 +324,8 @@ class VariablesInspector(QWidget):
                 item.setBackground(QBrush(color))
 
     def _get_row_by_id(self, channel_id: str) -> int:
-        """Find row index by channel ID."""
-        for row in range(self.table.rowCount()):
-            name_item = self.table.item(row, self.COL_NAME)
-            if name_item and name_item.data(Qt.ItemDataRole.UserRole) == channel_id:
-                return row
-        return -1
+        """Find row index by channel ID using O(1) lookup."""
+        return self._row_index_map.get(channel_id, -1)
 
     def update_value(self, channel_id: str, value: Any, active: bool = False,
                      error: bool = False):
@@ -338,7 +349,7 @@ class VariablesInspector(QWidget):
         self._channels[channel_id]['active'] = active
         self._channels[channel_id]['error'] = error
 
-        # Update table
+        # Update table - use O(1) row lookup
         row = self._get_row_by_id(channel_id)
         if row < 0:
             return
@@ -357,13 +368,14 @@ class VariablesInspector(QWidget):
         elif active:
             self._set_row_color(row, self.COLOR_ACTIVE)
         elif prev_value != value and prev_value != '?':
-            # Recently changed - show green briefly
+            # Recently changed - track for color decay
             self._set_row_color(row, self.COLOR_CHANGED)
+            self._changed_rows.add(row)
         else:
             self._set_row_color(row, self.COLOR_NORMAL)
+            self._changed_rows.discard(row)
 
-        # Force table row to update visually
-        self.table.viewport().update()
+        # NOTE: Removed viewport().update() - batched updates handled by timer
 
     def update_values_batch(self, values: Dict[str, Any]):
         """
@@ -390,31 +402,36 @@ class VariablesInspector(QWidget):
         Args:
             telemetry_data: Telemetry data dict with channel values
         """
-        # Update PMU system channels
+        # Update PMU system channels (using pmu.* naming)
         if 'board_temp_l' in telemetry_data:
-            self.update_value('pmu1.boardTemperatureL', telemetry_data['board_temp_l'])
+            self.update_value('pmu.boardTemperatureL', telemetry_data['board_temp_l'])
         if 'board_temp_r' in telemetry_data:
-            self.update_value('pmu1.boardTemperatureR', telemetry_data['board_temp_r'])
+            self.update_value('pmu.boardTemperatureR', telemetry_data['board_temp_r'])
         if 'battery_voltage' in telemetry_data:
-            self.update_value('pmu1.batteryVoltage', telemetry_data['battery_voltage'])
+            self.update_value('pmu.batteryVoltage', telemetry_data['battery_voltage'])
         if 'voltage_5v' in telemetry_data:
-            self.update_value('pmu1.5VOutput', telemetry_data['voltage_5v'])
+            self.update_value('pmu.5VOutput', telemetry_data['voltage_5v'])
         if 'voltage_3v3' in telemetry_data:
-            self.update_value('pmu1.3V3Output', telemetry_data['voltage_3v3'])
+            self.update_value('pmu.3V3Output', telemetry_data['voltage_3v3'])
         if 'pmu_status' in telemetry_data:
-            self.update_value('pmu1.status', telemetry_data['pmu_status'])
+            self.update_value('pmu.status', telemetry_data['pmu_status'])
         if 'user_error' in telemetry_data:
-            self.update_value('pmu1.userError', telemetry_data['user_error'],
+            self.update_value('pmu.userError', telemetry_data['user_error'],
                             error=telemetry_data['user_error'] != 0)
+        if 'total_current' in telemetry_data:
+            self.update_value('pmu.totalCurrent', telemetry_data['total_current'])
+        if 'uptime' in telemetry_data:
+            self.update_value('pmu.uptime', telemetry_data['uptime'])
 
-        # Update output channels
+        # Update hardware output channels (pmu.o{i}.*) - 40 PROFET outputs
         if 'profet_states' in telemetry_data:
             states = telemetry_data['profet_states']
             state_names = ["OFF", "ON", "OC", "OT", "SC", "OL", "PWM", "DIS"]
             fault_states = [2, 3, 4, 5]  # OC, OT, SC, OL
 
             for i, state in enumerate(states):
-                ch_id = f'o_{i+1}.status'
+                # Hardware output status (pmu.o{i}.status)
+                ch_id = f'pmu.o{i+1}.status'
                 status_str = state_names[state] if state < len(state_names) else "?"
                 is_active = state == 1 or state == 6  # ON or PWM
                 is_error = state in fault_states
@@ -423,7 +440,8 @@ class VariablesInspector(QWidget):
         if 'profet_currents' in telemetry_data:
             currents = telemetry_data['profet_currents']
             for i, current_ma in enumerate(currents):
-                ch_id = f'o_{i+1}.current'
+                # Hardware output current (pmu.o{i}.current)
+                ch_id = f'pmu.o{i+1}.current'
                 if current_ma >= 1000:
                     self.update_value(ch_id, f"{current_ma/1000:.2f}A")
                 else:
@@ -432,43 +450,40 @@ class VariablesInspector(QWidget):
         # Update output duty cycles
         if 'profet_duties' in telemetry_data:
             duties = telemetry_data['profet_duties']
-            battery_mv = telemetry_data.get('battery_voltage_mv', 12000)
-            states = telemetry_data.get('profet_states', [0] * 30)
+            states = telemetry_data.get('profet_states', [0] * 40)
 
             for i, duty in enumerate(duties):
-                # dutyCycle - percentage (0-1000 = 0-100.0%)
-                ch_id = f'o_{i+1}.dutyCycle'
                 state = states[i] if i < len(states) else 0
+
+                # Duty cycle (pmu.o{i}.dc)
+                ch_id = f'pmu.o{i+1}.dc'
                 if state == 1:  # ON
-                    self.update_value(ch_id, "100.0%")
+                    self.update_value(ch_id, "100.00%")
                 elif state == 6:  # PWM
-                    self.update_value(ch_id, f"{duty/10:.1f}%")
+                    self.update_value(ch_id, f"{duty/10:.2f}%")
                 else:
-                    self.update_value(ch_id, "0.0%")
+                    self.update_value(ch_id, "0.00%")
 
-                # voltage - output voltage in V (approximation)
-                ch_id = f'o_{i+1}.voltage'
-                if state == 1:  # ON
-                    voltage_v = battery_mv / 1000.0
-                elif state == 6:  # PWM
-                    voltage_v = (battery_mv * duty / 1000) / 1000.0
-                else:
-                    voltage_v = 0.0
-                self.update_value(ch_id, f"{voltage_v:.1f}V")
-
-                # active - boolean
-                ch_id = f'o_{i+1}.active'
-                is_active = state == 1 or (state == 6 and duty > 0)
-                self.update_value(ch_id, "1" if is_active else "0", active=is_active)
-
-        # Update analog input channels
+        # Update hardware analog input channels (pmu.a{i}.*)
         if 'adc_values' in telemetry_data:
             adc_values = telemetry_data['adc_values']
             ref_voltage = telemetry_data.get('reference_voltage', 3.3)  # 3.3V ADC reference
             for i, adc_raw in enumerate(adc_values):
-                ch_id = f'a_{i+1}.voltage'
+                # Voltage (pmu.a{i}.voltage)
+                ch_id = f'pmu.a{i+1}.voltage'
                 voltage = (adc_raw / 4095.0) * ref_voltage
                 self.update_value(ch_id, f"{voltage:.2f}V")
+
+                # Raw ADC value (pmu.a{i}.raw)
+                ch_id = f'pmu.a{i+1}.raw'
+                self.update_value(ch_id, adc_raw)
+
+        # Update hardware digital input channels (pmu.d{i}.*)
+        if 'digital_states' in telemetry_data:
+            digital_states = telemetry_data['digital_states']
+            for i, state in enumerate(digital_states):
+                ch_id = f'pmu.d{i+1}.state'
+                self.update_value(ch_id, "1" if state else "0", active=state)
 
         # Update CAN RX channels
         if 'can_rx_values' in telemetry_data:
@@ -509,6 +524,10 @@ class VariablesInspector(QWidget):
                     running = value > 0
                     display_value = "ON" if running else "OFF"
                     self.update_value(stored_id, display_value, active=running)
+                elif ch_type == 'timer_running':
+                    # Timer running flag (1 = running, 0 = stopped)
+                    running = value > 0
+                    self.update_value(stored_id, "1" if running else "0", active=running)
                 elif ch_type == 'timer_elapsed':
                     # Timer elapsed channel - shows time in ms, display as seconds
                     seconds = value / 1000.0
@@ -516,13 +535,13 @@ class VariablesInspector(QWidget):
                         h = int(seconds // 3600)
                         m = int((seconds % 3600) // 60)
                         s = seconds % 60
-                        time_str = f"{h}h {m}m {s:.1f}s"
+                        time_str = f"{h}h {m}m {s:.2f}s"
                     elif seconds >= 60:
                         m = int(seconds // 60)
                         s = seconds % 60
-                        time_str = f"{m}m {s:.1f}s"
+                        time_str = f"{m}m {s:.2f}s"
                     else:
-                        time_str = f"{seconds:.1f}s"
+                        time_str = f"{seconds:.2f}s"
                     self.update_value(stored_id, time_str)
                 elif ch_type == 'switch':
                     # Enum display (show state index)
@@ -536,8 +555,14 @@ class VariablesInspector(QWidget):
 
     def _update_display(self):
         """Periodic display update (for change color decay)."""
-        # Reset changed colors back to normal after a short delay
-        for row in range(self.table.rowCount()):
+        # Only process rows that were recently changed - O(changed_rows) instead of O(all_rows)
+        if not self._changed_rows:
+            return
+
+        rows_to_process = list(self._changed_rows)
+        self._changed_rows.clear()
+
+        for row in rows_to_process:
             name_item = self.table.item(row, self.COL_NAME)
             if not name_item:
                 continue
@@ -548,16 +573,13 @@ class VariablesInspector(QWidget):
 
             ch = self._channels[ch_id]
 
-            # Get current background color
-            bg = name_item.background().color()
-            if bg == self.COLOR_CHANGED:
-                # Decay green back to normal
-                if ch.get('error'):
-                    self._set_row_color(row, self.COLOR_ERROR)
-                elif ch.get('active'):
-                    self._set_row_color(row, self.COLOR_ACTIVE)
-                else:
-                    self._set_row_color(row, self.COLOR_NORMAL)
+            # Decay green back to appropriate color
+            if ch.get('error'):
+                self._set_row_color(row, self.COLOR_ERROR)
+            elif ch.get('active'):
+                self._set_row_color(row, self.COLOR_ACTIVE)
+            else:
+                self._set_row_color(row, self.COLOR_NORMAL)
 
     def _apply_filter(self):
         """Apply filter to show/hide rows."""
@@ -597,18 +619,61 @@ class VariablesInspector(QWidget):
         ]
         channels.extend(constant_channels)
 
-        # Add PMU system channels
+        # Add PMU system channels (pmu.* naming)
         pmu_system_channels = [
-            {'id': 'pmu1.status', 'name': 'c_pmu1_status', 'unit': ''},
-            {'id': 'pmu1.userError', 'name': 'c_pmu1_userError', 'unit': ''},
-            {'id': 'pmu1.batteryVoltage', 'name': 'c_pmu1_batteryVoltage', 'unit': 'V'},
-            {'id': 'pmu1.boardTemperatureL', 'name': 'c_pmu1_boardTemperatureL', 'unit': '°C'},
-            {'id': 'pmu1.boardTemperatureR', 'name': 'c_pmu1_boardTemperatureR', 'unit': '°C'},
-            {'id': 'pmu1.5VOutput', 'name': 'c_pmu1_5VOutput', 'unit': 'V'},
-            {'id': 'pmu1.3V3Output', 'name': 'c_pmu1_3V3Output', 'unit': 'V'},
-            {'id': 'pmu1.totalCurrent', 'name': 'c_pmu1_totalCurrent', 'unit': 'A'},
+            {'id': 'pmu.status', 'name': 'PMU Status', 'unit': ''},
+            {'id': 'pmu.userError', 'name': 'User Error', 'unit': ''},
+            {'id': 'pmu.batteryVoltage', 'name': 'Battery Voltage', 'unit': 'V'},
+            {'id': 'pmu.boardTemperatureL', 'name': 'Board Temp L', 'unit': '°C'},
+            {'id': 'pmu.boardTemperatureR', 'name': 'Board Temp R', 'unit': '°C'},
+            {'id': 'pmu.boardTemperatureMax', 'name': 'Board Temp Max', 'unit': '°C'},
+            {'id': 'pmu.5VOutput', 'name': '5V Output', 'unit': 'V'},
+            {'id': 'pmu.3V3Output', 'name': '3.3V Output', 'unit': 'V'},
+            {'id': 'pmu.totalCurrent', 'name': 'Total Current', 'unit': 'A'},
+            {'id': 'pmu.uptime', 'name': 'Uptime', 'unit': 's'},
+            {'id': 'pmu.isTurningOff', 'name': 'Is Turning Off', 'unit': ''},
         ]
         channels.extend(pmu_system_channels)
+
+        # Add PMU hardware analog input channels (pmu.a{i}.*)
+        for i in range(1, 21):
+            channels.append({
+                'id': f'pmu.a{i}.voltage',
+                'name': f'Analog {i} Voltage',
+                'unit': 'V',
+                'channel_type': 'system'
+            })
+            channels.append({
+                'id': f'pmu.a{i}.raw',
+                'name': f'Analog {i} Raw',
+                'unit': '',
+                'channel_type': 'system'
+            })
+
+        # Add PMU hardware digital input channels (pmu.d{i}.*)
+        for i in range(1, 21):
+            channels.append({
+                'id': f'pmu.d{i}.state',
+                'name': f'Digital {i} State',
+                'unit': '',
+                'channel_type': 'system'
+            })
+
+        # Add PMU hardware output channels (pmu.o{i}.*) - 40 PROFET outputs
+        # Only add key sub-channels to reduce row count (status, current, dc)
+        for i in range(1, 41):
+            output_subchannels = [
+                ('status', 'Status', ''),
+                ('current', 'Current', 'mA'),
+                ('dc', 'Duty Cycle', '%'),
+            ]
+            for sub_id, sub_name, unit in output_subchannels:
+                channels.append({
+                    'id': f'pmu.o{i}.{sub_id}',
+                    'name': f'Output {i} {sub_name}',
+                    'unit': unit,
+                    'channel_type': 'output'
+                })
 
         # Add CAN RX channels
         try:
@@ -624,44 +689,49 @@ class VariablesInspector(QWidget):
         except Exception:
             pass
 
-        # Add output channels
+        # Add user-created output channel sub-properties (reduced set for performance)
         try:
             outputs = config_manager.get_outputs()
             for out in outputs:
-                ch_num = out.get('channel', 0) + 1
-                name = out.get('name', f'output{ch_num}')
-                # Add status and current for each output
-                channels.append({
-                    'id': f'o_{ch_num}.status',
-                    'name': f'o_{name}.status',
-                    'unit': '',
-                    'channel_type': 'output'
-                })
-                channels.append({
-                    'id': f'o_{ch_num}.current',
-                    'name': f'o_{name}.current',
-                    'unit': 'mA',
-                    'channel_type': 'output'
-                })
-                channels.append({
-                    'id': f'o_{ch_num}.active',
-                    'name': f'o_{name}.active',
-                    'unit': '',
-                    'channel_type': 'output'
-                })
+                out_id = out.get('id', out.get('name', ''))
+                out_name = out.get('name', out_id)
+                if not out_id:
+                    continue
+                # Only essential sub-properties to reduce row count
+                output_subprops = [
+                    ('status', 'Status', ''),
+                    ('current', 'Current', 'mA'),
+                    ('dc', 'Duty Cycle', '%'),
+                    ('fault', 'Fault', ''),
+                ]
+                for sub_id, sub_name, unit in output_subprops:
+                    channels.append({
+                        'id': f'{out_id}.{sub_id}',
+                        'name': f'{out_name} - {sub_name}',
+                        'unit': unit,
+                        'channel_type': 'output'
+                    })
         except Exception:
             pass
 
-        # Add analog input channels
+        # Add user-created analog input channel sub-properties
         try:
             inputs = config_manager.get_inputs()
             for inp in inputs:
-                ch_num = inp.get('channel', 0) + 1
-                name = inp.get('name', f'analog{ch_num}')
+                inp_id = inp.get('id', inp.get('name', ''))
+                inp_name = inp.get('name', inp_id)
+                if not inp_id:
+                    continue
                 channels.append({
-                    'id': f'a_{ch_num}.voltage',
-                    'name': f'a_{name}.voltage',
+                    'id': f'{inp_id}.voltage',
+                    'name': f'{inp_name} - Voltage',
                     'unit': 'V',
+                    'channel_type': 'analog'
+                })
+                channels.append({
+                    'id': f'{inp_id}.raw',
+                    'name': f'{inp_name} - Raw',
+                    'unit': '',
                     'channel_type': 'analog'
                 })
         except Exception:
@@ -743,13 +813,24 @@ class VariablesInspector(QWidget):
                     })
                     virtual_channel_id += 1
 
-                    # Timer has an additional elapsed channel
+                    # Timer has additional sub-properties
                     if ch_type == 'timer':
+                        ch_name = ch.get('name', ch_id)
+                        # .elapsed - elapsed time
                         channels.append({
                             'id': f'{ch_id}.elapsed',
-                            'name': f'{prefix}{ch_id}.elapsed',
+                            'name': f'{ch_name} - Elapsed',
                             'unit': 'ms',
                             'channel_type': 'timer_elapsed',
+                            'channel_id': virtual_channel_id
+                        })
+                        virtual_channel_id += 1
+                        # .running - is timer running
+                        channels.append({
+                            'id': f'{ch_id}.running',
+                            'name': f'{ch_name} - Running',
+                            'unit': '',
+                            'channel_type': 'timer_running',
                             'channel_id': virtual_channel_id
                         })
                         virtual_channel_id += 1

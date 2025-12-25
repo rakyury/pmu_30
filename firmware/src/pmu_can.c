@@ -280,7 +280,8 @@ void PMU_CAN_Update(void)
                 CAN_ProcessRxMessage(bus, &msg);
 
                 /* Process two-level architecture (v3.0) */
-                PMU_CAN_HandleRxMessage(bus, msg.id, msg.data, msg.dlc);
+                uint8_t is_ext = (msg.id_type == PMU_CAN_ID_EXTENDED) ? 1 : 0;
+                PMU_CAN_HandleRxMessage(bus, msg.id, msg.data, msg.dlc, is_ext);
             }
         }
 #endif
@@ -385,6 +386,23 @@ HAL_StatusTypeDef PMU_CAN_Send(uint8_t bus, uint32_t id, uint8_t* data, uint8_t 
     msg.id = id;
     msg.dlc = (len > 8) ? CAN_BytesToDLC(len) : len;
     msg.id_type = (id > 0x7FF) ? PMU_CAN_ID_EXTENDED : PMU_CAN_ID_STANDARD;
+    msg.frame_type = (len > 8) ? PMU_CAN_FRAME_FD : PMU_CAN_FRAME_CLASSIC;
+    msg.rtr = 0;
+
+    if (data != NULL && len > 0) {
+        memcpy(msg.data, data, (len > 64) ? 64 : len);
+    }
+
+    return PMU_CAN_SendMessage(bus, &msg);
+}
+
+HAL_StatusTypeDef PMU_CAN_SendExtended(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len)
+{
+    PMU_CAN_Message_t msg;
+
+    msg.id = id;
+    msg.dlc = (len > 8) ? CAN_BytesToDLC(len) : len;
+    msg.id_type = PMU_CAN_ID_EXTENDED;  /* Always use 29-bit extended ID */
     msg.frame_type = (len > 8) ? PMU_CAN_FRAME_FD : PMU_CAN_FRAME_CLASSIC;
     msg.rtr = 0;
 
@@ -1117,10 +1135,10 @@ void PMU_CAN_ProcessInputs(void)
 /**
  * @brief Handle received CAN message (two-level architecture)
  */
-void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc)
+void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc, uint8_t is_extended)
 {
-    /* Check BlinkMarine keypads first - they have their own ID range */
-    if (PMU_BlinkMarine_HandleRxMessage(bus, can_id, data, dlc)) {
+    /* Check BlinkMarine keypads first - they use J1939 extended IDs */
+    if (PMU_BlinkMarine_HandleRxMessage(bus, can_id, is_extended, data, dlc)) {
         return;  /* Message was handled by BlinkMarine keypad */
     }
 

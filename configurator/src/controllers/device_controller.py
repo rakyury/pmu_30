@@ -8,18 +8,20 @@ Owner: R2 m-sport
 """
 
 import logging
-import socket
 import struct
 import threading
 import time
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any
 from PyQt6.QtCore import QObject, pyqtSignal
 
-import serial
 import serial.tools.list_ports
 
-from communication.protocol import MessageType, crc16_ccitt, FRAME_START_BYTE
-from communication.telemetry import parse_telemetry, TelemetryPacket
+from communication.protocol import MessageType
+from communication.telemetry import parse_telemetry
+
+# New modular components
+from .transport import TransportFactory
+from .protocol_handler import ProtocolHandler, ConfigAssembler
 
 
 logger = logging.getLogger(__name__)
@@ -46,17 +48,18 @@ class DeviceController(QObject):
     def __init__(self):
         super().__init__()
 
-        self._connection = None
+        # Transport and protocol handlers
+        self._transport = None
+        self._protocol = ProtocolHandler()
+        self._config_assembler = ConfigAssembler()
+
         self._connection_type = None
         self._is_connected = False
         self._receive_thread = None
         self._stop_thread = threading.Event()
         self._telemetry_enabled = False
-        self._rx_buffer = bytearray()
 
         # Config receive state
-        self._config_chunks = {}  # chunk_idx -> data
-        self._config_total_chunks = 0
         self._config_event = threading.Event()
 
         # Config write state
@@ -147,31 +150,25 @@ class DeviceController(QObject):
         connection_type = config.get("type", "")
 
         try:
-            if connection_type == "USB Serial":
-                port = config.get("port", "")
-                baudrate = config.get("baudrate", 115200)
-                self._connect_usb(port, baudrate)
-            elif connection_type == "Emulator":
-                address = config.get("address", "localhost:9876")
-                self._connect_emulator(address)
-            elif connection_type == "WiFi":
-                ip = config.get("ip", "")
-                port = config.get("port", 8080)
-                self._connect_wifi(f"{ip}:{port}")
-            elif connection_type == "Bluetooth":
-                device = config.get("device", "")
-                self._connect_bluetooth(device)
-            elif connection_type == "CAN Bus":
-                interface = config.get("interface", "can0")
-                self._connect_can(interface, config)
-            else:
-                raise ValueError(f"Unknown connection type: {connection_type}")
+            # Use TransportFactory to create appropriate transport
+            self._transport = TransportFactory.create(config)
+            if not self._transport.connect():
+                raise ConnectionError("Transport connect() returned False")
 
             self._connection_type = connection_type
             self._is_connected = True
             self._user_disconnected = False
             self._last_connection_config = config.copy()  # Save for auto-reconnect
             self._reconnect_attempt = 0
+
+            # Clear protocol buffers
+            self._protocol.clear_buffer()
+            self._config_assembler.reset()
+
+            # Start receive thread for async transports
+            if connection_type in ("Emulator", "WiFi"):
+                self._start_receive_thread()
+
             self.connected.emit()
 
             # Subscribe to telemetry after connection is established
@@ -185,69 +182,8 @@ class DeviceController(QObject):
             error_msg = f"Connection failed: {str(e)}"
             logger.error(error_msg)
             self.error.emit(error_msg)
+            self._transport = None
             return False
-
-    def _connect_usb(self, port: str, baudrate: int = 115200):
-        """Connect via USB serial."""
-
-        # Extract port name from selection string
-        port_name = port.split(" - ")[0] if " - " in port else port
-
-        self._connection = serial.Serial(
-            port=port_name,
-            baudrate=baudrate,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=1.0
-        )
-
-        logger.debug(f"USB serial connection established: {port_name} @ {baudrate}")
-
-    def _connect_emulator(self, address: str):
-        """Connect to PMU-30 emulator via TCP."""
-
-        # Parse address
-        if ":" in address:
-            host, port_str = address.split(":")
-            port = int(port_str)
-        else:
-            host = address
-            port = 9876  # Default emulator port
-
-        # Create TCP socket connection
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5.0)
-        sock.connect((host, port))
-        sock.setblocking(False)  # Non-blocking for receive thread
-
-        self._connection = sock
-        logger.info(f"Connected to emulator at {host}:{port}")
-
-        # Start receive thread
-        self._start_receive_thread()
-
-    def _connect_can(self, interface: str, config: Dict[str, Any]):
-        """Connect via CAN bus."""
-
-        # TODO: Implement CAN bus connection
-        logger.warning("CAN bus connection not yet implemented")
-        raise NotImplementedError("CAN bus connection not yet implemented")
-
-    def _connect_wifi(self, address: str):
-        """Connect via WiFi."""
-
-        # TODO: Implement WiFi connection
-        # Use WebSocket or HTTP REST API
-        logger.warning("WiFi connection not yet implemented")
-        raise NotImplementedError("WiFi connection not yet implemented")
-
-    def _connect_bluetooth(self, address: str):
-        """Connect via Bluetooth."""
-
-        # TODO: Implement Bluetooth connection
-        logger.warning("Bluetooth connection not yet implemented")
-        raise NotImplementedError("Bluetooth connection not yet implemented")
 
     def disconnect(self):
         """Disconnect from device (user-initiated)."""
@@ -260,16 +196,13 @@ class DeviceController(QObject):
         # Stop receive thread first
         self._stop_receive_thread()
 
-        if self._connection:
+        if self._transport:
             try:
-                if isinstance(self._connection, serial.Serial):
-                    self._connection.close()
-                elif isinstance(self._connection, socket.socket):
-                    self._connection.close()
-
-                self._connection = None
+                self._transport.disconnect()
+                self._transport = None
                 self._is_connected = False
                 self._telemetry_enabled = False
+                self._protocol.clear_buffer()
                 self.disconnected.emit()
 
                 logger.info("Disconnected from device (user-initiated)")
@@ -285,35 +218,23 @@ class DeviceController(QObject):
             command: Command bytes to send
 
         Returns:
-            Response bytes or None
+            Response bytes or None (empty bytes if async receive thread handles it)
         """
-
-        if not self._is_connected or not self._connection:
+        if not self._is_connected or not self._transport:
             logger.warning("Cannot send command: not connected")
             return None
 
         try:
-            if isinstance(self._connection, serial.Serial):
-                self._connection.write(command)
-                # Wait for response
-                response = self._connection.read(1024)
-                return response
-            elif isinstance(self._connection, socket.socket):
-                # When receive thread is running, just send without blocking recv
-                # Responses will be handled by receive thread via signals
-                if self._receive_thread and self._receive_thread.is_alive():
-                    self._connection.sendall(command)
-                    return b''  # Response handled by receive thread
-                else:
-                    self._connection.sendall(command)
-                    # Wait for response (with timeout)
-                    self._connection.setblocking(True)
-                    self._connection.settimeout(2.0)
-                    try:
-                        response = self._connection.recv(4096)
-                    finally:
-                        self._connection.setblocking(False)
-                    return response
+            if not self._transport.send(command):
+                raise ConnectionError("Transport send() failed")
+
+            # If receive thread is running, responses come via signals
+            if self._receive_thread and self._receive_thread.is_alive():
+                return b''
+
+            # Synchronous receive for serial
+            response = self._transport.receive(4096, timeout=2.0)
+            return response or b''
 
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
             logger.error(f"Connection lost: {e}")
@@ -341,13 +262,12 @@ class DeviceController(QObject):
 
         logger.info("Reading configuration from device...")
 
-        # Reset config receive state
-        self._config_chunks.clear()
-        self._config_total_chunks = 0
+        # Reset config assembler
+        self._config_assembler.reset()
         self._config_event.clear()
 
-        # Send GET_CONFIG command
-        frame = self._build_frame(MessageType.GET_CONFIG)
+        # Send GET_CONFIG command using protocol handler
+        frame = self._protocol.build_frame(MessageType.GET_CONFIG)
         logger.debug(f"Sending GET_CONFIG frame: {frame.hex()}")
         if not self._send_frame(frame):
             logger.error("Failed to send GET_CONFIG")
@@ -359,14 +279,11 @@ class DeviceController(QObject):
             logger.error(f"Timeout waiting for config ({timeout}s)")
             return None
 
-        # Reassemble chunks in order
-        config_data = bytearray()
-        for i in range(self._config_total_chunks):
-            if i in self._config_chunks:
-                config_data.extend(self._config_chunks[i])
-            else:
-                logger.error(f"Missing config chunk {i}")
-                return None
+        # Get assembled config data
+        config_data = self._config_assembler.get_data()
+        if config_data is None:
+            logger.error("Failed to assemble config chunks")
+            return None
 
         # Parse JSON
         try:
@@ -410,12 +327,8 @@ class DeviceController(QObject):
             logger.error(f"Failed to serialize config: {e}")
             return False
 
-        # Split into chunks (max 4000 bytes per chunk to stay under FRAME_MAX_PAYLOAD)
-        CHUNK_SIZE = 4000
-        chunks = []
-        for i in range(0, len(config_bytes), CHUNK_SIZE):
-            chunks.append(config_bytes[i:i + CHUNK_SIZE])
-
+        # Split into chunks using protocol handler
+        chunks = ProtocolHandler.split_into_chunks(config_bytes, chunk_size=4000)
         total_chunks = len(chunks)
         logger.info(f"Sending config in {total_chunks} chunks")
 
@@ -424,12 +337,9 @@ class DeviceController(QObject):
         self._config_ack_success = False
         self._config_ack_error = 0
 
-        # Send each chunk
+        # Send each chunk using protocol handler
         for chunk_idx, chunk_data in enumerate(chunks):
-            # Build payload: chunk_idx (2B) + total_chunks (2B) + data
-            payload = struct.pack('<HH', chunk_idx, total_chunks) + chunk_data
-            frame = self._build_frame(MessageType.SET_CONFIG, payload)
-
+            frame = self._protocol.build_config_frame(chunk_idx, total_chunks, chunk_data)
             logger.debug(f"Sending chunk {chunk_idx + 1}/{total_chunks}, {len(chunk_data)} bytes")
 
             if not self._send_frame(frame):
@@ -480,7 +390,7 @@ class DeviceController(QObject):
     def _start_receive_thread(self):
         """Start background thread for receiving data."""
         self._stop_thread.clear()
-        self._rx_buffer = bytearray()
+        self._protocol.clear_buffer()
         self._receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._receive_thread.start()
         logger.debug("Receive thread started")
@@ -498,42 +408,33 @@ class DeviceController(QObject):
         logger.debug("Receive loop started")
         while not self._stop_thread.is_set():
             try:
-                if isinstance(self._connection, socket.socket):
-                    try:
-                        data = self._connection.recv(4096)
-                        if data:
-                            logger.debug(f"Received {len(data)} bytes: {data[:50].hex()}...")
-                            self._rx_buffer.extend(data)
-                            self._process_rx_buffer()
-                        elif data == b'':
-                            # Empty data means connection closed
-                            logger.warning("Connection closed by remote (recv returned empty)")
-                            self._handle_connection_lost()
-                            break
-                    except BlockingIOError:
-                        pass  # No data available
-                    except ConnectionResetError as e:
-                        logger.warning(f"Connection reset by remote: {e}")
-                        self._handle_connection_lost()
-                        break
-                    except ConnectionAbortedError:
-                        logger.warning("Connection aborted")
-                        self._handle_connection_lost()
-                        break
-                    except socket.error as e:
-                        if not self._stop_thread.is_set():
-                            logger.error(f"Socket error: {e}")
-                            self._handle_connection_lost()
-                            break
-                elif isinstance(self._connection, serial.Serial):
-                    if self._connection.in_waiting > 0:
-                        data = self._connection.read(self._connection.in_waiting)
-                        if data:
-                            self._rx_buffer.extend(data)
-                            self._process_rx_buffer()
+                if not self._transport or not self._transport.is_connected():
+                    logger.warning("Transport not connected in receive loop")
+                    self._handle_connection_lost()
+                    break
+
+                # Try to receive data (non-blocking with short timeout)
+                data = self._transport.receive(4096, timeout=0.01)
+
+                if data:
+                    logger.debug(f"Received {len(data)} bytes: {data[:50].hex()}...")
+                    # Feed data to protocol handler and process messages
+                    messages = self._protocol.feed_data(data)
+                    for msg in messages:
+                        self._handle_message(msg.msg_type, msg.payload)
+                elif data == b'':
+                    # Empty bytes means connection closed (for socket)
+                    logger.warning("Connection closed by remote")
+                    self._handle_connection_lost()
+                    break
 
                 time.sleep(0.01)  # 10ms polling interval
 
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError) as e:
+                if not self._stop_thread.is_set():
+                    logger.warning(f"Connection error: {e}")
+                    self._handle_connection_lost()
+                    break
             except Exception as e:
                 if not self._stop_thread.is_set():
                     logger.error(f"Receive error: {e}")
@@ -544,12 +445,13 @@ class DeviceController(QObject):
         """Handle unexpected connection loss."""
         self._is_connected = False
         self._telemetry_enabled = False
-        if self._connection:
+        if self._transport:
             try:
-                self._connection.close()
+                self._transport.disconnect()
             except:
                 pass
-            self._connection = None
+            self._transport = None
+        self._protocol.clear_buffer()
         self.disconnected.emit()
         self.error.emit("Connection lost")
 
@@ -588,30 +490,25 @@ class DeviceController(QObject):
             if self._stop_reconnect.wait(self._reconnect_interval):
                 break  # Stop requested
 
-            # Try to reconnect
+            # Try to reconnect using TransportFactory
             try:
                 config = self._last_connection_config
                 connection_type = config.get("type", "")
 
-                if connection_type == "USB Serial":
-                    port = config.get("port", "")
-                    baudrate = config.get("baudrate", 115200)
-                    self._connect_usb(port, baudrate)
-                elif connection_type == "Emulator":
-                    address = config.get("address", "localhost:9876")
-                    self._connect_emulator(address)
-                elif connection_type == "WiFi":
-                    ip = config.get("ip", "")
-                    port = config.get("port", 8080)
-                    self._connect_wifi(f"{ip}:{port}")
-                elif connection_type == "Bluetooth":
-                    device = config.get("device", "")
-                    self._connect_bluetooth(device)
+                self._transport = TransportFactory.create(config)
+                if not self._transport.connect():
+                    raise ConnectionError("Transport connect() returned False")
 
                 # Success!
                 self._connection_type = connection_type
                 self._is_connected = True
                 self._reconnect_attempt = 0
+                self._protocol.clear_buffer()
+
+                # Start receive thread for async transports
+                if connection_type in ("Emulator", "WiFi"):
+                    self._start_receive_thread()
+
                 self.connected.emit()
 
                 # Resubscribe to telemetry
@@ -623,54 +520,10 @@ class DeviceController(QObject):
 
             except Exception as e:
                 logger.debug(f"Reconnection attempt {self._reconnect_attempt} failed: {e}")
+                self._transport = None
                 # Continue trying
 
         logger.debug("Reconnect loop ended")
-
-    def _process_rx_buffer(self):
-        """Process received data and extract frames."""
-        logger.debug(f"Processing rx buffer: {len(self._rx_buffer)} bytes")
-        while len(self._rx_buffer) >= 6:  # Minimum frame size
-            # Find start byte (must search for bytes, not int)
-            start_idx = self._rx_buffer.find(bytes([FRAME_START_BYTE]))
-            if start_idx == -1:
-                logger.debug(f"No start byte found in buffer, clearing {len(self._rx_buffer)} bytes")
-                self._rx_buffer.clear()
-                return
-            if start_idx > 0:
-                logger.debug(f"Discarding {start_idx} bytes before start byte")
-                del self._rx_buffer[:start_idx]
-
-            if len(self._rx_buffer) < 6:
-                return
-
-            # Parse header
-            payload_len = self._rx_buffer[1] | (self._rx_buffer[2] << 8)
-            msg_type = self._rx_buffer[3]
-
-            frame_len = 4 + payload_len + 2  # Header + payload + CRC
-            logger.debug(f"Frame header: msg_type=0x{msg_type:02X}, payload_len={payload_len}, frame_len={frame_len}")
-
-            if len(self._rx_buffer) < frame_len:
-                logger.debug(f"Need more data: have {len(self._rx_buffer)}, need {frame_len}")
-                return  # Need more data
-
-            # Extract frame
-            frame = bytes(self._rx_buffer[:frame_len])
-            del self._rx_buffer[:frame_len]
-
-            # Verify CRC
-            expected_crc = crc16_ccitt(frame[1:-2])
-            received_crc = frame[-2] | (frame[-1] << 8)
-
-            if expected_crc != received_crc:
-                logger.warning(f"CRC mismatch: expected=0x{expected_crc:04X}, received=0x{received_crc:04X}, frame={frame[:20].hex()}...")
-                continue
-
-            # Process message
-            payload = frame[4:-2]
-            logger.debug(f"Frame OK: msg_type=0x{msg_type:02X}, payload={len(payload)} bytes")
-            self._handle_message(msg_type, payload)
 
     def _handle_message(self, msg_type: int, payload: bytes):
         """Handle incoming message."""
@@ -680,13 +533,9 @@ class DeviceController(QObject):
                 self.telemetry_received.emit(telemetry)
 
             elif msg_type == MessageType.LOG_MESSAGE:
-                # Parse log message
-                if len(payload) >= 3:
-                    level = payload[0]
-                    source_len = payload[1]
-                    source = payload[2:2 + source_len].decode('utf-8', errors='replace')
-                    msg_len = payload[2 + source_len]
-                    message = payload[3 + source_len:3 + source_len + msg_len].decode('utf-8', errors='replace')
+                # Use protocol handler to parse log message
+                level, source, message = ProtocolHandler.parse_log_message(payload)
+                if source or message:
                     self.log_received.emit(level, source, message)
 
             elif msg_type == MessageType.CONFIG_ACK:
@@ -716,19 +565,13 @@ class DeviceController(QObject):
                 logger.debug("Channel ACK received")
 
             elif msg_type == MessageType.CONFIG_DATA:
-                # Parse config chunk
-                if len(payload) >= 4:
-                    chunk_idx = payload[0] | (payload[1] << 8)
-                    total_chunks = payload[2] | (payload[3] << 8)
-                    chunk_data = payload[4:]
-
+                # Use protocol handler to parse config chunk
+                chunk_idx, total_chunks, chunk_data = ProtocolHandler.parse_config_chunk(payload)
+                if total_chunks > 0:
                     logger.debug(f"CONFIG_DATA chunk {chunk_idx + 1}/{total_chunks}, {len(chunk_data)} bytes")
 
-                    self._config_total_chunks = total_chunks
-                    self._config_chunks[chunk_idx] = chunk_data
-
-                    # Check if all chunks received
-                    if len(self._config_chunks) >= total_chunks:
+                    # Use ConfigAssembler to collect chunks
+                    if self._config_assembler.add_chunk(chunk_idx, total_chunks, chunk_data):
                         self._config_event.set()
 
             else:
@@ -737,25 +580,14 @@ class DeviceController(QObject):
         except Exception as e:
             logger.error(f"Error handling message 0x{msg_type:02X}: {e}")
 
-    def _build_frame(self, msg_type: int, payload: bytes = b'') -> bytes:
-        """Build a protocol frame."""
-        header = struct.pack('<BHB', FRAME_START_BYTE, len(payload), msg_type)
-        crc_data = header[1:] + payload
-        crc = crc16_ccitt(crc_data)
-        return header + payload + struct.pack('<H', crc)
-
     def _send_frame(self, frame: bytes) -> bool:
         """Send a frame to the device with error handling."""
-        if not self._is_connected or not self._connection:
+        if not self._is_connected or not self._transport:
             logger.warning("Cannot send: not connected")
             return False
 
         try:
-            if isinstance(self._connection, socket.socket):
-                self._connection.sendall(frame)
-            elif isinstance(self._connection, serial.Serial):
-                self._connection.write(frame)
-            return True
+            return self._transport.send(frame)
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
             logger.error(f"Connection lost while sending: {e}")
             self._handle_connection_lost()
@@ -767,7 +599,7 @@ class DeviceController(QObject):
     def subscribe_telemetry(self, rate_hz: int = 10):
         """Subscribe to telemetry streaming."""
         payload = struct.pack('<H', rate_hz)
-        frame = self._build_frame(MessageType.SUBSCRIBE_TELEMETRY, payload)
+        frame = self._protocol.build_frame(MessageType.SUBSCRIBE_TELEMETRY, payload)
 
         if self._send_frame(frame):
             self._telemetry_enabled = True
@@ -775,7 +607,7 @@ class DeviceController(QObject):
 
     def unsubscribe_telemetry(self):
         """Unsubscribe from telemetry streaming."""
-        frame = self._build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
+        frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
 
         if self._send_frame(frame):
             self._telemetry_enabled = False
@@ -784,7 +616,7 @@ class DeviceController(QObject):
     def set_channel(self, channel_id: int, value: float) -> bool:
         """Set channel value (live, not saved to flash)."""
         payload = struct.pack('<Hf', channel_id, value)
-        frame = self._build_frame(MessageType.SET_CHANNEL, payload)
+        frame = self._protocol.build_frame(MessageType.SET_CHANNEL, payload)
 
         if self._send_frame(frame):
             logger.debug(f"Set channel {channel_id} = {value}")
@@ -801,7 +633,7 @@ class DeviceController(QObject):
         self._flash_ack_event.clear()
         self._flash_ack_success = False
 
-        frame = self._build_frame(MessageType.SAVE_TO_FLASH)
+        frame = self._protocol.build_frame(MessageType.SAVE_TO_FLASH)
 
         if not self._send_frame(frame):
             logger.error("Failed to send SAVE_TO_FLASH command")
@@ -823,7 +655,7 @@ class DeviceController(QObject):
 
     def restart_device(self) -> bool:
         """Restart the device."""
-        frame = self._build_frame(MessageType.RESTART_DEVICE)
+        frame = self._protocol.build_frame(MessageType.RESTART_DEVICE)
 
         if self._send_frame(frame):
             logger.info("Device restart requested")

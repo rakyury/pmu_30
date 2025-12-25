@@ -5,13 +5,16 @@ Math operations with operation-specific UI
 
 from PyQt6.QtWidgets import (
     QFormLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
-    QLabel, QStackedWidget, QWidget, QGridLayout
+    QLabel, QStackedWidget, QWidget, QGridLayout, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, MathOperation, ChannelMultiplier
+from models.quantities import (
+    get_quantity_names, get_units_for_quantity, get_default_unit, DisplayConfig
+)
 
 
 class NumberDialog(BaseChannelDialog):
@@ -63,6 +66,9 @@ class NumberDialog(BaseChannelDialog):
         # Initialize view
         self._on_operation_changed()
 
+        # Finalize UI sizing
+        self._finalize_ui()
+
     def _create_operation_group(self):
         """Create operation selection group"""
         op_group = QGroupBox("Operation Type")
@@ -70,27 +76,72 @@ class NumberDialog(BaseChannelDialog):
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(3, 1)
 
-        # Operation and Decimal places in same row
+        # Operation selection
         layout.addWidget(QLabel("Operation:"), 0, 0)
         self.operation_combo = QComboBox()
         for op in MathOperation:
             self.operation_combo.addItem(self.OPERATION_NAMES[op], op.value)
-        layout.addWidget(self.operation_combo, 0, 1)
+        layout.addWidget(self.operation_combo, 0, 1, 1, 3)
 
-        layout.addWidget(QLabel("Decimal places:"), 0, 2)
+        # Quantity/Unit row
+        layout.addWidget(QLabel("Quantity/Unit:"), 1, 0)
+
+        qu_container = QWidget()
+        qu_layout = QHBoxLayout(qu_container)
+        qu_layout.setContentsMargins(0, 0, 0, 0)
+        qu_layout.setSpacing(4)
+
+        self.quantity_combo = QComboBox()
+        self.quantity_combo.setMinimumWidth(120)
+        for name in get_quantity_names():
+            self.quantity_combo.addItem(name)
+        self.quantity_combo.currentTextChanged.connect(self._on_quantity_changed)
+        qu_layout.addWidget(self.quantity_combo)
+
+        self.unit_combo = QComboBox()
+        self.unit_combo.setMinimumWidth(70)
+        qu_layout.addWidget(self.unit_combo)
+
+        qu_layout.addStretch()
+        layout.addWidget(qu_container, 1, 1, 1, 3)
+
+        # Decimal places row
+        layout.addWidget(QLabel("Decimal places:"), 2, 0)
         self.decimal_spin = QSpinBox()
-        self.decimal_spin.setRange(0, 6)
-        self.decimal_spin.setValue(2)
-        layout.addWidget(self.decimal_spin, 0, 3)
+        self.decimal_spin.setRange(0, 4)
+        self.decimal_spin.setValue(0)
+        self.decimal_spin.setToolTip("Number of decimal places for display (0-4)")
+        layout.addWidget(self.decimal_spin, 2, 1)
 
         # Operation description
         self.op_description = QLabel("")
         self.op_description.setStyleSheet("color: #b0b0b0; font-style: italic;")
         self.op_description.setWordWrap(True)
-        layout.addWidget(self.op_description, 1, 0, 1, 4)
+        layout.addWidget(self.op_description, 3, 0, 1, 4)
 
         op_group.setLayout(layout)
         self.content_layout.addWidget(op_group)
+
+        # Initialize units
+        self._update_units()
+
+    def _on_quantity_changed(self, quantity: str):
+        """Handle quantity selection change."""
+        self._update_units()
+
+    def _update_units(self):
+        """Update unit combo based on selected quantity."""
+        quantity = self.quantity_combo.currentText()
+        units = get_units_for_quantity(quantity)
+        default_unit = get_default_unit(quantity)
+
+        self.unit_combo.clear()
+        for unit in units:
+            self.unit_combo.addItem(unit.symbol)
+
+        index = self.unit_combo.findText(default_unit)
+        if index >= 0:
+            self.unit_combo.setCurrentIndex(index)
 
     def _create_params_group(self):
         """Create operation parameters group with stacked widget"""
@@ -305,7 +356,21 @@ class NumberDialog(BaseChannelDialog):
                 self.operation_combo.setCurrentIndex(i)
                 break
 
-        self.decimal_spin.setValue(config.get("decimal_places", 2))
+        # Load quantity/unit settings
+        quantity = config.get("quantity", "User")
+        unit = config.get("unit", "user")
+        decimal_places = config.get("decimal_places", 0)
+
+        index = self.quantity_combo.findText(quantity)
+        if index >= 0:
+            self.quantity_combo.setCurrentIndex(index)
+        self._update_units()
+
+        index = self.unit_combo.findText(unit)
+        if index >= 0:
+            self.unit_combo.setCurrentIndex(index)
+
+        self.decimal_spin.setValue(decimal_places)
 
         inputs = config.get("inputs", [])
         multipliers = config.get("input_multipliers", [])
@@ -398,6 +463,10 @@ class NumberDialog(BaseChannelDialog):
         config["clamp_min"] = 0.0
         config["clamp_max"] = 100.0
         config["lookup_values"] = []
+
+        # Quantity/Unit display settings
+        config["quantity"] = self.quantity_combo.currentText()
+        config["unit"] = self.unit_combo.currentText()
         config["decimal_places"] = self.decimal_spin.value()
 
         if operation == "constant":

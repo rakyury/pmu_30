@@ -237,6 +237,16 @@ HAL_StatusTypeDef PMU_CAN_SendMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
 HAL_StatusTypeDef PMU_CAN_Send(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len);
 
 /**
+ * @brief Send extended CAN message (29-bit ID)
+ * @param bus Bus identifier
+ * @param id 29-bit extended CAN ID
+ * @param data Data bytes
+ * @param len Data length
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_SendExtended(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len);
+
+/**
  * @brief Add signal mapping for DBC support
  * @param bus Bus identifier
  * @param signal Signal mapping configuration
@@ -397,8 +407,9 @@ void PMU_CAN_ProcessInputs(void);
  * @param can_id CAN message ID
  * @param data Message data bytes
  * @param dlc Data length
+ * @param is_extended True if 29-bit extended CAN ID
  */
-void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc);
+void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc, uint8_t is_extended);
 
 #ifdef __cplusplus
 }

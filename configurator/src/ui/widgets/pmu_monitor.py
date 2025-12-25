@@ -5,7 +5,7 @@ ECUMaster-style tree view for device state monitoring
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QLabel, QHBoxLayout, QPushButton
+    QHeaderView, QLabel, QHBoxLayout, QPushButton, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QBrush, QFont
@@ -51,6 +51,7 @@ class PMUMonitorWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._connected = False
         self._values: Dict[str, MonitorValue] = {}
         self._items: Dict[str, QTreeWidgetItem] = {}
@@ -95,17 +96,16 @@ class PMUMonitorWidget(QWidget):
         self.tree.setColumnWidth(1, 60)
         self.tree.setColumnWidth(2, 40)
 
-        # Style (dark theme)
+        # Style (dark theme - matching Variables Inspector - pure black)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 font-size: 11px;
-                border: 1px solid #333;
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
+                gridline-color: #333333;
             }
             QTreeWidget::item {
-                padding: 2px;
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
             }
             QTreeWidget::item:selected {
@@ -113,7 +113,7 @@ class PMUMonitorWidget(QWidget):
                 color: white;
             }
             QTreeWidget::branch {
-                background-color: #1a1a1a;
+                background-color: #000000;
             }
             QHeaderView::section {
                 background-color: #2d2d2d;

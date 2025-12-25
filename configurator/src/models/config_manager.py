@@ -210,17 +210,26 @@ class ConfigManager:
         channels = self.config.get("channels", [])
         return [ch for ch in channels if ch.get("channel_type") == channel_type.value]
 
-    def get_channel_by_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
-        """Get channel by ID"""
+    def get_channel_by_name(self, channel_name: str) -> Optional[Dict[str, Any]]:
+        """Get channel by name (with backwards compatibility for 'id' field)"""
         for ch in self.config.get("channels", []):
-            if ch.get("id") == channel_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            name = ch.get("name", "") or ch.get("id", "")
+            if name == channel_name:
                 return ch
         return None
 
-    def get_channel_index(self, channel_id: str) -> int:
-        """Get channel index by ID, returns -1 if not found"""
+    # Backwards compatibility alias
+    def get_channel_by_id(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Deprecated: Use get_channel_by_name instead"""
+        return self.get_channel_by_name(channel_id)
+
+    def get_channel_index(self, channel_name: str) -> int:
+        """Get channel index by name, returns -1 if not found"""
         for i, ch in enumerate(self.config.get("channels", [])):
-            if ch.get("id") == channel_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            name = ch.get("name", "") or ch.get("id", "")
+            if name == channel_name:
                 return i
         return -1
 
@@ -237,15 +246,15 @@ class ConfigManager:
         if "channels" not in self.config:
             self.config["channels"] = []
 
-        # Check for duplicate ID
-        channel_id = channel_config.get("id", "")
-        if self.get_channel_by_id(channel_id):
-            logger.error(f"Channel with ID '{channel_id}' already exists")
+        # Check for duplicate name (try 'name' first, fall back to 'id')
+        channel_name = channel_config.get("name", "") or channel_config.get("id", "")
+        if self.get_channel_by_name(channel_name):
+            logger.error(f"Channel with name '{channel_name}' already exists")
             return False
 
         self.config["channels"].append(channel_config)
         self.modified = True
-        logger.info(f"Added channel: {channel_id}")
+        logger.info(f"Added channel: {channel_name}")
         return True
 
     def update_channel(self, channel_id: str, channel_config: Dict[str, Any]) -> bool:
@@ -336,27 +345,36 @@ class ConfigManager:
         }
 
         for ch in self.config.get("channels", []):
-            ch_id = ch.get("id", "")
-            if ch_id and ch_id != exclude_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            ch_name = ch.get("name", "") or ch.get("id", "")
+            if ch_name and ch_name != exclude_id:
                 channel_type = ch.get("channel_type", "")
                 category = type_to_category.get(channel_type)
                 if category:
-                    available[category].append(ch_id)
+                    available[category].append(ch_name)
 
         # Remove empty categories
         return {k: v for k, v in available.items() if v}
 
-    def get_channel_ids_of_type(self, channel_type: ChannelType) -> List[str]:
-        """Get list of channel IDs of specific type"""
-        return [
-            ch.get("id", "")
-            for ch in self.config.get("channels", [])
-            if ch.get("channel_type") == channel_type.value
-        ]
+    def get_channel_names_of_type(self, channel_type: ChannelType) -> List[str]:
+        """Get list of channel names of specific type"""
+        result = []
+        for ch in self.config.get("channels", []):
+            if ch.get("channel_type") == channel_type.value:
+                # Try 'name' first, fall back to 'id' for backwards compatibility
+                name = ch.get("name", "") or ch.get("id", "")
+                if name:
+                    result.append(name)
+        return result
 
-    def channel_exists(self, channel_id: str) -> bool:
-        """Check if channel with given ID exists"""
-        return self.get_channel_by_id(channel_id) is not None
+    # Backwards compatibility alias
+    def get_channel_ids_of_type(self, channel_type: ChannelType) -> List[str]:
+        """Deprecated: Use get_channel_names_of_type instead"""
+        return self.get_channel_names_of_type(channel_type)
+
+    def channel_exists(self, channel_name: str) -> bool:
+        """Check if channel with given name exists"""
+        return self.get_channel_by_name(channel_name) is not None
 
     def get_channel_count(self, channel_type: Optional[ChannelType] = None) -> int:
         """Get count of channels, optionally filtered by type"""
@@ -463,13 +481,16 @@ class ConfigManager:
         """
         errors = []
         # Include system channels that are always available
-        all_channel_ids = {'zero', 'one'}  # System constant channels
+        all_channel_names = {'zero', 'one'}  # System constant channels
         for ch in self.config.get("channels", []):
-            if ch.get("id"):
-                all_channel_ids.add(ch["id"])
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            ch_name = ch.get("name", "") or ch.get("id", "")
+            if ch_name:
+                all_channel_names.add(ch_name)
 
         for ch in self.config.get("channels", []):
-            ch_id = ch.get("id", "unknown")
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            ch_name = ch.get("name", "") or ch.get("id", "unknown")
             channel_type = ch.get("channel_type", "")
 
             # Check references based on type
@@ -511,8 +532,8 @@ class ConfigManager:
                 # Skip empty, None, and integer references (runtime channel IDs)
                 if not ref or isinstance(ref, int):
                     continue
-                if ref not in all_channel_ids:
-                    errors.append(f"Channel '{ch_id}' references undefined channel '{ref}'")
+                if ref not in all_channel_names:
+                    errors.append(f"Channel '{ch_name}' references undefined channel '{ref}'")
 
         return errors
 
@@ -571,11 +592,12 @@ class ConfigManager:
         lines.append("")
         lines.append("Channel list:")
         for ch in self.config.get("channels", []):
-            ch_id = ch.get("id", "?")
-            ch_name = ch.get("name", "?")
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            ch_name = ch.get("name", "") or ch.get("id", "?")
             ch_type = ch.get("channel_type", "?")
+            ch_id = ch.get("channel_id", 0)
             enabled = "enabled" if ch.get("enabled", True) else "disabled"
-            lines.append(f"  [{ch_type}] {ch_id}: {ch_name} ({enabled})")
+            lines.append(f"  [{ch_type}] #{ch_id}: {ch_name} ({enabled})")
 
         return "\n".join(lines)
 
@@ -585,17 +607,26 @@ class ConfigManager:
         """Get all CAN messages"""
         return self.config.get("can_messages", [])
 
-    def get_can_message_by_id(self, message_id: str) -> Optional[Dict[str, Any]]:
-        """Get CAN message by ID"""
+    def get_can_message_by_name(self, message_name: str) -> Optional[Dict[str, Any]]:
+        """Get CAN message by name (with backwards compatibility for 'id' field)"""
         for msg in self.config.get("can_messages", []):
-            if msg.get("id") == message_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            name = msg.get("name", "") or msg.get("id", "")
+            if name == message_name:
                 return msg
         return None
 
-    def get_can_message_index(self, message_id: str) -> int:
-        """Get CAN message index by ID, returns -1 if not found"""
+    # Backwards compatibility alias
+    def get_can_message_by_id(self, message_id: str) -> Optional[Dict[str, Any]]:
+        """Deprecated: Use get_can_message_by_name instead"""
+        return self.get_can_message_by_name(message_id)
+
+    def get_can_message_index(self, message_name: str) -> int:
+        """Get CAN message index by name, returns -1 if not found"""
         for i, msg in enumerate(self.config.get("can_messages", [])):
-            if msg.get("id") == message_id:
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            name = msg.get("name", "") or msg.get("id", "")
+            if name == message_name:
                 return i
         return -1
 
@@ -604,55 +635,67 @@ class ConfigManager:
         if "can_messages" not in self.config:
             self.config["can_messages"] = []
 
-        message_id = message_config.get("id", "")
-        if self.get_can_message_by_id(message_id):
-            logger.error(f"CAN message with ID '{message_id}' already exists")
+        # Try 'name' first, fall back to 'id' for backwards compatibility
+        message_name = message_config.get("name", "") or message_config.get("id", "")
+        if self.get_can_message_by_name(message_name):
+            logger.error(f"CAN message with name '{message_name}' already exists")
             return False
 
         self.config["can_messages"].append(message_config)
         self.modified = True
-        logger.info(f"Added CAN message: {message_id}")
+        logger.info(f"Added CAN message: {message_name}")
         return True
 
-    def update_can_message(self, message_id: str, message_config: Dict[str, Any]) -> bool:
+    def update_can_message(self, message_name: str, message_config: Dict[str, Any]) -> bool:
         """Update existing CAN message"""
-        index = self.get_can_message_index(message_id)
+        index = self.get_can_message_index(message_name)
         if index < 0:
-            logger.error(f"CAN message '{message_id}' not found")
+            logger.error(f"CAN message '{message_name}' not found")
             return False
 
         self.config["can_messages"][index] = message_config
         self.modified = True
-        logger.info(f"Updated CAN message: {message_id}")
+        logger.info(f"Updated CAN message: {message_name}")
         return True
 
-    def remove_can_message(self, message_id: str) -> bool:
+    def remove_can_message(self, message_name: str) -> bool:
         """Remove CAN message"""
-        index = self.get_can_message_index(message_id)
+        index = self.get_can_message_index(message_name)
         if index < 0:
-            logger.error(f"CAN message '{message_id}' not found")
+            logger.error(f"CAN message '{message_name}' not found")
             return False
 
         self.config["can_messages"].pop(index)
         self.modified = True
-        logger.info(f"Removed CAN message: {message_id}")
+        logger.info(f"Removed CAN message: {message_name}")
         return True
 
-    def get_can_inputs_for_message(self, message_id: str) -> List[Dict[str, Any]]:
+    def get_can_inputs_for_message(self, message_name: str) -> List[Dict[str, Any]]:
         """Get all CAN RX channels that reference a specific message"""
         can_inputs = []
         for ch in self.config.get("channels", []):
-            if ch.get("channel_type") == "can_rx" and ch.get("message_ref") == message_id:
+            if ch.get("channel_type") == "can_rx" and ch.get("message_ref") == message_name:
                 can_inputs.append(ch)
         return can_inputs
 
-    def get_can_message_ids(self) -> List[str]:
-        """Get list of all CAN message IDs"""
-        return [msg.get("id", "") for msg in self.config.get("can_messages", [])]
+    def get_can_message_names(self) -> List[str]:
+        """Get list of all CAN message names"""
+        result = []
+        for msg in self.config.get("can_messages", []):
+            # Try 'name' first, fall back to 'id' for backwards compatibility
+            name = msg.get("name", "") or msg.get("id", "")
+            if name:
+                result.append(name)
+        return result
 
-    def can_message_exists(self, message_id: str) -> bool:
-        """Check if CAN message with given ID exists"""
-        return self.get_can_message_by_id(message_id) is not None
+    # Backwards compatibility alias
+    def get_can_message_ids(self) -> List[str]:
+        """Deprecated: Use get_can_message_names instead"""
+        return self.get_can_message_names()
+
+    def can_message_exists(self, message_name: str) -> bool:
+        """Check if CAN message with given name exists"""
+        return self.get_can_message_by_name(message_name) is not None
 
     # ========== Runtime ID Computation ==========
 
@@ -804,22 +847,21 @@ class ConfigManager:
                 key = (can_bus, old_msg_id, is_extended)
 
                 if key not in message_map:
-                    # Create new message ID
-                    new_msg_id = f"msg_can{can_bus}_{old_msg_id:03X}"
+                    # Create new message name
+                    new_msg_name = f"msg_can{can_bus}_{old_msg_id:03X}"
 
-                    # Ensure unique ID
-                    base_id = new_msg_id
+                    # Ensure unique name
+                    base_name = new_msg_name
                     counter = 1
-                    while any(m.get("id") == new_msg_id for m in config["can_messages"]):
-                        new_msg_id = f"{base_id}_{counter}"
+                    while any((m.get("name", "") or m.get("id", "")) == new_msg_name for m in config["can_messages"]):
+                        new_msg_name = f"{base_name}_{counter}"
                         counter += 1
 
-                    message_map[key] = new_msg_id
+                    message_map[key] = new_msg_name
 
                     # Create CAN message object
                     can_message = {
-                        "id": new_msg_id,
-                        "name": f"CAN{can_bus} 0x{old_msg_id:03X}",
+                        "name": new_msg_name,
                         "can_bus": can_bus,
                         "base_id": old_msg_id,
                         "is_extended": is_extended,

@@ -147,9 +147,10 @@ class CANOutputDialog(QDialog):
         self.output_config = output_config
         self.existing_ids = existing_ids or []
         self.available_channels = available_channels or {}
-        self.editing_id = output_config.get("id", "") if output_config else ""
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        self.editing_name = (output_config.get("name", "") or output_config.get("id", "")) if output_config else ""
 
-        self.setWindowTitle("CAN Output" if not output_config else f"Edit CAN Output: {self.editing_id}")
+        self.setWindowTitle("CAN Output" if not output_config else f"Edit CAN Output: {self.editing_name}")
         self.setModal(True)
         self.resize(650, 550)
 
@@ -396,7 +397,7 @@ class CANOutputDialog(QDialog):
             return
 
         # Check for duplicate ID
-        if name != self.editing_id and name in self.existing_ids:
+        if name != self.editing_name and name in self.existing_ids:
             QMessageBox.warning(
                 self, "Validation Error",
                 f"Name '{name}' already exists!"
@@ -429,7 +430,9 @@ class CANOutputDialog(QDialog):
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.name_edit.setText(config.get("id", ""))
+        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
         # CAN Bus (1/2 -> index 0/1)
         can_bus = config.get("can_bus", 1)
@@ -493,8 +496,9 @@ class CANOutputDialog(QDialog):
             if i < dlc:
                 signals.append(slot.get_config())
 
+        name = self.name_edit.text().strip()
         config = {
-            "id": self.name_edit.text().strip(),
+            "name": name,  # Primary identifier - unique, user-editable
             "channel_type": "can_tx",
             "can_bus": self.can_bus_combo.currentIndex() + 1,
             "message_id": can_id,

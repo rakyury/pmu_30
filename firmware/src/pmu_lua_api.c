@@ -318,7 +318,7 @@ int lua_channel_find(lua_State* L)
     if (ch) {
         lua_pushinteger(L, ch->channel_id);
     } else {
-        lua_pushnil(L);
+        lua_pushinteger(L, -1);  /* Return -1 if channel not found */
     }
 
     return 1;

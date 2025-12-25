@@ -711,12 +711,208 @@ static bool JSON_ParseOutputs(cJSON* outputs_array)
 }
 
 /**
- * @brief Parse H-bridges array from JSON (simplified implementation)
+ * @brief Parse H-bridges array from JSON
  */
 static bool JSON_ParseHBridges(cJSON* hbridges_array)
 {
-    /* TODO: Implement full H-bridge parsing */
-    (void)hbridges_array;
+    int count = cJSON_GetArraySize(hbridges_array);
+    if (count > PMU30_NUM_HBRIDGES) {
+        count = PMU30_NUM_HBRIDGES;
+    }
+
+    for (int i = 0; i < count; i++) {
+        cJSON* hb = cJSON_GetArrayItem(hbridges_array, i);
+        if (!hb || !cJSON_IsObject(hb)) continue;
+
+        PMU_HBridgeConfig_t config = {0};
+
+        /* Basic settings */
+        cJSON* item = cJSON_GetObjectItem(hb, "name");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.name, item->valuestring, sizeof(config.name) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "bridge_number");
+        if (item && cJSON_IsNumber(item)) {
+            config.bridge = (uint8_t)item->valueint;
+        }
+
+        item = cJSON_GetObjectItem(hb, "enabled");
+        config.enabled = item ? cJSON_IsTrue(item) : true;
+
+        /* Mode */
+        item = cJSON_GetObjectItem(hb, "mode");
+        if (item && cJSON_IsString(item)) {
+            if (strcmp(item->valuestring, "coast") == 0) config.mode = 0;
+            else if (strcmp(item->valuestring, "forward") == 0) config.mode = 1;
+            else if (strcmp(item->valuestring, "reverse") == 0) config.mode = 2;
+            else if (strcmp(item->valuestring, "brake") == 0) config.mode = 3;
+            else if (strcmp(item->valuestring, "wiper_park") == 0) config.mode = 4;
+            else if (strcmp(item->valuestring, "pid_position") == 0) config.mode = 5;
+        }
+
+        item = cJSON_GetObjectItem(hb, "motor_preset");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.motor_preset, item->valuestring, sizeof(config.motor_preset) - 1);
+        }
+
+        /* Control sources */
+        item = cJSON_GetObjectItem(hb, "source_channel");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.source_channel, item->valuestring, sizeof(config.source_channel) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "direction_source_channel");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.direction_source_channel, item->valuestring, sizeof(config.direction_source_channel) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "invert_direction");
+        config.invert_direction = item ? cJSON_IsTrue(item) : false;
+
+        /* PWM control */
+        item = cJSON_GetObjectItem(hb, "pwm_mode");
+        if (item && cJSON_IsString(item)) {
+            if (strcmp(item->valuestring, "fixed") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_FIXED;
+            else if (strcmp(item->valuestring, "channel") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_CHANNEL;
+            else if (strcmp(item->valuestring, "channel_offset") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_BIDIRECTIONAL;
+        }
+
+        item = cJSON_GetObjectItem(hb, "pwm_frequency");
+        config.pwm_frequency = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 1000;
+
+        item = cJSON_GetObjectItem(hb, "pwm_value");
+        config.pwm_value = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 255;
+
+        item = cJSON_GetObjectItem(hb, "pwm_source_channel");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.pwm_source_channel, item->valuestring, sizeof(config.pwm_source_channel) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "duty_limit_percent");
+        config.duty_limit_percent = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 100;
+
+        /* Position control */
+        item = cJSON_GetObjectItem(hb, "position_feedback_enabled");
+        config.position_feedback_enabled = item ? cJSON_IsTrue(item) : false;
+
+        item = cJSON_GetObjectItem(hb, "position_source_channel");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.position_source_channel, item->valuestring, sizeof(config.position_source_channel) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "target_position");
+        config.target_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
+
+        item = cJSON_GetObjectItem(hb, "target_source_channel");
+        if (item && cJSON_IsString(item)) {
+            strncpy(config.target_source_channel, item->valuestring, sizeof(config.target_source_channel) - 1);
+        }
+
+        item = cJSON_GetObjectItem(hb, "position_min");
+        config.position_min = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
+
+        item = cJSON_GetObjectItem(hb, "position_max");
+        config.position_max = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 65535;
+
+        item = cJSON_GetObjectItem(hb, "position_deadband");
+        config.position_deadband = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
+
+        item = cJSON_GetObjectItem(hb, "position_park");
+        config.position_park = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
+
+        /* Valid voltage range */
+        item = cJSON_GetObjectItem(hb, "valid_voltage_min");
+        config.valid_voltage_min = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.2f;
+
+        item = cJSON_GetObjectItem(hb, "valid_voltage_max");
+        config.valid_voltage_max = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 4.8f;
+
+        /* Position margins */
+        item = cJSON_GetObjectItem(hb, "lower_margin");
+        config.lower_margin = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
+
+        item = cJSON_GetObjectItem(hb, "upper_margin");
+        config.upper_margin = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
+
+        /* PID control */
+        item = cJSON_GetObjectItem(hb, "pid_kp");
+        config.pid_kp = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 1.0f;
+
+        item = cJSON_GetObjectItem(hb, "pid_ki");
+        config.pid_ki = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
+
+        item = cJSON_GetObjectItem(hb, "pid_kd");
+        config.pid_kd = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
+
+        item = cJSON_GetObjectItem(hb, "pid_kd_filter");
+        config.pid_kd_filter = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.1f;
+
+        item = cJSON_GetObjectItem(hb, "pid_output_min");
+        config.pid_output_min = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : -255;
+
+        item = cJSON_GetObjectItem(hb, "pid_output_max");
+        config.pid_output_max = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : 255;
+
+        /* Current protection */
+        item = cJSON_GetObjectItem(hb, "current_limit_a");
+        config.current_limit_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 10.0f;
+
+        item = cJSON_GetObjectItem(hb, "inrush_current_a");
+        config.inrush_current_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 30.0f;
+
+        item = cJSON_GetObjectItem(hb, "inrush_time_ms");
+        config.inrush_time_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 500;
+
+        item = cJSON_GetObjectItem(hb, "retry_count");
+        config.retry_count = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 3;
+
+        item = cJSON_GetObjectItem(hb, "retry_delay_ms");
+        config.retry_delay_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 1000;
+
+        /* Stall detection */
+        item = cJSON_GetObjectItem(hb, "stall_detection_enabled");
+        config.stall_detection_enabled = item ? cJSON_IsTrue(item) : true;
+
+        item = cJSON_GetObjectItem(hb, "stall_current_threshold_a");
+        config.stall_current_threshold_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 5.0f;
+
+        item = cJSON_GetObjectItem(hb, "stall_time_threshold_ms");
+        config.stall_time_threshold_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 500;
+
+        item = cJSON_GetObjectItem(hb, "overtemperature_threshold_c");
+        config.overtemperature_threshold_c = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : 120;
+
+        /* Signal loss failsafe */
+        item = cJSON_GetObjectItem(hb, "failsafe_enabled");
+        config.failsafe_enabled = item ? cJSON_IsTrue(item) : true;
+
+        item = cJSON_GetObjectItem(hb, "signal_timeout_ms");
+        config.signal_timeout_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 100;
+
+        item = cJSON_GetObjectItem(hb, "failsafe_mode");
+        if (item && cJSON_IsString(item)) {
+            if (strcmp(item->valuestring, "park") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_PARK;
+            else if (strcmp(item->valuestring, "brake") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_BRAKE;
+            else if (strcmp(item->valuestring, "coast") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_COAST;
+            else if (strcmp(item->valuestring, "custom_position") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_CUSTOM;
+        }
+
+        item = cJSON_GetObjectItem(hb, "failsafe_position");
+        config.failsafe_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
+
+        item = cJSON_GetObjectItem(hb, "failsafe_pwm");
+        config.failsafe_pwm = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 100;
+
+        item = cJSON_GetObjectItem(hb, "auto_recovery");
+        config.auto_recovery = item ? cJSON_IsTrue(item) : true;
+
+        /* Store the configuration */
+        if (config.bridge < PMU30_NUM_HBRIDGES) {
+            /* TODO: Store to actual config structure or call PMU_HBridge_Configure() */
+        }
+    }
+
     return true;
 }
 
@@ -2038,8 +2234,59 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
     config.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", 1000);
     config.number_of_teeth = (uint16_t)JSON_GetInt(channel_obj, "number_of_teeth", 1);
 
-    /* TODO: Register digital input channel */
-    (void)config;
+    /* Register digital input channel */
+    uint8_t pin = config.input_pin;
+    if (pin < PMU30_NUM_ADC_INPUTS) {
+        printf("[CONFIG] Parsing digital input: id='%s' pin=%d\n", id, pin);
+        fflush(stdout);
+
+        /* Configure as digital input in ADC system */
+        PMU_InputConfig_t* adc_config = &input_config_storage[pin];
+        memset(adc_config, 0, sizeof(PMU_InputConfig_t));
+
+        adc_config->channel = pin + 1;  /* Display as 1-based */
+        strncpy(adc_config->name, config.id, sizeof(adc_config->name) - 1);
+
+        /* Map subtype to legacy input type */
+        switch (config.subtype) {
+            case PMU_DI_SUBTYPE_SWITCH_ACTIVE_LOW:
+                adc_config->type = PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW;
+                break;
+            case PMU_DI_SUBTYPE_SWITCH_ACTIVE_HIGH:
+                adc_config->type = PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH;
+                break;
+            case PMU_DI_SUBTYPE_FREQUENCY:
+            case PMU_DI_SUBTYPE_RPM:
+                adc_config->type = PMU_LEGACY_INPUT_FREQUENCY;
+                break;
+            default:
+                adc_config->type = PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH;
+                break;
+        }
+
+        adc_config->threshold_high_mv = config.threshold_mv;
+        adc_config->threshold_low_mv = config.threshold_mv / 2;
+        adc_config->debounce_ms = config.debounce_ms;
+        adc_config->multiplier = config.multiplier;
+        adc_config->offset = 0.0f;
+
+        PMU_ADC_SetConfig(pin, adc_config);
+
+        /* Register channel with channel system */
+        /* Digital inputs use channel_id 50-69 to avoid conflict with analog inputs (0-19) */
+        PMU_Channel_t channel = {0};
+        channel.channel_id = 50 + pin;
+        strncpy(channel.name, config.id, sizeof(channel.name) - 1);
+        channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SWITCH;
+        channel.min_value = 0;
+        channel.max_value = 1;
+        channel.physical_index = pin;
+        channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+
+        HAL_StatusTypeDef ch_result = PMU_Channel_Register(&channel);
+        printf("[CONFIG] Digital input ch%d '%s' (ID=%d) result=%d\n", pin, config.id, channel.channel_id, ch_result);
+        fflush(stdout);
+    }
 #else
     (void)channel_obj;
 #endif
@@ -2692,7 +2939,7 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
 
     /* Register the elapsed channel (outputs time in ms) */
     char elapsed_name[32];
-    snprintf(elapsed_name, sizeof(elapsed_name), "%s.elapsed", id);
+    snprintf(elapsed_name, sizeof(elapsed_name), "%s_Elapsed", id);
     channel.channel_id = rt->elapsed_channel_id;
     channel.format = PMU_CHANNEL_FORMAT_INT;
     channel.min_value = 0;
@@ -3057,8 +3304,25 @@ static bool JSON_ParseCanRx(cJSON* channel_obj)
     config.offset = JSON_GetFloat(channel_obj, "offset", 0.0f);
     config.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", 1000);
 
-    /* TODO: Register CAN RX channel */
-    (void)config;
+    /* Register CAN RX channel */
+    static uint16_t can_rx_count = 0;
+    uint16_t channel_id = 100 + can_rx_count;  /* CAN RX channels start at 100 */
+
+    PMU_Channel_t channel = {0};
+    channel.channel_id = channel_id;
+    strncpy(channel.name, config.id, sizeof(channel.name) - 1);
+    channel.hw_class = PMU_CHANNEL_CLASS_INPUT_CAN;
+    channel.format = PMU_CHANNEL_FORMAT_SIGNED;
+    channel.min_value = -1000000;
+    channel.max_value = 1000000;
+    channel.physical_index = can_rx_count;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+
+    PMU_Channel_Register(&channel);
+    can_rx_count++;
+
+    printf("[JSON] Registered CAN RX channel: %s (ID=%d)\n", config.id, channel_id);
+    fflush(stdout);
 #else
     (void)channel_obj;
 #endif
@@ -3174,36 +3438,37 @@ static bool JSON_ParsePID(cJSON* channel_obj)
 }
 
 /**
- * @brief Parse BlinkMarine keypad channel
+ * @brief Parse BlinkMarine keypad channel (J1939 protocol)
+ * Supports PKP-2600-SI (12 buttons) and PKP-2800-SI (16 buttons)
  */
 static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
 {
 #ifdef JSON_PARSING_ENABLED
     PMU_BlinkMarine_Keypad_t keypad = {0};
 
-    /* Copy ID and name */
-    const char* id = JSON_GetString(channel_obj, "id", "");
-    strncpy(keypad.id, id, sizeof(keypad.id) - 1);
-
-    const char* name = JSON_GetString(channel_obj, "name", id);
+    /* Get name - use name or id field */
+    const char* name = JSON_GetString(channel_obj, "name", NULL);
+    if (!name) {
+        name = JSON_GetString(channel_obj, "id", "Keypad");
+    }
     strncpy(keypad.name, name, sizeof(keypad.name) - 1);
 
-    /* Keypad type */
-    const char* type_str = JSON_GetString(channel_obj, "keypad_type", "2x6");
-    if (strcmp(type_str, "2x8") == 0) {
-        keypad.type = PMU_BLINKMARINE_2X8;
-    } else {
-        keypad.type = PMU_BLINKMARINE_2X6;
-    }
+    /* Keypad type (integer: 0=PKP2600SI, 1=PKP2800SI) */
+    keypad.type = (PMU_BlinkMarine_Type_t)JSON_GetInt(channel_obj, "type", PMU_BLINKMARINE_PKP2600SI);
 
-    /* CAN configuration */
+    /* J1939 CAN configuration */
     keypad.can_bus = (PMU_CAN_Bus_t)JSON_GetInt(channel_obj, "can_bus", 1);
-    keypad.rx_base_id = (uint32_t)JSON_GetInt(channel_obj, "rx_base_id", PMU_BM_DEFAULT_RX_ID);
-    keypad.tx_base_id = (uint32_t)JSON_GetInt(channel_obj, "tx_base_id", PMU_BM_DEFAULT_TX_ID);
+    keypad.source_address = (uint8_t)JSON_GetInt(channel_obj, "source_address", PMU_BM_DEFAULT_SRC_ADDR);
+    keypad.keypad_identifier = (uint8_t)JSON_GetInt(channel_obj, "keypad_identifier", PMU_BM_DEFAULT_KEYPAD_ID);
+    keypad.destination_address = (uint8_t)JSON_GetInt(channel_obj, "destination_address", PMU_BM_DEFAULT_DEST_ADDR);
+    keypad.use_extended_id = JSON_GetBool(channel_obj, "use_extended_id", true);
+    keypad.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", PMU_BM_DEFAULT_TIMEOUT_MS);
     keypad.enabled = JSON_GetBool(channel_obj, "enabled", true);
 
-    /* LED mode - default for all buttons */
-    int led_mode = JSON_GetInt(channel_obj, "led_mode", 0);
+    /* Brightness settings (0-63) */
+    keypad.led_brightness = (uint8_t)JSON_GetInt(channel_obj, "led_brightness", 0x3F);
+    keypad.backlight_brightness = (uint8_t)JSON_GetInt(channel_obj, "backlight_brightness", 0x20);
+    keypad.backlight_color = (PMU_BM_LedColor_t)JSON_GetInt(channel_obj, "backlight_color", PMU_BM_LED_WHITE);
 
     /* Parse buttons configuration */
     cJSON* buttons_array = cJSON_GetObjectItem(channel_obj, "buttons");
@@ -3217,32 +3482,34 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
 
             PMU_BM_ButtonConfig_t* btn = &keypad.buttons[i];
 
-            /* Button channel mapping */
-            const char* channel_id = JSON_GetString(button, "channel_id", "");
-            strncpy(btn->channel_id, channel_id, sizeof(btn->channel_id) - 1);
+            /* Button enabled */
             btn->enabled = JSON_GetBool(button, "enabled", true);
 
-            /* LED colors */
+            /* LED colors (indexes into PMU_BM_LedColor_t enum) */
             btn->led_on_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_on_color", PMU_BM_LED_GREEN);
             btn->led_off_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_off_color", PMU_BM_LED_OFF);
-            btn->led_mode = (PMU_BM_LedCtrlMode_t)led_mode;
+            btn->led_secondary = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_secondary", PMU_BM_LED_RED);
 
-            /* Button-specific LED mode override */
-            if (cJSON_HasObjectItem(button, "led_mode")) {
-                btn->led_mode = (PMU_BM_LedCtrlMode_t)JSON_GetInt(button, "led_mode", led_mode);
-            }
+            /* LED control mode */
+            btn->led_ctrl_mode = (PMU_BM_LedCtrlMode_t)JSON_GetInt(button, "led_ctrl_mode", PMU_BM_LED_CTRL_FOLLOW);
+
+            /* LED channel name for channel-controlled mode */
+            const char* led_channel = JSON_GetString(button, "led_channel_name", "");
+            strncpy(btn->led_channel_name, led_channel, sizeof(btn->led_channel_name) - 1);
         }
     }
 
     /* Add keypad */
     HAL_StatusTypeDef status = PMU_BlinkMarine_AddKeypad(&keypad);
     if (status != HAL_OK) {
-        JSON_SetError("Failed to add BlinkMarine keypad '%s'", id);
+        JSON_SetError("Failed to add BlinkMarine keypad '%s'", name);
         return false;
     }
 
-    printf("[JSON] Parsed BlinkMarine keypad: %s type=%s CAN%d RX:0x%03X TX:0x%03X\n",
-           id, type_str, keypad.can_bus, (unsigned int)keypad.rx_base_id, (unsigned int)keypad.tx_base_id);
+    const char* type_names[] = { "PKP2600SI", "PKP2800SI" };
+    printf("[JSON] Parsed BlinkMarine keypad: %s type=%s CAN%d SA:0x%02X KID:0x%02X\n",
+           name, type_names[keypad.type], keypad.can_bus,
+           keypad.source_address, keypad.keypad_identifier);
 #else
     (void)channel_obj;
 #endif

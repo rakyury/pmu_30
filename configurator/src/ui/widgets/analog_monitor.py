@@ -11,9 +11,9 @@ ECUMaster channel naming convention:
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QHBoxLayout, QLabel
+    QHeaderView, QPushButton, QHBoxLayout, QLabel, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from typing import Dict, List
 
@@ -21,10 +21,13 @@ from typing import Dict, List
 class AnalogMonitor(QWidget):
     """Analog input channels monitor widget with real-time telemetry display."""
 
-    # Colors for different states (dark theme)
-    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
-    COLOR_ACTIVE = QColor(0, 80, 0)           # Dark green (signal present)
-    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
+    # Signal emitted when user double-clicks a channel to edit it
+    channel_edit_requested = pyqtSignal(str, dict)  # (channel_type, channel_config)
+
+    # Colors for different states (dark theme - matching Variables Inspector)
+    COLOR_NORMAL = QColor(0, 0, 0)            # Pure black (matching Variables Inspector)
+    COLOR_ACTIVE = QColor(50, 80, 50)         # Dark green (signal present)
+    COLOR_DISABLED = QColor(60, 60, 60)       # Dark gray
     COLOR_TEXT = QColor(255, 255, 255)        # White text
     COLOR_TEXT_DISABLED = QColor(128, 128, 128)  # Gray text
 
@@ -37,6 +40,7 @@ class AnalogMonitor(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.inputs_data = []
         self._connected = False
         self._init_ui()
@@ -109,18 +113,19 @@ class AnalogMonitor(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Read-only
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select full rows
 
-        # Dark theme styling
+        # Double-click to edit channel
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+
+        # Dark theme styling (matching Variables Inspector - pure black)
         self.table.setStyleSheet("""
             QTableWidget {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
                 gridline-color: #333333;
-                border: 1px solid #333333;
             }
             QTableWidget::item {
-                background-color: #1a1a1a;
+                background-color: #000000;
                 color: #ffffff;
-                padding: 2px;
             }
             QTableWidget::item:selected {
                 background-color: #0078d4;
@@ -131,11 +136,21 @@ class AnalogMonitor(QWidget):
                 color: #ffffff;
                 padding: 4px;
                 border: 1px solid #333333;
-                font-weight: bold;
             }
         """)
 
         layout.addWidget(self.table)
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Handle double-click on a cell to open edit dialog."""
+        if row < 0 or row >= len(self.inputs_data):
+            return
+
+        input_data = self.inputs_data[row]
+
+        # Emit signal to open edit dialog
+        # channel_type is 'analog_input' for analog inputs
+        self.channel_edit_requested.emit('analog_input', input_data)
 
     def set_inputs(self, inputs: List[Dict]):
         """
@@ -284,7 +299,7 @@ class AnalogMonitor(QWidget):
                     self._set_row_color(row, self.COLOR_DISABLED)
                 else:
                     # Update values only for configured inputs
-                    self.table.item(row, self.COL_VALUE).setText(f"{value:.1f}")
+                    self.table.item(row, self.COL_VALUE).setText(f"{value:.2f}")
                     self.table.item(row, self.COL_VLTG).setText(f"{voltage:.2f}")
 
                     # Set row color based on logical output state (only for switch types)
@@ -432,13 +447,13 @@ class AnalogMonitor(QWidget):
                 else:
                     # Not enough calibration points - show percentage
                     value_percent = (adc_raw / 4095.0) * 100
-                    display_value = f"{value_percent:.1f}"
+                    display_value = f"{value_percent:.2f}"
 
                 digital_state = 1 if voltage > 0.1 else 0
             else:
                 # For rotary switch or unknown types, show percentage (0-100%)
                 value_percent = (adc_raw / 4095.0) * 100
-                display_value = f"{value_percent:.1f}"
+                display_value = f"{value_percent:.2f}"
                 digital_state = 1 if voltage > 0.1 else 0
 
             # Update Value column (only for configured inputs)
