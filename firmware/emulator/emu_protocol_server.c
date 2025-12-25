@@ -14,6 +14,7 @@
 #include "pmu_config_json.h"
 #include "pmu_channel.h"
 #include "pmu_profet.h"
+#include "pmu_blinkmarine.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -477,10 +478,10 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
     uint8_t resp[512];
     uint16_t resp_len = 0;
 
-    LOG_SERVER("RX msg 0x%02X, len %d", msg_type, len);
-
-    /* Send protocol command to WebUI log */
-    {
+    /* Skip logging for frequent messages (PING=0x01, TELEMETRY_SUB=0x51) */
+    if (msg_type != 0x01 && msg_type != 0x51) {
+        LOG_SERVER("RX msg 0x%02X, len %d", msg_type, len);
+        /* Send protocol command to WebUI log */
         char log_msg[128];
         snprintf(log_msg, sizeof(log_msg), "CMD 0x%02X len=%d", msg_type, len);
         EMU_WebUI_SendLog(0, "protocol", log_msg);
@@ -823,6 +824,213 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
             break;
         }
 
+        /* ===== Emulator Control Commands ===== */
+
+        case EMU_MSG_INJECT_FAULT: {
+            if (len >= 2) {
+                uint8_t channel = payload[0];
+                uint8_t fault_type = payload[1];
+
+                LOG_SERVER("INJECT_FAULT: CH%d, fault=0x%02X", channel + 1, fault_type);
+
+                if (channel < 30) {
+                    emu->profet[channel].fault_flags = fault_type;
+
+                    /* Send to WebUI log */
+                    char log_msg[64];
+                    const char* fault_name = (fault_type & 1) ? "OC" :
+                                            (fault_type & 2) ? "OT" :
+                                            (fault_type & 4) ? "SC" :
+                                            (fault_type & 8) ? "OL" : "?";
+                    snprintf(log_msg, sizeof(log_msg), "Injected %s fault on CH%d", fault_name, channel + 1);
+                    EMU_WebUI_SendLog(2, "fault", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_CLEAR_FAULT: {
+            if (len >= 1) {
+                uint8_t channel = payload[0];
+
+                LOG_SERVER("CLEAR_FAULT: CH%d", channel + 1);
+
+                if (channel < 30) {
+                    emu->profet[channel].fault_flags = 0;
+
+                    /* Send to WebUI log */
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Cleared fault on CH%d", channel + 1);
+                    EMU_WebUI_SendLog(1, "fault", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_VOLTAGE: {
+            if (len >= 2) {
+                uint16_t voltage_mv = payload[0] | (payload[1] << 8);
+
+                LOG_SERVER("SET_VOLTAGE: %d mV", voltage_mv);
+
+                /* Clamp to valid range */
+                if (voltage_mv < 6000) voltage_mv = 6000;
+                if (voltage_mv > 18000) voltage_mv = 18000;
+
+                /* Use the protection API to set voltage */
+                PMU_Emu_Protection_SetVoltage(voltage_mv);
+
+                /* Send to WebUI log */
+                char log_msg[64];
+                snprintf(log_msg, sizeof(log_msg), "Set battery voltage to %.1fV", voltage_mv / 1000.0f);
+                EMU_WebUI_SendLog(1, "system", log_msg);
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_TEMPERATURE: {
+            if (len >= 2) {
+                int16_t temp_c = (int16_t)(payload[0] | (payload[1] << 8));
+
+                LOG_SERVER("SET_TEMPERATURE: %d C", temp_c);
+
+                /* Clamp to valid range */
+                if (temp_c < -40) temp_c = -40;
+                if (temp_c > 150) temp_c = 150;
+
+                /* Use the protection API to set temperature */
+                PMU_Emu_Protection_SetTemperature(temp_c);
+
+                /* Send to WebUI log */
+                char log_msg[64];
+                snprintf(log_msg, sizeof(log_msg), "Set temperature to %d C", temp_c);
+                EMU_WebUI_SendLog(1, "system", log_msg);
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_DIGITAL_INPUT: {
+            if (len >= 2) {
+                uint8_t channel = payload[0];
+                uint8_t state = payload[1];
+
+                LOG_SERVER("SET_DIGITAL_INPUT: DI%d = %s", channel + 1, state ? "HIGH" : "LOW");
+
+                if (channel < 16) {
+                    /* Use the DI API to set state */
+                    PMU_Emu_DI_SetState(channel, state ? true : false);
+
+                    /* Send to WebUI log */
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Set DI%d to %s", channel + 1, state ? "HIGH" : "LOW");
+                    EMU_WebUI_SendLog(1, "input", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_ANALOG_INPUT: {
+            if (len >= 3) {
+                uint8_t channel = payload[0];
+                uint16_t voltage_mv = payload[1] | (payload[2] << 8);
+                float voltage_v = voltage_mv / 1000.0f;
+
+                LOG_SERVER("SET_ANALOG_INPUT: AIN%d = %dmV (%.2fV)", channel + 1, voltage_mv, voltage_v);
+
+                if (channel < 16) {
+                    /* Use the ADC API to set voltage */
+                    PMU_Emu_ADC_SetVoltage(channel, voltage_v);
+
+                    /* Send to WebUI log */
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Set AIN%d to %.2fV", channel + 1, voltage_v);
+                    EMU_WebUI_SendLog(1, "input", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_OUTPUT: {
+            if (len >= 4) {
+                uint8_t channel = payload[0];
+                uint8_t on = payload[1];
+                uint16_t pwm = payload[2] | (payload[3] << 8);
+
+                LOG_SERVER("SET_OUTPUT: CH%d %s, PWM=%d", channel + 1, on ? "ON" : "OFF", pwm);
+
+                if (channel < 30) {
+                    emu->profet[channel].state = on ? 1 : 0;
+                    emu->profet[channel].pwm_duty = pwm;
+
+                    /* Also update firmware PROFET state */
+                    PMU_PROFET_SetState(channel, on ? 1 : 0);
+                    PMU_PROFET_SetPWM(channel, pwm);
+
+                    /* Send to WebUI log */
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Set CH%d %s PWM=%d%%", channel + 1,
+                             on ? "ON" : "OFF", pwm / 10);
+                    EMU_WebUI_SendLog(1, "output", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = 1;  /* Success */
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
+        case EMU_MSG_SET_BUTTON: {
+            if (len >= 3) {
+                uint8_t keypad_idx = payload[0];
+                uint8_t button_idx = payload[1];
+                uint8_t pressed = payload[2];
+
+                LOG_SERVER("SET_BUTTON: Keypad %d, Button %d, %s",
+                          keypad_idx, button_idx, pressed ? "PRESS" : "RELEASE");
+
+                /* Call BlinkMarine button simulation */
+                HAL_StatusTypeDef result = PMU_BlinkMarine_SimulateButton(keypad_idx, button_idx, pressed);
+
+                /* Send to WebUI log */
+                {
+                    char log_msg[64];
+                    snprintf(log_msg, sizeof(log_msg), "Button %d.%d %s",
+                             keypad_idx, button_idx, pressed ? "PRESSED" : "RELEASED");
+                    EMU_WebUI_SendLog(1, "button", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = (result == HAL_OK) ? 1 : 0;
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
         default:
             LOG_SERVER("Unknown message type 0x%02X", msg_type);
             /* Send error */
@@ -889,117 +1097,176 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     PMU_Emulator_t* emu = PMU_Emu_GetState();
     size_t offset = 0;
 
-    /* Timestamp/Uptime (4 bytes) - use uptime_seconds * 1000 for more accurate display */
-    uint32_t uptime_ms = emu->uptime_seconds * 1000 + (emu->tick_ms % 1000);
-    memcpy(buffer + offset, &uptime_ms, 4);
+    /*
+     * Standard PMU telemetry format (174 bytes) - matches configurator's parse_telemetry():
+     * - timestamp_ms (4 bytes)
+     * - voltage_mv (2 bytes)
+     * - temperature_c (2 bytes, signed)
+     * - total_current_ma (4 bytes)
+     * - adc_values (40 bytes, 20 x uint16)
+     * - profet_states (30 bytes)
+     * - profet_duties (60 bytes, 30 x uint16)
+     * - hbridge_states (4 bytes)
+     * - hbridge_positions (8 bytes, 4 x uint16)
+     * - board_temp_2 (2 bytes, signed)
+     * - 5v_output_mv (2 bytes)
+     * - 3v3_output_mv (2 bytes)
+     * - flash_temp (2 bytes, signed)
+     * - system_status (4 bytes)
+     * - fault_flags (4 bytes)
+     * - digital_inputs (4 bytes, bitmask for 20 inputs)
+     * Total: 174 bytes
+     */
+
+    /* 1. timestamp_ms (4 bytes) */
+    uint32_t timestamp = emu->tick_ms;
+    memcpy(buffer + offset, &timestamp, 4);
     offset += 4;
 
-    /* Voltage (2 bytes) - from system channel or emulator */
+    /* 2. voltage_mv (2 bytes) */
     int32_t voltage_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
     uint16_t voltage = (voltage_val > 0) ? (uint16_t)voltage_val : emu->protection.battery_voltage_mV;
     memcpy(buffer + offset, &voltage, 2);
     offset += 2;
 
-    /* Temperature (2 bytes, signed) - Board temp Left from emulator */
+    /* 3. temperature_c (2 bytes, signed) */
     int32_t temp_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP_L);
     int16_t temp = (temp_val != 0) ? (int16_t)temp_val : emu->protection.board_temp_L_C;
     memcpy(buffer + offset, &temp, 2);
     offset += 2;
 
-    /* Total current (4 bytes) - from system channel or emulator */
-    int32_t current_val = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_TOTAL_I);
-    uint32_t current = (current_val > 0) ? (uint32_t)current_val : emu->protection.total_current_mA;
-    memcpy(buffer + offset, &current, 4);
+    /* 4. total_current_ma (4 bytes) */
+    uint32_t total_current = emu->protection.total_current_mA;
+    memcpy(buffer + offset, &total_current, 4);
     offset += 4;
 
-    /* ADC values (20 x 2 bytes) - always send raw ADC for analog monitor display
-     * Note: Channel values (0/1 for switches) are for logic conditions,
-     * but the analog monitor should always show the real voltage */
+    /* 5. adc_values (40 bytes, 20 x uint16) */
     for (int i = 0; i < 20; i++) {
-        /* Always use raw emulator ADC value for display (10-bit to 12-bit) */
-        uint16_t adc = emu->adc[i].raw_value << 2;
+        uint16_t adc = emu->adc[i].raw_value << 2;  /* 10-bit to 12-bit */
         memcpy(buffer + offset, &adc, 2);
         offset += 2;
     }
 
-    /* PROFET states (30 x 1 byte) - from firmware PROFET module */
+    /* 6. profet_states (30 bytes) */
     for (int i = 0; i < 30; i++) {
         PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
-        if (profet) {
-            buffer[offset++] = profet->state;
-        } else {
-            buffer[offset++] = emu->profet[i].state;
-        }
+        buffer[offset++] = profet ? profet->state : emu->profet[i].state;
     }
 
-    /* PROFET duties (30 x 2 bytes) - from firmware PROFET module */
+    /* 7. profet_duties (60 bytes, 30 x uint16) */
     for (int i = 0; i < 30; i++) {
         PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
-        uint16_t duty;
-        if (profet) {
-            duty = profet->pwm_duty;
-        } else {
-            duty = emu->profet[i].pwm_duty;
-        }
+        uint16_t duty = profet ? profet->pwm_duty : emu->profet[i].pwm_duty;
         memcpy(buffer + offset, &duty, 2);
         offset += 2;
     }
 
-    /* H-Bridge states (4 x 1 byte) */
+    /* 8. hbridge_states (4 bytes) */
     for (int i = 0; i < 4; i++) {
-        int32_t ch_val = PMU_Channel_GetValue(130 + i);  /* Channels 130-133 are H-bridges */
-        if (ch_val != 0) {
-            buffer[offset++] = (ch_val > 0) ? 1 : 0;
-        } else {
-            buffer[offset++] = emu->hbridge[i].state;
-        }
+        buffer[offset++] = emu->hbridge[i].state;
     }
 
-    /* H-Bridge positions (4 x 2 bytes) */
+    /* 9. hbridge_positions (8 bytes, 4 x uint16) */
     for (int i = 0; i < 4; i++) {
         uint16_t pos = emu->hbridge[i].position;
         memcpy(buffer + offset, &pos, 2);
         offset += 2;
     }
 
-    /* Extended system fields (16 bytes) */
-
-    /* Board temperature Right (2 bytes, signed) - ECUMaster: boardTemperatureR */
-    int16_t temp_r = emu->protection.board_temp_R_C;
-    memcpy(buffer + offset, &temp_r, 2);
+    /* 10. board_temp_2 (2 bytes, signed) */
+    int16_t board_temp_2 = emu->protection.board_temp_R_C;
+    memcpy(buffer + offset, &board_temp_2, 2);
     offset += 2;
 
-    /* 5V output (2 bytes) - from emulator state */
-    uint16_t v5_out = emu->protection.output_5v_mV;
-    memcpy(buffer + offset, &v5_out, 2);
+    /* 11. 5v_output_mv (2 bytes) */
+    uint16_t output_5v = emu->protection.output_5v_mV;
+    memcpy(buffer + offset, &output_5v, 2);
     offset += 2;
 
-    /* 3.3V output (2 bytes) - from emulator state */
-    uint16_t v33_out = emu->protection.output_3v3_mV;
-    memcpy(buffer + offset, &v33_out, 2);
+    /* 12. 3v3_output_mv (2 bytes) */
+    uint16_t output_3v3 = emu->protection.output_3v3_mV;
+    memcpy(buffer + offset, &output_3v3, 2);
     offset += 2;
 
-    /* Flash temperature (2 bytes, signed) - simulate as board_temp_L - 5 */
-    int16_t flash_temp = emu->protection.board_temp_L_C - 5;
+    /* 13. flash_temp (2 bytes, signed) */
+    int16_t flash_temp = emu->flash_temp_C;
     memcpy(buffer + offset, &flash_temp, 2);
     offset += 2;
 
-    /* System status (4 bytes) - bit flags (ECUMaster compatible) */
-    uint32_t sys_status = emu->protection.system_status;
-    /* Bit 0: reset detector */
-    /* Bit 1: user error */
-    sys_status |= (emu->protection.user_error ? 0x02 : 0);
-    /* Bit 2: is turning off */
-    sys_status |= (emu->protection.is_turning_off ? 0x04 : 0);
-    memcpy(buffer + offset, &sys_status, 4);
+    /* 14. system_status (4 bytes) */
+    uint32_t system_status = emu->protection.system_status;
+    memcpy(buffer + offset, &system_status, 4);
     offset += 4;
 
-    /* Fault flags (4 bytes) - from emulator protection state */
-    uint32_t faults = emu->protection.fault_flags;
-    memcpy(buffer + offset, &faults, 4);
+    /* 15. fault_flags (4 bytes) */
+    uint32_t fault_flags = emu->protection.fault_flags;
+    memcpy(buffer + offset, &fault_flags, 4);
     offset += 4;
 
-    *len = offset;  /* Should be 170 bytes */
+    /* 16. digital_inputs (4 bytes, bitmask for 20 inputs) */
+    uint32_t di_states = 0;
+    for (int i = 0; i < 20; i++) {
+        if (emu->digital_inputs[i].debounced_state) {
+            di_states |= (1U << i);
+        }
+    }
+    memcpy(buffer + offset, &di_states, 4);
+    offset += 4;
+
+    /* === Extended: Virtual Channels (logic, timer, switch, number, etc.) === */
+    /* Format:
+     * - virtual_channel_count (2 bytes)
+     * - For each virtual channel:
+     *   - channel_id (2 bytes)
+     *   - value (4 bytes, int32)
+     */
+
+    /* Get list of all registered virtual channels */
+    PMU_Channel_t channels[64];
+    uint16_t channel_count = PMU_Channel_List(channels, 64);
+
+    /* Count virtual channels (ID >= 200) */
+    uint16_t virtual_count = 0;
+    for (uint16_t i = 0; i < channel_count; i++) {
+        if (channels[i].channel_id >= PMU_CHANNEL_ID_VIRTUAL_START &&
+            channels[i].channel_id <= PMU_CHANNEL_ID_VIRTUAL_END) {
+            virtual_count++;
+        }
+    }
+
+    /* Write virtual channel count */
+    memcpy(buffer + offset, &virtual_count, 2);
+    offset += 2;
+
+    /* Debug: print virtual channel info periodically */
+    static uint32_t debug_counter = 0;
+    if (++debug_counter % 500 == 1) {
+        printf("[TELEM] Virtual channels: count=%d (total registered=%d)\n", virtual_count, channel_count);
+        for (uint16_t i = 0; i < channel_count; i++) {
+            if (channels[i].channel_id >= PMU_CHANNEL_ID_VIRTUAL_START &&
+                channels[i].channel_id <= PMU_CHANNEL_ID_VIRTUAL_END) {
+                printf("  [%d] '%s' = %d\n", channels[i].channel_id, channels[i].name, channels[i].value);
+            }
+        }
+    }
+
+    /* Write each virtual channel: id (2 bytes) + value (4 bytes) */
+    for (uint16_t i = 0; i < channel_count && offset < 500; i++) {
+        if (channels[i].channel_id >= PMU_CHANNEL_ID_VIRTUAL_START &&
+            channels[i].channel_id <= PMU_CHANNEL_ID_VIRTUAL_END) {
+            /* Channel ID */
+            uint16_t ch_id = channels[i].channel_id;
+            memcpy(buffer + offset, &ch_id, 2);
+            offset += 2;
+
+            /* Channel value */
+            int32_t ch_value = channels[i].value;
+            memcpy(buffer + offset, &ch_value, 4);
+            offset += 4;
+        }
+    }
+
+    *len = offset;  /* 174 bytes + 2 + (virtual_count * 6) */
 }
 
 /**

@@ -106,12 +106,12 @@ class PIDTuner(QWidget):
         # Status bar
         status_layout = QHBoxLayout()
         self.status_label = QLabel("Select a PID controller to tune")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         status_layout.addWidget(self.status_label)
         status_layout.addStretch()
 
         self.connection_label = QLabel("Offline")
-        self.connection_label.setStyleSheet("color: #888;")
+        self.connection_label.setStyleSheet("color: #b0b0b0;")
         status_layout.addWidget(self.connection_label)
 
         layout.addLayout(status_layout)
@@ -204,7 +204,7 @@ class PIDTuner(QWidget):
                 "Install with: pip install pyqtgraph"
             )
             fallback_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            fallback_label.setStyleSheet("color: #888; font-size: 14px;")
+            fallback_label.setStyleSheet("color: #b0b0b0; font-size: 14px;")
             layout.addWidget(fallback_label)
             self.plot_widget = None
 
@@ -561,7 +561,7 @@ class PIDTuner(QWidget):
             self.connection_label.setStyleSheet("color: #22c55e; font-weight: bold;")
         else:
             self.connection_label.setText("Offline")
-            self.connection_label.setStyleSheet("color: #888;")
+            self.connection_label.setStyleSheet("color: #b0b0b0;")
             # Clear real-time values
             self.current_setpoint_label.setText("---")
             self.current_process_label.setText("---")

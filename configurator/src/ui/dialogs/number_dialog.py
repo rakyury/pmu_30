@@ -85,7 +85,7 @@ class NumberDialog(BaseChannelDialog):
 
         # Operation description
         self.op_description = QLabel("")
-        self.op_description.setStyleSheet("color: #666; font-style: italic;")
+        self.op_description.setStyleSheet("color: #b0b0b0; font-style: italic;")
         self.op_description.setWordWrap(True)
         layout.addWidget(self.op_description, 1, 0, 1, 4)
 

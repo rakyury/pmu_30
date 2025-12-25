@@ -240,6 +240,15 @@ static inline uint8_t PMU_BlinkMarine_GetButtonCount(PMU_BlinkMarine_Type_t type
     return (type == PMU_BLINKMARINE_2X6) ? PMU_BM_MAX_BUTTONS_2X6 : PMU_BM_MAX_BUTTONS_2X8;
 }
 
+/**
+ * @brief Simulate button press/release (for emulator)
+ * @param keypad_idx Keypad index (0-3)
+ * @param button_idx Button index (0-15)
+ * @param pressed 1 for press, 0 for release
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_BlinkMarine_SimulateButton(uint8_t keypad_idx, uint8_t button_idx, uint8_t pressed);
+
 #ifdef __cplusplus
 }
 #endif

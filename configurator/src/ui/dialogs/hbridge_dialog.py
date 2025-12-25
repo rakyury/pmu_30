@@ -125,7 +125,7 @@ class HBridgeDialog(QDialog):
 
         # Channel ID (read-only)
         self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #666;")
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
         layout.addRow("Channel ID:", self.channel_id_label)
 
         # Name
@@ -454,37 +454,37 @@ class HBridgeDialog(QDialog):
     def _browse_source_channel(self):
         """Browse and select control source channel."""
         current = self.source_channel_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.source_channel_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.source_channel_edit.setText(channel if channel else "")
 
     def _browse_direction_source(self):
         """Browse and select direction source channel."""
         current = self.direction_source_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.direction_source_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.direction_source_edit.setText(channel if channel else "")
 
     def _browse_pwm_source(self):
         """Browse and select PWM source channel."""
         current = self.pwm_source_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.pwm_source_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.pwm_source_edit.setText(channel if channel else "")
 
     def _browse_position_source(self):
         """Browse and select position feedback source."""
         current = self.position_source_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.position_source_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.position_source_edit.setText(channel if channel else "")
 
     def _browse_target_source(self):
         """Browse and select target position source."""
         current = self.target_source_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.target_source_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.target_source_edit.setText(channel if channel else "")
 
     def _on_preset_changed(self, index):
         """Handle motor preset change - apply preset defaults."""

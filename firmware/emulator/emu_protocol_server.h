@@ -86,6 +86,17 @@ typedef struct {
 #define EMU_MSG_RESTART             0x70
 #define EMU_MSG_RESTART_ACK         0x71
 
+/* Emulator control messages (0x80+) */
+#define EMU_MSG_INJECT_FAULT        0x80
+#define EMU_MSG_CLEAR_FAULT         0x81
+#define EMU_MSG_SET_VOLTAGE         0x82
+#define EMU_MSG_SET_TEMPERATURE     0x83
+#define EMU_MSG_SET_DIGITAL_INPUT   0x84
+#define EMU_MSG_SET_OUTPUT          0x85
+#define EMU_MSG_SET_ANALOG_INPUT    0x86
+#define EMU_MSG_SET_BUTTON          0x87
+#define EMU_MSG_EMU_ACK             0x8F
+
 /* Exported functions --------------------------------------------------------*/
 
 /**

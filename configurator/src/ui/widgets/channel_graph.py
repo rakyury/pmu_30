@@ -138,7 +138,7 @@ class ChannelNodeItem(QGraphicsEllipseItem):
             # Update label position
             if self.node.label_item:
                 label = self.node.label_item
-                label.setPos(value.x() - label.boundingRect().width() / 2, value.y() + 30)
+                label.setPos(value.x() - label.boundingRect().width() / 2, value.y() + 35)
             # Update connected edges
             scene = self.scene()
             if scene and hasattr(scene, 'update_edges'):
@@ -326,7 +326,7 @@ class ChannelGraphScene(QGraphicsScene):
 
         # Position nodes
         x_positions = {'Inputs': 0, 'Processing': 250, 'Outputs': 500, 'Other': 500}
-        y_spacing = 70
+        y_spacing = 90
 
         for cat_name, nodes in categories.items():
             if not nodes:
@@ -351,7 +351,7 @@ class ChannelGraphScene(QGraphicsScene):
         label.setDefaultTextColor(Qt.GlobalColor.white)
         font = QFont('Segoe UI', 8)
         label.setFont(font)
-        label.setPos(node.x - label.boundingRect().width() / 2, node.y + 30)
+        label.setPos(node.x - label.boundingRect().width() / 2, node.y + 35)
         self.addItem(label)
         node.label_item = label
 
@@ -466,6 +466,13 @@ class ChannelGraphWidget(QWidget):
         self.filter_combo.currentIndexChanged.connect(self._on_filter_changed)
         toolbar.addWidget(self.filter_combo)
 
+        # Hide unconnected channels
+        self.hide_unconnected_checkbox = QCheckBox("Connected only")
+        self.hide_unconnected_checkbox.setChecked(True)  # Default to showing only connected
+        self.hide_unconnected_checkbox.setToolTip("Hide channels without any connections")
+        self.hide_unconnected_checkbox.toggled.connect(self._on_filter_changed)
+        toolbar.addWidget(self.hide_unconnected_checkbox)
+
         toolbar.addSeparator()
 
         # Live update toggle
@@ -501,7 +508,7 @@ class ChannelGraphWidget(QWidget):
 
     def _rebuild_graph(self):
         """Rebuild the graph from channels."""
-        # Filter channels if needed
+        # Filter channels by type
         filter_value = self.filter_combo.currentData()
         filtered = self.channels
 
@@ -515,11 +522,63 @@ class ChannelGraphWidget(QWidget):
             types = CHANNEL_CATEGORIES['Outputs']
             filtered = [c for c in self.channels if c.get('type') in types]
 
+        # Filter by connection status if checkbox is checked
+        if self.hide_unconnected_checkbox.isChecked():
+            filtered = self._filter_connected_only(filtered)
+
         self.scene.build_graph(filtered)
         self.status_label.setText(f"Showing {len(filtered)} channels, {len(self.scene.edges)} connections")
 
         # Fit view after short delay
         QTimer.singleShot(100, self._fit_view)
+
+    def _filter_connected_only(self, channels: List[Dict]) -> List[Dict]:
+        """Filter to only include channels that have connections."""
+        # Build set of all channel IDs that are referenced
+        referenced_ids = set()
+
+        # Fields that can reference other channels
+        ref_fields = [
+            'source_channel', 'input_channel', 'control_function',
+            'start_channel', 'stop_channel', 'reset_channel',
+            'channel', 'channel_2', 'set_channel', 'toggle_channel',
+            'long_press_output', 'double_click_output'
+        ]
+
+        # Collect all channel IDs
+        channel_ids = set()
+        for ch in channels:
+            ch_id = ch.get('id') or ch.get('name') or ch.get('channel_id')
+            if ch_id:
+                channel_ids.add(str(ch_id))
+
+        # Find which channels are referenced
+        for ch in channels:
+            for field in ref_fields:
+                ref = ch.get(field)
+                if ref:
+                    referenced_ids.add(str(ref))
+
+            # Also check source_channel_id (numeric)
+            if ch.get('source_channel_id'):
+                referenced_ids.add(str(ch.get('source_channel_id')))
+
+        # Find which channels reference others
+        referencing_ids = set()
+        for ch in channels:
+            ch_id = ch.get('id') or ch.get('name') or ch.get('channel_id')
+            for field in ref_fields:
+                ref = ch.get(field)
+                if ref:
+                    referencing_ids.add(str(ch_id))
+                    break
+            if ch.get('source_channel_id'):
+                referencing_ids.add(str(ch_id))
+
+        # Keep channels that are either referenced or referencing
+        connected_ids = referenced_ids | referencing_ids
+        return [ch for ch in channels
+                if str(ch.get('id') or ch.get('name') or ch.get('channel_id')) in connected_ids]
 
     def update_from_telemetry(self, telemetry_data: dict):
         """Update graph from telemetry (real-time highlighting)."""

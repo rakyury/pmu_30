@@ -1,4 +1,4 @@
-/**
+﻿/**
  ******************************************************************************
  * @file           : pmu_config.h
  * @brief          : PMU-30 Configuration Header
@@ -29,8 +29,6 @@ extern "C" {
 
 /* Channel types are defined in pmu_types.h:
  * - PMU_ChannelType_t (PMU_CHANNEL_TYPE_DIGITAL_INPUT, etc.)
- * - PMU_GPIOType_t (backwards compatibility alias)
- * - PMU_GPIO_TYPE_* macros
  * - CAN types (PMU_CAN_MessageType_t, etc.)
  */
 
@@ -58,7 +56,8 @@ typedef enum {
 typedef enum {
     PMU_EDGE_RISING = 0,
     PMU_EDGE_FALLING,
-    PMU_EDGE_BOTH
+    PMU_EDGE_BOTH,
+    PMU_EDGE_LEVEL        /**< Level trigger - fires when signal is high (> 0) */
 } PMU_EdgeType_t;
 
 /* Timer Modes */
@@ -97,7 +96,7 @@ typedef enum {
     PMU_LOGIC_FLASH
 } PMU_LogicOp_t;
 
-/* Math Operations for Number GPIO */
+/* Math Operations for Number Channel */
 typedef enum {
     PMU_MATH_CONSTANT = 0,
     PMU_MATH_CHANNEL,
@@ -182,6 +181,7 @@ typedef struct {
     PMU_DigitalInputSubtype_t subtype;
     uint8_t input_pin;              /* D1-D8 -> 0-7 */
     bool enable_pullup;
+    bool invert;                    /* Invert input logic */
     uint16_t threshold_mv;          /* Threshold in mV */
     uint16_t debounce_ms;
     /* Frequency/RPM specific */
@@ -190,6 +190,15 @@ typedef struct {
     float divider;
     uint16_t timeout_ms;
     uint16_t number_of_teeth;       /* RPM specific */
+    /* Button function mode (ECUMaster compatible) */
+    PMU_ButtonMode_t button_mode;
+    uint16_t long_press_ms;         /* Long press threshold */
+    char long_press_output[PMU_CHANNEL_ID_LEN];  /* Separate long press output */
+    uint16_t double_click_ms;       /* Double click window */
+    char double_click_output[PMU_CHANNEL_ID_LEN]; /* Separate double click output */
+    uint16_t hold_start_ms;         /* Press and hold start time */
+    uint16_t hold_full_ms;          /* Press and hold full time */
+    char reset_channel[PMU_CHANNEL_ID_LEN]; /* Reset channel for latch/toggle */
 } PMU_DigitalInputConfig_t;
 
 /* ============================================================================
@@ -226,11 +235,14 @@ typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     uint8_t output_pins[PMU_MAX_OUTPUT_PINS];
     uint8_t output_pin_count;
-    char source_channel[PMU_CHANNEL_ID_LEN];
+    bool enabled;                             /* Output enabled for runtime control */
+    char source_channel[PMU_CHANNEL_ID_LEN];  /* Legacy: string channel ID */
+    uint16_t source_channel_id;               /* Numeric channel_id (preferred) */
     /* PWM */
     bool pwm_enabled;
     uint16_t pwm_frequency_hz;
-    char duty_channel[PMU_CHANNEL_ID_LEN];
+    char duty_channel[PMU_CHANNEL_ID_LEN];    /* Legacy: string channel ID */
+    uint16_t duty_channel_id;                 /* Numeric channel_id (preferred) */
     float duty_fixed;               /* Fixed duty if no channel (0-100) */
     uint16_t soft_start_ms;
     /* Protection */

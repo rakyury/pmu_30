@@ -331,7 +331,7 @@ pmu.setVirtual(0, timer)
         header_layout.addStretch()
 
         self.position_label = QLabel("Ln 1, Col 1")
-        self.position_label.setStyleSheet("color: #888;")
+        self.position_label.setStyleSheet("color: #b0b0b0;")
         header_layout.addWidget(self.position_label)
 
         editor_layout.addLayout(header_layout)
@@ -378,7 +378,7 @@ pmu.setVirtual(0, timer)
         header_layout.addStretch()
 
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #888; font-weight: bold;")
+        self.status_label.setStyleSheet("color: #b0b0b0; font-weight: bold;")
         header_layout.addWidget(self.status_label)
 
         self.clear_console_btn = QPushButton("Clear")
@@ -487,7 +487,7 @@ pmu.setVirtual(0, timer)
         }
         color = colors.get(level, "#CCCCCC")
 
-        html = f'<span style="color: #888;">[{timestamp}]</span> <span style="color: {color};">{message}</span><br>'
+        html = f'<span style="color: #b0b0b0;">[{timestamp}]</span> <span style="color: {color};">{message}</span><br>'
         self.console_output.insertHtml(html)
 
         # Scroll to bottom

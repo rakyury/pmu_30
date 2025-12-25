@@ -23,6 +23,7 @@
 #include "pmu_blinkmarine.h"
 #include "pmu_wifi.h"
 #include "pmu_bluetooth.h"
+#include "pmu_handler.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -52,6 +53,124 @@ static PMU_InputConfig_t input_config_storage[PMU30_NUM_ADC_INPUTS];
 static PMU_PowerOutputConfig_t power_output_storage[PMU30_NUM_OUTPUTS];
 static uint8_t power_output_count = 0;
 
+/* Storage for logic function configurations */
+#define PMU_MAX_LOGIC_CHANNELS 64
+typedef struct {
+    PMU_LogicConfig_t config;
+    uint16_t channel_id;          /* Assigned channel ID for telemetry */
+    int32_t output_value;         /* Current output value (0 or 1000) */
+    int32_t prev_input_value;     /* Previous input for edge detection */
+    int32_t prev_input2_value;    /* Previous input2 for edge detection */
+    uint32_t delay_start_ms;      /* Delay timer start */
+    bool delay_active;            /* Delay timer running */
+    bool latch_state;             /* For latching operations */
+    uint32_t flash_last_toggle;   /* Last flash toggle time */
+    bool flash_state;             /* Current flash state */
+} PMU_LogicRuntime_t;
+static PMU_LogicRuntime_t logic_storage[PMU_MAX_LOGIC_CHANNELS];
+static uint8_t logic_count = 0;
+
+/* Storage for number/math channel configurations */
+#define PMU_MAX_NUMBER_CHANNELS 32
+typedef struct {
+    PMU_NumberConfig_t config;
+    uint16_t channel_id;
+    int32_t output_value;
+} PMU_NumberRuntime_t;
+static PMU_NumberRuntime_t number_storage[PMU_MAX_NUMBER_CHANNELS];
+static uint8_t number_count = 0;
+
+/* Storage for switch channel configurations */
+#define PMU_MAX_SWITCH_CHANNELS 32
+typedef struct {
+    PMU_SwitchConfig_t config;
+    uint16_t channel_id;
+    int32_t output_value;
+    int16_t current_state;
+} PMU_SwitchRuntime_t;
+static PMU_SwitchRuntime_t switch_storage[PMU_MAX_SWITCH_CHANNELS];
+static uint8_t switch_count = 0;
+
+/* Storage for filter channel configurations */
+#define PMU_MAX_FILTER_CHANNELS 32
+#define PMU_FILTER_WINDOW_MAX 16
+typedef struct {
+    PMU_FilterConfig_t config;
+    uint16_t channel_id;
+    int32_t output_value;
+    int32_t window[PMU_FILTER_WINDOW_MAX];
+    uint8_t window_index;
+    uint8_t window_filled;
+    int32_t ema_value;
+} PMU_FilterRuntime_t;
+static PMU_FilterRuntime_t filter_storage[PMU_MAX_FILTER_CHANNELS];
+static uint8_t filter_count = 0;
+
+/* Storage for timer channel configurations */
+#define PMU_MAX_TIMER_CHANNELS 16
+typedef struct {
+    PMU_TimerConfig_t config;
+    uint16_t channel_id;        /* Main channel - outputs running state (0/1000) */
+    uint16_t elapsed_channel_id; /* Elapsed channel - outputs time in ms */
+    int32_t output_value;       /* Current timer value in ms */
+    uint32_t start_time_ms;     /* Time when timer started */
+    bool running;               /* Timer is running */
+    int32_t prev_start_value;   /* Previous start trigger value */
+    int32_t prev_stop_value;    /* Previous stop trigger value */
+} PMU_TimerRuntime_t;
+static PMU_TimerRuntime_t timer_storage[PMU_MAX_TIMER_CHANNELS];
+static uint8_t timer_count = 0;
+
+/* Virtual channel ID allocator */
+static uint16_t virtual_channel_id_next = PMU_CHANNEL_ID_VIRTUAL_START;
+
+static uint16_t AllocateVirtualChannelID(void) {
+    if (virtual_channel_id_next <= PMU_CHANNEL_ID_VIRTUAL_END) {
+        return virtual_channel_id_next++;
+    }
+    return 0;
+}
+
+/* Mapping from JSON channel_id to runtime channel_id */
+#define PMU_CHANNEL_ID_MAP_SIZE 256
+typedef struct {
+    uint16_t json_id;
+    uint16_t runtime_id;
+} PMU_ChannelIdMap_t;
+static PMU_ChannelIdMap_t channel_id_map[PMU_CHANNEL_ID_MAP_SIZE];
+static uint16_t channel_id_map_count = 0;
+
+static void AddChannelIdMapping(uint16_t json_id, uint16_t runtime_id) {
+    if (channel_id_map_count < PMU_CHANNEL_ID_MAP_SIZE) {
+        channel_id_map[channel_id_map_count].json_id = json_id;
+        channel_id_map[channel_id_map_count].runtime_id = runtime_id;
+        channel_id_map_count++;
+    }
+}
+
+static uint16_t MapJsonIdToRuntimeId(uint16_t json_id) {
+    for (uint16_t i = 0; i < channel_id_map_count; i++) {
+        if (channel_id_map[i].json_id == json_id) {
+            return channel_id_map[i].runtime_id;
+        }
+    }
+    return json_id;  /* Return as-is if no mapping found */
+}
+
+/* Helper to get input channel value by name */
+static int32_t GetInputChannelValue(const char* channel_name) {
+    if (!channel_name || channel_name[0] == '\0') return 0;
+    const PMU_Channel_t* ch = PMU_Channel_GetByName(channel_name);
+    if (!ch) {
+        static uint32_t warn_cnt = 0;
+        if (++warn_cnt <= 5) {
+            printf("[WARN] Channel '%s' not found!\n", channel_name);
+        }
+        return 0;
+    }
+    return ch->value;
+}
+
 /* Private function prototypes -----------------------------------------------*/
 /* v2.0 channel parsing */
 static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stats);
@@ -70,7 +189,7 @@ static bool JSON_ParseCanRx(cJSON* channel_obj);
 static bool JSON_ParseCanTx(cJSON* channel_obj);
 static bool JSON_ParsePID(cJSON* channel_obj);
 static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj);
-static PMU_GPIOType_t JSON_ParseGPIOType(const char* type_str);
+static bool JSON_ParseHandler(cJSON* channel_obj);
 
 /* v1.0 legacy parsing */
 static bool JSON_ParseInputs(cJSON* inputs_array);
@@ -106,6 +225,30 @@ static bool JSON_GetBool(cJSON* obj, const char* key, bool default_val);
 HAL_StatusTypeDef PMU_JSON_Init(void)
 {
     memset(last_error, 0, sizeof(last_error));
+
+    /* Clear all runtime storage for re-loading config */
+    memset(logic_storage, 0, sizeof(logic_storage));
+    logic_count = 0;
+
+    memset(number_storage, 0, sizeof(number_storage));
+    number_count = 0;
+
+    memset(switch_storage, 0, sizeof(switch_storage));
+    switch_count = 0;
+
+    memset(filter_storage, 0, sizeof(filter_storage));
+    filter_count = 0;
+
+    memset(timer_storage, 0, sizeof(timer_storage));
+    timer_count = 0;
+
+    /* Clear channel ID mapping */
+    memset(channel_id_map, 0, sizeof(channel_id_map));
+    channel_id_map_count = 0;
+
+    /* Reset virtual channel ID allocator */
+    virtual_channel_id_next = PMU_CHANNEL_ID_VIRTUAL_START;
+
     return HAL_OK;
 }
 
@@ -1834,6 +1977,11 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
                 if (success && stats) stats->blinkmarine_keypads++;
                 break;
 
+            case PMU_CHANNEL_TYPE_HANDLER:
+                success = JSON_ParseHandler(channel);
+                if (success && stats) stats->handlers++;
+                break;
+
             default:
                 JSON_SetError("Channel %s: unknown channel_type '%s'", id, channel_type_str);
                 continue;
@@ -2107,12 +2255,22 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         }
     }
 
-    /* Source channel - try "source_channel" then "control_function" */
-    const char* source = JSON_GetString(channel_obj, "source_channel", "");
-    if (strlen(source) == 0) {
-        source = JSON_GetString(channel_obj, "control_function", "");
+    /* Source channel - can be string (name) or number (channel_id) */
+    cJSON* source_obj = cJSON_GetObjectItem(channel_obj, "source_channel");
+    if (!source_obj) {
+        source_obj = cJSON_GetObjectItem(channel_obj, "control_function");
     }
-    strncpy(config.source_channel, source, PMU_CHANNEL_ID_LEN - 1);
+    if (source_obj) {
+        if (cJSON_IsString(source_obj) && source_obj->valuestring) {
+            /* String channel name */
+            strncpy(config.source_channel, source_obj->valuestring, PMU_CHANNEL_ID_LEN - 1);
+            config.source_channel_id = 0;  /* Will be resolved at runtime */
+        } else if (cJSON_IsNumber(source_obj)) {
+            /* Numeric channel_id - preferred */
+            config.source_channel_id = (uint16_t)source_obj->valueint;
+            config.source_channel[0] = '\0';  /* Not used when ID is set */
+        }
+    }
 
     /* PWM settings - try flat format first, then nested "pwm" object */
     cJSON* pwm_obj = cJSON_GetObjectItem(channel_obj, "pwm");
@@ -2190,8 +2348,13 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
     for (int i = 0; i < config.output_pin_count; i++) {
         printf("%d%s", config.output_pins[i], (i < config.output_pin_count - 1) ? "," : "");
     }
-    printf("], enabled=%d, source='%s', pwm=%d, duty=%.1f%%\n",
-           enabled, config.source_channel, config.pwm_enabled, config.duty_fixed);
+    if (config.source_channel_id != 0) {
+        printf("], enabled=%d, source_id=%d, pwm=%d, duty=%.1f%%\n",
+               enabled, config.source_channel_id, config.pwm_enabled, config.duty_fixed);
+    } else {
+        printf("], enabled=%d, source='%s', pwm=%d, duty=%.1f%%\n",
+               enabled, config.source_channel, config.pwm_enabled, config.duty_fixed);
+    }
 
     /* Store configuration for runtime control */
     if (power_output_count < PMU30_NUM_OUTPUTS) {
@@ -2215,6 +2378,9 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
 
     const char* id = JSON_GetString(channel_obj, "id", "");
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
+
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
     /* Parse operation */
     const char* op = JSON_GetString(channel_obj, "operation", "is_true");
@@ -2281,8 +2447,49 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     /* Flash */
     config.time_off_s = JSON_GetFloat(channel_obj, "time_off_s", 0.5f);
 
-    /* TODO: Register logic channel */
-    (void)config;
+    /* Store in runtime storage */
+    if (logic_count >= PMU_MAX_LOGIC_CHANNELS) {
+        JSON_SetError("Too many logic channels (max %d)", PMU_MAX_LOGIC_CHANNELS);
+        return false;
+    }
+
+    PMU_LogicRuntime_t* rt = &logic_storage[logic_count];
+    memcpy(&rt->config, &config, sizeof(PMU_LogicConfig_t));
+    rt->output_value = 0;
+    rt->prev_input_value = 0;
+    rt->prev_input2_value = 0;
+    rt->delay_active = false;
+    rt->latch_state = (config.default_state == PMU_DEFAULT_STATE_ON);
+    rt->flash_state = false;
+
+    /* Allocate virtual channel ID */
+    rt->channel_id = AllocateVirtualChannelID();
+    if (rt->channel_id == 0) {
+        JSON_SetError("Failed to allocate channel ID for logic '%s'", id);
+        return false;
+    }
+
+    /* Add mapping from JSON channel_id to runtime channel_id */
+    if (json_channel_id != 0) {
+        AddChannelIdMapping(json_channel_id, rt->channel_id);
+    }
+
+    /* Register channel */
+    PMU_Channel_t channel = {0};
+    channel.channel_id = rt->channel_id;
+    channel.hw_class = PMU_CHANNEL_CLASS_OUTPUT_FUNCTION;
+    channel.direction = PMU_CHANNEL_DIR_VIRTUAL;
+    channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    channel.value = 0;
+    channel.min_value = 0;
+    channel.max_value = 1000;
+    strncpy(channel.name, id, sizeof(channel.name) - 1);
+    PMU_Channel_Register(&channel);
+
+    logic_count++;
+    printf("[JSON] Parsed logic channel: %s (JSON_ID=%d, RT_ID=%d, op=%d)\n",
+           id, json_channel_id, rt->channel_id, config.operation);
 #else
     (void)channel_obj;
 #endif
@@ -2299,6 +2506,9 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
 
     const char* id = JSON_GetString(channel_obj, "id", "");
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
+
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
     /* Parse operation */
     const char* op = JSON_GetString(channel_obj, "operation", "constant");
@@ -2348,8 +2558,44 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
         }
     }
 
-    /* TODO: Register number channel */
-    (void)config;
+    /* Store in runtime storage */
+    if (number_count >= PMU_MAX_NUMBER_CHANNELS) {
+        JSON_SetError("Too many number channels (max %d)", PMU_MAX_NUMBER_CHANNELS);
+        return false;
+    }
+
+    PMU_NumberRuntime_t* rt = &number_storage[number_count];
+    memcpy(&rt->config, &config, sizeof(PMU_NumberConfig_t));
+    rt->output_value = 0;
+
+    /* Allocate virtual channel ID */
+    rt->channel_id = AllocateVirtualChannelID();
+    if (rt->channel_id == 0) {
+        JSON_SetError("Failed to allocate channel ID for number '%s'", id);
+        return false;
+    }
+
+    /* Add mapping from JSON channel_id to runtime channel_id */
+    if (json_channel_id != 0) {
+        AddChannelIdMapping(json_channel_id, rt->channel_id);
+    }
+
+    /* Register channel */
+    PMU_Channel_t channel = {0};
+    channel.channel_id = rt->channel_id;
+    channel.hw_class = PMU_CHANNEL_CLASS_OUTPUT_NUMBER;
+    channel.direction = PMU_CHANNEL_DIR_VIRTUAL;
+    channel.format = PMU_CHANNEL_FORMAT_INT;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    channel.value = 0;
+    channel.min_value = (int32_t)(config.clamp_min * 1000);
+    channel.max_value = (int32_t)(config.clamp_max * 1000);
+    strncpy(channel.name, id, sizeof(channel.name) - 1);
+    PMU_Channel_Register(&channel);
+
+    number_count++;
+    printf("[JSON] Parsed number channel: %s (JSON_ID=%d, RT_ID=%d, op=%d)\n",
+           id, json_channel_id, rt->channel_id, config.operation);
 #else
     (void)channel_obj;
 #endif
@@ -2367,6 +2613,9 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     const char* id = JSON_GetString(channel_obj, "id", "");
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
+
     const char* start = JSON_GetString(channel_obj, "start_channel", "");
     strncpy(config.start_channel, start, PMU_CHANNEL_ID_LEN - 1);
 
@@ -2374,6 +2623,7 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     if (strcmp(start_edge, "rising") == 0) config.start_edge = PMU_EDGE_RISING;
     else if (strcmp(start_edge, "falling") == 0) config.start_edge = PMU_EDGE_FALLING;
     else if (strcmp(start_edge, "both") == 0) config.start_edge = PMU_EDGE_BOTH;
+    else if (strcmp(start_edge, "level") == 0) config.start_edge = PMU_EDGE_LEVEL;
 
     const char* stop = JSON_GetString(channel_obj, "stop_channel", "");
     strncpy(config.stop_channel, stop, PMU_CHANNEL_ID_LEN - 1);
@@ -2382,6 +2632,7 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     if (strcmp(stop_edge, "rising") == 0) config.stop_edge = PMU_EDGE_RISING;
     else if (strcmp(stop_edge, "falling") == 0) config.stop_edge = PMU_EDGE_FALLING;
     else if (strcmp(stop_edge, "both") == 0) config.stop_edge = PMU_EDGE_BOTH;
+    else if (strcmp(stop_edge, "level") == 0) config.stop_edge = PMU_EDGE_LEVEL;
 
     const char* mode = JSON_GetString(channel_obj, "mode", "count_up");
     config.mode = (strcmp(mode, "count_down") == 0) ? PMU_TIMER_MODE_COUNT_DOWN : PMU_TIMER_MODE_COUNT_UP;
@@ -2390,8 +2641,63 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     config.limit_minutes = (uint8_t)JSON_GetInt(channel_obj, "limit_minutes", 0);
     config.limit_seconds = (uint8_t)JSON_GetInt(channel_obj, "limit_seconds", 0);
 
-    /* TODO: Register timer channel */
-    (void)config;
+    /* Store in runtime storage and register channel */
+    if (timer_count >= PMU_MAX_TIMER_CHANNELS) {
+        JSON_SetError("Too many timer channels (max %d)", PMU_MAX_TIMER_CHANNELS);
+        return false;
+    }
+    PMU_TimerRuntime_t* rt = &timer_storage[timer_count];
+    memcpy(&rt->config, &config, sizeof(PMU_TimerConfig_t));
+    rt->channel_id = AllocateVirtualChannelID();
+    if (rt->channel_id == 0) {
+        JSON_SetError("Failed to allocate virtual channel ID for timer '%s'", id);
+        return false;
+    }
+    /* Allocate elapsed channel ID */
+    rt->elapsed_channel_id = AllocateVirtualChannelID();
+    if (rt->elapsed_channel_id == 0) {
+        JSON_SetError("Failed to allocate elapsed channel ID for timer '%s'", id);
+        return false;
+    }
+
+    rt->output_value = 0;
+    rt->start_time_ms = 0;
+    rt->running = false;
+    rt->prev_start_value = 0;
+    rt->prev_stop_value = 0;
+
+    /* Add mapping from JSON channel_id to runtime channel_id */
+    if (json_channel_id != 0) {
+        AddChannelIdMapping(json_channel_id, rt->channel_id);
+    }
+
+    /* Register the main timer channel (outputs running state 0/1000) */
+    PMU_Channel_t channel = {0};
+    channel.channel_id = rt->channel_id;
+    channel.hw_class = PMU_CHANNEL_CLASS_OUTPUT_FUNCTION;
+    channel.direction = PMU_CHANNEL_DIR_VIRTUAL;
+    channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    channel.min_value = 0;
+    channel.max_value = 1000;
+    strncpy(channel.name, id, sizeof(channel.name) - 1);
+    channel.value = 0;
+    PMU_Channel_Register(&channel);
+
+    /* Register the elapsed channel (outputs time in ms) */
+    char elapsed_name[32];
+    snprintf(elapsed_name, sizeof(elapsed_name), "%s.elapsed", id);
+    channel.channel_id = rt->elapsed_channel_id;
+    channel.format = PMU_CHANNEL_FORMAT_INT;
+    channel.min_value = 0;
+    channel.max_value = 0x7FFFFFFF;
+    strncpy(channel.name, elapsed_name, sizeof(channel.name) - 1);
+    channel.value = 0;
+    PMU_Channel_Register(&channel);
+
+    timer_count++;
+    printf("[JSON] Parsed timer channel: %s (JSON_ID=%d, RT_ID=%d, ELAPSED_ID=%d)\n",
+           id, json_channel_id, rt->channel_id, rt->elapsed_channel_id);
 #else
     (void)channel_obj;
 #endif
@@ -2409,6 +2715,9 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
     const char* id = JSON_GetString(channel_obj, "id", "");
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
+
     const char* type = JSON_GetString(channel_obj, "filter_type", "moving_avg");
     if (strcmp(type, "moving_avg") == 0) config.filter_type = PMU_FILTER_MOVING_AVG;
     else if (strcmp(type, "low_pass") == 0) config.filter_type = PMU_FILTER_LOW_PASS;
@@ -2422,8 +2731,42 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
     config.window_size = (uint16_t)JSON_GetInt(channel_obj, "window_size", 10);
     config.time_constant = JSON_GetFloat(channel_obj, "time_constant", 0.1f);
 
-    /* TODO: Register filter channel */
-    (void)config;
+    /* Store in runtime storage and register channel */
+    if (filter_count >= PMU_MAX_FILTER_CHANNELS) {
+        JSON_SetError("Too many filter channels (max %d)", PMU_MAX_FILTER_CHANNELS);
+        return false;
+    }
+    PMU_FilterRuntime_t* rt = &filter_storage[filter_count];
+    memcpy(&rt->config, &config, sizeof(PMU_FilterConfig_t));
+    rt->channel_id = AllocateVirtualChannelID();
+    if (rt->channel_id == 0) {
+        JSON_SetError("Failed to allocate virtual channel ID for filter '%s'", id);
+        return false;
+    }
+    rt->output_value = 0;
+    rt->window_index = 0;
+    rt->window_filled = 0;
+    rt->ema_value = 0;
+    memset(rt->window, 0, sizeof(rt->window));
+
+    /* Add mapping from JSON channel_id to runtime channel_id */
+    if (json_channel_id != 0) {
+        AddChannelIdMapping(json_channel_id, rt->channel_id);
+    }
+
+    /* Register the channel */
+    PMU_Channel_t channel = {0};
+    channel.channel_id = rt->channel_id;
+    channel.hw_class = PMU_CHANNEL_CLASS_INPUT_CALCULATED;
+    channel.direction = PMU_CHANNEL_DIR_VIRTUAL;
+    channel.format = PMU_CHANNEL_FORMAT_INT;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    strncpy(channel.name, id, sizeof(channel.name) - 1);
+    channel.value = 0;
+    PMU_Channel_Register(&channel);
+    filter_count++;
+    printf("[JSON] Parsed filter channel: %s (JSON_ID=%d, RT_ID=%d)\n",
+           id, json_channel_id, rt->channel_id);
 #else
     (void)channel_obj;
 #endif
@@ -2566,6 +2909,9 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
     const char* id = JSON_GetString(channel_obj, "id", "");
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
+
     const char* type = JSON_GetString(channel_obj, "switch_type", "latching");
     strncpy(config.switch_type, type, sizeof(config.switch_type) - 1);
 
@@ -2589,8 +2935,39 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
     config.state_last = (int16_t)JSON_GetInt(channel_obj, "state_last", 10);
     config.state_default = (int16_t)JSON_GetInt(channel_obj, "state_default", 0);
 
-    /* TODO: Register switch channel */
-    (void)config;
+    /* Store in runtime storage and register channel */
+    if (switch_count >= PMU_MAX_SWITCH_CHANNELS) {
+        JSON_SetError("Too many switch channels (max %d)", PMU_MAX_SWITCH_CHANNELS);
+        return false;
+    }
+    PMU_SwitchRuntime_t* rt = &switch_storage[switch_count];
+    memcpy(&rt->config, &config, sizeof(PMU_SwitchConfig_t));
+    rt->channel_id = AllocateVirtualChannelID();
+    if (rt->channel_id == 0) {
+        JSON_SetError("Failed to allocate virtual channel ID for switch '%s'", id);
+        return false;
+    }
+    rt->current_state = config.state_default;
+    rt->output_value = config.state_default * 1000;
+
+    /* Add mapping from JSON channel_id to runtime channel_id */
+    if (json_channel_id != 0) {
+        AddChannelIdMapping(json_channel_id, rt->channel_id);
+    }
+
+    /* Register the channel */
+    PMU_Channel_t channel = {0};
+    channel.channel_id = rt->channel_id;
+    channel.hw_class = PMU_CHANNEL_CLASS_INPUT_CALCULATED;
+    channel.direction = PMU_CHANNEL_DIR_VIRTUAL;
+    channel.format = PMU_CHANNEL_FORMAT_INT;
+    channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    strncpy(channel.name, id, sizeof(channel.name) - 1);
+    channel.value = rt->current_state * 1000; /* Scaled format */
+    PMU_Channel_Register(&channel);
+    switch_count++;
+    printf("[JSON] Parsed switch channel: %s (JSON_ID=%d, RT_ID=%d)\n",
+           id, json_channel_id, rt->channel_id);
 #else
     (void)channel_obj;
 #endif
@@ -2867,6 +3244,21 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
 }
 
 /**
+ * @brief Parse handler channel (stub - handlers configured via pmu_handler.c)
+ */
+static bool JSON_ParseHandler(cJSON* channel_obj)
+{
+    /* TODO: Implement handler parsing - for now just log and return success */
+#ifdef JSON_PARSING_ENABLED
+    const char* id = JSON_GetString(channel_obj, "id", "");
+    printf("[JSON] Handler '%s' parsing not yet implemented\n", id);
+#else
+    (void)channel_obj;
+#endif
+    return true;
+}
+
+/**
  * @brief Update power outputs based on their source channels
  * Call this function at 100Hz or faster in the control loop
  */
@@ -2877,12 +3269,20 @@ void PMU_PowerOutput_Update(void)
         PMU_PowerOutputConfig_t* cfg = &power_output_storage[i];
 
         /* Skip outputs without source_channel (always on or disabled) */
-        if (strlen(cfg->source_channel) == 0) {
+        if (cfg->source_channel_id == 0 && strlen(cfg->source_channel) == 0) {
             continue;
         }
 
-        /* Resolve source channel to value */
-        const PMU_Channel_t* source_ch = PMU_Channel_GetByName(cfg->source_channel);
+        /* Resolve source channel to value - prefer ID, fallback to name */
+        const PMU_Channel_t* source_ch = NULL;
+        if (cfg->source_channel_id != 0) {
+            /* Map JSON channel_id to runtime channel_id */
+            uint16_t runtime_id = MapJsonIdToRuntimeId(cfg->source_channel_id);
+            source_ch = PMU_Channel_GetInfo(runtime_id);
+        }
+        if (!source_ch && strlen(cfg->source_channel) > 0) {
+            source_ch = PMU_Channel_GetByName(cfg->source_channel);
+        }
         if (!source_ch) {
             /* Source channel not found - skip */
             continue;
@@ -2939,6 +3339,396 @@ void PMU_PowerOutput_ClearConfig(void)
 uint8_t PMU_PowerOutput_GetCount(void)
 {
     return power_output_count;
+}
+
+
+/* ============================================================================
+ * Logic Channel Runtime Functions
+ * ============================================================================ */
+
+/**
+ * @brief Update all logic channels - call from main loop at ~100-500Hz
+ */
+void PMU_LogicChannel_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    static uint32_t debug_counter = 0;
+    bool debug = (++debug_counter % 5000 == 1);
+
+    for (uint8_t i = 0; i < logic_count; i++) {
+        PMU_LogicRuntime_t* rt = &logic_storage[i];
+        PMU_LogicConfig_t* cfg = &rt->config;
+
+        int32_t input1 = GetInputChannelValue(cfg->channel);
+        int32_t input2 = GetInputChannelValue(cfg->channel_2);
+
+        if (debug) {
+            printf("[LOGIC] '%s': input='%s'=%d, op=%d\n", cfg->id, cfg->channel, input1, cfg->operation);
+        }
+
+        bool result = false;
+
+        switch (cfg->operation) {
+            case PMU_LOGIC_IS_TRUE:
+                result = (input1 > 0);
+                break;
+            case PMU_LOGIC_IS_FALSE:
+                result = (input1 <= 0);
+                break;
+            case PMU_LOGIC_AND:
+                result = (input1 > 0) && (input2 > 0);
+                break;
+            case PMU_LOGIC_OR:
+                result = (input1 > 0) || (input2 > 0);
+                break;
+            case PMU_LOGIC_XOR:
+                result = ((input1 > 0) != (input2 > 0));
+                break;
+            case PMU_LOGIC_EQUAL:
+                result = (input1 == (int32_t)(cfg->constant * 1000));
+                break;
+            case PMU_LOGIC_NOT_EQUAL:
+                result = (input1 != (int32_t)(cfg->constant * 1000));
+                break;
+            case PMU_LOGIC_LESS:
+                result = (input1 < (int32_t)(cfg->constant * 1000));
+                break;
+            case PMU_LOGIC_GREATER:
+                result = (input1 > (int32_t)(cfg->constant * 1000));
+                break;
+            case PMU_LOGIC_LESS_EQUAL:
+                result = (input1 <= (int32_t)(cfg->constant * 1000));
+                break;
+            case PMU_LOGIC_GREATER_EQUAL:
+                result = (input1 >= (int32_t)(cfg->constant * 1000));
+                break;
+            default:
+                result = false;
+                break;
+        }
+
+        int32_t new_value = result ? 1000 : 0;
+        rt->output_value = new_value;
+        PMU_Channel_SetValue(rt->channel_id, new_value);
+        rt->prev_input_value = input1;
+        rt->prev_input2_value = input2;
+    }
+#endif
+}
+
+/* ============================================================================
+ * Number Channel Runtime Functions
+ * ============================================================================ */
+
+/**
+ * @brief Update all number channels
+ */
+void PMU_NumberChannel_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    for (uint8_t i = 0; i < number_count; i++) {
+        PMU_NumberRuntime_t* rt = &number_storage[i];
+        PMU_NumberConfig_t* cfg = &rt->config;
+
+        int32_t result = 0;
+        switch (cfg->operation) {
+            case PMU_MATH_CONSTANT:
+                result = (int32_t)(cfg->constant_value * 1000);
+                break;
+            case PMU_MATH_CHANNEL:
+                if (cfg->input_count > 0) {
+                    result = GetInputChannelValue(cfg->inputs[0]);
+                }
+                break;
+            case PMU_MATH_ADD:
+                for (uint8_t j = 0; j < cfg->input_count; j++) {
+                    result += GetInputChannelValue(cfg->inputs[j]);
+                }
+                break;
+            case PMU_MATH_SUBTRACT:
+                if (cfg->input_count > 0) {
+                    result = GetInputChannelValue(cfg->inputs[0]);
+                    for (uint8_t j = 1; j < cfg->input_count; j++) {
+                        result -= GetInputChannelValue(cfg->inputs[j]);
+                    }
+                }
+                break;
+            case PMU_MATH_MULTIPLY:
+                result = 1000;
+                for (uint8_t j = 0; j < cfg->input_count; j++) {
+                    result = (result * GetInputChannelValue(cfg->inputs[j])) / 1000;
+                }
+                break;
+            case PMU_MATH_DIVIDE:
+                if (cfg->input_count >= 2) {
+                    int32_t divisor = GetInputChannelValue(cfg->inputs[1]);
+                    if (divisor != 0) {
+                        result = (GetInputChannelValue(cfg->inputs[0]) * 1000) / divisor;
+                    }
+                }
+                break;
+            case PMU_MATH_MIN:
+                if (cfg->input_count > 0) {
+                    result = GetInputChannelValue(cfg->inputs[0]);
+                    for (uint8_t j = 1; j < cfg->input_count; j++) {
+                        int32_t val = GetInputChannelValue(cfg->inputs[j]);
+                        if (val < result) result = val;
+                    }
+                }
+                break;
+            case PMU_MATH_MAX:
+                if (cfg->input_count > 0) {
+                    result = GetInputChannelValue(cfg->inputs[0]);
+                    for (uint8_t j = 1; j < cfg->input_count; j++) {
+                        int32_t val = GetInputChannelValue(cfg->inputs[j]);
+                        if (val > result) result = val;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+
+        /* Apply clamp */
+        int32_t clamp_min = (int32_t)(cfg->clamp_min * 1000);
+        int32_t clamp_max = (int32_t)(cfg->clamp_max * 1000);
+        if (clamp_max > clamp_min) {
+            if (result < clamp_min) result = clamp_min;
+            if (result > clamp_max) result = clamp_max;
+        }
+
+        rt->output_value = result;
+        PMU_Channel_SetValue(rt->channel_id, result);
+    }
+#endif
+}
+
+/* ============================================================================
+ * Switch Channel Runtime Functions
+ * ============================================================================ */
+
+/**
+ * @brief Update all switch channels
+ */
+void PMU_SwitchChannel_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    for (uint8_t i = 0; i < switch_count; i++) {
+        PMU_SwitchRuntime_t* rt = &switch_storage[i];
+        PMU_SwitchConfig_t* cfg = &rt->config;
+
+        int32_t up_val = GetInputChannelValue(cfg->input_up_channel);
+        int32_t down_val = GetInputChannelValue(cfg->input_down_channel);
+
+        /* Simple edge detection for up/down */
+        static int32_t prev_up[PMU_MAX_SWITCH_CHANNELS] = {0};
+        static int32_t prev_down[PMU_MAX_SWITCH_CHANNELS] = {0};
+
+        bool up_edge = (up_val > 0) && (prev_up[i] <= 0);
+        bool down_edge = (down_val > 0) && (prev_down[i] <= 0);
+
+        prev_up[i] = up_val;
+        prev_down[i] = down_val;
+
+        if (up_edge && rt->current_state < cfg->state_last) {
+            rt->current_state++;
+        }
+        if (down_edge && rt->current_state > cfg->state_first) {
+            rt->current_state--;
+        }
+
+        rt->output_value = rt->current_state * 1000;
+        PMU_Channel_SetValue(rt->channel_id, rt->output_value);
+    }
+#endif
+}
+
+/* ============================================================================
+ * Filter Channel Runtime Functions
+ * ============================================================================ */
+
+/**
+ * @brief Update all filter channels
+ */
+void PMU_FilterChannel_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    for (uint8_t i = 0; i < filter_count; i++) {
+        PMU_FilterRuntime_t* rt = &filter_storage[i];
+        PMU_FilterConfig_t* cfg = &rt->config;
+
+        int32_t input_val = GetInputChannelValue(cfg->input_channel);
+        int32_t result = input_val;
+
+        switch (cfg->filter_type) {
+            case PMU_FILTER_LOW_PASS: {
+                /* Low pass filter (exponential moving average) */
+                /* time_constant is in seconds, higher = slower response */
+                int32_t alpha = (int32_t)(1000.0f / (1.0f + cfg->time_constant * 100.0f));
+                if (alpha < 10) alpha = 10;    /* Min 1% */
+                if (alpha > 1000) alpha = 1000; /* Max 100% */
+                rt->ema_value = ((alpha * input_val) + ((1000 - alpha) * rt->ema_value)) / 1000;
+                result = rt->ema_value;
+                break;
+            }
+            case PMU_FILTER_MOVING_AVG: {
+                /* Simple moving average */
+                rt->window[rt->window_index] = input_val;
+                rt->window_index = (rt->window_index + 1) % cfg->window_size;
+                if (rt->window_filled < cfg->window_size) rt->window_filled++;
+
+                int32_t sum = 0;
+                uint8_t count = rt->window_filled;
+                for (uint8_t j = 0; j < count; j++) {
+                    sum += rt->window[j];
+                }
+                result = count > 0 ? sum / count : input_val;
+                break;
+            }
+            case PMU_FILTER_MEDIAN: {
+                /* Median filter */
+                rt->window[rt->window_index] = input_val;
+                rt->window_index = (rt->window_index + 1) % cfg->window_size;
+                if (rt->window_filled < cfg->window_size) rt->window_filled++;
+
+                /* Sort and find median */
+                int32_t sorted[PMU_FILTER_WINDOW_MAX];
+                uint8_t count = rt->window_filled;
+                for (uint8_t j = 0; j < count; j++) sorted[j] = rt->window[j];
+                /* Bubble sort */
+                for (uint8_t j = 0; j < count - 1; j++) {
+                    for (uint8_t k = 0; k < count - j - 1; k++) {
+                        if (sorted[k] > sorted[k+1]) {
+                            int32_t temp = sorted[k];
+                            sorted[k] = sorted[k+1];
+                            sorted[k+1] = temp;
+                        }
+                    }
+                }
+                result = sorted[count / 2];
+                break;
+            }
+            default:
+                break;
+        }
+
+        rt->output_value = result;
+        PMU_Channel_SetValue(rt->channel_id, result);
+    }
+#endif
+}
+
+/* ============================================================================
+ * Timer Channel Runtime Functions
+ * ============================================================================ */
+
+/**
+ * @brief Update all timer channels - call from main loop at ~100-500Hz
+ */
+void PMU_TimerChannel_Update(void)
+{
+#ifdef JSON_PARSING_ENABLED
+    uint32_t now = HAL_GetTick();
+
+    for (uint8_t i = 0; i < timer_count; i++) {
+        PMU_TimerRuntime_t* rt = &timer_storage[i];
+        PMU_TimerConfig_t* cfg = &rt->config;
+
+        /* Get start trigger value */
+        int32_t start_val = GetInputChannelValue(cfg->start_channel);
+        int32_t stop_val = GetInputChannelValue(cfg->stop_channel);
+
+        /* Edge detection for start */
+        bool start_edge = false;
+        if (cfg->start_edge == PMU_EDGE_RISING) {
+            start_edge = (start_val > 0 && rt->prev_start_value <= 0);
+        } else if (cfg->start_edge == PMU_EDGE_FALLING) {
+            start_edge = (start_val <= 0 && rt->prev_start_value > 0);
+        } else if (cfg->start_edge == PMU_EDGE_BOTH) {
+            start_edge = ((start_val > 0) != (rt->prev_start_value > 0));
+        } else if (cfg->start_edge == PMU_EDGE_LEVEL) {
+            /* Level trigger - start when input is high */
+            start_edge = (start_val > 0 && !rt->running);
+        }
+
+        /* Edge detection for stop */
+        bool stop_edge = false;
+        if (strlen(cfg->stop_channel) > 0) {
+            if (cfg->stop_edge == PMU_EDGE_RISING) {
+                stop_edge = (stop_val > 0 && rt->prev_stop_value <= 0);
+            } else if (cfg->stop_edge == PMU_EDGE_FALLING) {
+                stop_edge = (stop_val <= 0 && rt->prev_stop_value > 0);
+            } else if (cfg->stop_edge == PMU_EDGE_BOTH) {
+                stop_edge = ((stop_val > 0) != (rt->prev_stop_value > 0));
+            } else if (cfg->stop_edge == PMU_EDGE_LEVEL) {
+                stop_edge = (stop_val > 0 && rt->running);
+            }
+        }
+
+        /* Start timer on edge */
+        if (start_edge && !rt->running) {
+            rt->running = true;
+            rt->start_time_ms = now;
+            rt->output_value = 0;
+        }
+
+        /* Stop timer on edge or limit */
+        if (stop_edge && rt->running) {
+            rt->running = false;
+        }
+
+        /* Update timer value if running */
+        if (rt->running) {
+            uint32_t elapsed_ms = now - rt->start_time_ms;
+            uint32_t limit_ms = ((uint32_t)cfg->limit_hours * 3600 +
+                                 (uint32_t)cfg->limit_minutes * 60 +
+                                 (uint32_t)cfg->limit_seconds) * 1000;
+
+            if (cfg->mode == PMU_TIMER_MODE_COUNT_UP) {
+                rt->output_value = (int32_t)elapsed_ms;
+                /* Check limit */
+                if (limit_ms > 0 && elapsed_ms >= limit_ms) {
+                    rt->output_value = (int32_t)limit_ms;
+                    rt->running = false;
+                }
+            } else {
+                /* Count down */
+                if (elapsed_ms >= limit_ms) {
+                    rt->output_value = 0;
+                    rt->running = false;
+                } else {
+                    rt->output_value = (int32_t)(limit_ms - elapsed_ms);
+                }
+            }
+        }
+
+        /* Update channel values */
+        /* Main channel outputs running state (1000 when running, 0 when stopped) */
+        PMU_Channel_SetValue(rt->channel_id, rt->running ? 1000 : 0);
+        /* Elapsed channel outputs time in milliseconds */
+        PMU_Channel_SetValue(rt->elapsed_channel_id, rt->output_value);
+
+        rt->prev_start_value = start_val;
+        rt->prev_stop_value = stop_val;
+    }
+#endif
+}
+
+/**
+ * @brief Clear timer storage
+ */
+void PMU_TimerChannel_ClearConfig(void)
+{
+    memset(timer_storage, 0, sizeof(timer_storage));
+    timer_count = 0;
+}
+
+/**
+ * @brief Get timer channel count
+ */
+uint8_t PMU_TimerChannel_GetCount(void)
+{
+    return timer_count;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

@@ -21,10 +21,12 @@ from typing import Dict, List
 class AnalogMonitor(QWidget):
     """Analog input channels monitor widget with real-time telemetry display."""
 
-    # Colors for different states
-    COLOR_NORMAL = QColor(255, 255, 255)      # White
-    COLOR_ACTIVE = QColor(200, 255, 200)      # Light green (signal present)
-    COLOR_DISABLED = QColor(220, 220, 220)    # Light gray
+    # Colors for different states (dark theme)
+    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
+    COLOR_ACTIVE = QColor(0, 80, 0)           # Dark green (signal present)
+    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
+    COLOR_TEXT = QColor(255, 255, 255)        # White text
+    COLOR_TEXT_DISABLED = QColor(128, 128, 128)  # Gray text
 
     # Column indices - matching ECUMaster layout
     COL_PIN = 0
@@ -70,7 +72,7 @@ class AnalogMonitor(QWidget):
         toolbar = QHBoxLayout()
 
         self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch()
@@ -106,6 +108,32 @@ class AnalogMonitor(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Read-only
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select full rows
+
+        # Dark theme styling
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                gridline-color: #333333;
+                border: 1px solid #333333;
+            }
+            QTableWidget::item {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                padding: 2px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+                font-weight: bold;
+            }
+        """)
 
         layout.addWidget(self.table)
 
@@ -164,7 +192,7 @@ class AnalogMonitor(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             # Reset all values to "?"
             self._reset_values()
 
@@ -259,10 +287,38 @@ class AnalogMonitor(QWidget):
                     self.table.item(row, self.COL_VALUE).setText(f"{value:.1f}")
                     self.table.item(row, self.COL_VLTG).setText(f"{voltage:.2f}")
 
-                    # Set row color based on signal state
-                    if voltage > 0.1:
-                        self._set_row_color(row, self.COLOR_ACTIVE)
+                    # Set row color based on logical output state (only for switch types)
+                    subtype = input_data.get('subtype', 'linear')
+                    if subtype in ('switch_active_low', 'switch_active_high'):
+                        threshold_high = input_data.get('threshold_high', 2.5)
+                        threshold_low = input_data.get('threshold_low', 1.5)
+                        prev_state = input_data.get('_digital_state', 0)
+
+                        if subtype == 'switch_active_high':
+                            # Active High: 1 if voltage > threshold_high, 0 if voltage < threshold_low
+                            if voltage > threshold_high:
+                                digital_state = 1
+                            elif voltage < threshold_low:
+                                digital_state = 0
+                            else:
+                                digital_state = prev_state
+                        else:  # switch_active_low
+                            # Active Low: 0 if voltage > threshold_high, 1 if voltage < threshold_low
+                            if voltage > threshold_high:
+                                digital_state = 0
+                            elif voltage < threshold_low:
+                                digital_state = 1
+                            else:
+                                digital_state = prev_state
+
+                        input_data['_digital_state'] = digital_state
+
+                        if digital_state == 1:
+                            self._set_row_color(row, self.COLOR_ACTIVE)
+                        else:
+                            self._set_row_color(row, self.COLOR_NORMAL)
                     else:
+                        # Linear/calibrated - no green highlight
                         self._set_row_color(row, self.COLOR_NORMAL)
                 break
 
@@ -301,17 +357,25 @@ class AnalogMonitor(QWidget):
             # Calculate value based on input type
             if subtype in ('switch_active_low', 'switch_active_high'):
                 # For switch inputs, calculate digital state (0 or 1)
-                # Based on dialog: "1 if voltage >: threshold_high", "0 if voltage <: threshold_low"
                 # Get previous state for hysteresis
                 prev_state = input_data.get('_digital_state', 0)
 
-                # Same logic for both switch types (based on voltage thresholds from dialog)
-                if voltage > threshold_high:
-                    digital_state = 1  # "1 if voltage > threshold_high"
-                elif voltage < threshold_low:
-                    digital_state = 0  # "0 if voltage < threshold_low"
-                else:
-                    digital_state = prev_state  # Hysteresis zone
+                if subtype == 'switch_active_high':
+                    # Active High: 1 if voltage > threshold_high, 0 if voltage < threshold_low
+                    if voltage > threshold_high:
+                        digital_state = 1
+                    elif voltage < threshold_low:
+                        digital_state = 0
+                    else:
+                        digital_state = prev_state  # Hysteresis zone
+                else:  # switch_active_low
+                    # Active Low: 0 if voltage > threshold_high, 1 if voltage < threshold_low
+                    if voltage > threshold_high:
+                        digital_state = 0
+                    elif voltage < threshold_low:
+                        digital_state = 1
+                    else:
+                        digital_state = prev_state  # Hysteresis zone
 
                 # Store state for next update
                 input_data['_digital_state'] = digital_state
@@ -387,19 +451,16 @@ class AnalogMonitor(QWidget):
             if vltg_item:
                 vltg_item.setText(f"{voltage:.2f}")
 
-            # Set row color based on state
+            # Set row color based on logical output state
+            # Only switch types have binary (0/1) output - highlight green when ON
             if subtype in ('switch_active_low', 'switch_active_high'):
-                # For switches: green if ON (1), normal if OFF (0)
                 if digital_state == 1:
                     self._set_row_color(row, self.COLOR_ACTIVE)
                 else:
                     self._set_row_color(row, self.COLOR_NORMAL)
             else:
-                # For analog: color based on voltage level
-                if voltage > 0.1:
-                    self._set_row_color(row, self.COLOR_ACTIVE)
-                else:
-                    self._set_row_color(row, self.COLOR_NORMAL)
+                # Linear/calibrated inputs don't have binary output - no green highlight
+                self._set_row_color(row, self.COLOR_NORMAL)
 
     def get_channel_count(self) -> int:
         """Get number of configured analog inputs."""

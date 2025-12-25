@@ -132,7 +132,7 @@ int main(void)
     PMU_JSON_Init();         /* Initialize JSON configuration loader */
     PMU_Protocol_Init(PMU_TRANSPORT_WIFI);  /* Initialize protocol (WiFi via ESP32-C3) */
 
-    /* Initialize Standard CAN Stream (Ecumaster-compatible)
+    /* Initialize Standard CAN Stream
      * Configuration is loaded from JSON config via PMU_Config
      * Default: disabled, configured via settings.standard_can_stream
      */
@@ -298,7 +298,7 @@ static void vCANTask(void *pvParameters)
 
         /* Process Standard CAN Stream (20 Hz and 62.5 Hz frames)
          * This broadcasts PMU status, output states, currents, voltages
-         * and analog inputs in Ecumaster-compatible format
+         * and analog inputs in standard format
          */
         PMU_CanStream_Process();
 

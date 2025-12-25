@@ -28,12 +28,14 @@ from typing import Dict, List, Any, Optional
 class VariablesInspector(QWidget):
     """Variables inspector widget with real-time telemetry display."""
 
-    # Colors for different states (ECUMaster style)
-    COLOR_NORMAL = QColor(255, 255, 255)       # White - normal
-    COLOR_ACTIVE = QColor(255, 200, 150)       # Orange - active/triggered
-    COLOR_ERROR = QColor(255, 150, 150)        # Red - error/fault
-    COLOR_DISABLED = QColor(220, 220, 220)     # Light gray - disabled
-    COLOR_CHANGED = QColor(200, 255, 200)      # Light green - recently changed
+    # Colors for different states (dark theme)
+    COLOR_BG = QColor(0, 0, 0)                 # Black background
+    COLOR_TEXT = QColor(255, 255, 255)         # White text
+    COLOR_NORMAL = QColor(0, 0, 0)             # Black - normal background
+    COLOR_ACTIVE = QColor(50, 80, 50)          # Dark green - active/triggered
+    COLOR_ERROR = QColor(80, 40, 40)           # Dark red - error/fault
+    COLOR_DISABLED = QColor(60, 60, 60)        # Dark gray - disabled
+    COLOR_CHANGED = QColor(40, 60, 40)         # Darker green - recently changed
 
     # Column indices
     COL_NAME = 0
@@ -44,6 +46,7 @@ class VariablesInspector(QWidget):
         super().__init__(parent)
         self._connected = False
         self._channels: Dict[str, Dict[str, Any]] = {}  # name -> {value, unit, type, active}
+        self._channel_id_map: Dict[int, str] = {}  # channel_id -> stored_id for fast lookup
         self._previous_values: Dict[str, Any] = {}  # For change detection
         self._init_ui()
 
@@ -61,7 +64,7 @@ class VariablesInspector(QWidget):
         toolbar = QHBoxLayout()
 
         self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch()
@@ -100,6 +103,69 @@ class VariablesInspector(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
+        # Dark theme styling
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #000000;
+                color: #ffffff;
+                gridline-color: #333333;
+            }
+            QTableWidget::item {
+                background-color: #000000;
+                color: #ffffff;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+            }
+            QScrollBar:vertical {
+                background-color: #1a1a1a;
+                width: 14px;
+                margin: 0;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #555555;
+                min-height: 30px;
+                border-radius: 7px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #666666;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background-color: #1a1a1a;
+                height: 14px;
+                margin: 0;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #555555;
+                min-width: 30px;
+                border-radius: 7px;
+                margin: 2px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #666666;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+        """)
+
         layout.addWidget(self.table)
 
         # Status bar
@@ -112,11 +178,22 @@ class VariablesInspector(QWidget):
         if connected:
             self.status_label.setText("Online")
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            # Set constant channel values (they don't come from telemetry)
+            self._update_constant_channels()
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             # Reset all values to "?"
             self._reset_values()
+
+    def _update_constant_channels(self):
+        """Update constant channels with their fixed values."""
+        # These are system constants that never change
+        # zero = 0, one = 1 (displayed as float for consistency)
+        if 'zero' in self._channels:
+            self.update_value('zero', 0.0)
+        if 'one' in self._channels:
+            self.update_value('one', 1.0)
 
     def _reset_values(self):
         """Reset all telemetry values to '?'."""
@@ -138,20 +215,31 @@ class VariablesInspector(QWidget):
                 - channel_type: Type of channel (can_rx, output, analog, etc.)
         """
         self._channels.clear()
+        self._channel_id_map.clear()
 
         for ch in channels:
             ch_id = ch.get('id', '')
             if not ch_id:
                 continue
 
+            # Get runtime channel ID for telemetry matching
+            runtime_id = ch.get('channel_id') or ch.get('runtime_channel_id')
+
             self._channels[ch_id] = {
                 'name': ch.get('name', ch_id),
                 'unit': ch.get('unit', ''),
                 'type': ch.get('channel_type', 'unknown'),
+                'channel_type': ch.get('channel_type', 'unknown'),
+                'channel_id': ch.get('channel_id'),  # JSON channel ID
+                'runtime_channel_id': ch.get('runtime_channel_id'),  # Runtime ID for telemetry
                 'value': '?',
                 'active': False,
                 'error': False,
             }
+
+            # Build reverse lookup map for fast telemetry matching
+            if runtime_id is not None:
+                self._channel_id_map[runtime_id] = ch_id
 
         self._populate_table()
 
@@ -189,19 +277,22 @@ class VariablesInspector(QWidget):
         for row, ch_id in enumerate(sorted_ids):
             ch = self._channels[ch_id]
 
-            # Name
+            # Name (not editable)
             name_item = QTableWidgetItem(ch['name'])
             name_item.setData(Qt.ItemDataRole.UserRole, ch_id)  # Store ID in item
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, self.COL_NAME, name_item)
 
-            # Value
+            # Value (read-only)
             value_item = QTableWidgetItem(str(ch['value']))
             value_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            value_item.setFlags(value_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, self.COL_VALUE, value_item)
 
-            # Unit
+            # Unit (not editable)
             unit_item = QTableWidgetItem(ch['unit'])
             unit_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            unit_item.setFlags(unit_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(row, self.COL_UNIT, unit_item)
 
             # Initial color
@@ -271,6 +362,9 @@ class VariablesInspector(QWidget):
         else:
             self._set_row_color(row, self.COLOR_NORMAL)
 
+        # Force table row to update visually
+        self.table.viewport().update()
+
     def update_values_batch(self, values: Dict[str, Any]):
         """
         Update multiple channel values at once.
@@ -335,10 +429,42 @@ class VariablesInspector(QWidget):
                 else:
                     self.update_value(ch_id, f"{current_ma}mA")
 
+        # Update output duty cycles
+        if 'profet_duties' in telemetry_data:
+            duties = telemetry_data['profet_duties']
+            battery_mv = telemetry_data.get('battery_voltage_mv', 12000)
+            states = telemetry_data.get('profet_states', [0] * 30)
+
+            for i, duty in enumerate(duties):
+                # dutyCycle - percentage (0-1000 = 0-100.0%)
+                ch_id = f'o_{i+1}.dutyCycle'
+                state = states[i] if i < len(states) else 0
+                if state == 1:  # ON
+                    self.update_value(ch_id, "100.0%")
+                elif state == 6:  # PWM
+                    self.update_value(ch_id, f"{duty/10:.1f}%")
+                else:
+                    self.update_value(ch_id, "0.0%")
+
+                # voltage - output voltage in V (approximation)
+                ch_id = f'o_{i+1}.voltage'
+                if state == 1:  # ON
+                    voltage_v = battery_mv / 1000.0
+                elif state == 6:  # PWM
+                    voltage_v = (battery_mv * duty / 1000) / 1000.0
+                else:
+                    voltage_v = 0.0
+                self.update_value(ch_id, f"{voltage_v:.1f}V")
+
+                # active - boolean
+                ch_id = f'o_{i+1}.active'
+                is_active = state == 1 or (state == 6 and duty > 0)
+                self.update_value(ch_id, "1" if is_active else "0", active=is_active)
+
         # Update analog input channels
         if 'adc_values' in telemetry_data:
             adc_values = telemetry_data['adc_values']
-            ref_voltage = telemetry_data.get('reference_voltage', 5.0)
+            ref_voltage = telemetry_data.get('reference_voltage', 3.3)  # 3.3V ADC reference
             for i, adc_raw in enumerate(adc_values):
                 ch_id = f'a_{i+1}.voltage'
                 voltage = (adc_raw / 4095.0) * ref_voltage
@@ -349,10 +475,64 @@ class VariablesInspector(QWidget):
             for ch_id, value in telemetry_data['can_rx_values'].items():
                 self.update_value(ch_id, value)
 
-        # Update keypad channels
+        # Update keypad channels (legacy)
         if 'keypad_states' in telemetry_data:
             for keypad_id, state in telemetry_data['keypad_states'].items():
                 self.update_value(keypad_id, "ON" if state else "OFF", active=state)
+
+        # Update BlinkMarine keypad button states
+        if 'blinkmarine_buttons' in telemetry_data:
+            for btn_id, state in telemetry_data['blinkmarine_buttons'].items():
+                self.update_value(btn_id, "ON" if state else "OFF", active=state)
+
+        # Update virtual channels (logic, timer, switch, number, etc.)
+        if 'virtual_channels' in telemetry_data:
+            for ch_id, value in telemetry_data['virtual_channels'].items():
+                # Fast O(1) lookup using channel_id map
+                stored_id = self._channel_id_map.get(ch_id)
+                if stored_id is None:
+                    continue
+
+                ch_data = self._channels.get(stored_id)
+                if ch_data is None:
+                    continue
+
+                # Format based on channel type
+                ch_type = ch_data.get('channel_type', '')
+                if ch_type == 'logic':
+                    # Boolean display
+                    display_value = "ON" if value > 0 else "OFF"
+                    self.update_value(stored_id, display_value, active=(value > 0))
+                elif ch_type == 'timer':
+                    # Timer main channel shows ON/OFF status (running state)
+                    # Value is 1000 when running, 0 when stopped
+                    running = value > 0
+                    display_value = "ON" if running else "OFF"
+                    self.update_value(stored_id, display_value, active=running)
+                elif ch_type == 'timer_elapsed':
+                    # Timer elapsed channel - shows time in ms, display as seconds
+                    seconds = value / 1000.0
+                    if seconds >= 3600:
+                        h = int(seconds // 3600)
+                        m = int((seconds % 3600) // 60)
+                        s = seconds % 60
+                        time_str = f"{h}h {m}m {s:.1f}s"
+                    elif seconds >= 60:
+                        m = int(seconds // 60)
+                        s = seconds % 60
+                        time_str = f"{m}m {s:.1f}s"
+                    else:
+                        time_str = f"{seconds:.1f}s"
+                    self.update_value(stored_id, time_str)
+                elif ch_type == 'switch':
+                    # Enum display (show state index)
+                    self.update_value(stored_id, f"State {value // 1000}")
+                else:
+                    # Numeric display (scaled by 1000)
+                    self.update_value(stored_id, f"{value / 1000:.2f}")
+
+        # Always update constant channels (they don't come from telemetry)
+        self._update_constant_channels()
 
     def _update_display(self):
         """Periodic display update (for change color decay)."""
@@ -409,6 +589,13 @@ class VariablesInspector(QWidget):
             config_manager: ConfigManager instance with channel configurations
         """
         channels = []
+
+        # Add constant channels
+        constant_channels = [
+            {'id': 'zero', 'name': 'zero', 'unit': '', 'channel_id': 1012, 'channel_type': 'system'},
+            {'id': 'one', 'name': 'one', 'unit': '', 'channel_id': 1013, 'channel_type': 'system'},
+        ]
+        channels.extend(constant_channels)
 
         # Add PMU system channels
         pmu_system_channels = [
@@ -480,7 +667,7 @@ class VariablesInspector(QWidget):
         except Exception:
             pass
 
-        # Add keypad channels
+        # Add keypad channels (legacy)
         try:
             keypads = config_manager.get_keypads()
             for kp in keypads:
@@ -495,18 +682,82 @@ class VariablesInspector(QWidget):
         except Exception:
             pass
 
-        # Add virtual/logic channels
+        # Add BlinkMarine keypad button channels
         try:
-            logic_channels = config_manager.get_logic_channels()
-            for lc in logic_channels:
-                ch_id = lc.get('id', '')
-                channels.append({
-                    'id': ch_id,
-                    'name': f'k_{ch_id}',
-                    'unit': '',
-                    'channel_type': 'logic'
-                })
+            blinkmarine_keypads = config_manager.get_blinkmarine_keypads()
+            for kp in blinkmarine_keypads:
+                kp_name = kp.get('name', kp.get('id', 'keypad'))
+                keypad_type = kp.get('keypad_type', '2x6')
+                # Determine button count based on keypad type
+                button_count = 12 if keypad_type == '2x6' else 16
+                buttons = kp.get('buttons', [])
+
+                for btn_idx in range(button_count):
+                    btn_name = f"Button {btn_idx + 1}"
+                    # Try to get custom button name from config
+                    if btn_idx < len(buttons):
+                        btn_config = buttons[btn_idx]
+                        if btn_config.get('name'):
+                            btn_name = btn_config.get('name')
+
+                    # Add button state channel
+                    channels.append({
+                        'id': f'bm_{kp_name}.btn{btn_idx + 1}',
+                        'name': f'{kp_name} {btn_name}',
+                        'unit': '',
+                        'channel_type': 'keypad_button'
+                    })
+        except Exception:
+            pass
+
+        # Virtual channel ID counter - must match firmware assignment order
+        # Firmware assigns IDs starting at 200 (PMU_CHANNEL_ID_VIRTUAL_START)
+        # Channels are assigned IDs in the order they appear in the JSON channels array
+        virtual_channel_id = 200
+
+        # Get all channels from config in order and assign virtual channel IDs
+        # IMPORTANT: This list must match the channel types that firmware actually registers
+        # with AllocateVirtualChannelID() in pmu_config_json.c
+        # Currently registered: logic, number, switch, filter, timer
+        # NOT registered yet: can_rx (has TODO in firmware)
+        VIRTUAL_CHANNEL_TYPES = {'logic', 'number', 'switch', 'filter', 'timer'}
+
+        try:
+            all_channels = config_manager.get_all_channels()
+            for ch in all_channels:
+                ch_type = ch.get('channel_type', '')
+                ch_id = ch.get('id', '')
+
+                if ch_type in VIRTUAL_CHANNEL_TYPES:
+                    # Map channel type to display prefix
+                    prefixes = {'logic': 'k_', 'number': 'n_', 'switch': 's_', 'can_rx': 'crx_', 'timer': 't_', 'filter': 'f_'}
+                    prefix = prefixes.get(ch_type, '')
+
+                    # Main channel
+                    channels.append({
+                        'id': ch_id,
+                        'name': f'{prefix}{ch_id}',
+                        'unit': ch.get('unit', ''),
+                        'channel_type': ch_type,
+                        'channel_id': virtual_channel_id
+                    })
+                    virtual_channel_id += 1
+
+                    # Timer has an additional elapsed channel
+                    if ch_type == 'timer':
+                        channels.append({
+                            'id': f'{ch_id}.elapsed',
+                            'name': f'{prefix}{ch_id}.elapsed',
+                            'unit': 'ms',
+                            'channel_type': 'timer_elapsed',
+                            'channel_id': virtual_channel_id
+                        })
+                        virtual_channel_id += 1
         except Exception:
             pass
 
         self.set_channels(channels)
+
+        # If already connected, initialize constant channels
+        if self._connected:
+            self._update_constant_channels()

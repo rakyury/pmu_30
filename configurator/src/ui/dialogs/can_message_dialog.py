@@ -236,7 +236,7 @@ class CANMessageDialog(QDialog):
         info_label = QLabel(
             "<i>Note: Signals are configured separately using CAN Inputs.</i>"
         )
-        info_label.setStyleSheet("color: #888888;")
+        info_label.setStyleSheet("color: #b0b0b0;")
         layout.addWidget(info_label)
 
         layout.addStretch()

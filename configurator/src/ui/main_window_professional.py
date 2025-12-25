@@ -42,6 +42,7 @@ from .dialogs.connection_dialog import ConnectionDialog
 from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
 from .dialogs.pid_controller_dialog import PIDControllerDialog
 from .dialogs.hbridge_dialog import HBridgeDialog
+from .dialogs.handler_dialog import HandlerDialog
 from .dialogs.config_diff_dialog import ConfigDiffDialog
 from .dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
 from .dialogs.wifi_settings_dialog import WiFiSettingsDialog
@@ -78,11 +79,8 @@ class MainWindowProfessional(QMainWindow):
         self._setup_statusbar()
         self._setup_connections()
 
-        # Apply light theme by default
+        # Apply dark theme with Fusion style
         self.apply_theme()
-
-        # Apply Fusion style by default
-        self.change_style("Fusion")
 
         # Restore window geometry and state
         self._restore_layout()
@@ -195,9 +193,7 @@ class MainWindowProfessional(QMainWindow):
         self.can_monitor.send_message.connect(self._on_can_send_message)
         self.monitor_tabs.addTab(self.can_monitor, "CAN Live")
 
-        # Data Logger tab (professional ECU-style logging)
-        self.data_logger = DataLoggerWidget()
-        self.monitor_tabs.addTab(self.data_logger, "Data Logger")
+        # Data Logger is now a separate dock widget (see below)
 
         # Channel Graph tab (dependency visualization)
         self.channel_graph = ChannelGraphWidget()
@@ -211,6 +207,20 @@ class MainWindowProfessional(QMainWindow):
 
         self.monitor_dock.setWidget(self.monitor_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
+
+        # === BOTTOM AREA: Data Logger ===
+        self.data_logger_dock = QDockWidget("Data Logger", self)
+        self.data_logger_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea |
+            Qt.DockWidgetArea.TopDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea |
+            Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.data_logger = DataLoggerWidget()
+        self.data_logger_dock.setWidget(self.data_logger)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_logger_dock)
+        # Hide by default - can be shown via View menu
+        self.data_logger_dock.hide()
 
         # For backwards compatibility
         self.pmu_monitor_dock = self.monitor_dock
@@ -326,6 +336,11 @@ class MainWindowProfessional(QMainWindow):
         monitor_action.setShortcut("F8")
         windows_menu.addAction(monitor_action)
 
+        data_logger_action = self.data_logger_dock.toggleViewAction()
+        data_logger_action.setText("Data Logger (Bottom)")
+        data_logger_action.setShortcut("Ctrl+D")
+        windows_menu.addAction(data_logger_action)
+
         windows_menu.addSeparator()
 
         # Monitor tab shortcuts
@@ -412,6 +427,7 @@ class MainWindowProfessional(QMainWindow):
         """Setup signal connections."""
         self.project_tree.item_added.connect(self._on_item_add_requested)
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
+        self.project_tree.item_deleted.connect(self._on_item_deleted)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
 
         # Device controller signals - use QueuedConnection for thread safety
@@ -652,6 +668,15 @@ class MainWindowProfessional(QMainWindow):
             if dialog.exec():
                 config = dialog.get_config()
                 self.project_tree.add_channel(channel_type, config)
+                # Auto-create virtual channels for each button (ECUMaster style)
+                self._sync_keypad_button_channels(config)
+                self.configuration_changed.emit()
+
+        elif channel_type == ChannelType.HANDLER:
+            dialog = HandlerDialog(self, None, available_channels, existing_channels)
+            if dialog.exec():
+                config = dialog.get_config()
+                self.project_tree.add_channel(channel_type, config)
                 self.configuration_changed.emit()
 
     def _on_item_edit_requested(self, channel_type_str: str, data: dict):
@@ -683,6 +708,17 @@ class MainWindowProfessional(QMainWindow):
             existing_channels = self.project_tree.get_all_channels()
 
             if channel_type == ChannelType.DIGITAL_INPUT:
+                # Check if this is a keypad button - those are edited via the keypad dialog
+                from models.channel import DigitalInputSubtype
+                if item_data and item_data.get('subtype') == DigitalInputSubtype.KEYPAD_BUTTON.value:
+                    from PyQt6.QtWidgets import QMessageBox
+                    QMessageBox.information(
+                        self, "Keypad Button",
+                        "This is a virtual button from a CAN keypad.\n"
+                        "Edit it via the CAN Keypads section."
+                    )
+                    return
+
                 # Exclude current channel's pin from used list when editing
                 channel_id = item_data.get('name') if item_data else None
                 used_pins = self.project_tree.get_all_used_digital_input_pins(exclude_channel_id=channel_id)
@@ -831,7 +867,16 @@ class MainWindowProfessional(QMainWindow):
                     self.project_tree.update_current_item(updated_config)
 
             elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
+                old_keypad_id = item_data.get("id", "")
                 dialog = BlinkMarineKeypadDialog(self, item_data, available_channels, existing_channels)
+                if dialog.exec():
+                    updated_config = dialog.get_config()
+                    self.project_tree.update_current_item(updated_config)
+                    # Sync virtual channels for keypad buttons (ECUMaster style)
+                    self._sync_keypad_button_channels(updated_config, old_keypad_id)
+
+            elif channel_type == ChannelType.HANDLER:
+                dialog = HandlerDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
@@ -920,9 +965,111 @@ class MainWindowProfessional(QMainWindow):
 
         return channels
 
+    def _sync_keypad_button_channels(self, keypad_config: dict, old_keypad_id: str = None):
+        """
+        Sync virtual channels for keypad buttons (ECUMaster style).
+
+        Each button on a BlinkMarine keypad creates a virtual digital input channel
+        with ID format: {keypad_id}.btn{N} (e.g., "keypad1.btn1", "keypad1.btn2")
+
+        These channels can be used as Control Function sources for power outputs.
+        """
+        from models.channel import DigitalInputSubtype, ButtonMode
+
+        keypad_id = keypad_config.get("id", "")
+        keypad_type = keypad_config.get("keypad_type", "2x6")
+        button_count = 12 if keypad_type == "2x6" else 16
+        button_configs = keypad_config.get("buttons", {})
+
+        # If keypad ID changed, remove old button channels
+        if old_keypad_id and old_keypad_id != keypad_id:
+            self._remove_keypad_button_channels(old_keypad_id)
+
+        # Create/update virtual channels for each button
+        for btn_idx in range(button_count):
+            btn_channel_id = f"{keypad_id}.btn{btn_idx + 1}"
+            btn_config = button_configs.get(btn_idx, button_configs.get(str(btn_idx), {}))
+
+            # Get button-specific settings
+            btn_name = btn_config.get("name", f"Button {btn_idx + 1}")
+            press_action = btn_config.get("press_action", "Set High")
+
+            # Determine button mode from press action
+            if "Toggle" in press_action:
+                button_mode = ButtonMode.TOGGLE.value
+            elif "Latching" in press_action or "Latch" in press_action:
+                button_mode = ButtonMode.LATCHING.value
+            else:
+                button_mode = ButtonMode.MOMENTARY.value
+
+            # Create virtual channel config
+            channel_config = {
+                "channel_type": "digital_input",
+                "id": btn_channel_id,
+                "name": f"{keypad_config.get('name', keypad_id)} - {btn_name}",
+                "subtype": DigitalInputSubtype.KEYPAD_BUTTON.value,
+                "keypad_id": keypad_id,
+                "button_index": btn_idx,
+                "button_mode": button_mode,
+                "invert": False,
+            }
+
+            # Check if channel already exists
+            existing = self._find_channel_by_id(btn_channel_id)
+            if existing:
+                # Update existing channel
+                self.project_tree.update_channel_by_id(btn_channel_id, channel_config)
+            else:
+                # Add new channel
+                self.project_tree.add_channel(ChannelType.DIGITAL_INPUT, channel_config)
+
+        logger.info(f"Synced {button_count} button channels for keypad '{keypad_id}'")
+
+    def _remove_keypad_button_channels(self, keypad_id: str):
+        """Remove all button channels for a keypad."""
+        for btn_idx in range(16):  # Max buttons
+            btn_channel_id = f"{keypad_id}.btn{btn_idx + 1}"
+            self.project_tree.remove_channel_by_id(btn_channel_id)
+        logger.info(f"Removed button channels for keypad '{keypad_id}'")
+
+    def _find_channel_by_id(self, channel_id: str) -> dict:
+        """Find a channel by its ID."""
+        all_channels = self.project_tree.get_all_channels()
+        for ch in all_channels:
+            if ch.get("id") == channel_id:
+                return ch
+        return None
+
+    def _on_item_deleted(self, channel_type_str: str, data: dict):
+        """Handle item deletion - cleanup related channels."""
+        try:
+            channel_type = ChannelType(channel_type_str)
+        except ValueError:
+            return
+
+        item_data = data.get("data", {})
+
+        # When a BlinkMarine keypad is deleted, remove all its button channels
+        if channel_type == ChannelType.BLINKMARINE_KEYPAD:
+            keypad_id = item_data.get("id", "")
+            if keypad_id:
+                self._remove_keypad_button_channels(keypad_id)
+                logger.info(f"Removed button channels for deleted keypad '{keypad_id}'")
+
     def _on_config_changed(self):
         """Handle configuration change."""
         self.config_manager.modified = True
+
+        # Sync channels from project_tree to config_manager
+        config = self.config_manager.get_config()
+        config["channels"] = self.project_tree.get_all_channels()
+
+        # Refresh Variables Inspector to show new channels
+        self.variables_inspector.populate_from_config(self.config_manager)
+
+        # Refresh Data Logger with virtual channels
+        self.data_logger.populate_from_config(self.config_manager)
+
         # Auto-send configuration to device (without flash save)
         self._send_config_to_device_silent()
 
@@ -1034,6 +1181,11 @@ class MainWindowProfessional(QMainWindow):
             for table in config.get("tables", []):
                 self.project_tree.add_table(table)
 
+        # Sync keypad button channels for all keypads (ECUMaster style)
+        keypads = self.project_tree.get_all_blinkmarine_keypads()
+        for keypad_config in keypads:
+            self._sync_keypad_button_channels(keypad_config)
+
         # Update monitors
         self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
         self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
@@ -1051,6 +1203,9 @@ class MainWindowProfessional(QMainWindow):
 
         # Update variables inspector
         self.variables_inspector.populate_from_config(self.config_manager)
+
+        # Update data logger with virtual channels
+        self.data_logger.populate_from_config(self.config_manager)
 
         # Update channel dependency graph
         self._update_channel_graph(channels)
@@ -1256,13 +1411,13 @@ class MainWindowProfessional(QMainWindow):
             # Clear current project tree
             self.project_tree.clear_all()
 
-            # Load channels from config
+            # Load channels from config (suppress signal during bulk loading)
             channels = config.get("channels", [])
             for ch_data in channels:
                 ch_type_str = ch_data.get("channel_type", "")
                 try:
                     ch_type = ChannelType(ch_type_str)
-                    self.project_tree.add_channel(ch_type, ch_data)
+                    self.project_tree.add_channel(ch_type, ch_data, emit_signal=False)
                 except ValueError:
                     logger.warning(f"Unknown channel type: {ch_type_str}")
 
@@ -1277,6 +1432,9 @@ class MainWindowProfessional(QMainWindow):
 
             # Update variables inspector
             self.variables_inspector.populate_from_config(self.config_manager)
+
+            # Update data logger with virtual channels
+            self.data_logger.populate_from_config(self.config_manager)
 
             self.status_message.setText(f"Configuration loaded: {len(channels)} channels")
             logger.info(f"Loaded configuration with {len(channels)} channels")
@@ -1766,8 +1924,8 @@ class MainWindowProfessional(QMainWindow):
             # Update analog monitor with ADC values (uses switch logic for switch inputs)
             self.analog_monitor.update_from_telemetry(telemetry.adc_values)
 
-            # Update digital monitor with ADC values (first 8 ADC channels are digital inputs)
-            self.digital_monitor.update_from_telemetry(list(telemetry.adc_values))
+            # Update digital monitor with digital input states from telemetry
+            self.digital_monitor.update_from_telemetry(telemetry.digital_inputs)
 
             # Update variables inspector with telemetry data
             variables_data = {
@@ -1802,6 +1960,12 @@ class MainWindowProfessional(QMainWindow):
                     pass
                 if can_rx_values:
                     variables_data['can_rx_values'] = can_rx_values
+
+            # Add virtual channel values (logic, timer, switch, number)
+            if hasattr(telemetry, 'virtual_channels') and telemetry.virtual_channels:
+                variables_data['virtual_channels'] = telemetry.virtual_channels
+                # Also pass virtual channels to data logger
+                data['virtual_channels'] = telemetry.virtual_channels
 
             self.variables_inspector.update_from_telemetry(variables_data)
 
@@ -1860,9 +2024,16 @@ class MainWindowProfessional(QMainWindow):
         self.config_manager.modified = True
         self._on_config_changed()
 
-        # Refresh the project tree with updated channels
+        # Add imported CAN inputs directly to project tree (don't clear and reload)
         if hasattr(self, 'project_tree'):
-            self.project_tree.load_channels(config.get("channels", []))
+            for channel in channels:
+                channel_type_str = channel.get("channel_type", "")
+                try:
+                    channel_type = ChannelType(channel_type_str)
+                    self.project_tree.add_channel(channel_type, channel, emit_signal=False)
+                except ValueError:
+                    logger.warning(f"Unknown channel type: {channel_type_str}")
+            self.project_tree.configuration_changed.emit()
 
         logger.info(f"Imported {len(messages)} CAN message(s) and {len(channels)} CAN input(s)")
 
@@ -1939,6 +2110,10 @@ class MainWindowProfessional(QMainWindow):
         # Reset positions
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_tree_dock)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
+
+        # Data Logger dock - reset to bottom, hidden by default
+        self.data_logger_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.data_logger_dock)
 
         # Reset to first tab (PMU Monitor)
         self.monitor_tabs.setCurrentIndex(0)

@@ -18,8 +18,12 @@
 #include "pmu_can.h"
 #include "pmu_lin.h"
 #include "pmu_pid.h"
+#include "pmu_log.h"
 #include <stdio.h>
 #include <string.h>
+
+/* Module identifier for logging */
+#define LOG_SRC "LUA"
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -193,8 +197,16 @@ int lua_channel_get(lua_State* L)
     }
 
     uint16_t channel_id = (uint16_t)lua_tointeger(L, 1);
-    int32_t value = PMU_Channel_GetValue(channel_id);
 
+    /* Check if channel exists */
+    const PMU_Channel_t* ch = PMU_Channel_GetInfo(channel_id);
+    if (!ch) {
+        PMU_LOG_WARN(LOG_SRC, "channel.get: Invalid channel ID %u", channel_id);
+        lua_pushnil(L);
+        return 1;
+    }
+
+    int32_t value = PMU_Channel_GetValue(channel_id);
     lua_pushinteger(L, value);
     return 1;
 }
@@ -214,7 +226,19 @@ int lua_channel_set(lua_State* L)
     uint16_t channel_id = (uint16_t)lua_tointeger(L, 1);
     int32_t value = (int32_t)lua_tointeger(L, 2);
 
+    /* Check if channel exists */
+    const PMU_Channel_t* ch = PMU_Channel_GetInfo(channel_id);
+    if (!ch) {
+        PMU_LOG_WARN(LOG_SRC, "channel.set: Invalid channel ID %u", channel_id);
+        lua_pushboolean(L, 0);
+        return 1;
+    }
+
     HAL_StatusTypeDef status = PMU_Channel_SetValue(channel_id, value);
+
+    if (status != HAL_OK) {
+        PMU_LOG_WARN(LOG_SRC, "channel.set: Failed to set channel %u to %ld", channel_id, (long)value);
+    }
 
     lua_pushboolean(L, status == HAL_OK);
     return 1;
@@ -237,6 +261,7 @@ int lua_channel_info(lua_State* L)
     const PMU_Channel_t* info = PMU_Channel_GetInfo(channel_id);
 
     if (info == NULL) {
+        PMU_LOG_WARN(LOG_SRC, "channel.info: Invalid channel ID %u", channel_id);
         lua_pushnil(L);
         return 1;
     }

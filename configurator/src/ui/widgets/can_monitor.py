@@ -109,7 +109,7 @@ class CANMonitor(QWidget):
         status_layout.addWidget(self.bus_load_label)
 
         self.connection_label = QLabel("Offline")
-        self.connection_label.setStyleSheet("color: #888;")
+        self.connection_label.setStyleSheet("color: #b0b0b0;")
         status_layout.addWidget(self.connection_label)
 
         layout.addLayout(status_layout)
@@ -762,7 +762,7 @@ class CANMonitor(QWidget):
             self.connection_label.setStyleSheet("color: #22c55e; font-weight: bold;")
         else:
             self.connection_label.setText("Offline")
-            self.connection_label.setStyleSheet("color: #888;")
+            self.connection_label.setStyleSheet("color: #b0b0b0;")
             # Clear values
             self.signal_values.clear()
             for row in range(self.decoded_table.rowCount()):

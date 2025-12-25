@@ -323,11 +323,6 @@ class DataLoggerWidget(QWidget):
 
         layout.addLayout(btn_layout)
 
-        # Math channel button
-        math_btn = QPushButton("+ Math Channel")
-        math_btn.clicked.connect(self._add_math_channel)
-        layout.addWidget(math_btn)
-
         return panel
 
     def _create_graph_panel(self) -> QWidget:
@@ -415,6 +410,54 @@ class DataLoggerWidget(QWidget):
             self.add_channel(0x0300 + i * 4 + 2, f'HB{i+1} PWM', '%', 'H-Bridge', 0, 100)
 
         self._update_channel_tree()
+
+    def populate_from_config(self, config_manager):
+        """
+        Populate virtual channels from configuration.
+
+        Virtual channels (Logic, Number, Switch, CAN RX) get IDs starting at 200
+        in the same order as they appear in the config (same as firmware assignment).
+        """
+        try:
+            all_channels = config_manager.get_all_channels()
+
+            # Track virtual channel ID - starts at 200, same as firmware
+            virtual_channel_id = 200
+
+            # Virtual channel types and their display info
+            VIRTUAL_TYPES = {
+                'logic': {'category': 'Logic', 'prefix': 'Logic', 'unit': '', 'min': 0, 'max': 1},
+                'number': {'category': 'Logic', 'prefix': 'Number', 'unit': '', 'min': -999999, 'max': 999999},
+                'switch': {'category': 'Logic', 'prefix': 'Switch', 'unit': '', 'min': 0, 'max': 100},
+                'can_rx': {'category': 'CAN', 'prefix': 'CAN RX', 'unit': '', 'min': -999999, 'max': 999999},
+                'timer': {'category': 'Logic', 'prefix': 'Timer', 'unit': 'ms', 'min': 0, 'max': 999999},
+                'filter': {'category': 'Logic', 'prefix': 'Filter', 'unit': '', 'min': -999999, 'max': 999999},
+            }
+
+            # Process channels in same order as config to match firmware IDs
+            for ch in all_channels:
+                ch_type = ch.get('channel_type', '')
+                if ch_type in VIRTUAL_TYPES:
+                    info = VIRTUAL_TYPES[ch_type]
+                    ch_id = ch.get('id', 0)
+                    ch_name = ch.get('name', f'{info["prefix"]}_{ch_id}')
+
+                    # Use virtual_channel_id which matches telemetry
+                    self.add_channel(
+                        virtual_channel_id,
+                        ch_name,
+                        info['unit'],
+                        info['category'],
+                        info['min'],
+                        info['max']
+                    )
+                    virtual_channel_id += 1
+
+            self._update_channel_tree()
+            logger.info(f"Loaded {virtual_channel_id - 200} virtual channels to Data Logger")
+
+        except Exception as e:
+            logger.error(f"Error populating Data Logger from config: {e}")
 
     def _setup_timer(self):
         """Setup update timer."""
@@ -772,6 +815,11 @@ class DataLoggerWidget(QWidget):
                 # Convert ADC to voltage (12-bit ADC, 3.3V reference)
                 voltage = (float(val) / 4095.0) * 3.3 if val else 0.0
                 samples[0x0200 + i] = voltage
+
+        # Virtual channels (Logic, Number, Switch, CAN RX, etc.)
+        if 'virtual_channels' in telemetry_data:
+            for ch_id, value in telemetry_data['virtual_channels'].items():
+                samples[ch_id] = float(value)
 
         # Add all samples
         if samples:

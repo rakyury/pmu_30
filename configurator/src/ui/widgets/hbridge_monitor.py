@@ -20,14 +20,14 @@ class HBridgeMonitor(QWidget):
     hbridge_command = pyqtSignal(int, str, int)  # (bridge_number, command, pwm_value)
     # Commands: "coast", "forward", "reverse", "brake", "stop"
 
-    # Colors for different states
-    COLOR_NORMAL = QColor(255, 255, 255)      # White
-    COLOR_FORWARD = QColor(200, 255, 200)     # Light green
-    COLOR_REVERSE = QColor(200, 200, 255)     # Light blue
-    COLOR_BRAKE = QColor(255, 255, 200)       # Light yellow
-    COLOR_FAULT = QColor(255, 200, 200)       # Light red
-    COLOR_DISABLED = QColor(220, 220, 220)    # Light gray
-    COLOR_STALLED = QColor(255, 220, 180)     # Light orange
+    # Colors for different states (dark theme)
+    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
+    COLOR_FORWARD = QColor(0, 80, 0)          # Dark green
+    COLOR_REVERSE = QColor(0, 0, 100)         # Dark blue
+    COLOR_BRAKE = QColor(80, 80, 0)           # Dark yellow
+    COLOR_FAULT = QColor(100, 0, 0)           # Dark red
+    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
+    COLOR_STALLED = QColor(100, 60, 0)        # Dark orange
 
     # Column indices
     COL_BRIDGE = 0
@@ -82,7 +82,7 @@ class HBridgeMonitor(QWidget):
         toolbar = QHBoxLayout()
 
         self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch()
@@ -132,6 +132,31 @@ class HBridgeMonitor(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+
+        # Dark theme styling
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                gridline-color: #333333;
+                border: 1px solid #333333;
+            }
+            QTableWidget::item {
+                color: #ffffff;
+                padding: 2px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+                font-weight: bold;
+            }
+        """)
 
         layout.addWidget(self.table)
 
@@ -250,7 +275,7 @@ class HBridgeMonitor(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             self._reset_values()
 
     def _reset_values(self):

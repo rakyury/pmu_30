@@ -1,7 +1,7 @@
 """
 Channel Selector Dialog
-Universal dialog for selecting any GPIO channel in the system
-Supports all GPIO types with categorization
+Universal dialog for selecting any channel in the system
+Supports all channel types with categorization
 """
 
 from PyQt6.QtWidgets import (
@@ -64,8 +64,38 @@ class ChannelSelectorDialog(QDialog):
             "types": [
                 (ChannelType.ENUM, "Enumerations"),
             ]
+        },
+        "System": {
+            "icon_color": "#64748b",  # Slate gray
+            "types": [
+                (ChannelType.SYSTEM, "System Channels"),
+                (ChannelType.OUTPUT_STATUS, "Output States"),
+            ]
         }
     }
+
+    # Predefined system channels (ECUMaster compatible)
+    SYSTEM_CHANNELS = [
+        # Constant values (always return 0 or 1)
+        ("zero", "Zero (constant 0)"),
+        ("one", "One (constant 1)"),
+
+        # PMU System channels
+        ("pmu1.batteryVoltage", "Battery Voltage (mV)"),
+        ("pmu1.totalCurrent", "Total Current (mA)"),
+        ("pmu1.boardTemperatureL", "Board Temperature L (°C)"),
+        ("pmu1.boardTemperatureR", "Board Temperature R (°C)"),
+        ("pmu1.boardTemperatureMax", "Board Temperature Max (°C)"),
+        ("pmu1.5VOutput", "5V Output (mV)"),
+        ("pmu1.3V3Output", "3.3V Output (mV)"),
+        ("pmu1.status", "System Status"),
+        ("pmu1.userError", "User Error"),
+        ("pmu1.uptime", "Uptime (s)"),
+        ("pmu1.isTurningOff", "Is Turning Off"),
+    ]
+
+    # Predefined output sub-channels (generated per output)
+    OUTPUT_SUBCHANNELS = ["status", "current", "voltage", "active", "dutyCycle"]
 
     # Channel type to category key mapping
     CHANNEL_TYPE_CATEGORY_KEY = {
@@ -82,11 +112,14 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.TIMER: "timers",
         ChannelType.FILTER: "filters",
         ChannelType.ENUM: "enums",
+        ChannelType.SYSTEM: "system",
+        ChannelType.OUTPUT_STATUS: "output_status",
     }
 
     def __init__(self, parent=None, current_channel: str = "",
                  channels_data: Optional[Dict[str, List[str]]] = None,
-                 show_tree: bool = True):
+                 show_tree: bool = True,
+                 exclude_channel: Any = None):
         """
         Initialize channel selector dialog.
 
@@ -95,11 +128,13 @@ class ChannelSelectorDialog(QDialog):
             current_channel: Currently selected channel (to highlight)
             channels_data: Dictionary with channel lists by type
             show_tree: If True, show tree view with categories; otherwise flat list
+            exclude_channel: Channel ID to exclude from selection (prevents self-reference)
         """
         super().__init__(parent)
         self.selected_channel = current_channel
         self.channels_data = channels_data or {}
         self.show_tree = show_tree
+        self.exclude_channel = exclude_channel
         self.all_channels: List[tuple] = []  # (channel_type, channel_id, display_name)
 
         self.setWindowTitle("Select Channel")
@@ -126,6 +161,12 @@ class ChannelSelectorDialog(QDialog):
 
         header_layout.addStretch()
 
+        # View toggle button
+        self.view_toggle_btn = QPushButton("Flat View" if self.show_tree else "Tree View")
+        self.view_toggle_btn.setFixedWidth(80)
+        self.view_toggle_btn.clicked.connect(self._toggle_view)
+        header_layout.addWidget(self.view_toggle_btn)
+
         # Category filter
         self.category_filter = QComboBox()
         self.category_filter.addItem("All Categories", None)
@@ -144,30 +185,33 @@ class ChannelSelectorDialog(QDialog):
         self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
 
-        # Main content
+        # Main content - create both but show one
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Channel", "Type"])
+        self.tree.setColumnWidth(0, 350)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
+
+        self.channel_list = QListWidget()
+        self.channel_list.setAlternatingRowColors(False)
+        self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.channel_list.itemSelectionChanged.connect(self._on_selection_changed)
+
+        # Add both to layout, hide one
+        layout.addWidget(self.tree)
+        layout.addWidget(self.channel_list)
+
         if self.show_tree:
-            # Tree view with categories
-            self.tree = QTreeWidget()
-            self.tree.setHeaderLabels(["Channel", "Type"])
-            self.tree.setColumnWidth(0, 350)
-            self.tree.setAlternatingRowColors(True)
-            self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-            self.tree.itemSelectionChanged.connect(self._on_selection_changed)
-            layout.addWidget(self.tree)
-            self.channel_list = None
+            self.channel_list.hide()
         else:
-            # Flat list
-            self.channel_list = QListWidget()
-            self.channel_list.setAlternatingRowColors(True)
-            self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-            layout.addWidget(self.channel_list)
-            self.tree = None
+            self.tree.hide()
 
         # Preview panel
         self.preview_label = QLabel("Select a channel to see details")
         self.preview_label.setStyleSheet(
-            "color: #666; font-style: italic; padding: 8px; "
-            "background-color: #f5f5f5; border-radius: 4px;"
+            "color: #b0b0b0; font-style: italic; padding: 8px; "
+            "background-color: #2d2d2d; border-radius: 4px;"
         )
         self.preview_label.setWordWrap(True)
         layout.addWidget(self.preview_label)
@@ -235,21 +279,38 @@ class ChannelSelectorDialog(QDialog):
                         # Old format: string name (backwards compat, use string as ID)
                         self.all_channels.append((channel_type, ch, ch))
 
+        # Add predefined system channels
+        for ch_id, ch_name in self.SYSTEM_CHANNELS:
+            self.all_channels.append((ChannelType.SYSTEM, ch_id, ch_name))
+
+        # Add output sub-channels for all 30 outputs
+        for i in range(1, 31):
+            for sub in self.OUTPUT_SUBCHANNELS:
+                ch_id = f"o_{i}.{sub}"
+                ch_name = f"Output {i} {sub.replace('_', ' ').title()}"
+                self.all_channels.append((ChannelType.OUTPUT_STATUS, ch_id, ch_name))
+
         self._update_display()
 
     def _update_display(self, filter_text: str = "", category_filter: str = None):
         """Update display with optional filter.
 
         Shows display_name to user but stores channel_id (numeric or string) in UserRole.
+        Tree view shows: Category -> Type -> Channels (two-level grouping)
         """
         filter_lower = filter_text.lower()
         visible_count = 0
 
         if self.show_tree and self.tree:
             self.tree.clear()
-            category_items = {}
+            category_items = {}  # cat_name -> QTreeWidgetItem
+            type_items = {}  # (cat_name, type_name) -> QTreeWidgetItem
 
             for gpio_type, channel_id, display_name in self.all_channels:
+                # Skip excluded channel (prevents self-reference)
+                if self.exclude_channel is not None and channel_id == self.exclude_channel:
+                    continue
+
                 # Convert to string for filtering
                 channel_id_str = str(channel_id)
                 display_name_str = str(display_name)
@@ -259,7 +320,7 @@ class ChannelSelectorDialog(QDialog):
                     if filter_lower not in channel_id_str.lower() and filter_lower not in display_name_str.lower():
                         continue
 
-                # Find category for this GPIO type
+                # Find category for this channel type
                 cat_name = None
                 type_name = None
                 for cat, info in self.CATEGORIES.items():
@@ -288,18 +349,38 @@ class ChannelSelectorDialog(QDialog):
                     cat_item.setData(0, Qt.ItemDataRole.UserRole, None)  # No channel data for categories
                     category_items[cat_name] = cat_item
 
-                # Add channel item - show name, store channel_id
-                item = QTreeWidgetItem(category_items[cat_name])
+                # Create type sub-item if needed (two-level grouping)
+                type_key = (cat_name, type_name)
+                if type_key not in type_items:
+                    type_item = QTreeWidgetItem(category_items[cat_name], [type_name, ""])
+                    type_item.setExpanded(True)
+                    type_item.setData(0, Qt.ItemDataRole.UserRole, None)  # No channel data for types
+                    type_item.setForeground(0, QColor("#888888"))
+                    type_items[type_key] = type_item
+
+                # Add channel item under type - show name, store channel_id
+                item = QTreeWidgetItem(type_items[type_key])
                 item.setText(0, display_name_str)
-                item.setText(1, type_name)
+                item.setText(1, "")  # Type already shown in parent
                 item.setData(0, Qt.ItemDataRole.UserRole, channel_id)  # Store numeric or string ID
                 item.setToolTip(0, f"{type_name}: {display_name_str} (ID: {channel_id})")
                 visible_count += 1
+
+            # Update type counts and collapse large groups
+            for type_key, type_item in type_items.items():
+                child_count = type_item.childCount()
+                type_item.setText(1, f"({child_count})")
+                if child_count > 15:
+                    type_item.setExpanded(False)
 
         elif self.channel_list:
             self.channel_list.clear()
 
             for gpio_type, channel_id, display_name in self.all_channels:
+                # Skip excluded channel (prevents self-reference)
+                if self.exclude_channel is not None and channel_id == self.exclude_channel:
+                    continue
+
                 # Convert to string for filtering
                 channel_id_str = str(channel_id)
                 display_name_str = str(display_name)
@@ -350,6 +431,29 @@ class ChannelSelectorDialog(QDialog):
         category = self.category_filter.currentData()
         self._update_display(self.search_edit.text(), category)
 
+    def _toggle_view(self):
+        """Toggle between tree and flat list view."""
+        self.show_tree = not self.show_tree
+
+        if self.show_tree:
+            self.channel_list.hide()
+            self.tree.show()
+            self.view_toggle_btn.setText("Flat View")
+        else:
+            self.tree.hide()
+            self.channel_list.show()
+            self.view_toggle_btn.setText("Tree View")
+
+        # Remember selected channel
+        selected = self.get_selected_channel()
+
+        # Refresh display
+        self._update_display(self.search_edit.text(), self.category_filter.currentData())
+
+        # Restore selection
+        if selected:
+            self._select_channel(selected)
+
     def _on_item_double_clicked(self, item, column=0):
         """Handle item double-click."""
         if self.tree:
@@ -371,29 +475,34 @@ class ChannelSelectorDialog(QDialog):
                     display_name = item.text(0)
                     self.preview_label.setText(f"<b>{type_name}</b><br>{display_name} (ID: {channel_id})")
                     self.preview_label.setStyleSheet(
-                        "color: #333; padding: 8px; "
-                        "background-color: #e8f4f8; border-radius: 4px; border: 1px solid #0078d4;"
+                        "color: #fff; padding: 8px; "
+                        "background-color: #1a3a4d; border-radius: 4px; border: 1px solid #0078d4;"
                     )
                     return
 
         self.preview_label.setText("Select a channel to see details")
         self.preview_label.setStyleSheet(
-            "color: #666; font-style: italic; padding: 8px; "
-            "background-color: #f5f5f5; border-radius: 4px;"
+            "color: #b0b0b0; font-style: italic; padding: 8px; "
+            "background-color: #2d2d2d; border-radius: 4px;"
         )
 
     def _select_channel(self, channel_id):
         """Select a channel in the list by its channel_id (int or str)."""
         if self.tree:
-            # Manual iteration through all items
+            # Manual iteration through three-level hierarchy: Category -> Type -> Channel
             for i in range(self.tree.topLevelItemCount()):
                 cat_item = self.tree.topLevelItem(i)
                 for j in range(cat_item.childCount()):
-                    child = cat_item.child(j)
-                    if child.data(0, Qt.ItemDataRole.UserRole) == channel_id:
-                        self.tree.setCurrentItem(child)
-                        self.tree.scrollToItem(child)
-                        return
+                    type_item = cat_item.child(j)
+                    for k in range(type_item.childCount()):
+                        channel_item = type_item.child(k)
+                        if channel_item.data(0, Qt.ItemDataRole.UserRole) == channel_id:
+                            # Expand parents
+                            cat_item.setExpanded(True)
+                            type_item.setExpanded(True)
+                            self.tree.setCurrentItem(channel_item)
+                            self.tree.scrollToItem(channel_item)
+                            return
         elif self.channel_list:
             for i in range(self.channel_list.count()):
                 item = self.channel_list.item(i)
@@ -428,7 +537,8 @@ class ChannelSelectorDialog(QDialog):
     @staticmethod
     def select_channel(parent=None, current_channel=None,
                        channels_data: Optional[Dict[str, List]] = None,
-                       show_tree: bool = True) -> Any:
+                       show_tree: bool = True,
+                       exclude_channel: Any = None) -> tuple:
         """Static method to show dialog and return selected channel_id.
 
         Args:
@@ -436,11 +546,15 @@ class ChannelSelectorDialog(QDialog):
             current_channel: Currently selected channel_id (int or str)
             channels_data: Dict mapping category to list of (channel_id, name) tuples
             show_tree: Show tree view or flat list
+            exclude_channel: Channel ID to exclude from selection (prevents self-reference)
 
         Returns:
-            Selected channel_id (int) or None if cancelled
+            Tuple of (accepted: bool, channel_id_or_none)
+            - (True, channel_id) - User selected a channel
+            - (True, None) - User cleared selection (pressed Clear + OK)
+            - (False, None) - User cancelled dialog
         """
-        dialog = ChannelSelectorDialog(parent, current_channel, channels_data, show_tree)
+        dialog = ChannelSelectorDialog(parent, current_channel, channels_data, show_tree, exclude_channel)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            return dialog.get_selected_channel()
-        return None
+            return (True, dialog.get_selected_channel())
+        return (False, None)

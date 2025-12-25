@@ -91,7 +91,7 @@ class FilterDialog(BaseChannelDialog):
 
         # Info labels
         self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: #666; font-style: italic;")
+        self.info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label, row, 0, 1, 4)
 
@@ -130,8 +130,8 @@ class FilterDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Input channel
-        self.input_edit.setText(config.get("input_channel", ""))
+        # Input channel - show name instead of ID
+        self._set_channel_edit_value(self.input_edit, config.get("input_channel"))
 
         # Filter type
         filter_type = config.get("filter_type", "moving_avg")
@@ -157,8 +157,11 @@ class FilterDialog(BaseChannelDialog):
         """Get full configuration"""
         config = self.get_base_config()
 
+        # Get channel ID using helper method
+        input_channel_id = self._get_channel_id_from_edit(self.input_edit)
+
         config.update({
-            "input_channel": self.input_edit.text().strip(),
+            "input_channel": input_channel_id if input_channel_id else "",
             "filter_type": self.filter_type_combo.currentData(),
             "window_size": self.window_spin.value(),
             "time_constant": self.time_const_spin.value()

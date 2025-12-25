@@ -57,27 +57,9 @@ typedef enum {
     PMU_CHANNEL_TYPE_LUA_SCRIPT,
     PMU_CHANNEL_TYPE_PID,
     PMU_CHANNEL_TYPE_BLINKMARINE_KEYPAD,
+    PMU_CHANNEL_TYPE_HANDLER,
     PMU_CHANNEL_TYPE_COUNT
 } PMU_ChannelType_t;
-
-/* Backwards compatibility alias */
-typedef PMU_ChannelType_t PMU_GPIOType_t;
-#define PMU_GPIO_TYPE_DIGITAL_INPUT  PMU_CHANNEL_TYPE_DIGITAL_INPUT
-#define PMU_GPIO_TYPE_ANALOG_INPUT   PMU_CHANNEL_TYPE_ANALOG_INPUT
-#define PMU_GPIO_TYPE_POWER_OUTPUT   PMU_CHANNEL_TYPE_POWER_OUTPUT
-#define PMU_GPIO_TYPE_CAN_RX         PMU_CHANNEL_TYPE_CAN_RX
-#define PMU_GPIO_TYPE_CAN_TX         PMU_CHANNEL_TYPE_CAN_TX
-#define PMU_GPIO_TYPE_LIN_RX         PMU_CHANNEL_TYPE_LIN_RX
-#define PMU_GPIO_TYPE_LIN_TX         PMU_CHANNEL_TYPE_LIN_TX
-#define PMU_GPIO_TYPE_LOGIC          PMU_CHANNEL_TYPE_LOGIC
-#define PMU_GPIO_TYPE_NUMBER         PMU_CHANNEL_TYPE_NUMBER
-#define PMU_GPIO_TYPE_TABLE_2D       PMU_CHANNEL_TYPE_TABLE_2D
-#define PMU_GPIO_TYPE_TABLE_3D       PMU_CHANNEL_TYPE_TABLE_3D
-#define PMU_GPIO_TYPE_SWITCH         PMU_CHANNEL_TYPE_SWITCH
-#define PMU_GPIO_TYPE_TIMER          PMU_CHANNEL_TYPE_TIMER
-#define PMU_GPIO_TYPE_FILTER         PMU_CHANNEL_TYPE_FILTER
-#define PMU_GPIO_TYPE_ENUM           PMU_CHANNEL_TYPE_ENUM
-#define PMU_GPIO_TYPE_COUNT          PMU_CHANNEL_TYPE_COUNT
 
 /* ============================================================================
  * CAN Message Types (Level 1)
@@ -189,7 +171,7 @@ typedef enum {
 typedef enum {
     PMU_OUTPUT_TYPE_PROFET = 0,     /**< PROFET high-side switch */
     PMU_OUTPUT_TYPE_HBRIDGE,        /**< H-Bridge motor driver */
-    PMU_OUTPUT_TYPE_GPIO,           /**< General purpose output */
+    PMU_OUTPUT_TYPE_GENERIC,        /**< General purpose output */
     PMU_OUTPUT_TYPE_COUNT
 } PMU_OutputType_t;
 
@@ -202,6 +184,24 @@ typedef enum {
     PMU_OUTPUT_STATE_PWM,
     PMU_OUTPUT_STATE_FAULT
 } PMU_OutputState_t;
+
+/* ============================================================================
+ * Button Function Modes (ECUMaster compatible)
+ * ============================================================================ */
+
+/**
+ * @brief Button function mode
+ */
+typedef enum {
+    PMU_BUTTON_MODE_DIRECT = 0,         /**< Direct input passthrough */
+    PMU_BUTTON_MODE_MOMENTARY,          /**< Output only while pressed */
+    PMU_BUTTON_MODE_TOGGLE,             /**< Toggle output on press */
+    PMU_BUTTON_MODE_LATCHING,           /**< Stay on until reset channel */
+    PMU_BUTTON_MODE_LONG_PRESS,         /**< Separate short/long actions */
+    PMU_BUTTON_MODE_DOUBLE_CLICK,       /**< Detect double clicks */
+    PMU_BUTTON_MODE_PRESS_AND_HOLD,     /**< Progressive action with timer */
+    PMU_BUTTON_MODE_COUNT
+} PMU_ButtonMode_t;
 
 /* ============================================================================
  * Marker to indicate types are defined

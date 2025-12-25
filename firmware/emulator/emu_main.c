@@ -28,6 +28,7 @@
 #include "emu_webui.h"
 #include "stm32_hal_emu.h"
 #include "pmu_pid.h"
+#include "pmu_timer.h"
 #include "pmu_blinkmarine.h"
 #include "pmu_wifi.h"
 #include "pmu_bluetooth.h"
@@ -196,6 +197,9 @@ int main(int argc, char* argv[])
 
     /* Initialize PID controllers */
     PMU_PID_Init();
+
+    /* Initialize timer channels */
+    PMU_Timer_Init();
 
     /* Initialize BlinkMarine keypads */
     PMU_BlinkMarine_Init();

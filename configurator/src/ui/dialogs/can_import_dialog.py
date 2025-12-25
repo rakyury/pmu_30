@@ -145,7 +145,7 @@ class CANImportDialog(QDialog):
         self.channel_tree = QTreeWidget()
         self.channel_tree.setHeaderLabels(["Channel", "Type", "Unit", "Offset"])
         self.channel_tree.setRootIsDecorated(True)
-        self.channel_tree.setAlternatingRowColors(True)
+        self.channel_tree.setAlternatingRowColors(False)
         self.channel_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.channel_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.channel_tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -155,7 +155,7 @@ class CANImportDialog(QDialog):
 
         # Stats label
         self.stats_label = QLabel("No file loaded")
-        self.stats_label.setStyleSheet("color: #666666;")
+        self.stats_label.setStyleSheet("color: #b0b0b0;")
         channel_layout.addWidget(self.stats_label)
 
         channel_group.setLayout(channel_layout)

@@ -100,6 +100,7 @@ typedef struct {
     uint32_t lua_scripts;         /**< Number of Lua scripts loaded */
     uint32_t pid_controllers;     /**< Number of PID controllers loaded */
     uint32_t blinkmarine_keypads; /**< Number of BlinkMarine keypads loaded */
+    uint32_t handlers;            /**< Number of event handlers loaded */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
     bool stream_enabled;          /**< Standard CAN Stream enabled */
@@ -201,6 +202,92 @@ void PMU_PowerOutput_ClearConfig(void);
  * @brief Get power output configuration count
  */
 uint8_t PMU_PowerOutput_GetCount(void);
+
+/**
+ * @brief Update all logic channels - call from main loop at ~100-500Hz
+ * Evaluates all configured logic functions and updates their output values
+ */
+void PMU_LogicChannel_Update(void);
+
+/**
+ * @brief Clear logic channel storage (call before reloading config)
+ */
+void PMU_LogicChannel_ClearConfig(void);
+
+/**
+ * @brief Get logic channel configuration count
+ */
+uint8_t PMU_LogicChannel_GetCount(void);
+
+/**
+ * @brief Update all number/math channels
+ */
+void PMU_NumberChannel_Update(void);
+
+/**
+ * @brief Clear number channel storage
+ */
+void PMU_NumberChannel_ClearConfig(void);
+
+/**
+ * @brief Get number channel count
+ */
+uint8_t PMU_NumberChannel_GetCount(void);
+
+/**
+ * @brief Update all switch channels
+ */
+void PMU_SwitchChannel_Update(void);
+
+/**
+ * @brief Clear switch channel storage
+ */
+void PMU_SwitchChannel_ClearConfig(void);
+
+/**
+ * @brief Get switch channel count
+ */
+uint8_t PMU_SwitchChannel_GetCount(void);
+
+/**
+ * @brief Update all filter channels
+ */
+void PMU_FilterChannel_Update(void);
+
+/**
+ * @brief Clear filter channel storage
+ */
+void PMU_FilterChannel_ClearConfig(void);
+
+/**
+ * @brief Get filter channel count
+ */
+uint8_t PMU_FilterChannel_GetCount(void);
+
+/**
+ * @brief Update all timer channels
+ */
+void PMU_TimerChannel_Update(void);
+
+/**
+ * @brief Clear timer channel storage
+ */
+void PMU_TimerChannel_ClearConfig(void);
+
+/**
+ * @brief Get timer channel count
+ */
+uint8_t PMU_TimerChannel_GetCount(void);
+
+/**
+ * @brief Get filter channel value by index
+ */
+int32_t PMU_FilterChannel_GetValue(uint8_t index);
+
+/**
+ * @brief Get filter channel ID by index
+ */
+uint16_t PMU_FilterChannel_GetChannelID(uint8_t index);
 
 #ifdef __cplusplus
 }

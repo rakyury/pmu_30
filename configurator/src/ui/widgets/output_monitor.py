@@ -24,12 +24,12 @@ from typing import Dict, List
 class OutputMonitor(QWidget):
     """Output channels monitor widget with real-time telemetry display."""
 
-    # Colors for different states
-    COLOR_NORMAL = QColor(255, 255, 255)      # White
-    COLOR_ACTIVE = QColor(200, 255, 200)      # Light green
-    COLOR_FAULT = QColor(255, 200, 200)       # Light red
-    COLOR_PWM = QColor(200, 230, 255)         # Light blue
-    COLOR_DISABLED = QColor(220, 220, 220)    # Light gray
+    # Colors for different states (dark theme)
+    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
+    COLOR_ACTIVE = QColor(0, 80, 0)           # Dark green
+    COLOR_FAULT = QColor(100, 0, 0)           # Dark red
+    COLOR_PWM = QColor(0, 50, 80)             # Dark blue
+    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray
 
     # Column indices - matching ECUMaster layout
     COL_PIN = 0
@@ -81,7 +81,7 @@ class OutputMonitor(QWidget):
         toolbar = QHBoxLayout()
 
         self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch()
@@ -133,6 +133,31 @@ class OutputMonitor(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Read-only
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)  # Select full rows
+
+        # Dark theme styling
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                gridline-color: #333333;
+                border: 1px solid #333333;
+            }
+            QTableWidget::item {
+                color: #ffffff;
+                padding: 2px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+                font-weight: bold;
+            }
+        """)
 
         layout.addWidget(self.table)
 
@@ -195,7 +220,7 @@ class OutputMonitor(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             # Reset all values to "?"
             self._reset_values()
 
@@ -341,12 +366,12 @@ class OutputMonitor(QWidget):
         Update all outputs from telemetry data.
 
         Args:
-            profet_states: List of channel states (0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS)
+            profet_states: List of channel states (0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM)
             profet_duties: List of duty cycles (0-1000 = 0-100.0%)
             profet_currents: List of channel currents in mA
             battery_voltage: System battery voltage for output voltage estimation
         """
-        state_names = ["OFF", "ON", "OC", "OT", "SC", "OL", "PWM", "DIS"]
+        state_names = ["OFF", "ON", "OC", "OT", "SC", "OL", "PWM"]
         fault_states = [2, 3, 4, 5]  # OC, OT, SC, OL
 
         for row in range(self.table.rowCount()):
@@ -381,16 +406,12 @@ class OutputMonitor(QWidget):
                 if pin < len(profet_currents):
                     current_ma += profet_currents[pin]
 
-            # Check if output is disabled in config
-            is_enabled = output_config.get('enabled', True)
-
-            # Override status if disabled in config or unconfigured
+            # Show status based on configuration
             if is_default:
                 status_str = "-"  # Show dash for unconfigured
-            elif not is_enabled:
-                status_str = "DIS"
-                state = 7  # Treat as disabled for color
             else:
+                # Show actual state from telemetry
+                # No more DIS status - outputs are controlled only by Control Function
                 status_str = state_names[state] if state < len(state_names) else "?"
 
             status_item = self.table.item(row, self.COL_STATUS)
@@ -408,24 +429,24 @@ class OutputMonitor(QWidget):
             # Load (duty cycle 0-1000 -> 0-100.0%)
             load_item = self.table.item(row, self.COL_LOAD)
             if load_item:
-                if is_default or not is_enabled:
+                if is_default:
                     load_item.setText("-")
                 else:
                     duty_percent = duty / 10.0
                     load_item.setText(f"{duty_percent:.0f}%")
 
-            # Current in mA (show - for disabled/unconfigured)
+            # Current in mA (show - for unconfigured)
             curr_item = self.table.item(row, self.COL_CURR)
             if curr_item:
-                if is_default or not is_enabled:
+                if is_default:
                     curr_item.setText("-")
                 elif current_ma >= 1000:
                     curr_item.setText(f"{current_ma/1000:.2f}A")
                 else:
                     curr_item.setText(f"{current_ma}")
 
-            # Peak current tracking (only when configured and enabled)
-            if not is_default and is_enabled:
+            # Peak current tracking (only when configured)
+            if not is_default:
                 if row not in self._peak_currents:
                     self._peak_currents[row] = 0
                 if current_ma > self._peak_currents[row]:
@@ -433,7 +454,7 @@ class OutputMonitor(QWidget):
 
             peak_item = self.table.item(row, self.COL_PEAK)
             if peak_item:
-                if is_default or not is_enabled:
+                if is_default:
                     peak_item.setText("-")
                 else:
                     peak = self._peak_currents.get(row, 0)
@@ -445,7 +466,7 @@ class OutputMonitor(QWidget):
             # Output voltage estimation
             vltg_item = self.table.item(row, self.COL_VLTG)
             if vltg_item:
-                if is_default or not is_enabled:
+                if is_default:
                     vltg_item.setText("-")
                 elif state == 1:  # ON
                     vltg_item.setText(f"{battery_voltage:.1f}")
@@ -481,8 +502,6 @@ class OutputMonitor(QWidget):
             # - Unconfigured (default) outputs stay gray
             # - Configured outputs: colored based on state
             if is_default:
-                self._set_row_color(row, self.COLOR_DISABLED)
-            elif not is_enabled:
                 self._set_row_color(row, self.COLOR_DISABLED)
             elif state in fault_states:
                 self._set_row_color(row, self.COLOR_FAULT)

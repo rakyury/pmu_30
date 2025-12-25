@@ -18,6 +18,7 @@
 #include "pmu_channel.h"
 #include "pmu_logging.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Logging macros - define as no-ops if not provided */
 #ifndef PMU_LOG_DEBUG
@@ -340,7 +341,15 @@ static void ProcessButtonPress(PMU_BlinkMarine_Keypad_t* keypad, uint8_t button_
     PMU_LOG_DEBUG("BlinkMarine", "Keypad '%s' button %d: %s",
                   keypad->id, button_idx, pressed ? "PRESSED" : "RELEASED");
 
-    /* Update virtual channel if configured */
+    /* Update auto-created virtual channel (ECUMaster style: keypad_id.btnN) */
+    char btn_channel_name[48];
+    snprintf(btn_channel_name, sizeof(btn_channel_name), "%s.btn%d", keypad->id, button_idx + 1);
+    const PMU_Channel_t* btn_channel = PMU_Channel_GetByName(btn_channel_name);
+    if (btn_channel) {
+        PMU_Channel_SetValue(btn_channel->channel_id, pressed ? 1 : 0);
+    }
+
+    /* Also update legacy virtual channel if configured */
     if (btn->enabled && btn->virtual_channel != 0xFFFF) {
         PMU_Channel_SetValue(btn->virtual_channel, pressed ? 1 : 0);
     }
@@ -400,6 +409,35 @@ static void CheckKeypadTimeout(PMU_BlinkMarine_Keypad_t* keypad)
             }
         }
     }
+}
+
+HAL_StatusTypeDef PMU_BlinkMarine_SimulateButton(uint8_t keypad_idx, uint8_t button_idx, uint8_t pressed)
+{
+    if (keypad_idx >= s_keypad_count) {
+        return HAL_ERROR;
+    }
+
+    PMU_BlinkMarine_Keypad_t* keypad = &s_keypads[keypad_idx];
+    if (!keypad->enabled) {
+        return HAL_ERROR;
+    }
+
+    uint8_t button_count = PMU_BlinkMarine_GetButtonCount(keypad->type);
+    if (button_idx >= button_count) {
+        return HAL_ERROR;
+    }
+
+    /* Mark keypad as online (simulated) */
+    keypad->online = 1;
+    keypad->last_rx_tick = HAL_GetTick();
+
+    /* Process the button state change */
+    ProcessButtonPress(keypad, button_idx, pressed ? 1 : 0);
+
+    PMU_LOG_INFO("BlinkMarine", "Simulated button %d %s on keypad '%s'",
+                 button_idx, pressed ? "PRESS" : "RELEASE", keypad->id);
+
+    return HAL_OK;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

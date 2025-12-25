@@ -23,6 +23,7 @@
 #include "pmu_profet.h"
 #include "pmu_protection.h"
 #include "pmu_pid.h"
+#include "pmu_timer.h"
 #include "pmu_blinkmarine.h"
 #include "pmu_config_json.h"
 #include <stdio.h>
@@ -101,15 +102,18 @@ int PMU_Emu_Init(void)
     /* Clear state */
     memset(&emulator, 0, sizeof(emulator));
 
+    /* Initialize channel abstraction layer (registers system channels like "one", "zero") */
+    PMU_Channel_Init();
+
     /* Set defaults */
     emulator.time_scale = 1.0f;
     emulator.running = true;
     emulator.paused = false;
 
-    /* Initialize ADC channels */
+    /* Initialize ADC channels to 0V */
     for (int i = 0; i < PMU_EMU_ADC_CHANNELS; i++) {
-        emulator.adc[i].raw_value = 512;  /* Mid-scale */
-        emulator.adc[i].voltage_v = 1.65f;
+        emulator.adc[i].raw_value = 0;
+        emulator.adc[i].voltage_v = 0.0f;
         emulator.adc[i].enabled = true;
         emulator.adc[i].use_noise = false;
         emulator.adc[i].noise_amplitude = 10;
@@ -332,7 +336,13 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     /* Logic update at 500Hz (every 2ms) */
     if (logic_update_accum >= 2) {
         PMU_Logic_Execute();
+        PMU_LogicChannel_Update();  /* JSON-config logic channels */
+        PMU_NumberChannel_Update(); /* JSON-config math channels */
+        PMU_SwitchChannel_Update(); /* JSON-config switch channels */
+        PMU_FilterChannel_Update(); /* JSON-config filter channels */
+        PMU_TimerChannel_Update();  /* JSON-config timer channels */
         PMU_PID_Update();
+        PMU_Timer_Update();
         PMU_PowerOutput_Update();  /* Update outputs based on control channels */
         logic_update_accum = 0;
     }
@@ -773,10 +783,10 @@ int PMU_Emu_PROFET_InjectFault(uint8_t channel, uint8_t fault_flags)
         return -1;
     }
 
-    /* Update emulator state - map fault to ECUMaster state */
+    /* Update emulator state - map fault to state */
     emulator.profet[channel].fault_flags |= fault_flags;
 
-    /* Map fault type to specific ECUMaster-compatible state:
+    /* Map fault type to specific state:
      * 2=OC (overcurrent), 3=OT (overtemp), 4=SC (short circuit), 5=OL (open load) */
     if (fault_flags & 0x04) {        /* Short circuit */
         emulator.profet[channel].state = 4;  /* SC */

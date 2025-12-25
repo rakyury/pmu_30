@@ -18,11 +18,11 @@ from typing import Dict, List
 class DigitalMonitor(QWidget):
     """Digital input channels monitor widget with real-time telemetry display."""
 
-    # Colors for different states
-    COLOR_NORMAL = QColor(255, 255, 255)      # White
-    COLOR_ACTIVE = QColor(200, 255, 200)      # Light green (ON state)
-    COLOR_INACTIVE = QColor(255, 220, 220)    # Light red (OFF state)
-    COLOR_DISABLED = QColor(220, 220, 220)    # Light gray (unconfigured)
+    # Colors for different states (dark theme)
+    COLOR_NORMAL = QColor(40, 40, 40)         # Dark gray
+    COLOR_ACTIVE = QColor(0, 80, 0)           # Dark green (ON state)
+    COLOR_INACTIVE = QColor(80, 0, 0)         # Dark red (OFF state)
+    COLOR_DISABLED = QColor(50, 50, 50)       # Darker gray (unconfigured)
 
     # Column indices
     COL_PIN = 0
@@ -57,9 +57,9 @@ class DigitalMonitor(QWidget):
         self.update_timer.start(100)  # Update every 100ms
 
     def _init_default_inputs(self):
-        """Initialize with default 8 digital inputs (unconfigured)."""
+        """Initialize with default 20 digital inputs (unconfigured)."""
         default_inputs = []
-        for i in range(8):
+        for i in range(20):
             default_inputs.append({
                 'input_pin': i,
                 'name': '',
@@ -78,7 +78,7 @@ class DigitalMonitor(QWidget):
         toolbar = QHBoxLayout()
 
         self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         toolbar.addWidget(self.status_label)
 
         toolbar.addStretch()
@@ -106,10 +106,35 @@ class DigitalMonitor(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
+        # Dark theme styling
+        self.table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1a1a1a;
+                color: #ffffff;
+                gridline-color: #333333;
+                border: 1px solid #333333;
+            }
+            QTableWidget::item {
+                color: #ffffff;
+                padding: 2px;
+            }
+            QTableWidget::item:selected {
+                background-color: #0078d4;
+                color: #ffffff;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333333;
+                font-weight: bold;
+            }
+        """)
+
         layout.addWidget(self.table)
 
     def set_inputs(self, inputs: List[Dict]):
-        """Set configured inputs - merges with defaults to keep all 8 inputs visible."""
+        """Set configured inputs - merges with defaults to keep all 20 inputs visible."""
         # Create a mapping of configured inputs by pin number
         configured_by_pin = {}
         for inp in inputs:
@@ -122,7 +147,7 @@ class DigitalMonitor(QWidget):
 
         # Build merged list: configured inputs override defaults
         merged_inputs = []
-        for i in range(8):
+        for i in range(20):
             if i in configured_by_pin:
                 inp = configured_by_pin[i].copy()
                 inp['_is_default'] = False
@@ -181,45 +206,31 @@ class DigitalMonitor(QWidget):
             if item:
                 item.setBackground(brush)
 
-    def update_from_telemetry(self, adc_values: list, reference_voltage: float = 3.3):
-        """Update from telemetry ADC values.
+    def update_from_telemetry(self, digital_inputs: list):
+        """Update from telemetry digital input states.
 
         Args:
-            adc_values: List of 20 raw ADC values (0-4095 for 12-bit ADC)
-            reference_voltage: ADC reference voltage (default 3.3V)
+            digital_inputs: List of 20 digital input states (0 or 1)
         """
-        self._adc_values = adc_values
-        self._reference_voltage = reference_voltage
+        self._digital_inputs = digital_inputs
         self._connected = True
         self.status_label.setText("Online")
         self.status_label.setStyleSheet("color: #0a0;")
 
     def _update_values(self):
         """Update displayed values from telemetry."""
-        if not hasattr(self, '_adc_values') or not self._adc_values:
+        if not hasattr(self, '_digital_inputs') or not self._digital_inputs:
             return
 
         for row, inp in enumerate(self.inputs_data):
             is_default = inp.get('_is_default', True)
             pin = inp.get('input_pin', row)
 
-            # Get ADC value and convert to voltage
-            if pin < len(self._adc_values):
-                raw_value = self._adc_values[pin]
-                voltage = (raw_value / 4095.0) * self._reference_voltage
+            # Get digital state directly from telemetry
+            if pin < len(self._digital_inputs):
+                state = self._digital_inputs[pin]
             else:
-                voltage = 0
-                raw_value = 0
-
-            # Get threshold from config
-            threshold = inp.get('threshold_voltage', 2.51)
-
-            # Compute digital state based on threshold
-            subtype = inp.get('subtype', 'switch_active_low')
-            if subtype == 'switch_active_high':
-                state = 1 if voltage > threshold else 0
-            else:  # switch_active_low (default)
-                state = 0 if voltage > threshold else 1
+                state = 0
 
             # Update state column
             state_item = self.table.item(row, self.COL_STATE)
@@ -241,7 +252,7 @@ class DigitalMonitor(QWidget):
             self.status_label.setStyleSheet("color: #0a0;")
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             # Clear values
             for row in range(self.table.rowCount()):
                 state_item = self.table.item(row, self.COL_STATE)

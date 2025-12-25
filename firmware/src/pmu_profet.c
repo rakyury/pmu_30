@@ -26,6 +26,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_profet.h"
 #include "pmu_spi.h"
+#include "pmu_handler.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 #include <stdbool.h>
@@ -296,6 +297,10 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
         return HAL_ERROR;
     }
 
+    /* Track previous state for event detection */
+    PMU_PROFET_State_t prev_state = channels[channel].state;
+    bool was_on = (prev_state == PMU_PROFET_STATE_ON || prev_state == PMU_PROFET_STATE_PWM);
+
     if (state) {
         /* Turn ON */
         HAL_GPIO_WritePin(profet_gpio[channel].port,
@@ -304,6 +309,11 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
         channels[channel].state = PMU_PROFET_STATE_ON;
         channels[channel].pwm_duty = 1000; /* 100% */
         channels[channel].on_time_ms = 0;  /* Reset grace period for fault detection */
+
+        /* Push CHANNEL_ON event if transitioning from off */
+        if (!was_on) {
+            PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_ON, channel, 1);
+        }
     } else {
         /* Turn OFF */
         HAL_GPIO_WritePin(profet_gpio[channel].port,
@@ -312,6 +322,11 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
         channels[channel].state = PMU_PROFET_STATE_OFF;
         channels[channel].pwm_duty = 0;
         channels[channel].on_time_ms = 0;
+
+        /* Push CHANNEL_OFF event if transitioning from on */
+        if (was_on) {
+            PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_OFF, channel, 0);
+        }
     }
 
     return HAL_OK;
@@ -522,12 +537,17 @@ HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel)
         return HAL_ERROR;
     }
 
+    /* Track if was in fault state */
+    bool was_in_fault = PROFET_IsInFaultState(channels[channel].state);
+
     channels[channel].fault_flags = PMU_PROFET_FAULT_NONE;
     channels[channel].fault_count = 0;
 
     /* If channel was in any fault state, move to OFF */
-    if (PROFET_IsInFaultState(channels[channel].state)) {
+    if (was_in_fault) {
         channels[channel].state = PMU_PROFET_STATE_OFF;
+        /* Push CHANNEL_CLEARED event */
+        PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_CLEARED, channel, 0);
     }
 
     return HAL_OK;
@@ -684,9 +704,17 @@ static void PROFET_UpdateDiagnostics(uint8_t channel)
  */
 static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault)
 {
+    /* Track if this is a new fault */
+    bool was_in_fault = PROFET_IsInFaultState(channels[channel].state);
+
     /* Set fault flag */
     channels[channel].fault_flags |= fault;
     channels[channel].fault_count++;
+
+    /* Push CHANNEL_FAULT event if this is a new fault */
+    if (!was_in_fault) {
+        PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_FAULT, channel, (int32_t)fault);
+    }
 
     /* Map fault type to specific ECUMaster-compatible state */
     PMU_PROFET_State_t fault_state;

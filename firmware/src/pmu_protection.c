@@ -25,6 +25,7 @@
 #include "pmu_profet.h"
 #include "pmu_hbridge.h"
 #include "pmu_adc.h"
+#include "pmu_handler.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 
@@ -291,6 +292,18 @@ static void Protection_CheckFaults(void)
     /* Increment fault counter if new faults occurred */
     if (new_faults != PMU_PROT_FAULT_NONE && new_faults != old_faults) {
         protection_state.fault_count_total++;
+    }
+
+    /* Push system events for new faults */
+    uint16_t newly_set = (new_faults & ~old_faults);
+    if (newly_set & PMU_PROT_FAULT_UNDERVOLTAGE) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_UNDERVOLT);
+    }
+    if (newly_set & PMU_PROT_FAULT_OVERVOLTAGE) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_OVERVOLT);
+    }
+    if (newly_set & PMU_PROT_FAULT_OVERTEMP_CRITICAL) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_OVERTEMP);
     }
 
     /* Update status based on faults */

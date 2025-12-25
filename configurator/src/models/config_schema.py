@@ -349,9 +349,23 @@ class ConfigValidator:
         return True, ""
 
     @staticmethod
-    def validate_channel_reference(channel_ref: str, all_channel_ids: set, path: str) -> Tuple[bool, str]:
-        """Validate that a channel reference exists"""
-        if channel_ref and channel_ref not in all_channel_ids:
+    def validate_channel_reference(channel_ref, all_channel_ids: set, path: str) -> Tuple[bool, str]:
+        """Validate that a channel reference exists.
+
+        Channel references can be:
+        - String channel ID (e.g., "Logic_4", "Timer_7")
+        - Integer runtime channel ID (used by firmware, validated at runtime)
+        - Empty string or None (no reference)
+        """
+        if not channel_ref:
+            return True, ""
+
+        # Integer references are runtime channel IDs - validated by firmware
+        if isinstance(channel_ref, int):
+            return True, ""
+
+        # String references must exist in the channel list
+        if channel_ref not in all_channel_ids:
             return False, f"{path}: references undefined channel '{channel_ref}'"
         return True, ""
 
@@ -419,7 +433,8 @@ class ConfigValidator:
             errors.append("Field 'channels' must be an array")
         else:
             # Collect all channel IDs for reference validation
-            all_channel_ids = set()
+            # Include system channels that are always available
+            all_channel_ids = {'zero', 'one'}  # System constant channels
             for ch in channels:
                 if isinstance(ch, dict) and "id" in ch:
                     all_channel_ids.add(ch["id"])

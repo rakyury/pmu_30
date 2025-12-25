@@ -150,16 +150,16 @@ class SwitchDialog(QDialog):
     def _browse_channel_up(self):
         """Browse and select input channel up."""
         current = self.channel_up_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.channel_up_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.channel_up_edit.setText(channel if channel else "")
 
     def _browse_channel_down(self):
         """Browse and select input channel down."""
         current = self.channel_down_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.channel_down_edit.setText(channel)
+        accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
+        if accepted:
+            self.channel_down_edit.setText(channel if channel else "")
 
     def _load_config(self):
         """Load configuration into UI."""

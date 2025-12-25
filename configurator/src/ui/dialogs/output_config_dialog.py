@@ -65,7 +65,7 @@ class OutputConfigDialog(QDialog):
 
         # Channel ID (read-only, auto-generated)
         self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #666;")
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
         basic_layout.addRow("Channel ID:", self.channel_id_label)
 
         # Name (editable)
@@ -102,22 +102,22 @@ class OutputConfigDialog(QDialog):
         pin_selection_layout.addLayout(pins_layout)
         basic_layout.addRow("", pin_selection_layout)
 
-        # On/Off enable checkbox
-        self.enabled_check = QCheckBox("On/Off")
-        self.enabled_check.setChecked(True)
-        basic_layout.addRow("", self.enabled_check)
-
-        # Function control (always visible)
+        # Function control (output is controlled ONLY by control function)
         control_function_layout = QHBoxLayout()
         self.control_function_edit = QLineEdit()
         self.control_function_edit.setPlaceholderText("Select function/channel...")
         self.control_function_edit.setReadOnly(True)
-        self.control_function_edit.textChanged.connect(self._on_control_function_changed)
         control_function_layout.addWidget(self.control_function_edit, stretch=1)
 
         self.control_function_btn = QPushButton("Browse...")
         self.control_function_btn.clicked.connect(self._browse_control_function)
         control_function_layout.addWidget(self.control_function_btn)
+
+        self.control_function_clear_btn = QPushButton("✕")
+        self.control_function_clear_btn.setFixedWidth(30)
+        self.control_function_clear_btn.setToolTip("Clear control function")
+        self.control_function_clear_btn.clicked.connect(self._clear_control_function)
+        control_function_layout.addWidget(self.control_function_clear_btn)
 
         basic_layout.addRow("Control Function:", control_function_layout)
 
@@ -339,10 +339,11 @@ class OutputConfigDialog(QDialog):
         if exclude_pins:
             exclude_set.update(exclude_pins)
 
-        # Add available pins (O1-O30)
+        # Add available pins (O1-O30) with power rating
+        # All PMU-30 outputs are rated for 40A
         for pin in range(30):
             if pin not in exclude_set or pin in current_pins:
-                combo.addItem(f"O{pin + 1}", pin)
+                combo.addItem(f"O{pin + 1} (40A)", pin)
 
         # If no pins available and not optional, add a placeholder
         if combo.count() == 0 and not include_none:
@@ -393,13 +394,6 @@ class OutputConfigDialog(QDialog):
         self.pin2_combo.blockSignals(False)
         self.pin3_combo.blockSignals(False)
 
-    def _on_control_function_changed(self, text: str):
-        """Handle control function change - disable checkbox if function is set."""
-        has_function = bool(text.strip())
-        self.enabled_check.setEnabled(not has_function)
-        if has_function:
-            self.enabled_check.setChecked(False)
-
     def _on_retry_forever_toggled(self, enabled: bool):
         """Handle retry forever enable/disable."""
         self.retry_count_spin.setEnabled(not enabled)
@@ -432,23 +426,36 @@ class OutputConfigDialog(QDialog):
 
     def _browse_control_function(self):
         """Browse and select control function channel."""
-        channel_id = ChannelSelectorDialog.select_channel(
+        accepted, channel_id = ChannelSelectorDialog.select_channel(
             self, self._source_channel_id, self.available_channels
         )
-        if channel_id is not None:
+        if accepted:
+            # User confirmed - update even if cleared (None)
             self._source_channel_id = channel_id
-            name = self._get_channel_name_by_id(channel_id)
-            self.control_function_edit.setText(name)
+            if channel_id is not None:
+                name = self._get_channel_name_by_id(channel_id)
+                self.control_function_edit.setText(name)
+            else:
+                self.control_function_edit.setText("")
+
+    def _clear_control_function(self):
+        """Clear control function selection."""
+        self._source_channel_id = None
+        self.control_function_edit.setText("")
 
     def _browse_duty_function(self):
         """Browse and select duty function channel."""
-        channel_id = ChannelSelectorDialog.select_channel(
+        accepted, channel_id = ChannelSelectorDialog.select_channel(
             self, self._duty_channel_id, self.available_channels
         )
-        if channel_id is not None:
+        if accepted:
+            # User confirmed - update even if cleared (None)
             self._duty_channel_id = channel_id
-            name = self._get_channel_name_by_id(channel_id)
-            self.duty_function_edit.setText(name)
+            if channel_id is not None:
+                name = self._get_channel_name_by_id(channel_id)
+                self.duty_function_edit.setText(name)
+            else:
+                self.duty_function_edit.setText("")
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog.
@@ -473,8 +480,6 @@ class OutputConfigDialog(QDialog):
                 self.pin3_combo.setCurrentIndex(index)
 
         # Control settings - source_channel can be numeric (new) or string (legacy)
-        # Block signal to prevent _on_control_function_changed from resetting enabled
-        self.control_function_edit.blockSignals(True)
         source_channel = config.get("source_channel", config.get("control_function"))
         if source_channel is not None:
             if isinstance(source_channel, int):
@@ -489,13 +494,6 @@ class OutputConfigDialog(QDialog):
         else:
             self.control_function_edit.setText("")
             self._source_channel_id = None
-        self.control_function_edit.blockSignals(False)
-        # Set enabled state AFTER control function is set
-        enabled = config.get("enabled", True)
-        self.enabled_check.setChecked(enabled)
-        # If control function is set, disable the checkbox but keep its loaded value
-        if source_channel is not None:
-            self.enabled_check.setEnabled(False)
 
         # Protection settings - check both nested and flat formats
         protection = config.get("protection", {})
@@ -575,7 +573,6 @@ class OutputConfigDialog(QDialog):
             "pins": pins,
             "name": name,
             "id": name,  # String name for display
-            "enabled": self.enabled_check.isChecked(),
             "source_channel": self._source_channel_id,  # Numeric channel_id for firmware
             # Flat format fields for model compatibility
             "pwm_enabled": pwm_enabled,

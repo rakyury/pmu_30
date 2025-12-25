@@ -616,7 +616,7 @@ static const char* DASHBOARD_HTML =
 "                if (!chDiv) continue;\n"
 "                const ch = data.profets?.[i] || {};\n"
 "                const state = ch.state || 0;\n"
-"                /* ECUMaster states: 0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS */\n"
+"                /* Output states: 0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM */\n"
 "                const isPwm = state === 6;\n"
 "                const isFault = state >= 2 && state <= 5;\n"
 "                const isOn = state === 1 || state === 6;\n"

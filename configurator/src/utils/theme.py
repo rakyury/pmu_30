@@ -442,15 +442,56 @@ class ThemeManager:
     /* Light theme - use default Qt styling */
     """
 
+    # Minimal dark theme additions for GroupBox styling
+    DARK_GROUPBOX_STYLE = """
+        QGroupBox {
+            border: 1px solid #505050;
+            border-radius: 6px;
+            margin-top: 14px;
+            padding-top: 10px;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 10px;
+            padding: 0 6px;
+            color: #00b0ff;
+        }
+    """
+
     @staticmethod
     def apply_dark_theme(app: QApplication):
-        """Apply dark theme to application"""
+        """Apply dark theme to application using palette (same as emulator monitor)"""
+        app.setStyle("Fusion")
+        palette = app.palette()
+        palette.setColor(palette.ColorRole.Window, Qt.GlobalColor.darkGray)
+        palette.setColor(palette.ColorRole.WindowText, Qt.GlobalColor.white)
+        palette.setColor(palette.ColorRole.Base, Qt.GlobalColor.black)
+        palette.setColor(palette.ColorRole.AlternateBase, Qt.GlobalColor.darkGray)
+        palette.setColor(palette.ColorRole.ToolTipBase, Qt.GlobalColor.white)
+        palette.setColor(palette.ColorRole.ToolTipText, Qt.GlobalColor.white)
+        palette.setColor(palette.ColorRole.Text, Qt.GlobalColor.white)
+        palette.setColor(palette.ColorRole.Button, Qt.GlobalColor.darkGray)
+        palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.white)
+        palette.setColor(palette.ColorRole.BrightText, Qt.GlobalColor.red)
+        palette.setColor(palette.ColorRole.Highlight, Qt.GlobalColor.darkCyan)
+        palette.setColor(palette.ColorRole.HighlightedText, Qt.GlobalColor.black)
+        app.setPalette(palette)
+        # Apply GroupBox styling
+        app.setStyleSheet(ThemeManager.DARK_GROUPBOX_STYLE)
+
+    @staticmethod
+    def apply_dark_theme_stylesheet(app: QApplication):
+        """Apply dark theme using stylesheet (Windows 11 Fluent style)"""
         app.setStyleSheet(ThemeManager.DARK_STYLESHEET)
 
     @staticmethod
     def apply_light_theme(app: QApplication):
         """Apply light theme to application"""
-        app.setStyleSheet(ThemeManager.LIGHT_STYLESHEET)
+        app.setStyle("Fusion")
+        app.setPalette(app.style().standardPalette())
+        app.setStyleSheet("")
 
     @staticmethod
     def toggle_theme(app: QApplication, is_dark: bool):

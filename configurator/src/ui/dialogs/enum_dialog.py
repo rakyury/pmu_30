@@ -155,7 +155,7 @@ class EnumDialog(BaseChannelDialog):
             "Enumerations define discrete named values.\n"
             "Can be used as table axis or for state display."
         )
-        info_label.setStyleSheet("color: #666; font-style: italic;")
+        info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         settings_layout.addRow("", info_label)
 
         settings_group.setLayout(settings_layout)

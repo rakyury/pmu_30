@@ -143,6 +143,10 @@ class ConfigManager:
                 logger.warning(f"Config validation warnings:\n{error_msg}")
                 # Don't fail on validation, just warn
 
+            # Compute runtime_channel_id for virtual channels
+            # Firmware allocates IDs starting from 200 in order of channel parsing
+            config_dict = self._compute_runtime_channel_ids(config_dict)
+
             # Apply configuration
             self.config = config_dict
             self.current_file = None
@@ -383,13 +387,25 @@ class ConfigManager:
         """Get all logic channels"""
         return self.get_channels_by_type(ChannelType.LOGIC)
 
+    def get_number_channels(self) -> List[Dict[str, Any]]:
+        """Get all number/math channels"""
+        return self.get_channels_by_type(ChannelType.NUMBER)
+
+    def get_switch_channels(self) -> List[Dict[str, Any]]:
+        """Get all switch channels"""
+        return self.get_channels_by_type(ChannelType.SWITCH)
+
     def get_timers(self) -> List[Dict[str, Any]]:
         """Get all timer channels"""
         return self.get_channels_by_type(ChannelType.TIMER)
 
     def get_keypads(self) -> List[Dict[str, Any]]:
-        """Get all keypad configurations from system settings"""
+        """Get all keypad configurations from system settings (legacy)"""
         return self.config.get("system", {}).get("keypads", [])
+
+    def get_blinkmarine_keypads(self) -> List[Dict[str, Any]]:
+        """Get all BlinkMarine keypad channels"""
+        return self.get_channels_by_type(ChannelType.BLINKMARINE_KEYPAD)
 
     # ========== System Settings ==========
 
@@ -446,7 +462,11 @@ class ConfigManager:
             List of error messages
         """
         errors = []
-        all_channel_ids = {ch.get("id") for ch in self.config.get("channels", [])}
+        # Include system channels that are always available
+        all_channel_ids = {'zero', 'one'}  # System constant channels
+        for ch in self.config.get("channels", []):
+            if ch.get("id"):
+                all_channel_ids.add(ch["id"])
 
         for ch in self.config.get("channels", []):
             ch_id = ch.get("id", "unknown")
@@ -488,7 +508,10 @@ class ConfigManager:
                         refs_to_check.append(sig["source_channel"])
 
             for ref in refs_to_check:
-                if ref and ref not in all_channel_ids:
+                # Skip empty, None, and integer references (runtime channel IDs)
+                if not ref or isinstance(ref, int):
+                    continue
+                if ref not in all_channel_ids:
                     errors.append(f"Channel '{ch_id}' references undefined channel '{ref}'")
 
         return errors
@@ -630,6 +653,34 @@ class ConfigManager:
     def can_message_exists(self, message_id: str) -> bool:
         """Check if CAN message with given ID exists"""
         return self.get_can_message_by_id(message_id) is not None
+
+    # ========== Runtime ID Computation ==========
+
+    def _compute_runtime_channel_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Compute runtime_channel_id for virtual channels.
+
+        Firmware allocates runtime IDs starting from 200 in the order
+        channels appear in the config. Virtual channel types:
+        - logic, number, timer, filter, switch, enum
+
+        This allows the configurator to match telemetry data (which uses
+        runtime IDs) with the correct channels.
+        """
+        VIRTUAL_CHANNEL_START_ID = 200
+        # Note: enum is excluded because firmware doesn't allocate IDs for enum channels yet
+        VIRTUAL_CHANNEL_TYPES = {'logic', 'number', 'timer', 'filter', 'switch'}
+
+        next_id = VIRTUAL_CHANNEL_START_ID
+        channels = config.get("channels", [])
+
+        for ch in channels:
+            ch_type = ch.get("channel_type", "")
+            if ch_type in VIRTUAL_CHANNEL_TYPES:
+                ch["runtime_channel_id"] = next_id
+                next_id += 1
+
+        return config
 
     # ========== Migration ==========
 

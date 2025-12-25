@@ -20,6 +20,8 @@
 #include "pmu_logic.h"
 #include "pmu_logging.h"
 #include "pmu_config_json.h"
+#include "pmu_lua.h"
+#include "pmu_channel.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -36,7 +38,7 @@ typedef struct {
 
 /* Private define ------------------------------------------------------------*/
 #define PROTOCOL_TIMEOUT_MS     1000    /**< Packet timeout */
-#define TELEMETRY_BUFFER_SIZE   256     /**< Telemetry buffer size */
+#define TELEMETRY_BUFFER_SIZE   512     /**< Telemetry buffer size (increased for virtual channels) */
 
 /* Private macro -------------------------------------------------------------*/
 
@@ -78,6 +80,15 @@ static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet);
 static bool Protocol_ValidatePacket(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -286,6 +297,33 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         telemetry_data[index++] = prot->fault_flags;
     }
 
+    /* Add virtual channels (Logic, Timer, Number, Switch, Filter, etc.) */
+    /* Format: count (2 bytes) + [channel_id (2 bytes) + value (4 bytes)] * count */
+    uint16_t virtual_count_offset = index;  /* Save offset for count */
+    uint16_t virtual_count = 0;
+    index += 2;  /* Reserve space for count */
+
+    for (uint16_t ch_id = PMU_CHANNEL_ID_VIRTUAL_START;
+         ch_id <= PMU_CHANNEL_ID_VIRTUAL_END && index < TELEMETRY_BUFFER_SIZE - 6;
+         ch_id++) {
+        const PMU_Channel_t* ch = PMU_Channel_GetInfo(ch_id);
+        if (ch && (ch->flags & PMU_CHANNEL_FLAG_ENABLED)) {
+            /* Add channel ID */
+            memcpy(&telemetry_data[index], &ch_id, sizeof(ch_id));
+            index += sizeof(ch_id);
+
+            /* Add channel value (4 bytes signed) */
+            int32_t value = ch->value;
+            memcpy(&telemetry_data[index], &value, sizeof(value));
+            index += sizeof(value);
+
+            virtual_count++;
+        }
+    }
+
+    /* Write virtual channel count at saved offset */
+    memcpy(&telemetry_data[virtual_count_offset], &virtual_count, sizeof(virtual_count));
+
     /* Send data packet */
     Protocol_SendData(PMU_CMD_DATA, telemetry_data, index);
 
@@ -489,6 +527,43 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
 
         case PMU_CMD_ERASE_LOGS:
             Protocol_HandleEraseLogs(packet);
+            break;
+
+        /* Lua scripting commands */
+        case PMU_CMD_LUA_EXECUTE:
+            Protocol_HandleLuaExecute(packet);
+            break;
+
+        case PMU_CMD_LUA_LOAD_SCRIPT:
+            Protocol_HandleLuaLoadScript(packet);
+            break;
+
+        case PMU_CMD_LUA_UNLOAD_SCRIPT:
+            Protocol_HandleLuaUnloadScript(packet);
+            break;
+
+        case PMU_CMD_LUA_RUN_SCRIPT:
+            Protocol_HandleLuaRunScript(packet);
+            break;
+
+        case PMU_CMD_LUA_STOP_SCRIPT:
+            Protocol_HandleLuaStopScript(packet);
+            break;
+
+        case PMU_CMD_LUA_GET_SCRIPTS:
+            Protocol_HandleLuaGetScripts(packet);
+            break;
+
+        case PMU_CMD_LUA_GET_STATUS:
+            Protocol_HandleLuaGetStatus(packet);
+            break;
+
+        case PMU_CMD_LUA_GET_OUTPUT:
+            Protocol_HandleLuaGetOutput(packet);
+            break;
+
+        case PMU_CMD_LUA_SET_ENABLED:
+            Protocol_HandleLuaSetEnabled(packet);
             break;
 
         default:
@@ -889,6 +964,244 @@ static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet)
         Protocol_SendACK(PMU_CMD_ERASE_LOGS);
     } else {
         Protocol_SendNACK(PMU_CMD_ERASE_LOGS, "Failed to erase logs");
+    }
+}
+
+/* ============================================================================
+ * Lua Scripting Command Handlers
+ * ============================================================================ */
+
+/**
+ * @brief Handle Lua execute command - execute code directly
+ * Payload: null-terminated Lua code string
+ */
+static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length == 0) {
+        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, "Empty code");
+        return;
+    }
+
+    /* Ensure null termination */
+    char code[PMU_PROTOCOL_MAX_PAYLOAD + 1];
+    uint16_t len = (packet->length < PMU_PROTOCOL_MAX_PAYLOAD) ? packet->length : PMU_PROTOCOL_MAX_PAYLOAD;
+    memcpy(code, packet->data, len);
+    code[len] = '\0';
+
+    /* Execute the code */
+    PMU_Lua_Status_t status = PMU_Lua_ExecuteCode(code);
+
+    if (status == PMU_LUA_STATUS_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_EXECUTE);
+    } else {
+        const char* error_msg = PMU_Lua_GetLastError();
+        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, error_msg ? error_msg : "Execution failed");
+    }
+}
+
+/**
+ * @brief Handle Lua load script command
+ * Payload: [name_len:1][name:name_len][code:remaining]
+ */
+static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length < 2) {
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Invalid payload");
+        return;
+    }
+
+    uint8_t name_len = packet->data[0];
+    if (name_len == 0 || name_len > 31 || (1 + name_len) >= packet->length) {
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Invalid script name");
+        return;
+    }
+
+    /* Extract script name */
+    char name[32];
+    memcpy(name, &packet->data[1], name_len);
+    name[name_len] = '\0';
+
+    /* Extract script code */
+    const char* code = (const char*)&packet->data[1 + name_len];
+    uint32_t code_len = packet->length - 1 - name_len;
+
+    /* Load the script */
+    if (PMU_Lua_LoadScript(name, code, code_len) == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_LOAD_SCRIPT);
+    } else {
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Failed to load script");
+    }
+}
+
+/**
+ * @brief Handle Lua unload script command
+ * Payload: null-terminated script name
+ */
+static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length == 0) {
+        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, "No script name");
+        return;
+    }
+
+    char name[32];
+    uint8_t len = (packet->length < 31) ? packet->length : 31;
+    memcpy(name, packet->data, len);
+    name[len] = '\0';
+
+    if (PMU_Lua_UnloadScript(name) == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_UNLOAD_SCRIPT);
+    } else {
+        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, "Script not found");
+    }
+}
+
+/**
+ * @brief Handle Lua run script command
+ * Payload: null-terminated script name
+ */
+static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length == 0) {
+        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, "No script name");
+        return;
+    }
+
+    char name[32];
+    uint8_t len = (packet->length < 31) ? packet->length : 31;
+    memcpy(name, packet->data, len);
+    name[len] = '\0';
+
+    PMU_Lua_Status_t status = PMU_Lua_ExecuteScript(name);
+
+    if (status == PMU_LUA_STATUS_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_RUN_SCRIPT);
+    } else {
+        const char* error_msg = PMU_Lua_GetLastError();
+        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, error_msg ? error_msg : "Execution failed");
+    }
+}
+
+/**
+ * @brief Handle Lua stop script command
+ * Payload: null-terminated script name
+ */
+static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length == 0) {
+        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, "No script name");
+        return;
+    }
+
+    char name[32];
+    uint8_t len = (packet->length < 31) ? packet->length : 31;
+    memcpy(name, packet->data, len);
+    name[len] = '\0';
+
+    /* Disable the script to stop it */
+    if (PMU_Lua_SetScriptEnabled(name, 0) == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_STOP_SCRIPT);
+    } else {
+        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, "Script not found");
+    }
+}
+
+/**
+ * @brief Handle Lua get scripts command
+ * Response: [count:1][scripts: count * PMU_Lua_ScriptInfo_t]
+ */
+static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    uint8_t response[PMU_PROTOCOL_MAX_PAYLOAD];
+    PMU_Lua_ScriptInfo_t scripts[PMU_LUA_MAX_SCRIPTS];
+
+    uint8_t count = PMU_Lua_ListScripts(scripts, PMU_LUA_MAX_SCRIPTS);
+
+    response[0] = count;
+    uint16_t index = 1;
+
+    /* Pack script info */
+    for (uint8_t i = 0; i < count && index < PMU_PROTOCOL_MAX_PAYLOAD - 48; i++) {
+        /* Name (32 bytes) */
+        memcpy(&response[index], scripts[i].name, 32);
+        index += 32;
+        /* Enabled (1 byte) */
+        response[index++] = scripts[i].enabled;
+        /* Auto-run (1 byte) */
+        response[index++] = scripts[i].auto_run;
+        /* Last status (1 byte) */
+        response[index++] = (uint8_t)scripts[i].last_status;
+        /* Execution count (4 bytes) */
+        memcpy(&response[index], &scripts[i].execution_count, 4);
+        index += 4;
+    }
+
+    Protocol_SendData(PMU_CMD_LUA_GET_SCRIPTS, response, index);
+}
+
+/**
+ * @brief Handle Lua get status command
+ * Response: PMU_Lua_Stats_t
+ */
+static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    PMU_Lua_Stats_t* stats = PMU_Lua_GetStats();
+
+    if (stats) {
+        Protocol_SendData(PMU_CMD_LUA_GET_STATUS, (uint8_t*)stats, sizeof(PMU_Lua_Stats_t));
+    } else {
+        Protocol_SendNACK(PMU_CMD_LUA_GET_STATUS, "Lua not initialized");
+    }
+}
+
+/**
+ * @brief Handle Lua get output command
+ * Response: last error message string
+ */
+static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    const char* error = PMU_Lua_GetLastError();
+
+    if (error && error[0]) {
+        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, (const uint8_t*)error, strlen(error) + 1);
+    } else {
+        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, (const uint8_t*)"", 1);
+    }
+}
+
+/**
+ * @brief Handle Lua set enabled command
+ * Payload: [name_len:1][name:name_len][enabled:1]
+ */
+static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet)
+{
+    if (packet->length < 3) {
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Invalid payload");
+        return;
+    }
+
+    uint8_t name_len = packet->data[0];
+    if (name_len == 0 || name_len > 31 || (1 + name_len + 1) > packet->length) {
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Invalid script name");
+        return;
+    }
+
+    char name[32];
+    memcpy(name, &packet->data[1], name_len);
+    name[name_len] = '\0';
+
+    uint8_t enabled = packet->data[1 + name_len];
+
+    if (PMU_Lua_SetScriptEnabled(name, enabled) == HAL_OK) {
+        Protocol_SendACK(PMU_CMD_LUA_SET_ENABLED);
+    } else {
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Script not found");
     }
 }
 

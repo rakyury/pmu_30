@@ -104,9 +104,9 @@ class BaseChannelDialog(QDialog):
         type_name = get_channel_display_name(self.channel_type) if self.channel_type else "Channel"
         self.setWindowTitle(f"{title} {type_name}")
         self.setModal(True)
-        self.setMinimumWidth(550)
-        self.setMinimumHeight(350)
-        self.resize(600, 400)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(500)
+        self.resize(650, 550)
 
         self.main_layout = QVBoxLayout(self)
 
@@ -133,7 +133,7 @@ class BaseChannelDialog(QDialog):
 
         # Channel ID field (read-only, numeric, auto-generated)
         self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #666;")
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
         basic_layout.addRow("Channel ID:", self.channel_id_label)
 
         # Name field (editable by user)
@@ -242,19 +242,76 @@ class BaseChannelDialog(QDialog):
         from .channel_selector_dialog import ChannelSelectorDialog
 
         current = target_edit.text()
-        channel = ChannelSelectorDialog.select_channel(
-            self, current, self.available_channels
+        # Exclude current channel from selection to prevent self-reference
+        exclude_id = self._channel_id if hasattr(self, '_channel_id') else None
+        accepted, channel_id = ChannelSelectorDialog.select_channel(
+            self, current, self.available_channels,
+            show_tree=True, exclude_channel=exclude_id
         )
-        if channel:
-            target_edit.setText(channel)
+        if accepted:
+            if channel_id is not None:
+                # Find display name for the channel_id
+                display_name = self._get_channel_display_name(channel_id)
+                target_edit.setText(display_name)
+                # Store numeric ID in property for later use
+                target_edit.setProperty("channel_id", channel_id)
+            else:
+                target_edit.setText("")
+                target_edit.setProperty("channel_id", None)
 
-    def _create_edge_combo(self, include_both: bool = True) -> QComboBox:
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel by its ID (numeric or string)."""
+        if not self.available_channels:
+            return str(channel_id)
+
+        # Search through all channel categories
+        for category, channels in self.available_channels.items():
+            for ch in channels:
+                if isinstance(ch, tuple) and len(ch) == 2:
+                    ch_id, ch_name = ch
+                    if ch_id == channel_id:
+                        return str(ch_name)
+                elif ch == channel_id:
+                    return str(ch)
+
+        # Fallback to string representation
+        return str(channel_id)
+
+    def _get_channel_id_from_edit(self, edit: QLineEdit):
+        """Get channel ID from edit field (from property or text fallback)."""
+        channel_id = edit.property("channel_id")
+        if channel_id is None:
+            # Fallback to text (for backwards compatibility)
+            text = edit.text().strip()
+            return text if text else None
+        return channel_id
+
+    def _set_channel_edit_value(self, edit: QLineEdit, channel_id):
+        """Set channel edit field value with display name lookup.
+
+        Args:
+            edit: The QLineEdit to set
+            channel_id: Channel ID (numeric int or string)
+        """
+        if channel_id is None or channel_id == "" or channel_id == 0:
+            edit.setText("")
+            edit.setProperty("channel_id", None)
+            return
+
+        # Find display name for the channel_id
+        display_name = self._get_channel_display_name(channel_id)
+        edit.setText(display_name)
+        edit.setProperty("channel_id", channel_id)
+
+    def _create_edge_combo(self, include_both: bool = True, include_level: bool = False) -> QComboBox:
         """Create edge selection combobox"""
         combo = QComboBox()
         combo.addItem("Rising", "rising")
         combo.addItem("Falling", "falling")
         if include_both:
             combo.addItem("Both", "both")
+        if include_level:
+            combo.addItem("Level (High)", "level")
         return combo
 
     def _set_edge_combo_value(self, combo: QComboBox, value: str):
@@ -313,10 +370,10 @@ class ChannelListWidget(QWidget):
             return
 
         from .channel_selector_dialog import ChannelSelectorDialog
-        channel = ChannelSelectorDialog.select_channel(
+        accepted, channel = ChannelSelectorDialog.select_channel(
             self, "", self.available_channels
         )
-        if channel:
+        if accepted and channel:
             # Check for duplicates
             for i in range(self.list_widget.count()):
                 if self.list_widget.item(i).text() == channel:
@@ -345,7 +402,3 @@ class ChannelListWidget(QWidget):
         self.list_widget.clear()
         for ch in channels:
             self.list_widget.addItem(ch)
-
-
-# Backwards compatibility alias
-BaseGPIODialog = BaseChannelDialog

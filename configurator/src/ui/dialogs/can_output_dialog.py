@@ -1,6 +1,5 @@
 """
 CAN Output (TX) Configuration Dialog
-Based on Ecumaster PMU Client CANbus Export dialog design.
 
 Combines message properties with signal mapping in one dialog.
 """
@@ -119,7 +118,7 @@ class ChannelSlotWidget(QFrame):
 
 
 class CANOutputDialog(QDialog):
-    """Dialog for configuring CAN TX output (Ecumaster style)."""
+    """Dialog for configuring CAN TX output."""
 
     TRANSMIT_MODES = [
         ("Cycle", "cycle"),

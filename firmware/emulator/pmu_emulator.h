@@ -95,11 +95,11 @@ typedef struct {
 /**
  * @brief PROFET output emulation state
  *
- * State values match ECUMaster convention:
- * 0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS
+ * State values:
+ * 0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM
  */
 typedef struct {
-    uint8_t state;              /**< ECUMaster state (0=OFF,1=ON,2=OC,3=OT,4=SC,5=OL,6=PWM,7=DIS) */
+    uint8_t state;              /**< Output state (0=OFF,1=ON,2=OC,3=OT,4=SC,5=OL,6=PWM) */
     uint8_t prev_state;         /**< Previous state for edge detection */
     uint16_t pwm_duty;          /**< PWM duty (0-1000) */
     uint16_t current_mA;        /**< Simulated current */
@@ -285,16 +285,16 @@ typedef struct {
  */
 typedef struct {
     uint16_t battery_voltage_mV;    /**< Battery voltage */
-    int16_t board_temp_L_C;         /**< Board temperature Left (ECUMaster: boardTemperatureL) */
-    int16_t board_temp_R_C;         /**< Board temperature Right (ECUMaster: boardTemperatureR) */
+    int16_t board_temp_L_C;         /**< Board temperature Left */
+    int16_t board_temp_R_C;         /**< Board temperature Right */
     int16_t mcu_temp_C;             /**< MCU temperature */
     uint32_t total_current_mA;      /**< Total current */
     uint16_t fault_flags;           /**< Injected fault flags */
     bool enable_auto_faults;        /**< Auto-generate faults on limits */
     uint16_t output_5v_mV;          /**< 5V output voltage */
     uint16_t output_3v3_mV;         /**< 3.3V output voltage */
-    uint16_t system_status;         /**< System status bits (ECUMaster: status) */
-    uint8_t user_error;             /**< User error flag (ECUMaster: userError) */
+    uint16_t system_status;         /**< System status bits */
+    uint8_t user_error;             /**< User error flag */
     uint8_t is_turning_off;         /**< Shutdown in progress flag */
 } PMU_Emu_Protection_t;
 

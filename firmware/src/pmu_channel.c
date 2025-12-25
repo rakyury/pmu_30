@@ -48,6 +48,7 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 static PMU_ChannelEntry_t channel_registry[PMU_CHANNEL_MAX_CHANNELS];
 static PMU_ChannelStats_t channel_stats;
+static uint16_t next_dynamic_id = 500;  /**< Counter for dynamic channel IDs */
 
 /* Private function prototypes -----------------------------------------------*/
 static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel);
@@ -170,6 +171,28 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     strncpy(sys_channel.unit, "", sizeof(sys_channel.unit));
     PMU_Channel_Register(&sys_channel);
 
+    /* Constant channel: zero (always returns 0) */
+    sys_channel.channel_id = PMU_CHANNEL_CONST_ZERO;
+    sys_channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SYSTEM;
+    sys_channel.direction = PMU_CHANNEL_DIR_INPUT;
+    sys_channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+    sys_channel.physical_index = 0;
+    sys_channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+    sys_channel.value = 0;
+    sys_channel.min_value = 0;
+    sys_channel.max_value = 0;
+    strncpy(sys_channel.name, "zero", sizeof(sys_channel.name));
+    strncpy(sys_channel.unit, "", sizeof(sys_channel.unit));
+    PMU_Channel_Register(&sys_channel);
+
+    /* Constant channel: one (always returns 1000 = 1.0 scaled) */
+    sys_channel.channel_id = PMU_CHANNEL_CONST_ONE;
+    sys_channel.value = 1000;   /* 1000 = 1.0 in scaled format (used by logic functions) */
+    sys_channel.min_value = 1000;
+    sys_channel.max_value = 1000;
+    strncpy(sys_channel.name, "one", sizeof(sys_channel.name));
+    PMU_Channel_Register(&sys_channel);
+
     /* Register output sub-channels (ECUMaster compatible: oY.status, oY.current, oY.voltage, oY.active) */
     PMU_Channel_t out_channel;
     memset(&out_channel, 0, sizeof(out_channel));
@@ -227,6 +250,16 @@ HAL_StatusTypeDef PMU_Channel_Init(void)
     }
 
     return HAL_OK;
+}
+
+/**
+ * @brief Generate unique channel ID for dynamic channels
+ * @retval Unique channel ID
+ */
+uint16_t PMU_Channel_GenerateID(void)
+{
+    /* Return and increment the next available dynamic ID */
+    return next_dynamic_id++;
 }
 
 /**
@@ -540,13 +573,13 @@ void PMU_Channel_Update(void)
         entry->channel.value = PMU_Protection_IsTurningOff();
     }
 
-    /* Update output sub-channels (ECUMaster compatible: oY.status, oY.current, oY.active, oY.dutyCycle) */
+    /* Update output sub-channels (oY.status, oY.current, oY.active, oY.dutyCycle) */
     int32_t battery_mv = PMU_Protection_GetVoltage();
     for (uint8_t i = 0; i < 30; i++) {
         PMU_PROFET_Channel_t* profet = PMU_PROFET_GetChannelData(i);
         if (!profet) continue;
 
-        /* oY.status - state code (0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS) */
+        /* oY.status - state code (0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM) */
         entry = Channel_FindEntry(PMU_CHANNEL_OUTPUT_STATUS_BASE + i);
         if (entry) {
             entry->channel.value = (int32_t)profet->state;

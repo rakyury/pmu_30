@@ -44,7 +44,7 @@ class StartupDialog(QDialog):
         self.setWindowTitle("PMU-30 Configurator")
         self.setModal(True)
         self.setMinimumWidth(450)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(380)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(15)

@@ -72,9 +72,10 @@ typedef enum {
  * @brief Channel direction
  */
 typedef enum {
-    PMU_CHANNEL_DIR_INPUT  = 0,  /**< Input channel */
-    PMU_CHANNEL_DIR_OUTPUT = 1,  /**< Output channel */
-    PMU_CHANNEL_DIR_BIDIR  = 2   /**< Bidirectional channel */
+    PMU_CHANNEL_DIR_INPUT   = 0,  /**< Input channel */
+    PMU_CHANNEL_DIR_OUTPUT  = 1,  /**< Output channel */
+    PMU_CHANNEL_DIR_BIDIR   = 2,  /**< Bidirectional channel */
+    PMU_CHANNEL_DIR_VIRTUAL = 3   /**< Virtual/computed channel */
 } PMU_ChannelDir_t;
 
 /**
@@ -87,7 +88,8 @@ typedef enum {
     PMU_CHANNEL_FORMAT_CURRENT  = 3,  /**< Current in mA */
     PMU_CHANNEL_FORMAT_BOOLEAN  = 4,  /**< Boolean (0/1) */
     PMU_CHANNEL_FORMAT_ENUM     = 5,  /**< Enumeration (0-255) */
-    PMU_CHANNEL_FORMAT_SIGNED   = 6   /**< Signed value (-32768 to +32767) */
+    PMU_CHANNEL_FORMAT_SIGNED   = 6,  /**< Signed value (-32768 to +32767) */
+    PMU_CHANNEL_FORMAT_INT      = 7   /**< Integer value */
 } PMU_ChannelFormat_t;
 
 /**
@@ -155,12 +157,17 @@ typedef struct {
 #define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010    /**< 3.3V output voltage */
 #define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011    /**< Shutdown in progress flag */
 
+/* Constant channels (always return fixed value) */
+#define PMU_CHANNEL_CONST_ZERO              1012    /**< Constant 0 (zero) */
+#define PMU_CHANNEL_CONST_ONE               1013    /**< Constant 1 (one) */
+
 /* Per-output channel bases (ECUMaster compatible: pmuX.oY.*) */
 /* Use: PMU_CHANNEL_OUTPUT_STATUS_BASE + output_index (0-29) */
 #define PMU_CHANNEL_OUTPUT_STATUS_BASE      1100    /**< Output status base (oY.status) */
 #define PMU_CHANNEL_OUTPUT_CURRENT_BASE     1130    /**< Output current base (oY.current) */
 #define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     1160    /**< Output voltage base (oY.voltage) */
 #define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      1190    /**< Output active base (oY.active) */
+#define PMU_CHANNEL_OUTPUT_DUTY_BASE        1250    /**< Output duty cycle base (oY.dutyCycle) 0-1000 */
 
 /* Analog input channel base (ECUMaster compatible: pmuX.aY.*) */
 #define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     1220    /**< Analog input voltage base (aY.voltage) */
@@ -250,6 +257,12 @@ uint16_t PMU_Channel_List(PMU_Channel_t* channels, uint16_t max_count);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_Channel_SetEnabled(uint16_t channel_id, bool enabled);
+
+/**
+ * @brief Generate unique channel ID for dynamic channels
+ * @retval Unique channel ID
+ */
+uint16_t PMU_Channel_GenerateID(void);
 
 /**
  * @brief Check if channel is input

@@ -29,6 +29,10 @@ class ChannelType(Enum):
     LUA_SCRIPT = "lua_script"
     PID = "pid"
     BLINKMARINE_KEYPAD = "blinkmarine_keypad"
+    HANDLER = "handler"
+    # System channels (predefined, read-only)
+    SYSTEM = "system"
+    OUTPUT_STATUS = "output_status"
 
 
 class DigitalInputSubtype(Enum):
@@ -40,6 +44,18 @@ class DigitalInputSubtype(Enum):
     FLEX_FUEL = "flex_fuel"
     BEACON = "beacon"
     PULS_OIL_SENSOR = "puls_oil_sensor"
+    KEYPAD_BUTTON = "keypad_button"  # Virtual button from CAN keypad
+
+
+class ButtonMode(Enum):
+    """Button function modes (ECUMaster compatible)"""
+    DIRECT = "direct"               # Direct input passthrough (default)
+    MOMENTARY = "momentary"         # Output only while pressed
+    TOGGLE = "toggle"               # Toggle output on press
+    LATCHING = "latching"           # Stay pressed until manual release (via reset channel)
+    LONG_PRESS = "long_press"       # Different action for long hold
+    DOUBLE_CLICK = "double_click"   # Detect double clicks
+    PRESS_AND_HOLD = "press_and_hold"  # Timed action with progression
 
 
 class AnalogInputSubtype(Enum):
@@ -212,12 +228,29 @@ class DigitalInputChannel(ChannelBase):
     enable_pullup: bool = False
     threshold_voltage: float = 2.5
     debounce_ms: int = 50
+    invert: bool = False  # Invert input logic
     # Frequency/RPM specific
     trigger_edge: EdgeType = EdgeType.RISING
     multiplier: float = 1.0
     divider: float = 1.0
     timeout_ms: int = 1000
     number_of_teeth: int = 1  # RPM specific
+    # Button function mode (ECUMaster compatible)
+    button_mode: ButtonMode = ButtonMode.DIRECT
+    # Long press settings
+    long_press_ms: int = 500             # Time threshold for long press detection
+    long_press_output: str = ""          # Separate output for long press (optional)
+    # Double click settings
+    double_click_ms: int = 300           # Window for detecting double clicks
+    double_click_output: str = ""        # Separate output for double click (optional)
+    # Press and hold settings
+    hold_start_ms: int = 500             # Time to start progressive action
+    hold_full_ms: int = 2000             # Time to reach full action
+    # Latching/Toggle settings
+    reset_channel: str = ""              # Channel to reset latch/toggle
+    # CAN Keypad button specific (ECUMaster style)
+    keypad_id: str = ""                  # Reference to parent keypad ID
+    button_index: int = 0                # Button index (0-15)
 
     def __post_init__(self):
         self.channel_type = ChannelType.DIGITAL_INPUT
@@ -229,6 +262,7 @@ class DigitalInputChannel(ChannelBase):
         data["enable_pullup"] = self.enable_pullup
         data["threshold_voltage"] = self.threshold_voltage
         data["debounce_ms"] = self.debounce_ms
+        data["invert"] = self.invert
 
         # Frequency/RPM specific fields
         if self.subtype in [DigitalInputSubtype.FREQUENCY, DigitalInputSubtype.RPM]:
@@ -241,10 +275,38 @@ class DigitalInputChannel(ChannelBase):
         if self.subtype == DigitalInputSubtype.RPM:
             data["number_of_teeth"] = self.number_of_teeth
 
+        # Button function settings (for switch subtypes)
+        if self.subtype in [DigitalInputSubtype.SWITCH_ACTIVE_LOW, DigitalInputSubtype.SWITCH_ACTIVE_HIGH]:
+            data["button_mode"] = self.button_mode.value
+            if self.button_mode == ButtonMode.LONG_PRESS:
+                data["long_press_ms"] = self.long_press_ms
+                data["long_press_output"] = self.long_press_output
+            elif self.button_mode == ButtonMode.DOUBLE_CLICK:
+                data["double_click_ms"] = self.double_click_ms
+                data["double_click_output"] = self.double_click_output
+            elif self.button_mode == ButtonMode.PRESS_AND_HOLD:
+                data["hold_start_ms"] = self.hold_start_ms
+                data["hold_full_ms"] = self.hold_full_ms
+            elif self.button_mode in [ButtonMode.LATCHING, ButtonMode.TOGGLE]:
+                data["reset_channel"] = self.reset_channel
+
+        # CAN Keypad button specific fields
+        if self.subtype == DigitalInputSubtype.KEYPAD_BUTTON:
+            data["keypad_id"] = self.keypad_id
+            data["button_index"] = self.button_index
+            data["button_mode"] = self.button_mode.value
+
         return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'DigitalInputChannel':
+        # Parse button mode
+        button_mode_str = data.get("button_mode", "direct")
+        try:
+            button_mode = ButtonMode(button_mode_str)
+        except ValueError:
+            button_mode = ButtonMode.DIRECT
+
         return cls(
             id=data.get("id", ""),
             channel_type=ChannelType.DIGITAL_INPUT,
@@ -253,21 +315,50 @@ class DigitalInputChannel(ChannelBase):
             enable_pullup=data.get("enable_pullup", False),
             threshold_voltage=data.get("threshold_voltage", 2.5),
             debounce_ms=data.get("debounce_ms", 50),
+            invert=data.get("invert", False),
             trigger_edge=EdgeType(data.get("trigger_edge", "rising")),
             multiplier=data.get("multiplier", 1.0),
             divider=data.get("divider", 1.0),
             timeout_ms=data.get("timeout_ms", 1000),
-            number_of_teeth=data.get("number_of_teeth", 1)
+            number_of_teeth=data.get("number_of_teeth", 1),
+            button_mode=button_mode,
+            long_press_ms=data.get("long_press_ms", 500),
+            long_press_output=data.get("long_press_output", ""),
+            double_click_ms=data.get("double_click_ms", 300),
+            double_click_output=data.get("double_click_output", ""),
+            hold_start_ms=data.get("hold_start_ms", 500),
+            hold_full_ms=data.get("hold_full_ms", 2000),
+            reset_channel=data.get("reset_channel", ""),
+            # CAN Keypad button specific
+            keypad_id=data.get("keypad_id", ""),
+            button_index=data.get("button_index", 0)
         )
 
     def validate(self) -> List[str]:
         errors = super().validate()
-        if not 0 <= self.input_pin <= 7:
-            errors.append("Input pin must be between 0 and 7 (D1-D8)")
+        # Keypad buttons don't use physical input pins
+        if self.subtype == DigitalInputSubtype.KEYPAD_BUTTON:
+            if not self.keypad_id:
+                errors.append("Keypad ID is required for keypad buttons")
+            if not 0 <= self.button_index <= 15:
+                errors.append("Button index must be between 0 and 15")
+        else:
+            if not 0 <= self.input_pin <= 7:
+                errors.append("Input pin must be between 0 and 7 (D1-D8)")
         if self.threshold_voltage < 0 or self.threshold_voltage > 30:
             errors.append("Threshold voltage must be between 0 and 30V")
         if self.subtype == DigitalInputSubtype.RPM and self.number_of_teeth < 1:
             errors.append("Number of teeth must be at least 1")
+        # Button mode validation
+        if self.button_mode == ButtonMode.LONG_PRESS:
+            if self.long_press_ms < 100:
+                errors.append("Long press time must be at least 100ms")
+        elif self.button_mode == ButtonMode.DOUBLE_CLICK:
+            if self.double_click_ms < 50 or self.double_click_ms > 1000:
+                errors.append("Double click window must be between 50ms and 1000ms")
+        elif self.button_mode == ButtonMode.PRESS_AND_HOLD:
+            if self.hold_start_ms >= self.hold_full_ms:
+                errors.append("Hold start time must be less than hold full time")
         return errors
 
 
@@ -1268,7 +1359,7 @@ class CanRxChannel(ChannelBase):
     start_bit: int = 0
     bit_length: int = 16
 
-    # Scaling (Ecumaster style: multiplier/divider instead of factor)
+    # Scaling (multiplier/divider instead of factor)
     multiplier: float = 1.0
     divider: float = 1.0
     offset: float = 0.0
@@ -1689,7 +1780,7 @@ class HBridgeMotorPreset(Enum):
 class HBridgeChannel(ChannelBase):
     """H-Bridge motor control channel (Dual H-Bridge output)
 
-    Similar to Ecumaster Dual H-Bridge:
+    Features:
     - Forward/Reverse/Brake/Coast control
     - PWM speed control
     - Position feedback with potentiometer
@@ -1854,6 +1945,166 @@ class HBridgeChannel(ChannelBase):
         return errors
 
 
+# ============================================================================
+# Event Handler Channel
+# ============================================================================
+
+class EventType(Enum):
+    """Event types that can trigger handlers"""
+    # Channel state events
+    CHANNEL_ON = "channel_on"           # Channel turned ON (rising edge)
+    CHANNEL_OFF = "channel_off"         # Channel turned OFF (falling edge)
+    # Fault events
+    CHANNEL_FAULT = "channel_fault"     # Channel entered fault state
+    CHANNEL_CLEARED = "channel_cleared" # Channel fault cleared
+    # Threshold events (for analog inputs)
+    THRESHOLD_HIGH = "threshold_high"   # Input crossed threshold (rising)
+    THRESHOLD_LOW = "threshold_low"     # Input crossed threshold (falling)
+    # System events
+    SYSTEM_UNDERVOLT = "system_undervolt"   # System undervoltage
+    SYSTEM_OVERVOLT = "system_overvolt"     # System overvoltage
+    SYSTEM_OVERTEMP = "system_overtemp"     # System overtemperature
+
+
+class ActionType(Enum):
+    """Action types that handlers can execute"""
+    WRITE_CHANNEL = "write_channel"     # Write value to virtual channel
+    SEND_CAN = "send_can"               # Send CAN message
+    SEND_LIN = "send_lin"               # Send LIN message
+    RUN_LUA = "run_lua"                 # Call Lua function
+    SET_OUTPUT = "set_output"           # Set output state directly
+
+
+@dataclass
+class HandlerChannel(ChannelBase):
+    """Event handler channel - reacts to system events and executes actions
+
+    Features:
+    - Triggers on channel state changes, faults, thresholds, system events
+    - Can write to virtual channels, send CAN/LIN messages, run Lua, set outputs
+    - Optional condition channel for conditional execution
+    - One action per handler (multiple handlers can react to same event)
+    """
+    # Event configuration
+    event: EventType = EventType.CHANNEL_ON
+    source_channel: str = ""            # Channel that triggers the event
+
+    # Threshold (for THRESHOLD_HIGH/LOW events)
+    threshold_value: float = 0.0
+
+    # Condition (optional - handler fires only if condition is true)
+    condition_channel: str = ""
+
+    # Action configuration
+    action: ActionType = ActionType.WRITE_CHANNEL
+    target_channel: str = ""            # Target for WRITE_CHANNEL/SET_OUTPUT
+    value: float = 0.0                  # Value to write
+
+    # CAN/LIN message (for SEND_CAN/SEND_LIN actions)
+    can_bus: int = 1
+    message_id: int = 0
+    message_data: List[int] = field(default_factory=lambda: [0] * 8)
+
+    # Lua function (for RUN_LUA action)
+    lua_function: str = ""
+
+    # Handler options
+    enabled: bool = True
+    description: str = ""
+
+    def __post_init__(self):
+        self.channel_type = ChannelType.HANDLER
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            "event": self.event.value if isinstance(self.event, EventType) else self.event,
+            "source_channel": self.source_channel,
+            "threshold_value": self.threshold_value,
+            "condition_channel": self.condition_channel,
+            "action": self.action.value if isinstance(self.action, ActionType) else self.action,
+            "target_channel": self.target_channel,
+            "value": self.value,
+            "can_bus": self.can_bus,
+            "message_id": self.message_id,
+            "message_data": self.message_data,
+            "lua_function": self.lua_function,
+            "enabled": self.enabled,
+            "description": self.description,
+        })
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'HandlerChannel':
+        # Parse event type
+        event_str = data.get("event", "channel_on")
+        try:
+            event = EventType(event_str)
+        except ValueError:
+            event = EventType.CHANNEL_ON
+
+        # Parse action type
+        action_str = data.get("action", "write_channel")
+        try:
+            action = ActionType(action_str)
+        except ValueError:
+            action = ActionType.WRITE_CHANNEL
+
+        return cls(
+            id=data.get("id", ""),
+            channel_type=ChannelType.HANDLER,
+            event=event,
+            source_channel=data.get("source_channel", ""),
+            threshold_value=data.get("threshold_value", 0.0),
+            condition_channel=data.get("condition_channel", ""),
+            action=action,
+            target_channel=data.get("target_channel", ""),
+            value=data.get("value", 0.0),
+            can_bus=data.get("can_bus", 1),
+            message_id=data.get("message_id", 0),
+            message_data=data.get("message_data", [0] * 8),
+            lua_function=data.get("lua_function", ""),
+            enabled=data.get("enabled", True),
+            description=data.get("description", ""),
+        )
+
+    def get_input_channels(self) -> List[str]:
+        channels = []
+        if self.source_channel:
+            channels.append(self.source_channel)
+        if self.condition_channel:
+            channels.append(self.condition_channel)
+        return channels
+
+    def validate(self) -> List[str]:
+        errors = super().validate()
+
+        # Source channel required for channel events
+        if self.event in [EventType.CHANNEL_ON, EventType.CHANNEL_OFF,
+                          EventType.CHANNEL_FAULT, EventType.CHANNEL_CLEARED,
+                          EventType.THRESHOLD_HIGH, EventType.THRESHOLD_LOW]:
+            if not self.source_channel:
+                errors.append("Source channel is required for this event type")
+
+        # Action-specific validation
+        if self.action == ActionType.WRITE_CHANNEL:
+            if not self.target_channel:
+                errors.append("Target channel is required for WRITE_CHANNEL action")
+        elif self.action == ActionType.SET_OUTPUT:
+            if not self.target_channel:
+                errors.append("Target output is required for SET_OUTPUT action")
+        elif self.action == ActionType.RUN_LUA:
+            if not self.lua_function:
+                errors.append("Lua function name is required for RUN_LUA action")
+        elif self.action in [ActionType.SEND_CAN, ActionType.SEND_LIN]:
+            if self.message_id < 0:
+                errors.append("Message ID must be non-negative")
+            if self.can_bus < 1 or self.can_bus > 4:
+                errors.append("CAN/LIN bus must be between 1 and 4")
+
+        return errors
+
+
 # Channel Type to Class mapping
 CHANNEL_CLASS_MAP = {
     ChannelType.DIGITAL_INPUT: DigitalInputChannel,
@@ -1872,6 +2123,7 @@ CHANNEL_CLASS_MAP = {
     ChannelType.CAN_TX: CanTxChannel,
     ChannelType.LUA_SCRIPT: LuaScriptChannel,
     ChannelType.PID: PIDChannel,
+    ChannelType.HANDLER: HandlerChannel,
 }
 
 
@@ -1915,6 +2167,7 @@ CHANNEL_PREFIX_MAP = {
     ChannelType.CAN_TX: "ctx_",
     ChannelType.LUA_SCRIPT: "lua_",
     ChannelType.PID: "pid_",
+    ChannelType.HANDLER: "h_",
 }
 
 
@@ -1942,31 +2195,6 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.CAN_TX: "CAN Output",
         ChannelType.LUA_SCRIPT: "Lua Script",
         ChannelType.PID: "PID Controller",
+        ChannelType.HANDLER: "Event Handler",
     }
     return names.get(channel_type, channel_type.value)
-
-
-# Backwards compatibility aliases
-GPIOType = ChannelType
-GPIOBase = ChannelBase
-DigitalInputGPIO = DigitalInputChannel
-AnalogInputGPIO = AnalogInputChannel
-PowerOutputGPIO = PowerOutputChannel
-HBridgeGPIO = HBridgeChannel
-LogicGPIO = LogicChannel
-NumberGPIO = NumberChannel
-TimerGPIO = TimerChannel
-FilterGPIO = FilterChannel
-EnumGPIO = EnumChannel
-Table2DGPIO = Table2DChannel
-Table3DGPIO = Table3DChannel
-SwitchGPIO = SwitchChannel
-CanRxGPIO = CanRxChannel
-CanTxGPIO = CanTxChannel
-PIDGPIO = PIDChannel
-GPIO_CLASS_MAP = CHANNEL_CLASS_MAP
-GPIOFactory = ChannelFactory
-GPIO_PREFIX_MAP = CHANNEL_PREFIX_MAP
-GPIO_TYPE_PREFIXES = CHANNEL_PREFIX_MAP
-get_gpio_prefix = get_channel_prefix
-get_gpio_display_name = get_channel_display_name

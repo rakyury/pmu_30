@@ -42,12 +42,12 @@ class PMUMonitorWidget(QWidget):
     - Device info
     """
 
-    # Colors for different states
-    COLOR_NORMAL = QColor(255, 255, 255)      # White
-    COLOR_WARNING = QColor(255, 255, 200)     # Light yellow
-    COLOR_ERROR = QColor(255, 200, 200)       # Light red
-    COLOR_ACTIVE = QColor(200, 255, 200)      # Light green
-    COLOR_DISABLED = QColor(220, 220, 220)    # Light gray
+    # Colors for different states (dark theme)
+    COLOR_NORMAL = QColor(200, 200, 200)      # Light gray for normal text
+    COLOR_WARNING = QColor(255, 200, 100)     # Orange for warnings
+    COLOR_ERROR = QColor(255, 100, 100)       # Red for errors
+    COLOR_ACTIVE = QColor(100, 255, 100)      # Green for active
+    COLOR_DISABLED = QColor(128, 128, 128)    # Gray for disabled
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -73,7 +73,7 @@ class PMUMonitorWidget(QWidget):
         header_layout = QHBoxLayout()
 
         self.status_label = QLabel("Offline", self)
-        self.status_label.setStyleSheet("color: #888;")
+        self.status_label.setStyleSheet("color: #b0b0b0;")
         header_layout.addWidget(self.status_label)
 
         header_layout.addStretch()
@@ -95,18 +95,31 @@ class PMUMonitorWidget(QWidget):
         self.tree.setColumnWidth(1, 60)
         self.tree.setColumnWidth(2, 40)
 
-        # Style
+        # Style (dark theme)
         self.tree.setStyleSheet("""
             QTreeWidget {
                 font-size: 11px;
-                border: 1px solid #ccc;
+                border: 1px solid #333;
+                background-color: #1a1a1a;
+                color: #ffffff;
             }
             QTreeWidget::item {
                 padding: 2px;
+                background-color: #1a1a1a;
+                color: #ffffff;
             }
             QTreeWidget::item:selected {
                 background-color: #0078d4;
                 color: white;
+            }
+            QTreeWidget::branch {
+                background-color: #1a1a1a;
+            }
+            QHeaderView::section {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                padding: 4px;
+                border: 1px solid #333;
             }
         """)
 
@@ -252,7 +265,7 @@ class PMUMonitorWidget(QWidget):
             self.status_label.setStyleSheet("color: green; font-weight: bold;")
         else:
             self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #888;")
+            self.status_label.setStyleSheet("color: #b0b0b0;")
             # Reset all values to "?"
             for key in self._values:
                 self._values[key].value = "?"

@@ -67,6 +67,16 @@ class MessageType(IntEnum):
     RESTART_DEVICE = 0x70
     RESTART_ACK = 0x71
 
+    # Emulator control (0x80+)
+    EMU_INJECT_FAULT = 0x80
+    EMU_CLEAR_FAULT = 0x81
+    EMU_SET_VOLTAGE = 0x82
+    EMU_SET_TEMPERATURE = 0x83
+    EMU_SET_DIGITAL_INPUT = 0x84
+    EMU_SET_OUTPUT = 0x85
+    EMU_SET_ANALOG_INPUT = 0x86
+    EMU_ACK = 0x8F
+
 
 class ProtocolError(Exception):
     """Protocol-related errors."""
@@ -310,6 +320,95 @@ class FrameBuilder:
         msg_bytes = message.encode("utf-8")[:255]  # Limit message length
         payload = struct.pack("<HB", error_code, len(msg_bytes)) + msg_bytes
         return ProtocolFrame(msg_type=MessageType.ERROR, payload=payload)
+
+    @staticmethod
+    def restart_device() -> ProtocolFrame:
+        """Create a RESTART_DEVICE frame."""
+        return ProtocolFrame(msg_type=MessageType.RESTART_DEVICE, payload=b"")
+
+    # ===== Emulator Control Commands =====
+
+    @staticmethod
+    def emu_inject_fault(channel: int, fault_type: int) -> ProtocolFrame:
+        """
+        Inject a fault on an output channel (emulator only).
+
+        Args:
+            channel: Channel number (0-29)
+            fault_type: Fault type bitmask (1=OC, 2=OT, 4=SC, 8=OL)
+        """
+        payload = struct.pack("<BB", channel, fault_type)
+        return ProtocolFrame(msg_type=MessageType.EMU_INJECT_FAULT, payload=payload)
+
+    @staticmethod
+    def emu_clear_fault(channel: int) -> ProtocolFrame:
+        """
+        Clear fault on an output channel (emulator only).
+
+        Args:
+            channel: Channel number (0-29)
+        """
+        payload = struct.pack("<B", channel)
+        return ProtocolFrame(msg_type=MessageType.EMU_CLEAR_FAULT, payload=payload)
+
+    @staticmethod
+    def emu_set_voltage(voltage_mv: int) -> ProtocolFrame:
+        """
+        Set battery voltage (emulator only).
+
+        Args:
+            voltage_mv: Voltage in millivolts (6000-18000)
+        """
+        payload = struct.pack("<H", voltage_mv)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_VOLTAGE, payload=payload)
+
+    @staticmethod
+    def emu_set_temperature(temp_c: int) -> ProtocolFrame:
+        """
+        Set temperature (emulator only).
+
+        Args:
+            temp_c: Temperature in Celsius (-40 to 150)
+        """
+        payload = struct.pack("<h", temp_c)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_TEMPERATURE, payload=payload)
+
+    @staticmethod
+    def emu_set_digital_input(channel: int, state: bool) -> ProtocolFrame:
+        """
+        Set digital input state (emulator only).
+
+        Args:
+            channel: Digital input channel (0-19)
+            state: Input state (True=HIGH, False=LOW)
+        """
+        payload = struct.pack("<BB", channel, 1 if state else 0)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_DIGITAL_INPUT, payload=payload)
+
+    @staticmethod
+    def emu_set_output(channel: int, on: bool, pwm: int) -> ProtocolFrame:
+        """
+        Set output channel state (emulator only).
+
+        Args:
+            channel: Output channel (0-29)
+            on: Output state (True=ON, False=OFF)
+            pwm: PWM duty cycle (0-1000 = 0-100%)
+        """
+        payload = struct.pack("<BBH", channel, 1 if on else 0, pwm)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_OUTPUT, payload=payload)
+
+    @staticmethod
+    def emu_set_analog_input(channel: int, voltage_mv: int) -> ProtocolFrame:
+        """
+        Set analog input voltage (emulator only).
+
+        Args:
+            channel: Analog input channel (0-15)
+            voltage_mv: Voltage in millivolts (0-5000)
+        """
+        payload = struct.pack("<BH", channel, voltage_mv)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_ANALOG_INPUT, payload=payload)
 
 
 class FrameParser:

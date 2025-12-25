@@ -122,6 +122,13 @@ class TelemetryPacket:
     # Fault flags
     fault_flags: FaultFlags = FaultFlags.NONE
 
+    # Digital inputs (20 inputs as list of 0/1)
+    digital_inputs: list[int] = field(default_factory=lambda: [0] * 20)
+
+    # Virtual channels (logic, timer, switch, number, etc.)
+    # Dictionary mapping channel_id -> value
+    virtual_channels: dict[int, int] = field(default_factory=dict)
+
     @property
     def channel_states(self) -> list[ChannelState]:
         """Alias for profet_states for legacy code."""
@@ -248,7 +255,7 @@ class TelemetryPacket:
 
 
 # Telemetry packet format string for struct.unpack
-# Total size: 170 bytes (extended format with system fields)
+# Total size: 174 bytes (extended format with system fields)
 TELEMETRY_FORMAT = "<" + "".join([
     "I",      # timestamp_ms (4 bytes)
     "H",      # voltage_mv (2 bytes)
@@ -266,9 +273,10 @@ TELEMETRY_FORMAT = "<" + "".join([
     "h",      # flash_temp (2 bytes, signed)
     "I",      # system_status (4 bytes) - bit flags
     "I",      # fault_flags (4 bytes) - FaultFlags bitmask
+    "I",      # digital_inputs (4 bytes) - bitmask for 20 inputs
 ])
 
-TELEMETRY_PACKET_SIZE = 170
+TELEMETRY_PACKET_SIZE = 174
 
 
 def parse_telemetry(data: bytes) -> TelemetryPacket:
@@ -336,6 +344,28 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     idx += 1
 
     fault_flags_raw = values[idx]
+    idx += 1
+
+    # Digital inputs bitmask
+    digital_inputs_raw = values[idx]
+    digital_inputs = [(digital_inputs_raw >> i) & 1 for i in range(20)]
+
+    # Parse virtual channels if present (extended format)
+    virtual_channels = {}
+    remaining_data = data[TELEMETRY_PACKET_SIZE:]
+    if len(remaining_data) >= 2:
+        # Virtual channel count
+        virtual_count = struct.unpack("<H", remaining_data[:2])[0]
+        offset = 2
+
+        # Parse each virtual channel: id (2 bytes) + value (4 bytes) = 6 bytes each
+        for _ in range(virtual_count):
+            if offset + 6 <= len(remaining_data):
+                ch_id, ch_value = struct.unpack("<Hi", remaining_data[offset:offset + 6])
+                virtual_channels[ch_id] = ch_value
+                offset += 6
+            else:
+                break
 
     return TelemetryPacket(
         timestamp_ms=timestamp_ms,
@@ -353,6 +383,8 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
         flash_temp=flash_temp,
         system_status=system_status,
         fault_flags=FaultFlags(fault_flags_raw),
+        digital_inputs=digital_inputs,
+        virtual_channels=virtual_channels,
     )
 
 
@@ -368,6 +400,9 @@ def create_telemetry_bytes(packet: TelemetryPacket) -> bytes:
     Returns:
         Raw bytes representation
     """
+    # Convert digital_inputs list to bitmask
+    di_bitmask = sum((1 if v else 0) << i for i, v in enumerate(packet.digital_inputs[:20]))
+
     return struct.pack(
         TELEMETRY_FORMAT,
         packet.timestamp_ms,
@@ -386,6 +421,7 @@ def create_telemetry_bytes(packet: TelemetryPacket) -> bytes:
         packet.flash_temp,
         packet.system_status,
         packet.fault_flags.value if isinstance(packet.fault_flags, FaultFlags) else packet.fault_flags,
+        di_bitmask,
     )
 
 

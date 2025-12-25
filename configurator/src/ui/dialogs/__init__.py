@@ -1,6 +1,6 @@
 """Dialog classes for PMU-30 Configurator"""
 
-from .base_gpio_dialog import BaseGPIODialog
+from .base_channel_dialog import BaseChannelDialog
 from .digital_input_dialog import DigitalInputDialog
 from .analog_input_dialog import AnalogInputDialog
 from .logic_dialog import LogicDialog
@@ -25,9 +25,10 @@ from .hbridge_dialog import HBridgeDialog
 from .blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
 from .wifi_settings_dialog import WiFiSettingsDialog
 from .bluetooth_settings_dialog import BluetoothSettingsDialog
+from .handler_dialog import HandlerDialog
 
 __all__ = [
-    'BaseGPIODialog',
+    'BaseChannelDialog',
     'DigitalInputDialog',
     'AnalogInputDialog',
     'LogicDialog',
@@ -52,4 +53,5 @@ __all__ = [
     'BlinkMarineKeypadDialog',
     'WiFiSettingsDialog',
     'BluetoothSettingsDialog',
+    'HandlerDialog',
 ]

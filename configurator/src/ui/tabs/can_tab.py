@@ -1,8 +1,6 @@
 """
 CAN Bus Configuration Tab
 Two-level architecture: CAN Messages (Level 1) + CAN Inputs (Level 2)
-
-Based on Ecumaster PMU Client design pattern.
 """
 
 from PyQt6.QtWidgets import (

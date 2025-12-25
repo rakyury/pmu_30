@@ -50,8 +50,8 @@ class BlinkMarineKeypadDialog(QDialog):
         """Initialize UI components."""
         self.setWindowTitle("BlinkMarine CAN Keypad")
         self.setModal(True)
-        self.setMinimumSize(700, 500)
-        self.resize(800, 600)
+        self.setMinimumSize(750, 650)
+        self.resize(850, 750)
 
         layout = QVBoxLayout(self)
 
@@ -158,7 +158,7 @@ class BlinkMarineKeypadDialog(QDialog):
             "RX ID: Keypad sends button press/release events\n"
             "TX ID: PMU sends LED brightness/color commands"
         )
-        info_label.setStyleSheet("color: #666; font-style: italic;")
+        info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info_label)
 
         layout.addStretch()
@@ -203,6 +203,7 @@ class BlinkMarineKeypadDialog(QDialog):
 
         self.buttons_table.setColumnWidth(0, 60)
         self.buttons_table.verticalHeader().setVisible(False)
+        self.buttons_table.setMinimumHeight(300)  # Ensure table is tall enough for 16 buttons
         self.buttons_table.itemDoubleClicked.connect(self._on_button_edit)
 
         config_layout.addWidget(self.buttons_table)
@@ -278,7 +279,7 @@ class BlinkMarineKeypadDialog(QDialog):
             "LED colors are 8-bit RGB values.\n"
             "Some BlinkMarine models support full RGB, others only brightness."
         )
-        info_label.setStyleSheet("color: #666; font-style: italic;")
+        info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info_label)
 
         layout.addStretch()

@@ -195,7 +195,7 @@ class Table3DDialog(BaseChannelDialog):
 
         # Info label
         info = QLabel("Click 'Create Table' to generate axis values, then edit output values.")
-        info.setStyleSheet("color: #666; font-style: italic;")
+        info.setStyleSheet("color: #b0b0b0; font-style: italic;")
         main_layout.addWidget(info)
 
         table_group.setLayout(main_layout)
