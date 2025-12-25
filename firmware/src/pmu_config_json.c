@@ -2395,12 +2395,18 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     else if (strcmp(op, "and") == 0) config.operation = PMU_LOGIC_AND;
     else if (strcmp(op, "or") == 0) config.operation = PMU_LOGIC_OR;
     else if (strcmp(op, "xor") == 0) config.operation = PMU_LOGIC_XOR;
+    else if (strcmp(op, "not") == 0) config.operation = PMU_LOGIC_NOT;
+    else if (strcmp(op, "nand") == 0) config.operation = PMU_LOGIC_NAND;
+    else if (strcmp(op, "nor") == 0) config.operation = PMU_LOGIC_NOR;
+    else if (strcmp(op, "in_range") == 0) config.operation = PMU_LOGIC_IN_RANGE;
     else if (strcmp(op, "changed") == 0) config.operation = PMU_LOGIC_CHANGED;
     else if (strcmp(op, "hysteresis") == 0) config.operation = PMU_LOGIC_HYSTERESIS;
     else if (strcmp(op, "set_reset_latch") == 0) config.operation = PMU_LOGIC_SET_RESET_LATCH;
     else if (strcmp(op, "toggle") == 0) config.operation = PMU_LOGIC_TOGGLE;
     else if (strcmp(op, "pulse") == 0) config.operation = PMU_LOGIC_PULSE;
     else if (strcmp(op, "flash") == 0) config.operation = PMU_LOGIC_FLASH;
+    else if (strcmp(op, "rising_edge") == 0 || strcmp(op, "edge_rising") == 0) config.operation = PMU_LOGIC_EDGE_RISING;
+    else if (strcmp(op, "falling_edge") == 0 || strcmp(op, "edge_falling") == 0) config.operation = PMU_LOGIC_EDGE_FALLING;
 
     /* Channel inputs */
     const char* ch = JSON_GetString(channel_obj, "channel", "");
@@ -3368,13 +3374,18 @@ void PMU_LogicChannel_Update(void)
 
         bool result = false;
 
+        uint32_t now = HAL_GetTick();
+
         switch (cfg->operation) {
+            /* Basic boolean operations - C-style cast: value > 0 = true */
             case PMU_LOGIC_IS_TRUE:
                 result = (input1 > 0);
                 break;
             case PMU_LOGIC_IS_FALSE:
                 result = (input1 <= 0);
                 break;
+
+            /* Two-input logic operations */
             case PMU_LOGIC_AND:
                 result = (input1 > 0) && (input2 > 0);
                 break;
@@ -3384,24 +3395,203 @@ void PMU_LogicChannel_Update(void)
             case PMU_LOGIC_XOR:
                 result = ((input1 > 0) != (input2 > 0));
                 break;
+            case PMU_LOGIC_NOT:
+                result = (input1 <= 0);  /* Same as IS_FALSE */
+                break;
+            case PMU_LOGIC_NAND:
+                result = !((input1 > 0) && (input2 > 0));
+                break;
+            case PMU_LOGIC_NOR:
+                result = !((input1 > 0) || (input2 > 0));
+                break;
+
+            /* Comparison operations - constant in same units as channel */
             case PMU_LOGIC_EQUAL:
-                result = (input1 == (int32_t)(cfg->constant * 1000));
+                result = (input1 == (int32_t)cfg->constant);
                 break;
             case PMU_LOGIC_NOT_EQUAL:
-                result = (input1 != (int32_t)(cfg->constant * 1000));
+                result = (input1 != (int32_t)cfg->constant);
                 break;
             case PMU_LOGIC_LESS:
-                result = (input1 < (int32_t)(cfg->constant * 1000));
+                result = (input1 < (int32_t)cfg->constant);
                 break;
             case PMU_LOGIC_GREATER:
-                result = (input1 > (int32_t)(cfg->constant * 1000));
+                result = (input1 > (int32_t)cfg->constant);
                 break;
             case PMU_LOGIC_LESS_EQUAL:
-                result = (input1 <= (int32_t)(cfg->constant * 1000));
+                result = (input1 <= (int32_t)cfg->constant);
                 break;
             case PMU_LOGIC_GREATER_EQUAL:
-                result = (input1 >= (int32_t)(cfg->constant * 1000));
+                result = (input1 >= (int32_t)cfg->constant);
                 break;
+
+            /* IN_RANGE: True when lower <= input <= upper */
+            case PMU_LOGIC_IN_RANGE: {
+                int32_t lower = (int32_t)cfg->lower_value;
+                int32_t upper = (int32_t)cfg->upper_value;
+                result = (input1 >= lower && input1 <= upper);
+                break;
+            }
+
+            /* CHANGED: Output true when input changes by threshold amount */
+            case PMU_LOGIC_CHANGED: {
+                int32_t diff = input1 - rt->prev_input_value;
+                if (diff < 0) diff = -diff;  /* abs */
+                if (diff >= (int32_t)cfg->threshold) {
+                    /* Value changed by threshold - start output timer */
+                    rt->delay_start_ms = now;
+                    rt->delay_active = true;
+                }
+                /* Output stays true for time_on_s after change detected */
+                if (rt->delay_active) {
+                    uint32_t time_on_ms = (uint32_t)(cfg->time_on_s * 1000);
+                    if (now - rt->delay_start_ms < time_on_ms) {
+                        result = true;
+                    } else {
+                        rt->delay_active = false;
+                    }
+                }
+                break;
+            }
+
+            /* HYSTERESIS: Turn on above upper, off below lower */
+            case PMU_LOGIC_HYSTERESIS: {
+                int32_t upper = (int32_t)cfg->upper_value;
+                int32_t lower = (int32_t)cfg->lower_value;
+                if (cfg->polarity == PMU_POLARITY_NORMAL) {
+                    /* Normal: output ON when input >= upper, OFF when input <= lower */
+                    if (input1 >= upper) {
+                        rt->latch_state = true;
+                    } else if (input1 <= lower) {
+                        rt->latch_state = false;
+                    }
+                } else {
+                    /* Inverted: output OFF when input >= upper, ON when input <= lower */
+                    if (input1 >= upper) {
+                        rt->latch_state = false;
+                    } else if (input1 <= lower) {
+                        rt->latch_state = true;
+                    }
+                }
+                result = rt->latch_state;
+                break;
+            }
+
+            /* SET_RESET_LATCH: SR flip-flop */
+            case PMU_LOGIC_SET_RESET_LATCH: {
+                int32_t set_val = GetInputChannelValue(cfg->set_channel);
+                int32_t reset_val = GetInputChannelValue(cfg->reset_channel);
+                /* Set has priority over reset */
+                if (set_val > 0 && rt->prev_input_value <= 0) {
+                    /* Rising edge on set */
+                    rt->latch_state = true;
+                } else if (reset_val > 0 && rt->prev_input2_value <= 0) {
+                    /* Rising edge on reset */
+                    rt->latch_state = false;
+                }
+                result = rt->latch_state;
+                /* Store set/reset for edge detection */
+                rt->prev_input_value = set_val;
+                rt->prev_input2_value = reset_val;
+                break;
+            }
+
+            /* TOGGLE: Toggle output on edge of toggle channel */
+            case PMU_LOGIC_TOGGLE: {
+                int32_t toggle_val = GetInputChannelValue(cfg->toggle_channel);
+                int32_t set_val = GetInputChannelValue(cfg->set_channel);
+                int32_t reset_val = GetInputChannelValue(cfg->reset_channel);
+
+                /* Check for set/reset override */
+                if (set_val > 0) {
+                    rt->latch_state = true;
+                } else if (reset_val > 0) {
+                    rt->latch_state = false;
+                } else {
+                    /* Check for toggle edge */
+                    bool edge_detected = false;
+                    if (cfg->edge == PMU_EDGE_RISING) {
+                        edge_detected = (toggle_val > 0 && rt->prev_input_value <= 0);
+                    } else {
+                        edge_detected = (toggle_val <= 0 && rt->prev_input_value > 0);
+                    }
+                    if (edge_detected) {
+                        rt->latch_state = !rt->latch_state;
+                    }
+                }
+                result = rt->latch_state;
+                rt->prev_input_value = toggle_val;
+                break;
+            }
+
+            /* PULSE: Generate pulse(s) on trigger edge */
+            case PMU_LOGIC_PULSE: {
+                bool edge_detected = false;
+                if (cfg->edge == PMU_EDGE_RISING) {
+                    edge_detected = (input1 > 0 && rt->prev_input_value <= 0);
+                } else {
+                    edge_detected = (input1 <= 0 && rt->prev_input_value > 0);
+                }
+
+                if (edge_detected) {
+                    if (!rt->delay_active || cfg->retrigger) {
+                        rt->delay_start_ms = now;
+                        rt->delay_active = true;
+                    }
+                }
+
+                if (rt->delay_active) {
+                    uint32_t time_on_ms = (uint32_t)(cfg->time_on_s * 1000);
+                    uint32_t total_time = time_on_ms * cfg->pulse_count;
+                    uint32_t elapsed = now - rt->delay_start_ms;
+
+                    if (elapsed < total_time) {
+                        /* Which pulse are we in? */
+                        uint32_t pulse_idx = elapsed / time_on_ms;
+                        /* First half of each pulse is ON */
+                        uint32_t within_pulse = elapsed % time_on_ms;
+                        result = (within_pulse < time_on_ms / 2);
+                    } else {
+                        rt->delay_active = false;
+                    }
+                }
+                break;
+            }
+
+            /* FLASH: Periodic on/off when input is true */
+            case PMU_LOGIC_FLASH: {
+                if (input1 > 0) {
+                    uint32_t time_on_ms = (uint32_t)(cfg->time_on_s * 1000);
+                    uint32_t time_off_ms = (uint32_t)(cfg->time_off_s * 1000);
+                    uint32_t period = time_on_ms + time_off_ms;
+
+                    if (period > 0) {
+                        uint32_t elapsed = now - rt->flash_last_toggle;
+                        uint32_t threshold = rt->flash_state ? time_on_ms : time_off_ms;
+
+                        if (elapsed >= threshold) {
+                            rt->flash_state = !rt->flash_state;
+                            rt->flash_last_toggle = now;
+                        }
+                        result = rt->flash_state;
+                    }
+                } else {
+                    rt->flash_state = false;
+                    rt->flash_last_toggle = now;
+                }
+                break;
+            }
+
+            /* EDGE_RISING: One-shot pulse on 0->1 transition */
+            case PMU_LOGIC_EDGE_RISING:
+                result = (input1 > 0 && rt->prev_input_value <= 0);
+                break;
+
+            /* EDGE_FALLING: One-shot pulse on 1->0 transition */
+            case PMU_LOGIC_EDGE_FALLING:
+                result = (input1 <= 0 && rt->prev_input_value > 0);
+                break;
+
             default:
                 result = false;
                 break;
@@ -3410,8 +3600,13 @@ void PMU_LogicChannel_Update(void)
         int32_t new_value = result ? 1000 : 0;
         rt->output_value = new_value;
         PMU_Channel_SetValue(rt->channel_id, new_value);
-        rt->prev_input_value = input1;
-        rt->prev_input2_value = input2;
+
+        /* Store prev values for operations that don't override them */
+        if (cfg->operation != PMU_LOGIC_SET_RESET_LATCH &&
+            cfg->operation != PMU_LOGIC_TOGGLE) {
+            rt->prev_input_value = input1;
+            rt->prev_input2_value = input2;
+        }
     }
 #endif
 }

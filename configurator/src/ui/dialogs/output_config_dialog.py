@@ -26,9 +26,9 @@ class OutputConfigDialog(QDialog):
         self.available_channels = available_channels or {}  # Dict of (channel_id, name) tuples
         self.existing_channels = existing_channels or []
 
-        # Store selected channel IDs (numeric)
-        self._source_channel_id = None  # For control function
-        self._duty_channel_id = None    # For PWM duty source
+        # Store selected channel IDs (can be numeric int or string ID)
+        self._source_channel_id = None  # For control function (int or str)
+        self._duty_channel_id = None    # For PWM duty source (int or str)
 
         # Determine if editing existing or creating new
         self.is_edit_mode = bool(output_config and output_config.get("channel_id") is not None)
@@ -479,18 +479,19 @@ class OutputConfigDialog(QDialog):
             if index >= 0:
                 self.pin3_combo.setCurrentIndex(index)
 
-        # Control settings - source_channel can be numeric (new) or string (legacy)
+        # Control settings - source_channel can be numeric (int) or string (channel ID)
+        # Both formats are valid: int for numeric channel_id, str for string channel IDs
+        # like 'Timer_7', 'one', 'zero', etc.
         source_channel = config.get("source_channel", config.get("control_function"))
         if source_channel is not None:
+            self._source_channel_id = source_channel  # Store as-is (int or str)
             if isinstance(source_channel, int):
-                # Numeric channel_id - store and find name for display
-                self._source_channel_id = source_channel
+                # Numeric channel ID - look up display name
                 display_name = self._get_channel_name_by_id(source_channel)
                 self.control_function_edit.setText(display_name if display_name else str(source_channel))
             else:
-                # Legacy string format - display as-is
+                # String channel ID - display as-is
                 self.control_function_edit.setText(str(source_channel))
-                self._source_channel_id = None  # Can't determine numeric ID from string
         else:
             self.control_function_edit.setText("")
             self._source_channel_id = None
@@ -524,13 +525,13 @@ class OutputConfigDialog(QDialog):
         duty_channel = pwm.get("duty_function", config.get("duty_channel"))
         self.pwm_duty_spin.setValue(duty_value)
         if duty_channel is not None:
+            self._duty_channel_id = duty_channel  # Store as-is (int or str)
             if isinstance(duty_channel, int):
-                self._duty_channel_id = duty_channel
                 display_name = self._get_channel_name_by_id(duty_channel)
                 self.duty_function_edit.setText(display_name if display_name else str(duty_channel))
             else:
-                self.duty_function_edit.setText(str(duty_channel) if duty_channel else "")
-                self._duty_channel_id = None
+                # String channel ID - display as-is
+                self.duty_function_edit.setText(str(duty_channel))
         else:
             self.duty_function_edit.setText("")
             self._duty_channel_id = None
@@ -573,12 +574,12 @@ class OutputConfigDialog(QDialog):
             "pins": pins,
             "name": name,
             "id": name,  # String name for display
-            "source_channel": self._source_channel_id,  # Numeric channel_id for firmware
+            "source_channel": self._source_channel_id,  # Channel ID (int or str) for firmware
             # Flat format fields for model compatibility
             "pwm_enabled": pwm_enabled,
             "pwm_frequency_hz": pwm_freq,
             "duty_fixed": duty_value,
-            "duty_channel": self._duty_channel_id,  # Numeric channel_id for firmware
+            "duty_channel": self._duty_channel_id,  # Channel ID (int or str) for firmware
             "soft_start_ms": soft_start_ms,
             "current_limit_a": self.current_limit_spin.value(),
             "inrush_current_a": self.inrush_current_spin.value(),
@@ -599,7 +600,7 @@ class OutputConfigDialog(QDialog):
                 "enabled": pwm_enabled,
                 "frequency": pwm_freq,
                 "duty_value": duty_value,
-                "duty_function": self._duty_channel_id,  # Numeric channel_id
+                "duty_function": self._duty_channel_id,  # Channel ID (int or str)
                 "soft_start_enabled": soft_start_enabled,
                 "soft_start_duration_ms": self.soft_start_duration_spin.value()
             }

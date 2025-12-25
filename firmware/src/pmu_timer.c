@@ -556,10 +556,9 @@ static void UpdateTimerChannelValues(PMU_TimerState_t* timer)
         PMU_Channel_SetValue(timer->running_channel_id, timer->running ? 1 : 0);
     }
 
-    /* Update elapsed channel (also seconds, same as value for now) */
+    /* Update elapsed channel (milliseconds - raw internal value) */
     if (timer->elapsed_channel_id) {
-        int32_t elapsed_seconds = (int32_t)(timer->elapsed_ms / 1000);
-        PMU_Channel_SetValue(timer->elapsed_channel_id, elapsed_seconds);
+        PMU_Channel_SetValue(timer->elapsed_channel_id, (int32_t)timer->elapsed_ms);
     }
 }
 

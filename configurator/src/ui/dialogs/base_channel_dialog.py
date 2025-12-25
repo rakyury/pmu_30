@@ -260,7 +260,7 @@ class BaseChannelDialog(QDialog):
                 target_edit.setProperty("channel_id", None)
 
     def _get_channel_display_name(self, channel_id) -> str:
-        """Get display name for a channel by its ID (numeric or string)."""
+        """Get display name for a channel by its string ID."""
         if not self.available_channels:
             return str(channel_id)
 

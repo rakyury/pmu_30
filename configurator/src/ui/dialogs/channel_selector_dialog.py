@@ -272,9 +272,10 @@ class ChannelSelectorDialog(QDialog):
             if channel_type and channels:
                 for ch in channels:
                     if isinstance(ch, tuple) and len(ch) == 2:
-                        # New format: (channel_id: int, name: str)
-                        numeric_id, display_name = ch
-                        self.all_channels.append((channel_type, numeric_id, display_name))
+                        # Channel format: (string_id: str, display_name: str)
+                        # string_id is the channel's 'id' field for firmware references
+                        channel_id, display_name = ch
+                        self.all_channels.append((channel_type, channel_id, display_name))
                     elif isinstance(ch, str):
                         # Old format: string name (backwards compat, use string as ID)
                         self.all_channels.append((channel_type, ch, ch))
@@ -521,7 +522,7 @@ class ChannelSelectorDialog(QDialog):
         self._on_selection_changed()
 
     def get_selected_channel(self) -> Any:
-        """Get selected channel_id (numeric int or string for backwards compat)."""
+        """Get selected channel_id (string 'id' field for firmware references)."""
         if self.tree:
             items = self.tree.selectedItems()
             if items:
@@ -543,14 +544,14 @@ class ChannelSelectorDialog(QDialog):
 
         Args:
             parent: Parent widget
-            current_channel: Currently selected channel_id (int or str)
-            channels_data: Dict mapping category to list of (channel_id, name) tuples
+            current_channel: Currently selected channel_id (string)
+            channels_data: Dict mapping category to list of (string_id, name) tuples
             show_tree: Show tree view or flat list
             exclude_channel: Channel ID to exclude from selection (prevents self-reference)
 
         Returns:
             Tuple of (accepted: bool, channel_id_or_none)
-            - (True, channel_id) - User selected a channel
+            - (True, string_id) - User selected a channel (string 'id' for firmware)
             - (True, None) - User cleared selection (pressed Clear + OK)
             - (False, None) - User cancelled dialog
         """

@@ -23,6 +23,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] - 2025-12-25
+
+### Added
+- **Logic Operations**: Full implementation of all logic operations in firmware:
+  - Basic: IS_TRUE, IS_FALSE, AND, OR, XOR, NOT, NAND, NOR
+  - Comparison: EQUAL, NOT_EQUAL, LESS, GREATER, LESS_EQUAL, GREATER_EQUAL
+  - Range: IN_RANGE (lower <= value <= upper)
+  - Stateful: HYSTERESIS, SET_RESET_LATCH, TOGGLE, FLASH, PULSE, CHANGED
+  - Edge detection: EDGE_RISING, EDGE_FALLING (one-shot pulse on transitions)
+
+### Changed
+- **Channel references**: Now use string IDs (e.g., "Timer_7") instead of numeric channel_id for firmware compatibility
+- **Comparison constants**: Removed x1000 scaling - constants are now in same units as channel values:
+  - Timer elapsed in ms → constant in ms
+  - Analog input in mV → constant in mV
+  - Logic output as 0/1000 → constant as 0 or 1000
+- **Timer elapsed**: Now outputs raw milliseconds (was incorrectly outputting seconds)
+
+### Fixed
+- Logic functions (IS_TRUE, IS_GREATER, etc.) not working with timer channels
+- Timer elapsed channel comparison with constants (e.g., "elapsed > 100ms")
+- Channel selector returning numeric IDs instead of string IDs for firmware
+
+---
+
 ## [1.0.0] - 2024-12-XX
 
 ### Added

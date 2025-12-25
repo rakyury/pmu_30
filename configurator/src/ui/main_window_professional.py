@@ -889,17 +889,19 @@ class MainWindowProfessional(QMainWindow):
     def _get_available_channels(self) -> dict:
         """Get all available channels for selection organized by Channel type.
 
-        Returns dict with lists of tuples: (channel_id: int, name: str)
-        where channel_id is the numeric ID used for firmware references.
+        Returns dict with lists of tuples: (string_id: str, display_name: str)
+        where string_id is the channel's 'id' field used for firmware references.
+        The firmware expects string channel names like "Timer_7", not numeric IDs.
         """
         def get_channel_info(ch):
-            """Extract (channel_id, display_name) from channel config."""
-            ch_id = ch.get("channel_id", 0)
-            name = ch.get("name", ch.get("id", f"Channel {ch_id}"))
-            return (ch_id, name)
+            """Extract (string_id, display_name) from channel config."""
+            # Use string 'id' field for firmware references, not numeric channel_id
+            string_id = ch.get("id", ch.get("name", ""))
+            display_name = ch.get("name", string_id)
+            return (string_id, display_name)
 
         channels = {
-            # Channel format - lists of (channel_id, name) tuples
+            # Channel format - lists of (string_id, display_name) tuples
             "digital_inputs": [],
             "analog_inputs": [],
             "power_outputs": [],
