@@ -2,12 +2,31 @@
 
 Power Management Unit Configuration and Emulation Suite for desktop development and testing.
 
+## Installation
+
+**IMPORTANT:** This release requires the full PMU-30 project structure.
+
+Extract the ZIP contents to the `releases/` folder of your PMU-30 project:
+
+```
+pmu_30/
+  ├── releases/           <-- Extract here
+  │     ├── PMU30_Desktop_Suite.bat
+  │     ├── pmu30_emulator.exe
+  │     └── README.md
+  ├── configurator/
+  │     └── src/
+  │           └── main.py
+  └── firmware/
+```
+
 ## Quick Start
 
 ### Option 1: Batch Launcher (Recommended)
-1. Double-click `PMU30_Desktop_Suite.bat`
-2. Both emulator and configurator will start automatically
-3. Configurator will auto-connect to the emulator
+1. Extract ZIP to `pmu_30/releases/` folder
+2. Double-click `PMU30_Desktop_Suite.bat`
+3. Both emulator and configurator will start automatically
+4. Configurator will auto-connect to the emulator
 
 ### Option 2: Manual Launch
 1. Run `pmu30_emulator.exe` first
