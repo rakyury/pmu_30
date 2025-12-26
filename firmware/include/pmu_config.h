@@ -191,12 +191,12 @@ typedef struct {
     /* Button function mode (ECUMaster compatible) */
     PMU_ButtonMode_t button_mode;
     uint16_t long_press_ms;         /* Long press threshold */
-    char long_press_output[PMU_CHANNEL_ID_LEN];  /* Separate long press output */
+    uint16_t long_press_output_id;  /* Separate long press output (channel_id, 0 = none) */
     uint16_t double_click_ms;       /* Double click window */
-    char double_click_output[PMU_CHANNEL_ID_LEN]; /* Separate double click output */
+    uint16_t double_click_output_id; /* Separate double click output (channel_id, 0 = none) */
     uint16_t hold_start_ms;         /* Press and hold start time */
     uint16_t hold_full_ms;          /* Press and hold full time */
-    char reset_channel[PMU_CHANNEL_ID_LEN]; /* Reset channel for latch/toggle */
+    uint16_t reset_channel_id;      /* Reset channel for latch/toggle (channel_id, 0 = none) */
 } PMU_DigitalInputConfig_t;
 
 /* ============================================================================
@@ -446,7 +446,7 @@ typedef struct {
     PMU_CanDataType_t data_type;        /**< Data type */
     PMU_CanDataFormat_t data_format;    /**< Data format */
     bool little_endian;                 /**< Byte order */
-    char source_channel[PMU_CHANNEL_ID_LEN];  /**< Source channel ID */
+    uint16_t source_channel_id;              /**< Source channel ID (0 = none) */
     float multiplier;                   /**< Scale multiplier */
 } PMU_CanTxSignalV3_t;
 
@@ -461,7 +461,7 @@ typedef struct {
     /* Transmission mode */
     PMU_CanTxMode_t transmit_mode;      /**< Cycle or Triggered */
     uint16_t cycle_frequency_hz;        /**< Cycle frequency (cycle mode) */
-    char trigger_channel[PMU_CHANNEL_ID_LEN];  /**< Trigger channel (triggered mode) */
+    uint16_t trigger_channel_id;               /**< Trigger channel ID (triggered mode, 0 = none) */
     PMU_EdgeType_t trigger_edge;        /**< Trigger edge */
     /* Signals */
     uint8_t signal_count;
@@ -523,22 +523,27 @@ typedef struct {
     char motor_preset[16];          /* Motor preset (wiper/window/seat/valve/pump/custom) */
 
     /* Control sources */
-    char source_channel[32];        /* Activation source channel */
-    char direction_source_channel[32]; /* Direction source channel */
+    char source_channel[32];        /* Activation source channel (legacy) */
+    uint16_t source_channel_id;             /* Activation source channel ID */
+    char direction_source_channel[32]; /* Direction source channel (legacy) */
+    uint16_t direction_source_channel_id;   /* Direction source channel ID */
     bool invert_direction;          /* Invert direction logic */
 
     /* PWM control */
     PMU_HBridge_PwmMode_t pwm_mode; /* PWM source mode */
     uint16_t pwm_frequency;         /* PWM frequency in Hz (1000/4000/10000/20000) */
     uint8_t pwm_value;              /* Fixed PWM value (0-255) */
-    char pwm_source_channel[32];    /* PWM source channel */
+    char pwm_source_channel[32];    /* PWM source channel (legacy) */
+    uint16_t pwm_source_channel_id;         /* PWM source channel ID */
     uint8_t duty_limit_percent;     /* Max duty cycle (0-100%) */
 
     /* Position control */
     bool position_feedback_enabled; /* Enable position feedback */
-    char position_source_channel[32]; /* Position feedback source */
+    char position_source_channel[32]; /* Position feedback source (legacy) */
+    uint16_t position_source_channel_id;    /* Position feedback source ID */
     uint16_t target_position;       /* Fixed target position */
-    char target_source_channel[32]; /* Target position source */
+    char target_source_channel[32]; /* Target position source (legacy) */
+    uint16_t target_source_channel_id;      /* Target position source ID */
     uint16_t position_min;          /* Minimum position value */
     uint16_t position_max;          /* Maximum position value */
     uint16_t position_deadband;     /* Position tolerance */

@@ -788,11 +788,13 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         if (item && cJSON_IsString(item)) {
             strncpy(config.source_channel, item->valuestring, sizeof(config.source_channel) - 1);
         }
+        config.source_channel_id = JSON_GetChannelRef(hb, "source_channel");
 
         item = cJSON_GetObjectItem(hb, "direction_source_channel");
         if (item && cJSON_IsString(item)) {
             strncpy(config.direction_source_channel, item->valuestring, sizeof(config.direction_source_channel) - 1);
         }
+        config.direction_source_channel_id = JSON_GetChannelRef(hb, "direction_source_channel");
 
         item = cJSON_GetObjectItem(hb, "invert_direction");
         config.invert_direction = item ? cJSON_IsTrue(item) : false;
@@ -815,6 +817,7 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         if (item && cJSON_IsString(item)) {
             strncpy(config.pwm_source_channel, item->valuestring, sizeof(config.pwm_source_channel) - 1);
         }
+        config.pwm_source_channel_id = JSON_GetChannelRef(hb, "pwm_source_channel");
 
         item = cJSON_GetObjectItem(hb, "duty_limit_percent");
         config.duty_limit_percent = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 100;
@@ -827,6 +830,7 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         if (item && cJSON_IsString(item)) {
             strncpy(config.position_source_channel, item->valuestring, sizeof(config.position_source_channel) - 1);
         }
+        config.position_source_channel_id = JSON_GetChannelRef(hb, "position_source_channel");
 
         item = cJSON_GetObjectItem(hb, "target_position");
         config.target_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
@@ -835,6 +839,7 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         if (item && cJSON_IsString(item)) {
             strncpy(config.target_source_channel, item->valuestring, sizeof(config.target_source_channel) - 1);
         }
+        config.target_source_channel_id = JSON_GetChannelRef(hb, "target_source_channel");
 
         item = cJSON_GetObjectItem(hb, "position_min");
         config.position_min = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
@@ -2283,6 +2288,23 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
     config.divider = JSON_GetFloat(channel_obj, "divider", 1.0f);
     config.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", 1000);
     config.number_of_teeth = (uint16_t)JSON_GetInt(channel_obj, "number_of_teeth", 1);
+/* Button function mode (ECUMaster compatible) */
+    const char* btn_mode = JSON_GetString(channel_obj, "button_mode", "none");
+    if (strcmp(btn_mode, "none") == 0) config.button_mode = PMU_BUTTON_MODE_DIRECT;
+    else if (strcmp(btn_mode, "long_press") == 0) config.button_mode = PMU_BUTTON_MODE_LONG_PRESS;
+    else if (strcmp(btn_mode, "double_click") == 0) config.button_mode = PMU_BUTTON_MODE_DOUBLE_CLICK;
+    else if (strcmp(btn_mode, "toggle") == 0) config.button_mode = PMU_BUTTON_MODE_TOGGLE;
+    else if (strcmp(btn_mode, "latching") == 0) config.button_mode = PMU_BUTTON_MODE_LATCHING;
+    else if (strcmp(btn_mode, "press_hold") == 0) config.button_mode = PMU_BUTTON_MODE_PRESS_AND_HOLD;
+    else config.button_mode = PMU_BUTTON_MODE_DIRECT;
+
+    config.long_press_ms = (uint16_t)JSON_GetInt(channel_obj, "long_press_ms", 500);
+    config.long_press_output_id = JSON_GetChannelRef(channel_obj, "long_press_output");
+    config.double_click_ms = (uint16_t)JSON_GetInt(channel_obj, "double_click_ms", 300);
+    config.double_click_output_id = JSON_GetChannelRef(channel_obj, "double_click_output");
+    config.hold_start_ms = (uint16_t)JSON_GetInt(channel_obj, "hold_start_ms", 500);
+    config.hold_full_ms = (uint16_t)JSON_GetInt(channel_obj, "hold_full_ms", 2000);
+    config.reset_channel_id = JSON_GetChannelRef(channel_obj, "reset_channel");
 
     /* Register digital input channel */
     uint8_t pin = config.input_pin;
@@ -3385,7 +3407,10 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
     config.is_extended = JSON_GetBool(channel_obj, "is_extended", false);
     config.cycle_time_ms = (uint16_t)JSON_GetInt(channel_obj, "cycle_time_ms", 100);
 
-    /* Signals array */
+    /* Trigger channel for triggered mode */
+    config.trigger_channel_id = JSON_GetChannelRef(channel_obj, "trigger_channel");
+
+    /* Signals array (v3.0 format with numeric channel IDs) */
     cJSON* signals = cJSON_GetObjectItem(channel_obj, "signals");
     if (signals && cJSON_IsArray(signals)) {
         int sig_count = cJSON_GetArraySize(signals);
@@ -3395,15 +3420,45 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
         for (int i = 0; i < config.signal_count; i++) {
             cJSON* sig = cJSON_GetArrayItem(signals, i);
             if (sig && cJSON_IsObject(sig)) {
-                const char* src = JSON_GetString(sig, "source_channel", "");
-                strncpy(config.signals[i].source_channel, src, PMU_CHANNEL_ID_LEN - 1);
-
-                config.signals[i].start_bit = (uint8_t)JSON_GetInt(sig, "start_bit", 0);
-                config.signals[i].length = (uint8_t)JSON_GetInt(sig, "length", 8);
+                /* Use numeric channel ID (v3.0) */
+                config.signals_v3[i].source_channel_id = JSON_GetChannelRef(sig, "source_channel");
+                config.signals_v3[i].byte_offset = (uint8_t)JSON_GetInt(sig, "byte_offset", 0);
+                config.signals_v3[i].multiplier = JSON_GetFloat(sig, "multiplier", 1.0f);
 
                 const char* order = JSON_GetString(sig, "byte_order", "little_endian");
-                config.signals[i].little_endian = (strcmp(order, "little_endian") == 0);
+                config.signals_v3[i].little_endian = (strcmp(order, "little_endian") == 0);
 
+                /* Data type (signed/unsigned) and format (size) */
+                const char* dt = JSON_GetString(sig, "data_type", "int16");
+                if (strcmp(dt, "int8") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_8BIT;
+                } else if (strcmp(dt, "uint8") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_8BIT;
+                } else if (strcmp(dt, "int16") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
+                } else if (strcmp(dt, "uint16") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
+                } else if (strcmp(dt, "int32") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_32BIT;
+                } else if (strcmp(dt, "uint32") == 0) {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_32BIT;
+                } else {
+                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
+                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
+                }
+
+                /* Legacy signals compatibility */
+                const char* src = JSON_GetString(sig, "source_channel", "");
+                strncpy(config.signals[i].source_channel, src, PMU_CHANNEL_ID_LEN - 1);
+                config.signals[i].start_bit = (uint8_t)JSON_GetInt(sig, "start_bit", 0);
+                config.signals[i].length = (uint8_t)JSON_GetInt(sig, "length", 8);
+                config.signals[i].little_endian = config.signals_v3[i].little_endian;
                 config.signals[i].factor = JSON_GetFloat(sig, "factor", 1.0f);
                 config.signals[i].offset = JSON_GetFloat(sig, "offset", 0.0f);
             }
