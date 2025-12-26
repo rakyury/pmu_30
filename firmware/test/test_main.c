@@ -20,6 +20,7 @@ extern int test_config_json_main(void);
 extern int test_logic_ext_main(void);
 extern int test_profet_main(void);
 extern int test_adc_main(void);
+extern int test_timer_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -83,6 +84,9 @@ int main(int argc, char** argv)
 
     printf("\nRunning ADC Input Tests...\n");
     result += test_adc_main();
+
+    printf("\nRunning Timer Tests...\n");
+    result += test_timer_main();
 
     /* Print summary */
     print_test_summary();
