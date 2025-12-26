@@ -15,6 +15,7 @@ from PyQt6.QtGui import QColor
 from typing import List, Dict, Any, Optional
 
 from models.channel import ChannelType
+from models.channel_display_service import ChannelDisplayService
 
 
 class ChannelSelectorDialog(QDialog):
@@ -68,41 +69,9 @@ class ChannelSelectorDialog(QDialog):
         }
     }
 
-    # Predefined system channels with numeric IDs (from firmware pmu_channel.h)
-    # Format: (channel_id: int, string_name: str, display_name: str)
-    SYSTEM_CHANNELS = [
-        # Constant values (always return 0 or 1)
-        (1012, "zero", "Zero (constant 0)"),
-        (1013, "one", "One (constant 1)"),
-
-        # PMU System channels (1000-1011)
-        (1000, "pmu.batteryVoltage", "Battery Voltage (mV)"),
-        (1001, "pmu.totalCurrent", "Total Current (mA)"),
-        (1002, "pmu.mcuTemperature", "MCU Temperature (°C)"),
-        (1003, "pmu.boardTemperatureL", "Board Temperature L (°C)"),
-        (1004, "pmu.boardTemperatureR", "Board Temperature R (°C)"),
-        (1005, "pmu.boardTemperatureMax", "Board Temperature Max (°C)"),
-        (1006, "pmu.uptime", "Uptime (s)"),
-        (1007, "pmu.status", "System Status"),
-        (1008, "pmu.userError", "User Error"),
-        (1009, "pmu.5VOutput", "5V Output (mV)"),
-        (1010, "pmu.3V3Output", "3.3V Output (mV)"),
-        (1011, "pmu.isTurningOff", "Is Turning Off"),
-
-        # RTC channels (1020-1027)
-        (1020, "pmu.rtc.time", "RTC Time"),
-        (1021, "pmu.rtc.date", "RTC Date"),
-        (1022, "pmu.rtc.hour", "RTC Hour"),
-        (1023, "pmu.rtc.minute", "RTC Minute"),
-        (1024, "pmu.rtc.second", "RTC Second"),
-        (1025, "pmu.rtc.day", "RTC Day"),
-        (1026, "pmu.rtc.month", "RTC Month"),
-        (1027, "pmu.rtc.year", "RTC Year"),
-
-        # Serial number channels (1030-1031)
-        (1030, "pmu.serialNumber.high", "Serial Number (high)"),
-        (1031, "pmu.serialNumber.low", "Serial Number (low)"),
-    ]
+    # System channels are now defined in ChannelDisplayService (single source of truth)
+    # This property provides backward compatibility for existing code
+    SYSTEM_CHANNELS = ChannelDisplayService.SYSTEM_CHANNELS
 
     # PMU Hardware analog input sub-properties
     ANALOG_INPUT_SUBCHANNELS = [
@@ -703,8 +672,8 @@ class ChannelSelectorDialog(QDialog):
     def get_system_channel_name(channel_id: int) -> Optional[str]:
         """Get string_name for a system channel by its numeric ID.
 
-        This is the central lookup for resolving numeric system channel IDs
-        to their human-readable string names (e.g., 1007 -> "pmu.status").
+        Delegates to ChannelDisplayService for centralized lookup.
+        Kept for backward compatibility.
 
         Args:
             channel_id: Numeric channel ID
@@ -712,56 +681,14 @@ class ChannelSelectorDialog(QDialog):
         Returns:
             String name (e.g., "pmu.status") or None if not a system channel
         """
-        if channel_id is None:
-            return None
-
-        # Check predefined system channels
-        for ch_id, str_name, display_name in ChannelSelectorDialog.SYSTEM_CHANNELS:
-            if ch_id == channel_id:
-                return str_name
-
-        # Hardware analog input channels (1220-1239)
-        if 1220 <= channel_id <= 1239:
-            idx = channel_id - 1220 + 1
-            return f"pmu.a{idx}.voltage"
-
-        # Hardware digital input channels (0-19)
-        if 0 <= channel_id <= 19:
-            return f"pmu.d{channel_id + 1}.state"
-
-        # Output status sub-channels (1100-1129)
-        if 1100 <= channel_id <= 1129:
-            idx = channel_id - 1100 + 1
-            return f"pmu.o{idx}.status"
-
-        # Output current sub-channels (1130-1159)
-        if 1130 <= channel_id <= 1159:
-            idx = channel_id - 1130 + 1
-            return f"pmu.o{idx}.current"
-
-        # Output voltage sub-channels (1160-1189)
-        if 1160 <= channel_id <= 1189:
-            idx = channel_id - 1160 + 1
-            return f"pmu.o{idx}.voltage"
-
-        # Output active sub-channels (1190-1219)
-        if 1190 <= channel_id <= 1219:
-            idx = channel_id - 1190 + 1
-            return f"pmu.o{idx}.active"
-
-        # Output duty cycle sub-channels (1250-1279)
-        if 1250 <= channel_id <= 1279:
-            idx = channel_id - 1250 + 1
-            return f"pmu.o{idx}.dutyCycle"
-
-        return None
+        return ChannelDisplayService.get_system_channel_name(channel_id)
 
     @staticmethod
     def get_channel_display_name(channel_id, available_channels: Optional[Dict[str, List]] = None) -> str:
         """Get display name for any channel (user or system).
 
-        This is the universal lookup for resolving channel_id to display name.
-        Use this in any dialog that needs to display a channel name.
+        Delegates to ChannelDisplayService for centralized lookup.
+        Kept for backward compatibility.
 
         Args:
             channel_id: Channel ID (numeric int or string)
@@ -770,38 +697,7 @@ class ChannelSelectorDialog(QDialog):
         Returns:
             Display name string (e.g., "FuelLevel", "pmu.status") or "#{id}" fallback
         """
-        if channel_id is None or channel_id == "":
-            return ""
-
-        # Normalize to int if possible
-        numeric_id = None
-        if isinstance(channel_id, int):
-            numeric_id = channel_id
-        elif isinstance(channel_id, str):
-            clean_id = channel_id.lstrip('#').strip()
-            if clean_id.isdigit():
-                numeric_id = int(clean_id)
-
-        # 1. Search user channels in available_channels
-        if available_channels:
-            for category, channels in available_channels.items():
-                for ch in channels:
-                    if isinstance(ch, tuple) and len(ch) >= 2:
-                        ch_id = ch[0]
-                        ch_name = ch[1]
-                        if ch_id == channel_id or (numeric_id is not None and ch_id == numeric_id):
-                            return str(ch_name)
-
-        # 2. Check system channels
-        if numeric_id is not None:
-            system_name = ChannelSelectorDialog.get_system_channel_name(numeric_id)
-            if system_name:
-                return system_name
-
-        # 3. Fallback
-        if numeric_id is not None:
-            return f"#{numeric_id}"
-        return str(channel_id) if channel_id else ""
+        return ChannelDisplayService.get_display_name(channel_id, available_channels)
 
     @staticmethod
     def select_channel(parent=None, current_channel=None,

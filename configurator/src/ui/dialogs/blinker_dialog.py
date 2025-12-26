@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 from .channel_selector_dialog import ChannelSelectorDialog
 from .base_channel_dialog import get_next_channel_id
+from models.channel_display_service import ChannelDisplayService
 
 
 class BlinkerDialog(QDialog):
@@ -320,7 +321,7 @@ class BlinkerDialog(QDialog):
     # Channel helper method
     def _get_channel_display_name(self, channel_id) -> str:
         """Get display name for a channel using central lookup."""
-        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+        return ChannelDisplayService.get_display_name(channel_id, self.available_channels)
 
     # Channel browser methods
     def _browse_left_channel(self):

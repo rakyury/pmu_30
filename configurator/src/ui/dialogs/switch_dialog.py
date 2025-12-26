@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional
 from .channel_selector_dialog import ChannelSelectorDialog
+from models.channel_display_service import ChannelDisplayService
 
 
 class SwitchDialog(QDialog):
@@ -150,7 +151,7 @@ class SwitchDialog(QDialog):
     # Channel helper method
     def _get_channel_display_name(self, channel_id) -> str:
         """Get display name for a channel using central lookup."""
-        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+        return ChannelDisplayService.get_display_name(channel_id, self.available_channels)
 
     def _browse_channel_up(self):
         """Browse and select input channel up."""

@@ -6,6 +6,7 @@ Handles channel CRUD operations for MainWindow
 import logging
 from PyQt6.QtWidgets import QMessageBox
 from models.channel import ChannelType
+from models.channel_display_service import ChannelDisplayService
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,6 @@ class MainWindowChannelsMixin:
         from .dialogs.analog_input_dialog import AnalogInputDialog
         from .dialogs.logic_dialog import LogicDialog
         from .dialogs.timer_dialog import TimerDialog
-        from .dialogs.enum_dialog import EnumDialog
         from .dialogs.number_dialog import NumberDialog
         from .dialogs.filter_dialog import FilterDialog
         from .dialogs.table_2d_dialog import Table2DDialog
@@ -80,7 +80,6 @@ class MainWindowChannelsMixin:
             ChannelType.SWITCH: lambda: SwitchDialog(self, None, available_channels),
             ChannelType.TABLE_2D: lambda: Table2DDialog(self, None, available_channels, existing_channels),
             ChannelType.TABLE_3D: lambda: Table3DDialog(self, None, available_channels, existing_channels),
-            ChannelType.ENUM: lambda: EnumDialog(self, None, available_channels, existing_channels),
             ChannelType.FILTER: lambda: FilterDialog(self, None, available_channels, existing_channels),
             ChannelType.LUA_SCRIPT: lambda: self._create_lua_dialog(available_channels, existing_channels),
             ChannelType.PID: lambda: PIDControllerDialog(self, None, available_channels, existing_channels),
@@ -164,13 +163,18 @@ class MainWindowChannelsMixin:
     def _get_available_channels(self) -> dict:
         """Get all available channels for selection organized by Channel type.
 
-        Returns dict with lists of tuples: (string_id: str, display_name: str)
-        where string_id is the channel's 'id' field used for firmware references.
+        Returns dict with lists of tuples: (channel_id, display_name, units, decimal_places)
+        where channel_id is the numeric int ID shown in brackets.
         """
         def get_channel_info(ch):
-            string_id = ch.get("id", ch.get("name", ""))
-            display_name = ch.get("name", string_id)
-            return (string_id, display_name)
+            # Get numeric channel_id for display in brackets
+            channel_id = ch.get("channel_id")
+            # Get display name: channel_name > name > id (same as main tree)
+            display_name = ch.get("channel_name") or ch.get("name") or ch.get("id") or "unnamed"
+            # Get units and decimal places for display
+            units = ch.get("units") or ch.get("unit") or ""
+            decimal_places = ch.get("decimal_places")
+            return (channel_id, display_name, units, decimal_places)
 
         channel_types_map = {
             "digital_inputs": ChannelType.DIGITAL_INPUT,
@@ -183,7 +187,6 @@ class MainWindowChannelsMixin:
             "switches": ChannelType.SWITCH,
             "timers": ChannelType.TIMER,
             "filters": ChannelType.FILTER,
-            "enums": ChannelType.ENUM,
             "can_rx": ChannelType.CAN_RX,
             "can_tx": ChannelType.CAN_TX,
             "lua_scripts": ChannelType.LUA_SCRIPT,
@@ -193,10 +196,46 @@ class MainWindowChannelsMixin:
         channels = {key: [] for key in channel_types_map.keys()}
 
         for key, channel_type in channel_types_map.items():
-            for ch in self.project_tree.get_channels_by_type(channel_type):
-                channels[key].append(get_channel_info(ch))
+            ch_list = self.project_tree.get_channels_by_type(channel_type)
+            for ch in ch_list:
+                info = get_channel_info(ch)
+                channels[key].append(info)
 
         return channels
+
+    def get_channel_name_by_id(self, channel_id: int) -> str:
+        """Lookup channel display name by numeric channel_id.
+
+        For user channels: returns channel_name (e.g., "FuelLevel")
+        For system channels: returns string ID (e.g., "pmu.batteryVoltage")
+
+        Args:
+            channel_id: Numeric channel ID
+
+        Returns:
+            Display name for the channel, or "#{channel_id}" if not found
+        """
+        if channel_id is None:
+            return ""
+
+        # Check user channels in project tree
+        for ch in self.project_tree.get_all_channels():
+            if ch.get("channel_id") == channel_id:
+                return ch.get("channel_name") or ch.get("name") or ch.get("id") or f"#{channel_id}"
+
+        # System channels (1000+) - lookup from predefined list
+        if channel_id >= 1000:
+            return self._get_system_channel_name(channel_id)
+
+        return f"#{channel_id}"
+
+    def _get_system_channel_name(self, channel_id: int) -> str:
+        """Get display name for system channel by ID.
+
+        Delegates to ChannelDisplayService for centralized lookup.
+        """
+        name = ChannelDisplayService.get_system_channel_name(channel_id)
+        return name if name else f"#{channel_id}"
 
     def _sync_keypad_button_channels(self, keypad_config: dict, old_keypad_name: str = None):
         """Sync virtual channels for keypad buttons (ECUMaster style)."""

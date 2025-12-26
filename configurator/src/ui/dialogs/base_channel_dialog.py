@@ -16,36 +16,16 @@ from PyQt6.QtCore import Qt, QSettings
 from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
-
-
-# Global channel ID counter - shared across all channel types
-# System channels use IDs 1000-1100, user channels use 1-999
-_next_user_channel_id = 1
+from models.channel_display_service import ChannelDisplayService, ChannelIdGenerator
 
 
 def get_next_channel_id(existing_channels: List[Dict[str, Any]] = None) -> int:
-    """Get next available channel ID based on existing channels."""
-    global _next_user_channel_id
+    """Get next available channel ID based on existing channels.
 
-    used_ids = set()
-    if existing_channels:
-        for ch in existing_channels:
-            ch_id = ch.get("channel_id")
-            if ch_id is not None:
-                used_ids.add(ch_id)
-
-    # Find next free ID in user range (1-999)
-    for candidate in range(1, 1000):
-        if candidate not in used_ids:
-            return candidate
-
-    # Fallback - use global counter
-    while _next_user_channel_id in used_ids and _next_user_channel_id < 1000:
-        _next_user_channel_id += 1
-
-    result = _next_user_channel_id
-    _next_user_channel_id += 1
-    return result
+    Delegates to ChannelIdGenerator for centralized, stateless ID generation.
+    Kept for backward compatibility with existing code.
+    """
+    return ChannelIdGenerator.get_next_channel_id(existing_channels)
 
 
 class BaseChannelDialog(QDialog):
@@ -383,52 +363,11 @@ class BaseChannelDialog(QDialog):
     def _get_channel_display_name(self, channel_id) -> str:
         """Get display name for a channel by its numeric channel_id.
 
-        Lookup order:
-        1. User channels in available_channels (tuples with channel_id, name, ...)
-        2. System channels via ChannelSelectorDialog.get_system_channel_name()
-        3. Fallback to #{channel_id} format
+        Delegates to ChannelDisplayService for centralized lookup.
 
         Returns channel_name (user-friendly) for display in the input field.
         """
-        if channel_id is None or channel_id == "":
-            return ""
-
-        # Normalize channel_id to int if possible (config may store as string)
-        numeric_id = None
-        if isinstance(channel_id, int):
-            numeric_id = channel_id
-        elif isinstance(channel_id, str):
-            # Handle "#1007" or "1007" format
-            clean_id = channel_id.lstrip('#').strip()
-            if clean_id.isdigit():
-                numeric_id = int(clean_id)
-
-        # 1. Search user channels in available_channels
-        if self.available_channels:
-            for category, channels in self.available_channels.items():
-                for ch in channels:
-                    if isinstance(ch, tuple):
-                        # Format: (channel_id, display_name, units, decimal_places)
-                        if len(ch) >= 2:
-                            ch_id = ch[0]
-                            ch_name = ch[1]
-                            # Compare with both original and numeric ID
-                            if ch_id == channel_id or (numeric_id is not None and ch_id == numeric_id):
-                                return str(ch_name)
-                    elif ch == channel_id or (numeric_id is not None and ch == numeric_id):
-                        return str(ch)
-
-        # 2. Check system channels (uses static lookup in ChannelSelectorDialog)
-        if numeric_id is not None:
-            from .channel_selector_dialog import ChannelSelectorDialog
-            system_name = ChannelSelectorDialog.get_system_channel_name(numeric_id)
-            if system_name:
-                return system_name
-
-        # 3. Fallback: format with # for numeric IDs
-        if numeric_id is not None:
-            return f"#{numeric_id}"
-        return str(channel_id)
+        return ChannelDisplayService.get_display_name(channel_id, self.available_channels)
 
     def _get_channel_id_from_edit(self, edit: QLineEdit):
         """Get channel ID from edit field (from property or text fallback)."""
