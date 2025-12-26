@@ -4,6 +4,7 @@ Prepares the build environment for the hardware emulator.
 """
 
 Import("env")
+import platform
 
 # Add emulator source directory
 env.Append(CPPPATH=[
@@ -16,6 +17,10 @@ env.Append(CPPDEFINES=[
     "PMU_EMULATOR",
     "NATIVE_BUILD"
 ])
+
+# Add Windows-specific libraries only on Windows
+if platform.system() == "Windows":
+    env.Append(LIBS=["ws2_32"])
 
 # Print build info
 print("=" * 60)
