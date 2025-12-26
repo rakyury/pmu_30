@@ -25,6 +25,7 @@ extern int test_pid_main(void);
 extern int test_hbridge_main(void);
 extern int test_can_stream_main(void);
 extern int test_protocol_main(void);
+extern int test_handler_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -103,6 +104,9 @@ int main(int argc, char** argv)
 
     printf("\nRunning Protocol Tests...\n");
     result += test_protocol_main();
+
+    printf("\nRunning Handler Tests...\n");
+    result += test_handler_main();
 
     /* Print summary */
     print_test_summary();

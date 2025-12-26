@@ -1,0 +1,36 @@
+# PMU-30 Emulator Docker Compose Configuration
+#
+# Usage:
+#   docker-compose up --build     # Build and run
+#   docker-compose up -d          # Run in background
+#   docker-compose logs -f        # View logs
+#   docker-compose down           # Stop and remove
+
+version: '3.8'
+
+services:
+  emulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pmu30-emulator
+    ports:
+      - "8080:8080"   # Web UI
+      - "5555:5555"   # Protocol server
+    environment:
+      - PMU_LOG_LEVEL=4
+    restart: unless-stopped
+    # Optional: Mount config for persistence
+    # volumes:
+    #   - ./config:/app/firmware/config:ro
+
+  # Optional: Run with configurator
+  # configurator:
+  #   build:
+  #     context: ../configurator
+  #     dockerfile: Dockerfile
+  #   depends_on:
+  #     - emulator
+  #   environment:
+  #     - PMU_HOST=emulator
+  #     - PMU_PORT=5555

@@ -1,0 +1,33 @@
+# Build artifacts
+.pio/
+.vscode/
+*.o
+*.exe
+*.out
+
+# IDE files
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and state
+*.log
+emu_state.json
+emu_output.txt
+emu_stderr.txt
+
+# Test files (optional - comment out if needed for test builds)
+# test/
+
+# Documentation
+docs/
+*.md
+
+# Git
+.git/
+.gitignore
