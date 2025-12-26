@@ -68,7 +68,8 @@ jobs:
             libxcb-xinerama0 \
             libxcb-xfixes0 \
             libegl1 \
-            libgl1-mesa-glx \
+            libgl1 \
+            libopengl0 \
             xvfb
 
       - name: Install Python dependencies
