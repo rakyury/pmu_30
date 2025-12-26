@@ -19,6 +19,7 @@ extern int test_channel_main(void);
 extern int test_config_json_main(void);
 extern int test_logic_ext_main(void);
 extern int test_profet_main(void);
+extern int test_adc_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -79,6 +80,9 @@ int main(int argc, char** argv)
 
     printf("\nRunning PROFET Output Tests...\n");
     result += test_profet_main();
+
+    printf("\nRunning ADC Input Tests...\n");
+    result += test_adc_main();
 
     /* Print summary */
     print_test_summary();
