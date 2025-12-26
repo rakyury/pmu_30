@@ -15,6 +15,7 @@ extern int test_can_main(void);
 extern int test_logging_main(void);
 extern int test_ui_main(void);
 extern int test_lua_main(void);
+extern int test_channel_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -63,6 +64,9 @@ int main(int argc, char** argv)
 
     printf("\nRunning Lua Scripting Tests...\n");
     result += test_lua_main();
+
+    printf("\nRunning Channel System Tests...\n");
+    result += test_channel_main();
 
     /* Print summary */
     print_test_summary();
