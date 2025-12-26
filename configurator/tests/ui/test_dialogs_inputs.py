@@ -45,7 +45,7 @@ class TestDigitalInputDialog:
         assert dialog.name_edit.text() == "Test Switch"
         assert dialog.pullup_check.isChecked() == True
         assert dialog.threshold_spin.value() == 2.5
-        assert dialog.debounce_spin.value() == 100  # debounce in milliseconds
+        assert dialog.debounce_spin.value() == 0.1  # debounce in seconds (SecondsSpinBox)
         dialog.close()
 
     @pytest.mark.parametrize("subtype", [

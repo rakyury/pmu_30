@@ -428,12 +428,12 @@ class TestNumberDialog:
                 dialog.operation_combo.setCurrentIndex(i)
                 break
 
-        dialog.constant_value_spin.setValue(3.14159)
+        dialog.constant_value_spin.setValue(3.14)  # Use 2 decimal places
 
         config = dialog.get_config()
 
         assert config["operation"] == MathOperation.CONSTANT.value
-        assert abs(config["constant_value"] - 3.14159) < 0.0001
+        assert abs(config["constant_value"] - 3.14) < 0.01  # Spinbox has limited precision
         dialog.close()
 
     def test_get_config_add(self, qapp):
