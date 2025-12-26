@@ -52,21 +52,40 @@ class HBridgeDialog(QDialog):
         ("custom", "Custom"),
     ]
 
-    def __init__(self, parent=None, hbridge_config: Optional[Dict[str, Any]] = None,
-                 used_bridges=None, available_channels=None,
-                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
+                 available_channels=None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None,
+                 **kwargs):
+        """Initialize HBridgeDialog.
+
+        Args:
+            parent: Parent widget
+            config: H-Bridge configuration (for editing) or None (for creating)
+            available_channels: Dict of available channels for source selection
+            existing_channels: List of existing channel configs
+            **kwargs: Additional arguments:
+                - used_bridges: List of already used H-Bridge numbers
+                - hbridge_config: Alias for config (backwards compatibility)
+                - used_numbers: Alias for used_bridges (backwards compatibility)
+        """
         super().__init__(parent)
-        self.hbridge_config = hbridge_config
-        self.used_bridges = used_bridges or []
+
+        # Handle backwards compatibility aliases
+        if config is None:
+            config = kwargs.get('hbridge_config')
+        self.config = config
+
+        # Handle used_bridges/used_numbers naming
+        self.used_bridges = kwargs.get('used_bridges') or kwargs.get('used_numbers') or []
         self.available_channels = available_channels or {}
         self.existing_channels = existing_channels or []
 
         # Determine if editing existing or creating new
-        self.is_edit_mode = bool(hbridge_config and hbridge_config.get("channel_id") is not None)
+        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
 
         # Store or generate channel_id
         if self.is_edit_mode:
-            self._channel_id = hbridge_config.get("channel_id", 0)
+            self._channel_id = config.get("channel_id", 0)
         else:
             self._channel_id = get_next_channel_id(existing_channels)
 
@@ -76,8 +95,8 @@ class HBridgeDialog(QDialog):
 
         self._init_ui()
 
-        if hbridge_config:
-            self._load_config(hbridge_config)
+        if config:
+            self._load_config(config)
         else:
             self._auto_generate_name()
 
@@ -625,8 +644,8 @@ class HBridgeDialog(QDialog):
 
         # Get current bridge if editing
         current_bridge = None
-        if self.hbridge_config:
-            current_bridge = self.hbridge_config.get("bridge_number")
+        if self.config:
+            current_bridge = self.config.get("bridge_number")
 
         # Add available bridges (HB1-HB4)
         for bridge in range(4):

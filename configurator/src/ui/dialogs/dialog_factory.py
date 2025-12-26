@@ -115,13 +115,15 @@ class DialogFactory:
         elif channel_type == ChannelType.POWER_OUTPUT:
             used_pins = kwargs.get('used_pins', [])
             return dialog_class(
-                parent, config, used_pins, available_channels, existing_channels
+                parent, config=config, available_channels=available_channels,
+                existing_channels=existing_channels, used_pins=used_pins
             )
 
         elif channel_type == ChannelType.HBRIDGE:
-            used_numbers = kwargs.get('used_numbers', [])
+            used_bridges = kwargs.get('used_numbers', [])
             return dialog_class(
-                parent, config, used_numbers, available_channels, existing_channels
+                parent, config=config, available_channels=available_channels,
+                existing_channels=existing_channels, used_bridges=used_bridges
             )
 
         elif channel_type == ChannelType.WIPER:
@@ -248,12 +250,6 @@ def _register_default_dialogs():
     DialogFactory.register(
         ChannelType.TIMER,
         'ui.dialogs.timer_dialog', 'TimerDialog'
-    )
-
-    # Data
-    DialogFactory.register(
-        ChannelType.ENUM,
-        'ui.dialogs.enum_dialog', 'EnumDialog'
     )
 
     # Scripts

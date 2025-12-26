@@ -18,13 +18,32 @@ from models.channel_display_service import ChannelDisplayService
 class OutputConfigDialog(QDialog):
     """Dialog for configuring a single high-side output channel."""
 
-    def __init__(self, parent=None, output_config: Optional[Dict[str, Any]] = None,
-                 used_channels=None, available_channels=None,
-                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
+                 available_channels=None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None,
+                 **kwargs):
+        """Initialize OutputConfigDialog.
+
+        Args:
+            parent: Parent widget
+            config: Output configuration (for editing) or None (for creating)
+            available_channels: Dict of available channels for source selection
+            existing_channels: List of existing channel configs
+            **kwargs: Additional arguments:
+                - used_pins: List of already used output pins
+                - output_config: Alias for config (backwards compatibility)
+                - used_channels: Alias for used_pins (backwards compatibility)
+        """
         super().__init__(parent)
-        self.output_config = output_config
-        self.used_channels = used_channels or []
-        self.available_channels = available_channels or {}  # Dict of (channel_id, name) tuples
+
+        # Handle backwards compatibility aliases
+        if config is None:
+            config = kwargs.get('output_config')
+        self.config = config
+
+        # Handle used_pins/used_channels naming inconsistency
+        self.used_pins = kwargs.get('used_pins') or kwargs.get('used_channels') or []
+        self.available_channels = available_channels or {}
         self.existing_channels = existing_channels or []
 
         # Store selected channel IDs (can be numeric int or string ID)
@@ -32,11 +51,11 @@ class OutputConfigDialog(QDialog):
         self._duty_channel_id = None    # For PWM duty source (int or str)
 
         # Determine if editing existing or creating new
-        self.is_edit_mode = bool(output_config and output_config.get("channel_id") is not None)
+        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
 
         # Store or generate channel_id
         if self.is_edit_mode:
-            self._channel_id = output_config.get("channel_id", 0)
+            self._channel_id = config.get("channel_id", 0)
         else:
             self._channel_id = get_next_channel_id(existing_channels)
 
@@ -46,8 +65,8 @@ class OutputConfigDialog(QDialog):
 
         self._init_ui()
 
-        if output_config:
-            self._load_config(output_config)
+        if config:
+            self._load_config(config)
         else:
             # Auto-generate name for new outputs
             self._auto_generate_name()
@@ -300,11 +319,11 @@ class OutputConfigDialog(QDialog):
 
         # Validate that none of the selected pins are already used by other outputs
         current_pins = []
-        if self.output_config:
-            current_pins = self.output_config.get("pins", [])
+        if self.config:
+            current_pins = self.config.get("pins", [])
 
         for pin in pins:
-            if pin in self.used_channels and pin not in current_pins:
+            if pin in self.used_pins and pin not in current_pins:
                 QMessageBox.warning(
                     self, "Validation Error",
                     f"Pin O{pin + 1} is already used by another output!"
@@ -332,11 +351,11 @@ class OutputConfigDialog(QDialog):
 
         # Get currently used pins if editing (allow these pins for this output)
         current_pins = []
-        if self.output_config:
-            current_pins = self.output_config.get("pins", [])
+        if self.config:
+            current_pins = self.config.get("pins", [])
 
         # Combine used channels with pins to exclude from form
-        exclude_set = set(self.used_channels)
+        exclude_set = set(self.used_pins)
         if exclude_pins:
             exclude_set.update(exclude_pins)
 

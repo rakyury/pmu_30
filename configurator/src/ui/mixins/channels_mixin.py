@@ -65,14 +65,14 @@ class MainWindowChannelsMixin:
                 existing_channels
             ),
             ChannelType.POWER_OUTPUT: lambda: OutputConfigDialog(
-                self, None,
-                self.project_tree.get_all_used_output_pins(),
-                available_channels, existing_channels
+                self, config=None, available_channels=available_channels,
+                existing_channels=existing_channels,
+                used_pins=self.project_tree.get_all_used_output_pins()
             ),
             ChannelType.HBRIDGE: lambda: HBridgeDialog(
-                self, None,
-                self.project_tree.get_all_used_hbridge_numbers(),
-                available_channels, existing_channels
+                self, config=None, available_channels=available_channels,
+                existing_channels=existing_channels,
+                used_bridges=self.project_tree.get_all_used_hbridge_numbers()
             ),
             ChannelType.LOGIC: lambda: LogicDialog(self, None, available_channels, existing_channels),
             ChannelType.NUMBER: lambda: NumberDialog(self, None, available_channels, existing_channels),
