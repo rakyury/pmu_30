@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QSpinBox, QDoubleSpinBox, QPushButton,
     QLabel, QGridLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QVBoxLayout, QHBoxLayout, QMessageBox,
-    QTabWidget, QWidget, QSplitter, QCheckBox, QSlider
+    QTabWidget, QWidget, QSplitter, QCheckBox, QSlider, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPainter
@@ -279,6 +279,9 @@ class Table3DDialog(BaseChannelDialog):
         self.gl_widget = gl.GLViewWidget()
         self.gl_widget.setBackgroundColor('#1e1e1e')  # Dark background
         self.gl_widget.setCameraPosition(distance=50, elevation=30, azimuth=45)
+        # Make widget expand to fill available space
+        self.gl_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.gl_widget.setMinimumHeight(300)
 
         # Add grid
         self.grid_item = gl.GLGridItem()
@@ -289,7 +292,7 @@ class Table3DDialog(BaseChannelDialog):
         # Placeholder for surface plot
         self.surface_item = None
 
-        layout.addWidget(self.gl_widget)
+        layout.addWidget(self.gl_widget, stretch=1)
 
         # Instructions
         instr = QLabel("Left-drag to rotate, Right-drag to pan, Scroll to zoom")
@@ -556,11 +559,9 @@ class Table3DDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Axis configuration
-        x_channel = config.get("x_axis_channel", "")
-        y_channel = config.get("y_axis_channel", "")
-        self.x_channel_edit.setText(x_channel)
-        self.y_channel_edit.setText(y_channel)
+        # Axis configuration - use helper to show channel names
+        self._set_channel_edit_value(self.x_channel_edit, config.get("x_axis_channel"))
+        self._set_channel_edit_value(self.y_channel_edit, config.get("y_axis_channel"))
         self.x_min_spin.setValue(config.get("x_min", 0.0))
         self.x_max_spin.setValue(config.get("x_max", 100.0))
         self.x_step_spin.setValue(config.get("x_step", 10.0))
@@ -579,9 +580,11 @@ class Table3DDialog(BaseChannelDialog):
             self.table_widget.setRowCount(len(y_values))
             self.table_widget.setColumnCount(len(x_values))
 
-            # Update axis labels
-            self.x_axis_label.setText(f"X: {x_channel or '-'}")
-            self.y_axis_label.setText(f"Y: {y_channel or '-'}")
+            # Update axis labels with display names
+            x_channel_display = self.x_channel_edit.text() or "-"
+            y_channel_display = self.y_channel_edit.text() or "-"
+            self.x_axis_label.setText(f"X: {x_channel_display}")
+            self.y_axis_label.setText(f"Y: {y_channel_display}")
 
             x_headers = [str(v) for v in x_values]
             y_headers = [str(v) for v in y_values]
@@ -666,9 +669,13 @@ class Table3DDialog(BaseChannelDialog):
                     row_data.append(0.0)
             data.append(row_data)
 
+        # Get channel IDs using helper method
+        x_axis_channel_id = self._get_channel_id_from_edit(self.x_channel_edit)
+        y_axis_channel_id = self._get_channel_id_from_edit(self.y_channel_edit)
+
         config.update({
-            "x_axis_channel": self.x_channel_edit.text().strip(),
-            "y_axis_channel": self.y_channel_edit.text().strip(),
+            "x_axis_channel": x_axis_channel_id if x_axis_channel_id else "",
+            "y_axis_channel": y_axis_channel_id if y_axis_channel_id else "",
             "x_min": self.x_min_spin.value(),
             "x_max": self.x_max_spin.value(),
             "x_step": self.x_step_spin.value(),

@@ -191,11 +191,11 @@ class PIDControllerDialog(BaseChannelDialog):
 
     def _load_pid_config(self, config: Dict[str, Any]):
         """Load PID configuration into dialog."""
-        # Input/Output
-        self.setpoint_edit.setText(config.get("setpoint_channel", ""))
+        # Input/Output - use _set_channel_edit_value to show display name
+        self._set_channel_edit_value(self.setpoint_edit, config.get("setpoint_channel"))
         self.setpoint_value_spin.setValue(config.get("setpoint_value", 0.0))
-        self.process_edit.setText(config.get("process_channel", ""))
-        self.output_edit.setText(config.get("output_channel", ""))
+        self._set_channel_edit_value(self.process_edit, config.get("process_channel"))
+        self._set_channel_edit_value(self.output_edit, config.get("output_channel"))
 
         # PID parameters
         self.kp_spin.setValue(config.get("kp", 1.0))
@@ -240,10 +240,10 @@ class PIDControllerDialog(BaseChannelDialog):
         """Get full PID configuration."""
         config = self.get_base_config()
         config.update({
-            "setpoint_channel": self.setpoint_edit.text().strip(),
+            "setpoint_channel": self._get_channel_id_from_edit(self.setpoint_edit),
             "setpoint_value": self.setpoint_value_spin.value(),
-            "process_channel": self.process_edit.text().strip(),
-            "output_channel": self.output_edit.text().strip(),
+            "process_channel": self._get_channel_id_from_edit(self.process_edit),
+            "output_channel": self._get_channel_id_from_edit(self.output_edit),
             "kp": self.kp_spin.value(),
             "ki": self.ki_spin.value(),
             "kd": self.kd_spin.value(),

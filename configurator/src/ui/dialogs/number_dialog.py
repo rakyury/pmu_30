@@ -56,6 +56,9 @@ class NumberDialog(BaseChannelDialog):
         self._create_operation_group()
         self._create_params_group()
 
+        # Initialize decimal places on all spinboxes
+        self._on_decimal_places_changed(self.decimal_spin.value())
+
         # Connect operation change
         self.operation_combo.currentIndexChanged.connect(self._on_operation_changed)
 
@@ -109,8 +112,9 @@ class NumberDialog(BaseChannelDialog):
         layout.addWidget(QLabel("Decimal places:"), 2, 0)
         self.decimal_spin = QSpinBox()
         self.decimal_spin.setRange(0, 4)
-        self.decimal_spin.setValue(0)
+        self.decimal_spin.setValue(2)  # Default 2 decimals
         self.decimal_spin.setToolTip("Number of decimal places for display (0-4)")
+        self.decimal_spin.valueChanged.connect(self._on_decimal_places_changed)
         layout.addWidget(self.decimal_spin, 2, 1)
 
         # Operation description
@@ -202,7 +206,7 @@ class NumberDialog(BaseChannelDialog):
         layout.addWidget(QLabel("Value:"), 0, 0)
         self.constant_value_spin = QDoubleSpinBox()
         self.constant_value_spin.setRange(-1000000, 1000000)
-        self.constant_value_spin.setDecimals(4)
+        self.constant_value_spin.setDecimals(2)  # Default 2 decimals, updated by decimal_spin
         layout.addWidget(self.constant_value_spin, 0, 1)
 
         self.stacked_widget.addWidget(page)
@@ -310,6 +314,25 @@ class NumberDialog(BaseChannelDialog):
 
         self.stacked_widget.addWidget(page)
 
+    def _on_decimal_places_changed(self, value: int):
+        """Update all value spinboxes to match decimal places setting."""
+        # Update constant value spinbox
+        if hasattr(self, 'constant_value_spin'):
+            self.constant_value_spin.setDecimals(value)
+
+        # Update clamp spinboxes
+        if hasattr(self, 'clamp_min_spin'):
+            self.clamp_min_spin.setDecimals(value)
+        if hasattr(self, 'clamp_max_spin'):
+            self.clamp_max_spin.setDecimals(value)
+
+        # Update lookup value spinboxes
+        for count in [2, 3, 4, 5]:
+            for i in range(count):
+                spin_name = f"lookup{count}_value{i}"
+                if hasattr(self, spin_name):
+                    getattr(self, spin_name).setDecimals(value)
+
     def _on_operation_changed(self):
         """Handle operation type change"""
         index = self.operation_combo.currentIndex()
@@ -380,7 +403,7 @@ class NumberDialog(BaseChannelDialog):
 
         elif operation == "channel":
             if inputs:
-                self.channel_edit.setText(inputs[0])
+                self._set_channel_edit_value(self.channel_edit, inputs[0])
             if multipliers:
                 self._set_multiplier_value(self.channel_multiplier, multipliers[0])
 
@@ -390,9 +413,9 @@ class NumberDialog(BaseChannelDialog):
             mult1 = getattr(self, f"{operation}_input1_mult")
             mult2 = getattr(self, f"{operation}_input2_mult")
             if len(inputs) >= 1:
-                edit1.setText(inputs[0])
+                self._set_channel_edit_value(edit1, inputs[0])
             if len(inputs) >= 2:
-                edit2.setText(inputs[1])
+                self._set_channel_edit_value(edit2, inputs[1])
             if len(multipliers) >= 1:
                 self._set_multiplier_value(mult1, multipliers[0])
             if len(multipliers) >= 2:
@@ -400,7 +423,7 @@ class NumberDialog(BaseChannelDialog):
 
         elif operation == "clamp":
             if inputs:
-                self.clamp_edit.setText(inputs[0])
+                self._set_channel_edit_value(self.clamp_edit, inputs[0])
             if multipliers:
                 self._set_multiplier_value(self.clamp_mult, multipliers[0])
             self.clamp_min_spin.setValue(config.get("clamp_min", 0.0))
@@ -411,7 +434,7 @@ class NumberDialog(BaseChannelDialog):
             edit = getattr(self, f"lookup{count}_edit")
             mult = getattr(self, f"lookup{count}_mult")
             if inputs:
-                edit.setText(inputs[0])
+                self._set_channel_edit_value(edit, inputs[0])
             if multipliers:
                 self._set_multiplier_value(mult, multipliers[0])
             lookup_values = config.get("lookup_values", [])
@@ -473,7 +496,8 @@ class NumberDialog(BaseChannelDialog):
             config["constant_value"] = self.constant_value_spin.value()
 
         elif operation == "channel":
-            config["inputs"] = [self.channel_edit.text().strip()]
+            channel_id = self._get_channel_id_from_edit(self.channel_edit)
+            config["inputs"] = [channel_id if channel_id else ""]
             config["input_multipliers"] = [self._get_multiplier_value(self.channel_multiplier)]
 
         elif operation in ["add", "subtract", "multiply", "divide", "modulo", "min", "max"]:
@@ -481,14 +505,17 @@ class NumberDialog(BaseChannelDialog):
             edit2 = getattr(self, f"{operation}_input2_edit")
             mult1 = getattr(self, f"{operation}_input1_mult")
             mult2 = getattr(self, f"{operation}_input2_mult")
-            config["inputs"] = [edit1.text().strip(), edit2.text().strip()]
+            ch_id1 = self._get_channel_id_from_edit(edit1)
+            ch_id2 = self._get_channel_id_from_edit(edit2)
+            config["inputs"] = [ch_id1 if ch_id1 else "", ch_id2 if ch_id2 else ""]
             config["input_multipliers"] = [
                 self._get_multiplier_value(mult1),
                 self._get_multiplier_value(mult2)
             ]
 
         elif operation == "clamp":
-            config["inputs"] = [self.clamp_edit.text().strip()]
+            channel_id = self._get_channel_id_from_edit(self.clamp_edit)
+            config["inputs"] = [channel_id if channel_id else ""]
             config["input_multipliers"] = [self._get_multiplier_value(self.clamp_mult)]
             config["clamp_min"] = self.clamp_min_spin.value()
             config["clamp_max"] = self.clamp_max_spin.value()
@@ -497,7 +524,8 @@ class NumberDialog(BaseChannelDialog):
             count = int(operation[-1])
             edit = getattr(self, f"lookup{count}_edit")
             mult = getattr(self, f"lookup{count}_mult")
-            config["inputs"] = [edit.text().strip()]
+            channel_id = self._get_channel_id_from_edit(edit)
+            config["inputs"] = [channel_id if channel_id else ""]
             config["input_multipliers"] = [self._get_multiplier_value(mult)]
             config["lookup_values"] = []
             for i in range(count):

@@ -243,9 +243,8 @@ class Table2DDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Axis configuration
-        x_channel = config.get("x_axis_channel", "")
-        self.x_channel_edit.setText(x_channel)
+        # Axis configuration - use helper to show channel name
+        self._set_channel_edit_value(self.x_channel_edit, config.get("x_axis_channel"))
         self.x_min_spin.setValue(config.get("x_min", 0.0))
         self.x_max_spin.setValue(config.get("x_max", 100.0))
         self.x_step_spin.setValue(config.get("x_step", 10.0))
@@ -260,8 +259,9 @@ class Table2DDialog(BaseChannelDialog):
             self.table_widget.setRowCount(1)
             self.table_widget.setColumnCount(len(x_values))
 
-            # Update axis label
-            self.x_axis_label.setText(f"X: {x_channel or '-'}")
+            # Update axis label with display name
+            x_channel_display = self.x_channel_edit.text() or "-"
+            self.x_axis_label.setText(f"X: {x_channel_display}")
 
             headers = [str(v) for v in x_values]
             self.table_widget.setHorizontalHeaderLabels(headers)
@@ -319,8 +319,11 @@ class Table2DDialog(BaseChannelDialog):
             else:
                 output_values.append(0.0)
 
+        # Get channel ID using helper method
+        x_axis_channel_id = self._get_channel_id_from_edit(self.x_channel_edit)
+
         config.update({
-            "x_axis_channel": self.x_channel_edit.text().strip(),
+            "x_axis_channel": x_axis_channel_id if x_axis_channel_id else "",
             "x_min": self.x_min_spin.value(),
             "x_max": self.x_max_spin.value(),
             "x_step": self.x_step_spin.value(),
