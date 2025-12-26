@@ -45,6 +45,7 @@
 /* Private variables ---------------------------------------------------------*/
 static char last_error[PMU_JSON_MAX_ERROR_LEN] = {0};
 static uint32_t load_start_time = 0;
+static bool config_loading_phase = false;  /* Suppress warnings during initial load */
 
 /* Storage for input configurations (persistent for PMU_ADC_SetConfig) */
 static PMU_InputConfig_t input_config_storage[PMU30_NUM_ADC_INPUTS];
@@ -157,14 +158,34 @@ static uint16_t MapJsonIdToRuntimeId(uint16_t json_id) {
     return json_id;  /* Return as-is if no mapping found */
 }
 
-/* Helper to get input channel value by name */
+/* Helper to get input channel value by ID (new, preferred) */
+static int32_t GetInputChannelValueById(uint16_t channel_id) {
+    if (channel_id == 0) return 0;
+    const PMU_Channel_t* ch = PMU_Channel_GetInfo(channel_id);
+    if (!ch) {
+        /* Only warn after initial config load is complete */
+        if (!config_loading_phase) {
+            static uint32_t warn_cnt_id = 0;
+            if (++warn_cnt_id <= 5) {
+                printf("[WARN] Channel ID %u not found!\n", channel_id);
+            }
+        }
+        return 0;
+    }
+    return ch->value;
+}
+
+/* Helper to get input channel value by name (legacy, for backward compatibility) */
 static int32_t GetInputChannelValue(const char* channel_name) {
     if (!channel_name || channel_name[0] == '\0') return 0;
     const PMU_Channel_t* ch = PMU_Channel_GetByName(channel_name);
     if (!ch) {
-        static uint32_t warn_cnt = 0;
-        if (++warn_cnt <= 5) {
-            printf("[WARN] Channel '%s' not found!\n", channel_name);
+        /* Only warn after initial config load is complete */
+        if (!config_loading_phase) {
+            static uint32_t warn_cnt = 0;
+            if (++warn_cnt <= 5) {
+                printf("[WARN] Channel '%s' not found!\n", channel_name);
+            }
         }
         return 0;
     }
@@ -184,7 +205,6 @@ static bool JSON_ParseFilter(cJSON* channel_obj);
 static bool JSON_ParseTable2D(cJSON* channel_obj);
 static bool JSON_ParseTable3D(cJSON* channel_obj);
 static bool JSON_ParseSwitch(cJSON* channel_obj);
-static bool JSON_ParseEnum(cJSON* channel_obj);
 static bool JSON_ParseCanRx(cJSON* channel_obj);
 static bool JSON_ParseCanTx(cJSON* channel_obj);
 static bool JSON_ParsePID(cJSON* channel_obj);
@@ -211,6 +231,7 @@ static bool JSON_ParseLuaScripts(cJSON* scripts_array, PMU_JSON_LoadStats_t* sta
 static PMU_LegacyInputType_t JSON_ParseInputType(const char* type_str);
 static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str);
 static uint16_t JSON_ResolveChannel(cJSON* channel_obj);
+static uint16_t JSON_GetChannelRef(cJSON* obj, const char* key);  /* Get channel ID from field (supports numeric & string) */
 static void JSON_SetError(const char* format, ...);
 static const char* JSON_GetString(cJSON* obj, const char* key, const char* default_val);
 static float JSON_GetFloat(cJSON* obj, const char* key, float default_val);
@@ -275,6 +296,9 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
 
     /* Record start time */
     load_start_time = HAL_GetTick();
+
+    /* Suppress channel lookup warnings during load (reset in case previous load failed) */
+    config_loading_phase = true;
 
     /* Initialize stats */
     PMU_JSON_LoadStats_t local_stats = {0};
@@ -456,6 +480,9 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
 
     /* Calculate parse time */
     local_stats.parse_time_ms = HAL_GetTick() - load_start_time;
+
+    /* End loading phase - warnings will now be shown for missing channels */
+    config_loading_phase = false;
 
     /* Copy stats if requested */
     if (stats) {
@@ -1463,11 +1490,13 @@ static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* s
 
         PMU_CanMessageConfig_t config = {0};
 
-        /* Parse message ID and name */
-        const char* id = JSON_GetString(msg, "id", "");
-        strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
-
+        /* Parse message name - use 'name' field as both id and display name */
         const char* name = JSON_GetString(msg, "name", "");
+        if (strlen(name) == 0) {
+            JSON_SetError("CAN message missing required 'name' field");
+            continue;
+        }
+        strncpy(config.id, name, PMU_CHANNEL_ID_LEN - 1);
         strncpy(config.name, name, sizeof(config.name) - 1);
 
         /* Parse CAN bus and ID */
@@ -1550,11 +1579,13 @@ static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t*
 
         PMU_LIN_FrameObject_t config = {0};
 
-        /* Parse frame ID and name */
-        const char* id = JSON_GetString(frame, "id", "");
-        strncpy(config.id, id, PMU_LIN_ID_LEN - 1);
-
+        /* Parse frame name - use 'name' field as both id and display name */
         const char* name = JSON_GetString(frame, "name", "");
+        if (strlen(name) == 0) {
+            JSON_SetError("LIN frame missing required 'name' field");
+            continue;
+        }
+        strncpy(config.id, name, PMU_LIN_ID_LEN - 1);
         strncpy(config.name, name, PMU_LIN_ID_LEN - 1);
 
         /* Parse LIN bus (1 or 2) */
@@ -1661,7 +1692,11 @@ static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t*
 static bool JSON_ParseLinRx(cJSON* channel)
 {
 #ifdef JSON_PARSING_ENABLED
-    const char* id = JSON_GetString(channel, "id", "");
+    const char* id = JSON_GetString(channel, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("LIN RX channel missing required 'name' field");
+        return false;
+    }
     const char* frame_ref = JSON_GetString(channel, "frame_ref", "");
 
     PMU_LIN_Input_t input = {0};
@@ -1745,7 +1780,11 @@ static bool JSON_ParseLinRx(cJSON* channel)
 static bool JSON_ParseLinTx(cJSON* channel)
 {
 #ifdef JSON_PARSING_ENABLED
-    const char* id = JSON_GetString(channel, "id", "");
+    const char* id = JSON_GetString(channel, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("LIN TX channel missing required 'name' field");
+        return false;
+    }
     const char* frame_ref = JSON_GetString(channel, "frame_ref", "");
     const char* source = JSON_GetString(channel, "source", "");
 
@@ -1959,6 +1998,19 @@ static uint16_t JSON_ResolveChannel(cJSON* channel_obj)
 }
 
 /**
+ * @brief Get channel reference from JSON field (supports both numeric ID and string name)
+ * @param obj Parent JSON object
+ * @param key Field name
+ * @return Channel ID (0 if not found or empty)
+ */
+static uint16_t JSON_GetChannelRef(cJSON* obj, const char* key)
+{
+    if (!obj || !key) return 0;
+    cJSON* field = cJSON_GetObjectItem(obj, key);
+    return JSON_ResolveChannel(field);
+}
+
+/**
  * @brief Set error message
  */
 static void JSON_SetError(const char* format, ...)
@@ -2040,7 +2092,6 @@ static PMU_ChannelType_t JSON_ParseChannelType(const char* type_str)
     if (strcmp(type_str, "switch") == 0) return PMU_CHANNEL_TYPE_SWITCH;
     if (strcmp(type_str, "timer") == 0) return PMU_CHANNEL_TYPE_TIMER;
     if (strcmp(type_str, "filter") == 0) return PMU_CHANNEL_TYPE_FILTER;
-    if (strcmp(type_str, "enum") == 0) return PMU_CHANNEL_TYPE_ENUM;
     if (strcmp(type_str, "lua_script") == 0) return PMU_CHANNEL_TYPE_LUA_SCRIPT;
     if (strcmp(type_str, "pid") == 0) return PMU_CHANNEL_TYPE_PID;
     if (strcmp(type_str, "blinkmarine_keypad") == 0) return PMU_CHANNEL_TYPE_BLINKMARINE_KEYPAD;
@@ -2065,11 +2116,11 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
             continue;
         }
 
-        /* Get channel ID and type */
-        /* Try "id" first, then "name" as fallback */
-        const char* id = JSON_GetString(channel, "id", "");
+        /* Get channel name - required field */
+        const char* id = JSON_GetString(channel, "channel_name", "");
         if (strlen(id) == 0) {
-            id = JSON_GetString(channel, "name", "");
+            JSON_SetError("Channel %d: missing required 'channel_name' field", i);
+            continue;
         }
 
         /* Support both "channel_type" (v2.0) and "gpio_type" (legacy) */
@@ -2138,11 +2189,6 @@ static bool JSON_ParseChannels(cJSON* channels_array, PMU_JSON_LoadStats_t* stat
                 if (success && stats) stats->switches++;
                 break;
 
-            case PMU_CHANNEL_TYPE_ENUM:
-                success = JSON_ParseEnum(channel);
-                if (success && stats) stats->enums++;
-                break;
-
             case PMU_CHANNEL_TYPE_CAN_RX:
                 success = JSON_ParseCanRx(channel);
                 if (success && stats) stats->can_rx++;
@@ -2203,8 +2249,12 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_DigitalInputConfig_t config = {0};
 
-    /* Copy ID */
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Digital input missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Parse subtype */
@@ -2301,8 +2351,12 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_AnalogInputConfig_t config = {0};
 
-    /* Copy ID */
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Analog input missing required 'name' field");
+        return false;
+    }
     printf("[CONFIG] Parsing analog input: id='%s'\n", id);
     fflush(stdout);
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
@@ -2478,10 +2532,11 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_PowerOutputConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
     if (strlen(id) == 0) {
-        /* Try to use name as id if id is not present */
-        id = JSON_GetString(channel_obj, "name", "unnamed");
+        JSON_SetError("Power output missing required 'name' field");
+        return false;
     }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
@@ -2623,7 +2678,12 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_LogicConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Logic function missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Get JSON channel_id for mapping */
@@ -2655,11 +2715,9 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     else if (strcmp(op, "rising_edge") == 0 || strcmp(op, "edge_rising") == 0) config.operation = PMU_LOGIC_EDGE_RISING;
     else if (strcmp(op, "falling_edge") == 0 || strcmp(op, "edge_falling") == 0) config.operation = PMU_LOGIC_EDGE_FALLING;
 
-    /* Channel inputs */
-    const char* ch = JSON_GetString(channel_obj, "channel", "");
-    strncpy(config.channel, ch, PMU_CHANNEL_ID_LEN - 1);
-    const char* ch2 = JSON_GetString(channel_obj, "channel_2", "");
-    strncpy(config.channel_2, ch2, PMU_CHANNEL_ID_LEN - 1);
+    /* Channel inputs (supports both numeric ID and string name for backward compat) */
+    config.channel_id = JSON_GetChannelRef(channel_obj, "channel");
+    config.channel_2_id = JSON_GetChannelRef(channel_obj, "channel_2");
 
     /* Delays */
     config.true_delay_s = JSON_GetFloat(channel_obj, "true_delay_s", 0.0f);
@@ -2679,10 +2737,8 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     config.lower_value = JSON_GetFloat(channel_obj, "lower_value", 0.0f);
 
     /* Set/Reset latch */
-    const char* set_ch = JSON_GetString(channel_obj, "set_channel", "");
-    strncpy(config.set_channel, set_ch, PMU_CHANNEL_ID_LEN - 1);
-    const char* reset_ch = JSON_GetString(channel_obj, "reset_channel", "");
-    strncpy(config.reset_channel, reset_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.set_channel_id = JSON_GetChannelRef(channel_obj, "set_channel");
+    config.reset_channel_id = JSON_GetChannelRef(channel_obj, "reset_channel");
     const char* def = JSON_GetString(channel_obj, "default_state", "off");
     config.default_state = (strcmp(def, "on") == 0) ? PMU_DEFAULT_STATE_ON : PMU_DEFAULT_STATE_OFF;
 
@@ -2692,8 +2748,7 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     else if (strcmp(edge, "falling") == 0) config.edge = PMU_EDGE_FALLING;
     else if (strcmp(edge, "both") == 0) config.edge = PMU_EDGE_BOTH;
 
-    const char* toggle_ch = JSON_GetString(channel_obj, "toggle_channel", "");
-    strncpy(config.toggle_channel, toggle_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.toggle_channel_id = JSON_GetChannelRef(channel_obj, "toggle_channel");
     config.pulse_count = (uint8_t)JSON_GetInt(channel_obj, "pulse_count", 1);
     config.retrigger = JSON_GetBool(channel_obj, "retrigger", false);
 
@@ -2757,7 +2812,12 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_NumberConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Number channel missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Get JSON channel_id for mapping */
@@ -2780,7 +2840,7 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
     else if (strcmp(op, "lookup4") == 0) config.operation = PMU_MATH_LOOKUP4;
     else if (strcmp(op, "lookup5") == 0) config.operation = PMU_MATH_LOOKUP5;
 
-    /* Inputs array */
+    /* Inputs array (supports both numeric IDs and string names) */
     cJSON* inputs = cJSON_GetObjectItem(channel_obj, "inputs");
     if (inputs && cJSON_IsArray(inputs)) {
         int inp_count = cJSON_GetArraySize(inputs);
@@ -2788,9 +2848,7 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
                               PMU_MAX_NUMBER_INPUTS : (uint8_t)inp_count;
         for (int i = 0; i < config.input_count; i++) {
             cJSON* inp = cJSON_GetArrayItem(inputs, i);
-            if (inp && cJSON_IsString(inp)) {
-                strncpy(config.inputs[i], inp->valuestring, PMU_CHANNEL_ID_LEN - 1);
-            }
+            config.input_ids[i] = JSON_ResolveChannel(inp);
         }
     }
 
@@ -2863,14 +2921,18 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_TimerConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Timer missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Get JSON channel_id for mapping */
     uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
-    const char* start = JSON_GetString(channel_obj, "start_channel", "");
-    strncpy(config.start_channel, start, PMU_CHANNEL_ID_LEN - 1);
+    config.start_channel_id = JSON_GetChannelRef(channel_obj, "start_channel");
 
     const char* start_edge = JSON_GetString(channel_obj, "start_edge", "rising");
     if (strcmp(start_edge, "rising") == 0) config.start_edge = PMU_EDGE_RISING;
@@ -2878,8 +2940,7 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     else if (strcmp(start_edge, "both") == 0) config.start_edge = PMU_EDGE_BOTH;
     else if (strcmp(start_edge, "level") == 0) config.start_edge = PMU_EDGE_LEVEL;
 
-    const char* stop = JSON_GetString(channel_obj, "stop_channel", "");
-    strncpy(config.stop_channel, stop, PMU_CHANNEL_ID_LEN - 1);
+    config.stop_channel_id = JSON_GetChannelRef(channel_obj, "stop_channel");
 
     const char* stop_edge = JSON_GetString(channel_obj, "stop_edge", "rising");
     if (strcmp(stop_edge, "rising") == 0) config.stop_edge = PMU_EDGE_RISING;
@@ -2965,7 +3026,12 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_FilterConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Filter missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Get JSON channel_id for mapping */
@@ -2978,8 +3044,7 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
     else if (strcmp(type, "max_window") == 0) config.filter_type = PMU_FILTER_MAX_WINDOW;
     else if (strcmp(type, "median") == 0) config.filter_type = PMU_FILTER_MEDIAN;
 
-    const char* input = JSON_GetString(channel_obj, "input_channel", "");
-    strncpy(config.input_channel, input, PMU_CHANNEL_ID_LEN - 1);
+    config.input_channel_id = JSON_GetChannelRef(channel_obj, "input_channel");
 
     config.window_size = (uint16_t)JSON_GetInt(channel_obj, "window_size", 10);
     config.time_constant = JSON_GetFloat(channel_obj, "time_constant", 0.1f);
@@ -3034,11 +3099,15 @@ static bool JSON_ParseTable2D(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_Table2DConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Table2D missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
-    const char* x_ch = JSON_GetString(channel_obj, "x_axis_channel", "");
-    strncpy(config.x_axis_channel, x_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.x_axis_channel_id = JSON_GetChannelRef(channel_obj, "x_axis_channel");
 
     config.x_min = JSON_GetFloat(channel_obj, "x_min", 0.0f);
     config.x_max = JSON_GetFloat(channel_obj, "x_max", 100.0f);
@@ -3085,14 +3154,16 @@ static bool JSON_ParseTable3D(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_Table3DConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Table3D missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
-    const char* x_ch = JSON_GetString(channel_obj, "x_axis_channel", "");
-    strncpy(config.x_axis_channel, x_ch, PMU_CHANNEL_ID_LEN - 1);
-
-    const char* y_ch = JSON_GetString(channel_obj, "y_axis_channel", "");
-    strncpy(config.y_axis_channel, y_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.x_axis_channel_id = JSON_GetChannelRef(channel_obj, "x_axis_channel");
+    config.y_axis_channel_id = JSON_GetChannelRef(channel_obj, "y_axis_channel");
 
     config.x_min = JSON_GetFloat(channel_obj, "x_min", 0.0f);
     config.x_max = JSON_GetFloat(channel_obj, "x_max", 100.0f);
@@ -3159,7 +3230,12 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_SwitchConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("Switch missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Get JSON channel_id for mapping */
@@ -3168,16 +3244,14 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
     const char* type = JSON_GetString(channel_obj, "switch_type", "latching");
     strncpy(config.switch_type, type, sizeof(config.switch_type) - 1);
 
-    const char* up_ch = JSON_GetString(channel_obj, "input_up_channel", "");
-    strncpy(config.input_up_channel, up_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.input_up_channel_id = JSON_GetChannelRef(channel_obj, "input_up_channel");
 
     const char* up_edge = JSON_GetString(channel_obj, "input_up_edge", "rising");
     if (strcmp(up_edge, "rising") == 0) config.input_up_edge = PMU_EDGE_RISING;
     else if (strcmp(up_edge, "falling") == 0) config.input_up_edge = PMU_EDGE_FALLING;
     else if (strcmp(up_edge, "both") == 0) config.input_up_edge = PMU_EDGE_BOTH;
 
-    const char* down_ch = JSON_GetString(channel_obj, "input_down_channel", "");
-    strncpy(config.input_down_channel, down_ch, PMU_CHANNEL_ID_LEN - 1);
+    config.input_down_channel_id = JSON_GetChannelRef(channel_obj, "input_down_channel");
 
     const char* down_edge = JSON_GetString(channel_obj, "input_down_edge", "rising");
     if (strcmp(down_edge, "rising") == 0) config.input_down_edge = PMU_EDGE_RISING;
@@ -3228,50 +3302,6 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
 }
 
 /**
- * @brief Parse enum channel
- */
-static bool JSON_ParseEnum(cJSON* channel_obj)
-{
-#ifdef JSON_PARSING_ENABLED
-    PMU_EnumConfig_t config = {0};
-
-    const char* id = JSON_GetString(channel_obj, "id", "");
-    strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
-
-    config.is_bitfield = JSON_GetBool(channel_obj, "is_bitfield", false);
-
-    /* Items array */
-    cJSON* items = cJSON_GetObjectItem(channel_obj, "items");
-    if (items && cJSON_IsArray(items)) {
-        int item_count = cJSON_GetArraySize(items);
-        config.item_count = (item_count > PMU_MAX_ENUM_ITEMS) ?
-                             PMU_MAX_ENUM_ITEMS : (uint8_t)item_count;
-
-        for (int i = 0; i < config.item_count; i++) {
-            cJSON* item = cJSON_GetArrayItem(items, i);
-            if (item && cJSON_IsObject(item)) {
-                config.items[i].value = (int16_t)JSON_GetInt(item, "value", 0);
-                const char* text = JSON_GetString(item, "text", "");
-                strncpy(config.items[i].text, text, sizeof(config.items[i].text) - 1);
-
-                /* Parse color (hex string like "#FF0000") */
-                const char* color = JSON_GetString(item, "color", "#FFFFFF");
-                if (color[0] == '#' && strlen(color) >= 7) {
-                    config.items[i].color = (uint32_t)strtoul(color + 1, NULL, 16);
-                }
-            }
-        }
-    }
-
-    /* TODO: Register enum channel */
-    (void)config;
-#else
-    (void)channel_obj;
-#endif
-    return true;
-}
-
-/**
  * @brief Parse CAN RX channel
  */
 static bool JSON_ParseCanRx(cJSON* channel_obj)
@@ -3279,7 +3309,12 @@ static bool JSON_ParseCanRx(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_CanRxConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("CAN RX missing required 'name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     config.can_bus = (uint8_t)JSON_GetInt(channel_obj, "can_bus", 1);
@@ -3337,7 +3372,12 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_CanTxConfig_t config = {0};
 
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("CAN TX missing required 'channel_name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     config.can_bus = (uint8_t)JSON_GetInt(channel_obj, "can_bus", 1);
@@ -3386,8 +3426,12 @@ static bool JSON_ParsePID(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_PIDConfig_t config = {0};
 
-    /* Copy ID */
-    const char* id = JSON_GetString(channel_obj, "id", "");
+    /* Get channel name - required field */
+    const char* id = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(id) == 0) {
+        JSON_SetError("PID missing required 'channel_name' field");
+        return false;
+    }
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
 
     /* Input/Output channels */
@@ -3446,10 +3490,11 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_BlinkMarine_Keypad_t keypad = {0};
 
-    /* Get name - use name or id field */
-    const char* name = JSON_GetString(channel_obj, "name", NULL);
-    if (!name) {
-        name = JSON_GetString(channel_obj, "id", "Keypad");
+    /* Get channel name - required field */
+    const char* name = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(name) == 0) {
+        JSON_SetError("BlinkMarine keypad missing required 'channel_name' field");
+        return false;
     }
     strncpy(keypad.name, name, sizeof(keypad.name) - 1);
 
@@ -3523,8 +3568,12 @@ static bool JSON_ParseHandler(cJSON* channel_obj)
 {
     /* TODO: Implement handler parsing - for now just log and return success */
 #ifdef JSON_PARSING_ENABLED
-    const char* id = JSON_GetString(channel_obj, "id", "");
-    printf("[JSON] Handler '%s' parsing not yet implemented\n", id);
+    const char* name = JSON_GetString(channel_obj, "channel_name", "");
+    if (strlen(name) == 0) {
+        JSON_SetError("Handler missing required 'channel_name' field");
+        return false;
+    }
+    printf("[JSON] Handler '%s' parsing not yet implemented\n", name);
 #else
     (void)channel_obj;
 #endif
@@ -3632,11 +3681,11 @@ void PMU_LogicChannel_Update(void)
         PMU_LogicRuntime_t* rt = &logic_storage[i];
         PMU_LogicConfig_t* cfg = &rt->config;
 
-        int32_t input1 = GetInputChannelValue(cfg->channel);
-        int32_t input2 = GetInputChannelValue(cfg->channel_2);
+        int32_t input1 = GetInputChannelValueById(cfg->channel_id);
+        int32_t input2 = GetInputChannelValueById(cfg->channel_2_id);
 
         if (debug) {
-            printf("[LOGIC] '%s': input='%s'=%d, op=%d\n", cfg->id, cfg->channel, input1, cfg->operation);
+            printf("[LOGIC] '%s': ch_id=%u=%d, op=%d\n", cfg->id, cfg->channel_id, input1, cfg->operation);
         }
 
         bool result = false;
@@ -3746,8 +3795,8 @@ void PMU_LogicChannel_Update(void)
 
             /* SET_RESET_LATCH: SR flip-flop */
             case PMU_LOGIC_SET_RESET_LATCH: {
-                int32_t set_val = GetInputChannelValue(cfg->set_channel);
-                int32_t reset_val = GetInputChannelValue(cfg->reset_channel);
+                int32_t set_val = GetInputChannelValueById(cfg->set_channel_id);
+                int32_t reset_val = GetInputChannelValueById(cfg->reset_channel_id);
                 /* Set has priority over reset */
                 if (set_val > 0 && rt->prev_input_value <= 0) {
                     /* Rising edge on set */
@@ -3765,9 +3814,9 @@ void PMU_LogicChannel_Update(void)
 
             /* TOGGLE: Toggle output on edge of toggle channel */
             case PMU_LOGIC_TOGGLE: {
-                int32_t toggle_val = GetInputChannelValue(cfg->toggle_channel);
-                int32_t set_val = GetInputChannelValue(cfg->set_channel);
-                int32_t reset_val = GetInputChannelValue(cfg->reset_channel);
+                int32_t toggle_val = GetInputChannelValueById(cfg->toggle_channel_id);
+                int32_t set_val = GetInputChannelValueById(cfg->set_channel_id);
+                int32_t reset_val = GetInputChannelValueById(cfg->reset_channel_id);
 
                 /* Check for set/reset override */
                 if (set_val > 0) {
@@ -3899,50 +3948,50 @@ void PMU_NumberChannel_Update(void)
                 break;
             case PMU_MATH_CHANNEL:
                 if (cfg->input_count > 0) {
-                    result = GetInputChannelValue(cfg->inputs[0]);
+                    result = GetInputChannelValueById(cfg->input_ids[0]);
                 }
                 break;
             case PMU_MATH_ADD:
                 for (uint8_t j = 0; j < cfg->input_count; j++) {
-                    result += GetInputChannelValue(cfg->inputs[j]);
+                    result += GetInputChannelValueById(cfg->input_ids[j]);
                 }
                 break;
             case PMU_MATH_SUBTRACT:
                 if (cfg->input_count > 0) {
-                    result = GetInputChannelValue(cfg->inputs[0]);
+                    result = GetInputChannelValueById(cfg->input_ids[0]);
                     for (uint8_t j = 1; j < cfg->input_count; j++) {
-                        result -= GetInputChannelValue(cfg->inputs[j]);
+                        result -= GetInputChannelValueById(cfg->input_ids[j]);
                     }
                 }
                 break;
             case PMU_MATH_MULTIPLY:
                 result = 1000;
                 for (uint8_t j = 0; j < cfg->input_count; j++) {
-                    result = (result * GetInputChannelValue(cfg->inputs[j])) / 1000;
+                    result = (result * GetInputChannelValueById(cfg->input_ids[j])) / 1000;
                 }
                 break;
             case PMU_MATH_DIVIDE:
                 if (cfg->input_count >= 2) {
-                    int32_t divisor = GetInputChannelValue(cfg->inputs[1]);
+                    int32_t divisor = GetInputChannelValueById(cfg->input_ids[1]);
                     if (divisor != 0) {
-                        result = (GetInputChannelValue(cfg->inputs[0]) * 1000) / divisor;
+                        result = (GetInputChannelValueById(cfg->input_ids[0]) * 1000) / divisor;
                     }
                 }
                 break;
             case PMU_MATH_MIN:
                 if (cfg->input_count > 0) {
-                    result = GetInputChannelValue(cfg->inputs[0]);
+                    result = GetInputChannelValueById(cfg->input_ids[0]);
                     for (uint8_t j = 1; j < cfg->input_count; j++) {
-                        int32_t val = GetInputChannelValue(cfg->inputs[j]);
+                        int32_t val = GetInputChannelValueById(cfg->input_ids[j]);
                         if (val < result) result = val;
                     }
                 }
                 break;
             case PMU_MATH_MAX:
                 if (cfg->input_count > 0) {
-                    result = GetInputChannelValue(cfg->inputs[0]);
+                    result = GetInputChannelValueById(cfg->input_ids[0]);
                     for (uint8_t j = 1; j < cfg->input_count; j++) {
-                        int32_t val = GetInputChannelValue(cfg->inputs[j]);
+                        int32_t val = GetInputChannelValueById(cfg->input_ids[j]);
                         if (val > result) result = val;
                     }
                 }
@@ -3979,8 +4028,8 @@ void PMU_SwitchChannel_Update(void)
         PMU_SwitchRuntime_t* rt = &switch_storage[i];
         PMU_SwitchConfig_t* cfg = &rt->config;
 
-        int32_t up_val = GetInputChannelValue(cfg->input_up_channel);
-        int32_t down_val = GetInputChannelValue(cfg->input_down_channel);
+        int32_t up_val = GetInputChannelValueById(cfg->input_up_channel_id);
+        int32_t down_val = GetInputChannelValueById(cfg->input_down_channel_id);
 
         /* Simple edge detection for up/down */
         static int32_t prev_up[PMU_MAX_SWITCH_CHANNELS] = {0};
@@ -4019,7 +4068,7 @@ void PMU_FilterChannel_Update(void)
         PMU_FilterRuntime_t* rt = &filter_storage[i];
         PMU_FilterConfig_t* cfg = &rt->config;
 
-        int32_t input_val = GetInputChannelValue(cfg->input_channel);
+        int32_t input_val = GetInputChannelValueById(cfg->input_channel_id);
         int32_t result = input_val;
 
         switch (cfg->filter_type) {
@@ -4097,8 +4146,8 @@ void PMU_TimerChannel_Update(void)
         PMU_TimerConfig_t* cfg = &rt->config;
 
         /* Get start trigger value */
-        int32_t start_val = GetInputChannelValue(cfg->start_channel);
-        int32_t stop_val = GetInputChannelValue(cfg->stop_channel);
+        int32_t start_val = GetInputChannelValueById(cfg->start_channel_id);
+        int32_t stop_val = GetInputChannelValueById(cfg->stop_channel_id);
 
         /* Edge detection for start */
         bool start_edge = false;
@@ -4115,7 +4164,7 @@ void PMU_TimerChannel_Update(void)
 
         /* Edge detection for stop */
         bool stop_edge = false;
-        if (strlen(cfg->stop_channel) > 0) {
+        if (cfg->stop_channel_id != 0) {
             if (cfg->stop_edge == PMU_EDGE_RISING) {
                 stop_edge = (stop_val > 0 && rt->prev_stop_value <= 0);
             } else if (cfg->stop_edge == PMU_EDGE_FALLING) {

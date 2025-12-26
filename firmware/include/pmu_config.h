@@ -149,7 +149,6 @@ typedef enum {
 /* Maximum calibration points */
 #define PMU_MAX_CALIBRATION_POINTS  16
 #define PMU_MAX_TABLE_SIZE          16
-#define PMU_MAX_ENUM_ITEMS          16
 #define PMU_MAX_CAN_TX_SIGNALS      8
 #define PMU_MAX_NUMBER_INPUTS       5
 #define PMU_MAX_OUTPUT_PINS         4
@@ -161,13 +160,6 @@ typedef struct {
     float voltage;
     float value;
 } PMU_CalibrationPoint_t;
-
-/* Enum Item */
-typedef struct {
-    int16_t value;
-    char text[16];
-    uint32_t color;  /* RGB color */
-} PMU_EnumItem_t;
 
 /* CAN TX Signal */
 typedef struct {
@@ -265,9 +257,9 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_LogicOp_t operation;
-    /* Common: channel input */
-    char channel[PMU_CHANNEL_ID_LEN];
-    char channel_2[PMU_CHANNEL_ID_LEN];
+    /* Common: channel input (by ID, 0 = none) */
+    uint16_t channel_id;
+    uint16_t channel_2_id;
     /* Delays */
     float true_delay_s;
     float false_delay_s;
@@ -281,12 +273,12 @@ typedef struct {
     float upper_value;
     float lower_value;
     /* For SET_RESET_LATCH */
-    char set_channel[PMU_CHANNEL_ID_LEN];
-    char reset_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t set_channel_id;
+    uint16_t reset_channel_id;
     PMU_DefaultState_t default_state;
     /* For TOGGLE/PULSE operation */
     PMU_EdgeType_t edge;
-    char toggle_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t toggle_channel_id;
     uint8_t pulse_count;
     bool retrigger;
     /* For FLASH operation */
@@ -299,7 +291,7 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_MathOp_t operation;
-    char inputs[PMU_MAX_NUMBER_INPUTS][PMU_CHANNEL_ID_LEN];
+    uint16_t input_ids[PMU_MAX_NUMBER_INPUTS];  /* Channel IDs, 0 = none */
     uint8_t input_count;
     float constant_value;
     float clamp_min;
@@ -313,9 +305,9 @@ typedef struct {
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char start_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t start_channel_id;  /* Channel ID, 0 = none */
     PMU_EdgeType_t start_edge;
-    char stop_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t stop_channel_id;   /* Channel ID, 0 = none */
     PMU_EdgeType_t stop_edge;
     PMU_TimerMode_t mode;
     uint16_t limit_hours;
@@ -329,27 +321,17 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_FilterType_t filter_type;
-    char input_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_channel_id;  /* Channel ID, 0 = none */
     uint16_t window_size;
     float time_constant;
 } PMU_FilterConfig_t;
-
-/* ============================================================================
- * Enum Channel
- * ============================================================================ */
-typedef struct {
-    char id[PMU_CHANNEL_ID_LEN];
-    bool is_bitfield;
-    uint8_t item_count;
-    PMU_EnumItem_t items[PMU_MAX_ENUM_ITEMS];
-} PMU_EnumConfig_t;
 
 /* ============================================================================
  * 2D Table Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char x_axis_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t x_axis_channel_id;  /* Channel ID, 0 = none */
     float x_min;
     float x_max;
     float x_step;
@@ -364,8 +346,8 @@ typedef struct {
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char x_axis_channel[PMU_CHANNEL_ID_LEN];
-    char y_axis_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t x_axis_channel_id;  /* Channel ID, 0 = none */
+    uint16_t y_axis_channel_id;  /* Channel ID, 0 = none */
     float x_min, x_max, x_step;
     float y_min, y_max, y_step;
     uint8_t x_count, y_count;
@@ -381,9 +363,9 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     char switch_type[16];           /* "latching", "press_hold" */
-    char input_up_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_up_channel_id;   /* Channel ID, 0 = none */
     PMU_EdgeType_t input_up_edge;
-    char input_down_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_down_channel_id; /* Channel ID, 0 = none */
     PMU_EdgeType_t input_down_edge;
     int16_t state_first;
     int16_t state_last;

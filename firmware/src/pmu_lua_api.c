@@ -278,7 +278,7 @@ int lua_channel_info(lua_State* L)
     lua_settable(L, -3);
 
     lua_pushstring(L, "type");
-    lua_pushinteger(L, info->type);
+    lua_pushinteger(L, info->hw_class);
     lua_settable(L, -3);
 
     lua_pushstring(L, "value");
@@ -760,7 +760,7 @@ int lua_can_get(lua_State* L)
 
     /* Get message by ID and extract signal value */
     /* For now, return value from channel system */
-    const PMU_Channel_t* ch = PMU_Channel_GetByID(msg_id);
+    const PMU_Channel_t* ch = PMU_Channel_GetByName(msg_id);
     if (ch) {
         lua_pushnumber(L, (lua_Number)ch->value / 1000.0);
     } else {
@@ -787,7 +787,7 @@ int lua_can_set(lua_State* L)
 
     /* Set value via channel system */
     uint16_t ch_idx = PMU_Channel_GetIndexByID(msg_id);
-    if (ch_idx != PMU_CHANNEL_INVALID) {
+    if (ch_idx != 0xFFFF) {
         PMU_Channel_SetValue(ch_idx, (int32_t)(value * 1000.0));
         lua_pushboolean(L, 1);
     } else {

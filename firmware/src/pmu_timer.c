@@ -34,7 +34,6 @@ static bool timer_initialized = false;
 
 static PMU_TimerState_t* FindTimer(const char* id);
 static PMU_TimerState_t* FindFreeSlot(void);
-static uint16_t ResolveChannel(const char* channel_name);
 static void UpdateSingleTimer(PMU_TimerState_t* timer, uint32_t now_ms);
 static bool CheckEdge(int32_t prev, int32_t curr, PMU_EdgeType_t edge);
 static void RegisterTimerChannels(PMU_TimerState_t* timer, uint8_t timer_index);
@@ -93,15 +92,15 @@ HAL_StatusTypeDef PMU_Timer_AddTimer(const PMU_TimerConfig_t* config)
                       (uint32_t)config->limit_minutes * 60000UL +
                       (uint32_t)config->limit_seconds * 1000UL;
 
-    /* Resolve channel references */
-    timer->start_channel_id = ResolveChannel(config->start_channel);
-    timer->stop_channel_id = ResolveChannel(config->stop_channel);
+    /* Use channel IDs directly from config (already resolved during JSON parsing) */
+    timer->start_channel_id = config->start_channel_id;
+    timer->stop_channel_id = config->stop_channel_id;
 
     /* Initialize edge detection */
-    if (timer->start_channel_id != 0xFFFF) {
+    if (timer->start_channel_id != 0) {
         timer->prev_start_value = PMU_Channel_GetValue(timer->start_channel_id);
     }
-    if (timer->stop_channel_id != 0xFFFF) {
+    if (timer->stop_channel_id != 0) {
         timer->prev_stop_value = PMU_Channel_GetValue(timer->stop_channel_id);
     }
 
@@ -111,8 +110,8 @@ HAL_StatusTypeDef PMU_Timer_AddTimer(const PMU_TimerConfig_t* config)
         RegisterTimerChannels(timer, timer_index);
     }
 
-    printf("[TIMER] Added timer '%s': limit=%lu ms, mode=%s\n",
-           config->id, timer->limit_ms,
+    printf("[TIMER] Added timer '%s': limit=%u ms, mode=%s\n",
+           config->id, (unsigned)timer->limit_ms,
            config->mode == PMU_TIMER_MODE_COUNT_DOWN ? "down" : "up");
 
     return HAL_OK;
@@ -348,18 +347,6 @@ static PMU_TimerState_t* FindFreeSlot(void)
 }
 
 /**
- * @brief Resolve channel name to channel ID
- */
-static uint16_t ResolveChannel(const char* channel_name)
-{
-    if (!channel_name || strlen(channel_name) == 0) {
-        return 0xFFFF;  /* Invalid channel */
-    }
-
-    return PMU_Channel_GetIndexByID(channel_name);
-}
-
-/**
  * @brief Check for edge on a signal
  */
 static bool CheckEdge(int32_t prev, int32_t curr, PMU_EdgeType_t edge)
@@ -392,7 +379,7 @@ static void UpdateSingleTimer(PMU_TimerState_t* timer, uint32_t now_ms)
 {
     /* Check start trigger (if not running) */
     if (!timer->running) {
-        if (timer->start_channel_id != 0xFFFF) {
+        if (timer->start_channel_id != 0) {
             int32_t curr_value = PMU_Channel_GetValue(timer->start_channel_id);
 
             if (CheckEdge(timer->prev_start_value, curr_value, timer->config.start_edge)) {
@@ -441,7 +428,7 @@ static void UpdateSingleTimer(PMU_TimerState_t* timer, uint32_t now_ms)
         }
 
         /* Check stop trigger */
-        if (timer->running && timer->stop_channel_id != 0xFFFF) {
+        if (timer->running && timer->stop_channel_id != 0) {
             int32_t curr_value = PMU_Channel_GetValue(timer->stop_channel_id);
 
             if (CheckEdge(timer->prev_stop_value, curr_value, timer->config.stop_edge)) {

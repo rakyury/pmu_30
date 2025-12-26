@@ -182,12 +182,15 @@ class ConfigManager:
             # Update modified timestamp
             self.config["device"]["modified"] = datetime.now().isoformat()
 
+            # Convert channel references from names to numeric IDs
+            export_config = self._convert_references_to_ids(self.config)
+
             # Ensure parent directory exists
             path.parent.mkdir(parents=True, exist_ok=True)
 
             # Save with pretty formatting
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, indent=2, ensure_ascii=False)
+                json.dump(export_config, f, indent=2, ensure_ascii=False)
 
             self.current_file = path
             self.modified = False
@@ -921,3 +924,91 @@ class ConfigManager:
         config["version"] = "3.0"
 
         return config
+
+    def _convert_references_to_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert channel references from string names to numeric channel_ids.
+
+        This creates a clean export where the firmware only sees numeric IDs,
+        while the configurator still works with names internally.
+
+        Architecture:
+        - Firmware processes channels by channel_id only
+        - Names are stored separately for Lua script lookups and UI display
+        - This conversion happens only during export (save)
+        """
+        import copy
+        export_config = copy.deepcopy(config)
+
+        # Build name -> channel_id mapping
+        # Include system channels that are always available
+        name_to_id = {
+            'zero': 1012,  # PMU_CHANNEL_CONST_ZERO
+            'one': 1013,   # PMU_CHANNEL_CONST_ONE
+        }
+
+        for ch in export_config.get("channels", []):
+            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
+            ch_id = ch.get("channel_id", 0)
+            if ch_name and ch_id:
+                name_to_id[ch_name] = ch_id
+
+        # Fields that contain channel references
+        REFERENCE_FIELDS = [
+            # Power output
+            "source_channel", "duty_channel",
+            # Timer
+            "start_channel", "stop_channel",
+            # Filter
+            "input_channel",
+            # Table
+            "x_axis_channel", "y_axis_channel",
+            # Switch
+            "input_up_channel", "input_down_channel",
+            # Logic
+            "channel", "channel_2", "set_channel", "reset_channel", "toggle_channel",
+            # H-Bridge
+            "direction_source_channel", "pwm_source_channel",
+            "position_source_channel", "target_source_channel",
+            # Handler
+            "trigger_channel", "output_channel",
+            # Digital input (button modes)
+            "long_press_output", "double_click_output",
+        ]
+
+        def convert_reference(value):
+            """Convert a single reference value."""
+            if value is None or value == "":
+                return value
+            if isinstance(value, int):
+                return value  # Already numeric
+            if isinstance(value, str):
+                if value in name_to_id:
+                    return name_to_id[value]
+                # Try to parse as numeric string
+                try:
+                    return int(value)
+                except ValueError:
+                    # Unknown channel name - keep as string for backward compatibility
+                    logger.warning(f"Unknown channel reference: '{value}'")
+                    return value
+            return value
+
+        # Convert references in all channels
+        for ch in export_config.get("channels", []):
+            # Convert direct reference fields
+            for field in REFERENCE_FIELDS:
+                if field in ch:
+                    ch[field] = convert_reference(ch[field])
+
+            # Handle 'inputs' array (used by logic and number channels)
+            if "inputs" in ch and isinstance(ch["inputs"], list):
+                ch["inputs"] = [convert_reference(inp) for inp in ch["inputs"]]
+
+            # Handle CAN TX signals
+            if ch.get("channel_type") == "can_tx" and "signals" in ch:
+                for sig in ch.get("signals", []):
+                    if isinstance(sig, dict) and "source_channel" in sig:
+                        sig["source_channel"] = convert_reference(sig["source_channel"])
+
+        return export_config
