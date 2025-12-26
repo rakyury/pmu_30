@@ -129,12 +129,14 @@ class DialogFactory:
         elif channel_type == ChannelType.WIPER:
             used_numbers = kwargs.get('used_numbers', [])
             return dialog_class(
-                parent, config, used_numbers, available_channels, existing_channels
+                parent, config=config, available_channels=available_channels,
+                existing_channels=existing_channels, used_numbers=used_numbers
             )
 
         elif channel_type == ChannelType.BLINKER:
             return dialog_class(
-                parent, config, available_channels, existing_channels
+                parent, config=config, available_channels=available_channels,
+                existing_channels=existing_channels
             )
 
         elif channel_type == ChannelType.CAN_RX:

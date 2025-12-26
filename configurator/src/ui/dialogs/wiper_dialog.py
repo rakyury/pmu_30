@@ -18,21 +18,37 @@ from models.channel_display_service import ChannelDisplayService
 class WiperDialog(QDialog):
     """Dialog for configuring a Wiper control module."""
 
-    def __init__(self, parent=None, wiper_config: Optional[Dict[str, Any]] = None,
-                 used_bridges=None, available_channels=None,
-                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
+                 available_channels=None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None,
+                 **kwargs):
+        """Initialize WiperDialog.
+
+        Args:
+            parent: Parent widget
+            config: Wiper configuration (for editing) or None (for creating)
+            available_channels: Dict of available channels for source selection
+            existing_channels: List of existing channel configs
+            **kwargs: Additional arguments:
+                - used_numbers: List of already used wiper numbers
+                - wiper_config: Alias for config (backwards compatibility)
+                - used_bridges: Alias for used_numbers (backwards compatibility)
+        """
         super().__init__(parent)
-        self.wiper_config = wiper_config
-        self.used_bridges = used_bridges or []
+        # Handle backwards compatibility aliases
+        if config is None:
+            config = kwargs.get('wiper_config')
+        self.config = config
+        self.used_numbers = kwargs.get('used_numbers') or kwargs.get('used_bridges') or []
         self.available_channels = available_channels or {}
         self.existing_channels = existing_channels or []
 
         # Determine if editing existing or creating new
-        self.is_edit_mode = bool(wiper_config and wiper_config.get("channel_id") is not None)
+        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
 
         # Store or generate channel_id
         if self.is_edit_mode:
-            self._channel_id = wiper_config.get("channel_id", 0)
+            self._channel_id = config.get("channel_id", 0)
         else:
             self._channel_id = get_next_channel_id(existing_channels)
 
@@ -42,8 +58,8 @@ class WiperDialog(QDialog):
 
         self._init_ui()
 
-        if wiper_config:
-            self._load_config(wiper_config)
+        if config:
+            self._load_config(config)
         else:
             self._auto_generate_name()
 
@@ -291,12 +307,12 @@ class WiperDialog(QDialog):
 
         # Get current bridge if editing
         current_bridge = None
-        if self.wiper_config:
-            current_bridge = self.wiper_config.get("hbridge_number")
+        if self.config:
+            current_bridge = self.config.get("hbridge_number")
 
         # Add available bridges (HB1-HB4)
         for bridge in range(4):
-            if bridge not in self.used_bridges or bridge == current_bridge:
+            if bridge not in self.used_numbers or bridge == current_bridge:
                 self.bridge_combo.addItem(f"HB{bridge + 1}", bridge)
 
         if self.bridge_combo.count() == 0:

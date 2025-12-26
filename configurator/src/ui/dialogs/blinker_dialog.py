@@ -18,20 +18,34 @@ from models.channel_display_service import ChannelDisplayService
 class BlinkerDialog(QDialog):
     """Dialog for configuring a Blinker (Turn Signal) control module."""
 
-    def __init__(self, parent=None, blinker_config: Optional[Dict[str, Any]] = None,
+    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
                  available_channels=None,
-                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+                 existing_channels: Optional[List[Dict[str, Any]]] = None,
+                 **kwargs):
+        """Initialize BlinkerDialog.
+
+        Args:
+            parent: Parent widget
+            config: Blinker configuration (for editing) or None (for creating)
+            available_channels: Dict of available channels for source selection
+            existing_channels: List of existing channel configs
+            **kwargs: Additional arguments:
+                - blinker_config: Alias for config (backwards compatibility)
+        """
         super().__init__(parent)
-        self.blinker_config = blinker_config
+        # Handle backwards compatibility aliases
+        if config is None:
+            config = kwargs.get('blinker_config')
+        self.config = config
         self.available_channels = available_channels or {}
         self.existing_channels = existing_channels or []
 
         # Determine if editing existing or creating new
-        self.is_edit_mode = bool(blinker_config and blinker_config.get("channel_id") is not None)
+        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
 
         # Store or generate channel_id
         if self.is_edit_mode:
-            self._channel_id = blinker_config.get("channel_id", 0)
+            self._channel_id = config.get("channel_id", 0)
         else:
             self._channel_id = get_next_channel_id(existing_channels)
 
@@ -41,8 +55,8 @@ class BlinkerDialog(QDialog):
 
         self._init_ui()
 
-        if blinker_config:
-            self._load_config(blinker_config)
+        if config:
+            self._load_config(config)
         else:
             self._auto_generate_name()
 
