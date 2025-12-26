@@ -76,7 +76,7 @@ jobs:
         run: |
           cd configurator
           python -m pip install --upgrade pip
-          pip install PyQt6 pytest pytest-qt
+          pip install PyQt6 pytest pytest-qt numpy pyserial
 
       - name: Run tests
         env:
