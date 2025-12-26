@@ -13,6 +13,12 @@
  ******************************************************************************
  */
 
+/* Feature test macros for POSIX functions (Linux) ---------------------------*/
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+#endif
+
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_emulator.h"
 #include "stm32_hal_emu.h"

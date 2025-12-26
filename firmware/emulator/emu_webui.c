@@ -17,6 +17,12 @@
  ******************************************************************************
  */
 
+/* Feature test macros for POSIX functions (Linux) ---------------------------*/
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE
+#endif
+
 /* Includes ------------------------------------------------------------------*/
 #include "emu_webui.h"
 #include "pmu_emulator.h"
@@ -43,6 +49,8 @@
     #define SOCKET_ERROR_CODE WSAGetLastError()
 #else
     #include <sys/socket.h>
+    #include <sys/select.h>
+    #include <sys/time.h>
     #include <netinet/in.h>
     #include <arpa/inet.h>
     #include <unistd.h>
