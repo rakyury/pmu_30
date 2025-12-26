@@ -174,8 +174,8 @@ class TestCANMessageDialog:
         """Test CAN ID input field exists"""
         dialog = CANMessageDialog()
 
-        # Should have ID edit field
-        assert hasattr(dialog, 'id_edit')
+        # Should have ID spin field (base_id_spin) and name edit
+        assert hasattr(dialog, 'base_id_spin')
         assert hasattr(dialog, 'name_edit')
         dialog.close()
 
@@ -283,20 +283,6 @@ class TestFilterDialog:
             dialog.close()
         except ImportError:
             pytest.skip("FilterDialog not available")
-
-
-class TestEnumDialog:
-    """Tests for EnumDialog"""
-
-    def test_dialog_import(self, qapp):
-        """Test EnumDialog can be imported"""
-        try:
-            from ui.dialogs.enum_dialog import EnumDialog
-            dialog = EnumDialog()
-            assert dialog is not None
-            dialog.close()
-        except ImportError:
-            pytest.skip("EnumDialog not available")
 
 
 class TestSwitchDialog:

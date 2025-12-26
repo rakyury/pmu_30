@@ -121,28 +121,30 @@ class TestOutputConfigDialog:
         assert 6 in available_pins
         dialog.close()
 
-    def test_enabled_checkbox(self, qapp):
-        """Test enabled checkbox functionality"""
+    def test_pwm_enabled_checkbox(self, qapp):
+        """Test PWM enabled checkbox functionality"""
         dialog = OutputConfigDialog()
-        assert dialog.enabled_check.isChecked() == True
+        # PWM is disabled by default
+        assert dialog.pwm_enabled_check.isChecked() == False
 
-        dialog.enabled_check.setChecked(False)
+        dialog.pwm_enabled_check.setChecked(True)
         config = dialog.get_config()
-        assert config["enabled"] == False
+        assert config.get("pwm", {}).get("enabled", False) == True
         dialog.close()
 
-    def test_enabled_disabled_when_control_function_set(self, qapp):
-        """Test enabled checkbox disabled when control function is set"""
+    def test_control_function_field(self, qapp):
+        """Test control function field exists and works"""
         dialog = OutputConfigDialog()
 
-        # Initially enabled
-        assert dialog.enabled_check.isEnabled() == True
+        # Should have control function edit (read-only display)
+        assert hasattr(dialog, 'control_function_edit')
+        assert dialog.control_function_edit.isReadOnly()
 
-        # Set control function
+        # Set control function via internal variable (edit is read-only)
+        dialog._source_channel_id = "some_channel"
         dialog.control_function_edit.setText("some_channel")
-
-        # Should be disabled now
-        assert dialog.enabled_check.isEnabled() == False
+        config = dialog.get_config()
+        assert config.get("source_channel") == "some_channel"
         dialog.close()
 
     def test_pwm_controls_enable_disable(self, qapp):
