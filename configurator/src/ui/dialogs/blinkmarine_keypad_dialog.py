@@ -496,6 +496,10 @@ class BlinkMarineKeypadDialog(QDialog):
 
     def _update_led_table(self):
         """Update LED configuration table."""
+        # Guard: led_table may not exist yet during initialization
+        if not hasattr(self, 'led_table'):
+            return
+
         button_count = self._get_button_count()
         self.led_table.setRowCount(button_count)
 

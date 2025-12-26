@@ -145,7 +145,6 @@ class TestBlinkerDialog:
 class TestBlinkMarineKeypadDialog:
     """Tests for BlinkMarineKeypadDialog"""
 
-    @pytest.mark.skip(reason="BlinkMarineKeypadDialog has init bug - led_table accessed before creation")
     def test_dialog_creation_new(self, qapp):
         """Test creating new keypad dialog"""
         from ui.dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
@@ -153,7 +152,6 @@ class TestBlinkMarineKeypadDialog:
         assert dialog is not None
         dialog.close()
 
-    @pytest.mark.skip(reason="BlinkMarineKeypadDialog has init bug - led_table accessed before creation")
     def test_dialog_creation_edit(self, qapp):
         """Test creating edit dialog with config"""
         from ui.dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
@@ -165,7 +163,6 @@ class TestBlinkMarineKeypadDialog:
         assert dialog is not None
         dialog.close()
 
-    @pytest.mark.skip(reason="BlinkMarineKeypadDialog has init bug - led_table accessed before creation")
     def test_get_config(self, qapp):
         """Test getting configuration from dialog"""
         from ui.dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
