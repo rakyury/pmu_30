@@ -16,6 +16,7 @@ extern int test_logging_main(void);
 extern int test_ui_main(void);
 extern int test_lua_main(void);
 extern int test_channel_main(void);
+extern int test_config_json_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -67,6 +68,9 @@ int main(int argc, char** argv)
 
     printf("\nRunning Channel System Tests...\n");
     result += test_channel_main();
+
+    printf("\nRunning JSON Config Tests...\n");
+    result += test_config_json_main();
 
     /* Print summary */
     print_test_summary();
