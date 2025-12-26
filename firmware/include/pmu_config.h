@@ -161,16 +161,6 @@ typedef struct {
     float value;
 } PMU_CalibrationPoint_t;
 
-/* CAN TX Signal */
-typedef struct {
-    char source_channel[PMU_CHANNEL_ID_LEN];
-    uint8_t start_bit;
-    uint8_t length;
-    bool little_endian;
-    float factor;
-    float offset;
-} PMU_CanTxSignal_t;
-
 /* ============================================================================
  * Digital Input Channel
  * ============================================================================ */
@@ -234,13 +224,11 @@ typedef struct {
     uint8_t output_pins[PMU_MAX_OUTPUT_PINS];
     uint8_t output_pin_count;
     bool enabled;                             /* Output enabled for runtime control */
-    char source_channel[PMU_CHANNEL_ID_LEN];  /* Legacy: string channel ID */
-    uint16_t source_channel_id;               /* Numeric channel_id (preferred) */
+    uint16_t source_channel_id;               /* Source channel (0 = none) */
     /* PWM */
     bool pwm_enabled;
     uint16_t pwm_frequency_hz;
-    char duty_channel[PMU_CHANNEL_ID_LEN];    /* Legacy: string channel ID */
-    uint16_t duty_channel_id;                 /* Numeric channel_id (preferred) */
+    uint16_t duty_channel_id;                 /* Duty channel (0 = none) */
     float duty_fixed;               /* Fixed duty if no channel (0-100) */
     uint16_t soft_start_ms;
     /* Protection */
@@ -466,9 +454,6 @@ typedef struct {
     /* Signals */
     uint8_t signal_count;
     PMU_CanTxSignalV3_t signals_v3[PMU_MAX_CAN_TX_SIGNALS];
-    /* Legacy (v2.0 compatibility) */
-    uint16_t cycle_time_ms;             /**< Deprecated: use cycle_frequency_hz */
-    PMU_CanTxSignal_t signals[PMU_MAX_CAN_TX_SIGNALS];  /**< Deprecated: use signals_v3 */
 } PMU_CanTxConfig_t;
 
 /* ============================================================================
@@ -523,27 +508,22 @@ typedef struct {
     char motor_preset[16];          /* Motor preset (wiper/window/seat/valve/pump/custom) */
 
     /* Control sources */
-    char source_channel[32];        /* Activation source channel (legacy) */
-    uint16_t source_channel_id;             /* Activation source channel ID */
-    char direction_source_channel[32]; /* Direction source channel (legacy) */
-    uint16_t direction_source_channel_id;   /* Direction source channel ID */
+    uint16_t source_channel_id;             /* Activation source channel (0 = none) */
+    uint16_t direction_source_channel_id;   /* Direction source channel (0 = none) */
     bool invert_direction;          /* Invert direction logic */
 
     /* PWM control */
     PMU_HBridge_PwmMode_t pwm_mode; /* PWM source mode */
     uint16_t pwm_frequency;         /* PWM frequency in Hz (1000/4000/10000/20000) */
     uint8_t pwm_value;              /* Fixed PWM value (0-255) */
-    char pwm_source_channel[32];    /* PWM source channel (legacy) */
-    uint16_t pwm_source_channel_id;         /* PWM source channel ID */
+    uint16_t pwm_source_channel_id;         /* PWM source channel (0 = none) */
     uint8_t duty_limit_percent;     /* Max duty cycle (0-100%) */
 
     /* Position control */
     bool position_feedback_enabled; /* Enable position feedback */
-    char position_source_channel[32]; /* Position feedback source (legacy) */
-    uint16_t position_source_channel_id;    /* Position feedback source ID */
+    uint16_t position_source_channel_id;    /* Position feedback source (0 = none) */
     uint16_t target_position;       /* Fixed target position */
-    char target_source_channel[32]; /* Target position source (legacy) */
-    uint16_t target_source_channel_id;      /* Target position source ID */
+    uint16_t target_source_channel_id;      /* Target position source (0 = none) */
     uint16_t position_min;          /* Minimum position value */
     uint16_t position_max;          /* Maximum position value */
     uint16_t position_deadband;     /* Position tolerance */

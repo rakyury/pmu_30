@@ -784,16 +784,8 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         }
 
         /* Control sources */
-        item = cJSON_GetObjectItem(hb, "source_channel");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.source_channel, item->valuestring, sizeof(config.source_channel) - 1);
-        }
         config.source_channel_id = JSON_GetChannelRef(hb, "source_channel");
 
-        item = cJSON_GetObjectItem(hb, "direction_source_channel");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.direction_source_channel, item->valuestring, sizeof(config.direction_source_channel) - 1);
-        }
         config.direction_source_channel_id = JSON_GetChannelRef(hb, "direction_source_channel");
 
         item = cJSON_GetObjectItem(hb, "invert_direction");
@@ -813,10 +805,6 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         item = cJSON_GetObjectItem(hb, "pwm_value");
         config.pwm_value = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 255;
 
-        item = cJSON_GetObjectItem(hb, "pwm_source_channel");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.pwm_source_channel, item->valuestring, sizeof(config.pwm_source_channel) - 1);
-        }
         config.pwm_source_channel_id = JSON_GetChannelRef(hb, "pwm_source_channel");
 
         item = cJSON_GetObjectItem(hb, "duty_limit_percent");
@@ -826,19 +814,11 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         item = cJSON_GetObjectItem(hb, "position_feedback_enabled");
         config.position_feedback_enabled = item ? cJSON_IsTrue(item) : false;
 
-        item = cJSON_GetObjectItem(hb, "position_source_channel");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.position_source_channel, item->valuestring, sizeof(config.position_source_channel) - 1);
-        }
         config.position_source_channel_id = JSON_GetChannelRef(hb, "position_source_channel");
 
         item = cJSON_GetObjectItem(hb, "target_position");
         config.target_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
 
-        item = cJSON_GetObjectItem(hb, "target_source_channel");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.target_source_channel, item->valuestring, sizeof(config.target_source_channel) - 1);
-        }
         config.target_source_channel_id = JSON_GetChannelRef(hb, "target_source_channel");
 
         item = cJSON_GetObjectItem(hb, "position_min");
@@ -2579,21 +2559,10 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         }
     }
 
-    /* Source channel - can be string (name) or number (channel_id) */
-    cJSON* source_obj = cJSON_GetObjectItem(channel_obj, "source_channel");
-    if (!source_obj) {
-        source_obj = cJSON_GetObjectItem(channel_obj, "control_function");
-    }
-    if (source_obj) {
-        if (cJSON_IsString(source_obj) && source_obj->valuestring) {
-            /* String channel name */
-            strncpy(config.source_channel, source_obj->valuestring, PMU_CHANNEL_ID_LEN - 1);
-            config.source_channel_id = 0;  /* Will be resolved at runtime */
-        } else if (cJSON_IsNumber(source_obj)) {
-            /* Numeric channel_id - preferred */
-            config.source_channel_id = (uint16_t)source_obj->valueint;
-            config.source_channel[0] = '\0';  /* Not used when ID is set */
-        }
+    /* Source channel (numeric ID only) */
+    config.source_channel_id = JSON_GetChannelRef(channel_obj, "source_channel");
+    if (config.source_channel_id == 0) {
+        config.source_channel_id = JSON_GetChannelRef(channel_obj, "control_function");
     }
 
     /* PWM settings - try flat format first, then nested "pwm" object */
@@ -2605,16 +2574,14 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         config.duty_fixed = JSON_GetFloat(pwm_obj, "duty_value", 100.0f);
         config.soft_start_ms = JSON_GetBool(pwm_obj, "soft_start_enabled", false) ?
                                (uint16_t)JSON_GetInt(pwm_obj, "soft_start_duration_ms", 0) : 0;
-        const char* duty_ch = JSON_GetString(pwm_obj, "duty_function", "");
-        strncpy(config.duty_channel, duty_ch, PMU_CHANNEL_ID_LEN - 1);
+        config.duty_channel_id = JSON_GetChannelRef(pwm_obj, "duty_function");
     } else {
         /* Schema flat format: pwm_enabled, pwm_frequency_hz, duty_fixed */
         config.pwm_enabled = JSON_GetBool(channel_obj, "pwm_enabled", false);
         config.pwm_frequency_hz = (uint16_t)JSON_GetInt(channel_obj, "pwm_frequency_hz", 1000);
         config.duty_fixed = JSON_GetFloat(channel_obj, "duty_fixed", 100.0f);
         config.soft_start_ms = (uint16_t)JSON_GetInt(channel_obj, "soft_start_ms", 0);
-        const char* duty_ch = JSON_GetString(channel_obj, "duty_channel", "");
-        strncpy(config.duty_channel, duty_ch, PMU_CHANNEL_ID_LEN - 1);
+        config.duty_channel_id = JSON_GetChannelRef(channel_obj, "duty_channel");
     }
 
     /* Protection settings - try flat format first, then nested "protection" object */
@@ -2651,7 +2618,7 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
 
             /* Channel is enabled */
             /* When source_channel is empty, it means "always on" mode */
-            if (strlen(config.source_channel) == 0) {
+            if (config.source_channel_id == 0) {
                 PMU_PROFET_SetState(pin, 1);
             }
 
@@ -2676,8 +2643,8 @@ static bool JSON_ParsePowerOutput(cJSON* channel_obj)
         printf("], enabled=%d, source_id=%d, pwm=%d, duty=%.1f%%\n",
                enabled, config.source_channel_id, config.pwm_enabled, config.duty_fixed);
     } else {
-        printf("], enabled=%d, source='%s', pwm=%d, duty=%.1f%%\n",
-               enabled, config.source_channel, config.pwm_enabled, config.duty_fixed);
+        printf("], enabled=%d, source=%d, pwm=%d, duty=%.1f%%\n",
+               enabled, config.source_channel_id, config.pwm_enabled, config.duty_fixed);
     }
 
     /* Store configuration for runtime control */
@@ -3405,9 +3372,7 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
     config.can_bus = (uint8_t)JSON_GetInt(channel_obj, "can_bus", 1);
     config.message_id = (uint32_t)JSON_GetInt(channel_obj, "message_id", 0);
     config.is_extended = JSON_GetBool(channel_obj, "is_extended", false);
-    config.cycle_time_ms = (uint16_t)JSON_GetInt(channel_obj, "cycle_time_ms", 100);
-
-    /* Trigger channel for triggered mode */
+        /* Trigger channel for triggered mode */
     config.trigger_channel_id = JSON_GetChannelRef(channel_obj, "trigger_channel");
 
     /* Signals array (v3.0 format with numeric channel IDs) */
@@ -3453,14 +3418,6 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
                     config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
                 }
 
-                /* Legacy signals compatibility */
-                const char* src = JSON_GetString(sig, "source_channel", "");
-                strncpy(config.signals[i].source_channel, src, PMU_CHANNEL_ID_LEN - 1);
-                config.signals[i].start_bit = (uint8_t)JSON_GetInt(sig, "start_bit", 0);
-                config.signals[i].length = (uint8_t)JSON_GetInt(sig, "length", 8);
-                config.signals[i].little_endian = config.signals_v3[i].little_endian;
-                config.signals[i].factor = JSON_GetFloat(sig, "factor", 1.0f);
-                config.signals[i].offset = JSON_GetFloat(sig, "offset", 0.0f);
             }
         }
     }
@@ -3646,7 +3603,7 @@ void PMU_PowerOutput_Update(void)
         PMU_PowerOutputConfig_t* cfg = &power_output_storage[i];
 
         /* Skip outputs without source_channel (always on or disabled) */
-        if (cfg->source_channel_id == 0 && strlen(cfg->source_channel) == 0) {
+        if (cfg->source_channel_id == 0) {
             continue;
         }
 
@@ -3657,9 +3614,7 @@ void PMU_PowerOutput_Update(void)
             uint16_t runtime_id = MapJsonIdToRuntimeId(cfg->source_channel_id);
             source_ch = PMU_Channel_GetInfo(runtime_id);
         }
-        if (!source_ch && strlen(cfg->source_channel) > 0) {
-            source_ch = PMU_Channel_GetByName(cfg->source_channel);
-        }
+        /* source_ch already resolved by ID */
         if (!source_ch) {
             /* Source channel not found - skip */
             continue;
@@ -3682,8 +3637,8 @@ void PMU_PowerOutput_Update(void)
                 if (cfg->pwm_enabled) {
                     /* Use fixed duty or resolve duty_channel */
                     float duty = cfg->duty_fixed;
-                    if (strlen(cfg->duty_channel) > 0) {
-                        const PMU_Channel_t* duty_ch = PMU_Channel_GetByName(cfg->duty_channel);
+                    if (cfg->duty_channel_id != 0) {
+                        const PMU_Channel_t* duty_ch = PMU_Channel_GetInfo(cfg->duty_channel_id);
                         if (duty_ch) {
                             duty = (float)duty_ch->value / 10.0f; /* Assume 0-1000 -> 0-100% */
                         }
