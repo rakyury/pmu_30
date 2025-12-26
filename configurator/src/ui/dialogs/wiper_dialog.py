@@ -301,35 +301,40 @@ class WiperDialog(QDialog):
         if self.bridge_combo.count() == 0:
             self.bridge_combo.addItem("No bridges available", -1)
 
+    # Channel helper method
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel using central lookup."""
+        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+
     def _browse_control_channel(self):
         current = self.control_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.control_channel_edit.setText(channel if channel else "")
+            self.control_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_wash_channel(self):
         current = self.wash_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.wash_channel_edit.setText(channel if channel else "")
+            self.wash_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_park_channel(self):
         current = self.park_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.park_channel_edit.setText(channel if channel else "")
+            self.park_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_rain_sensor(self):
         current = self.rain_sensor_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.rain_sensor_edit.setText(channel if channel else "")
+            self.rain_sensor_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_delay_channel(self):
         current = self.delay_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.delay_channel_edit.setText(channel if channel else "")
+            self.delay_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _on_accept(self):
         """Validate and accept dialog."""
@@ -361,11 +366,11 @@ class WiperDialog(QDialog):
         if index >= 0:
             self.bridge_combo.setCurrentIndex(index)
 
-        # Input channels
-        self.control_channel_edit.setText(config.get("control_channel", ""))
-        self.wash_channel_edit.setText(config.get("wash_channel", ""))
-        self.park_channel_edit.setText(config.get("park_channel", ""))
-        self.rain_sensor_edit.setText(config.get("rain_sensor_channel", ""))
+        # Input channels - convert channel IDs to display names
+        self.control_channel_edit.setText(self._get_channel_display_name(config.get("control_channel", "")))
+        self.wash_channel_edit.setText(self._get_channel_display_name(config.get("wash_channel", "")))
+        self.park_channel_edit.setText(self._get_channel_display_name(config.get("park_channel", "")))
+        self.rain_sensor_edit.setText(self._get_channel_display_name(config.get("rain_sensor_channel", "")))
 
         # Speed settings
         self.slow_pwm_spin.setValue(config.get("slow_pwm", 180))
@@ -377,7 +382,7 @@ class WiperDialog(QDialog):
         # Intermittent
         self.int_min_spin.setValue(config.get("intermittent_min_ms", 1000))
         self.int_max_spin.setValue(config.get("intermittent_max_ms", 10000))
-        self.delay_channel_edit.setText(config.get("intermittent_delay_channel", ""))
+        self.delay_channel_edit.setText(self._get_channel_display_name(config.get("intermittent_delay_channel", "")))
 
         # Wash
         self.wash_wipe_count_spin.setValue(config.get("wash_wipe_count", 3))

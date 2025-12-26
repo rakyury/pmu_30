@@ -635,40 +635,45 @@ class HBridgeDialog(QDialog):
         if self.bridge_combo.count() == 0:
             self.bridge_combo.addItem("No bridges available", -1)
 
+    # Channel helper method
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel using central lookup."""
+        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+
     def _browse_source_channel(self):
         """Browse and select control source channel."""
         current = self.source_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.source_channel_edit.setText(channel if channel else "")
+            self.source_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_direction_source(self):
         """Browse and select direction source channel."""
         current = self.direction_source_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.direction_source_edit.setText(channel if channel else "")
+            self.direction_source_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_pwm_source(self):
         """Browse and select PWM source channel."""
         current = self.pwm_source_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.pwm_source_edit.setText(channel if channel else "")
+            self.pwm_source_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_position_source(self):
         """Browse and select position feedback source."""
         current = self.position_source_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.position_source_edit.setText(channel if channel else "")
+            self.position_source_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_target_source(self):
         """Browse and select target position source."""
         current = self.target_source_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.target_source_edit.setText(channel if channel else "")
+            self.target_source_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _on_preset_changed(self, index):
         """Handle motor preset change - apply preset defaults."""
@@ -793,10 +798,10 @@ class HBridgeDialog(QDialog):
         if index >= 0:
             self.direction_combo.setCurrentIndex(index)
 
-        # Source channels
-        self.source_channel_edit.setText(config.get("source_channel", ""))
-        self.direction_source_edit.setText(config.get("direction_source_channel", ""))
-        self.pwm_source_edit.setText(config.get("pwm_source_channel", ""))
+        # Source channels - convert channel IDs to display names
+        self.source_channel_edit.setText(self._get_channel_display_name(config.get("source_channel", "")))
+        self.direction_source_edit.setText(self._get_channel_display_name(config.get("direction_source_channel", "")))
+        self.pwm_source_edit.setText(self._get_channel_display_name(config.get("pwm_source_channel", "")))
 
         # PWM mode and settings
         pwm_mode = config.get("pwm_mode", "fixed")
@@ -814,11 +819,11 @@ class HBridgeDialog(QDialog):
 
         self.invert_direction_check.setChecked(config.get("invert_direction", False))
 
-        # Position control
+        # Position control - convert channel IDs to display names
         self.position_feedback_check.setChecked(config.get("position_feedback_enabled", False))
-        self.position_source_edit.setText(config.get("position_source_channel", ""))
+        self.position_source_edit.setText(self._get_channel_display_name(config.get("position_source_channel", "")))
         self.target_position_spin.setValue(config.get("target_position", 0))
-        self.target_source_edit.setText(config.get("target_source_channel", ""))
+        self.target_source_edit.setText(self._get_channel_display_name(config.get("target_source_channel", "")))
         self.position_min_spin.setValue(config.get("position_min", 0))
         self.position_max_spin.setValue(config.get("position_max", 65535))
         self.deadband_spin.setValue(config.get("position_deadband", 50))

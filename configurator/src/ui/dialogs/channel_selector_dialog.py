@@ -59,12 +59,6 @@ class ChannelSelectorDialog(QDialog):
                 (ChannelType.TIMER, "Timers"),
             ]
         },
-        "Data": {
-            "icon_color": "#06b6d4",  # Cyan
-            "types": [
-                (ChannelType.ENUM, "Enumerations"),
-            ]
-        },
         "System": {
             "icon_color": "#64748b",  # Slate gray
             "types": [
@@ -74,38 +68,40 @@ class ChannelSelectorDialog(QDialog):
         }
     }
 
-    # Predefined system channels (ECUMaster compatible)
+    # Predefined system channels with numeric IDs (from firmware pmu_channel.h)
+    # Format: (channel_id: int, string_name: str, display_name: str)
     SYSTEM_CHANNELS = [
         # Constant values (always return 0 or 1)
-        ("zero", "Zero (constant 0)"),
-        ("one", "One (constant 1)"),
+        (1012, "zero", "Zero (constant 0)"),
+        (1013, "one", "One (constant 1)"),
 
-        # PMU System channels
-        ("pmu.batteryVoltage", "Battery Voltage (mV)"),
-        ("pmu.totalCurrent", "Total Current (mA)"),
-        ("pmu.boardTemperatureL", "Board Temperature L (°C)"),
-        ("pmu.boardTemperatureR", "Board Temperature R (°C)"),
-        ("pmu.boardTemperatureMax", "Board Temperature Max (°C)"),
-        ("pmu.5VOutput", "5V Output (mV)"),
-        ("pmu.3V3Output", "3.3V Output (mV)"),
-        ("pmu.status", "System Status"),
-        ("pmu.userError", "User Error"),
-        ("pmu.uptime", "Uptime (s)"),
-        ("pmu.isTurningOff", "Is Turning Off"),
+        # PMU System channels (1000-1011)
+        (1000, "pmu.batteryVoltage", "Battery Voltage (mV)"),
+        (1001, "pmu.totalCurrent", "Total Current (mA)"),
+        (1002, "pmu.mcuTemperature", "MCU Temperature (°C)"),
+        (1003, "pmu.boardTemperatureL", "Board Temperature L (°C)"),
+        (1004, "pmu.boardTemperatureR", "Board Temperature R (°C)"),
+        (1005, "pmu.boardTemperatureMax", "Board Temperature Max (°C)"),
+        (1006, "pmu.uptime", "Uptime (s)"),
+        (1007, "pmu.status", "System Status"),
+        (1008, "pmu.userError", "User Error"),
+        (1009, "pmu.5VOutput", "5V Output (mV)"),
+        (1010, "pmu.3V3Output", "3.3V Output (mV)"),
+        (1011, "pmu.isTurningOff", "Is Turning Off"),
 
-        # RTC channels
-        ("pmu.rtc.time", "RTC Time"),
-        ("pmu.rtc.date", "RTC Date"),
-        ("pmu.rtc.hour", "RTC Hour"),
-        ("pmu.rtc.minute", "RTC Minute"),
-        ("pmu.rtc.second", "RTC Second"),
-        ("pmu.rtc.day", "RTC Day"),
-        ("pmu.rtc.month", "RTC Month"),
-        ("pmu.rtc.year", "RTC Year"),
+        # RTC channels (1020-1027)
+        (1020, "pmu.rtc.time", "RTC Time"),
+        (1021, "pmu.rtc.date", "RTC Date"),
+        (1022, "pmu.rtc.hour", "RTC Hour"),
+        (1023, "pmu.rtc.minute", "RTC Minute"),
+        (1024, "pmu.rtc.second", "RTC Second"),
+        (1025, "pmu.rtc.day", "RTC Day"),
+        (1026, "pmu.rtc.month", "RTC Month"),
+        (1027, "pmu.rtc.year", "RTC Year"),
 
-        # Serial number channels
-        ("pmu.serialNumber.high", "Serial Number (high)"),
-        ("pmu.serialNumber.low", "Serial Number (low)"),
+        # Serial number channels (1030-1031)
+        (1030, "pmu.serialNumber.high", "Serial Number (high)"),
+        (1031, "pmu.serialNumber.low", "Serial Number (low)"),
     ]
 
     # PMU Hardware analog input sub-properties
@@ -155,7 +151,6 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.SWITCH: "switches",
         ChannelType.TIMER: "timers",
         ChannelType.FILTER: "filters",
-        ChannelType.ENUM: "enums",
         ChannelType.SYSTEM: "system",
         ChannelType.OUTPUT_STATUS: "output_status",
     }
@@ -305,75 +300,88 @@ class ChannelSelectorDialog(QDialog):
             "filters": ChannelType.FILTER,
             "switches": ChannelType.SWITCH,
             "timers": ChannelType.TIMER,
-            "enums": ChannelType.ENUM,
             "lua_scripts": ChannelType.LUA_SCRIPT,
             "pid_controllers": ChannelType.PID,
         }
 
         # Process channels from data
+        # New format: (string_id, display_name, units, decimal_places)
+        # Tuple format: (channel_type, channel_id, display_name, units, decimal_places)
         for key, channels in self.channels_data.items():
             channel_type = key_mapping.get(key)
             if channel_type and channels:
                 for ch in channels:
-                    if isinstance(ch, tuple) and len(ch) == 2:
-                        # Channel format: (string_id: str, display_name: str)
-                        # string_id is the channel's 'id' field for firmware references
+                    if isinstance(ch, tuple) and len(ch) >= 4:
+                        # New format: (string_id, display_name, units, decimal_places)
+                        channel_id, display_name, units, decimal_places = ch[0], ch[1], ch[2], ch[3]
+                        self.all_channels.append((channel_type, channel_id, display_name, units, decimal_places))
+                    elif isinstance(ch, tuple) and len(ch) == 2:
+                        # Old format: (string_id, display_name) - backwards compat
                         channel_id, display_name = ch
-                        self.all_channels.append((channel_type, channel_id, display_name))
+                        self.all_channels.append((channel_type, channel_id, display_name, "", None))
                     elif isinstance(ch, str):
                         # Old format: string name (backwards compat, use string as ID)
-                        self.all_channels.append((channel_type, ch, ch))
+                        self.all_channels.append((channel_type, ch, ch, "", None))
 
-        # Add predefined system channels
-        for ch_id, ch_name in self.SYSTEM_CHANNELS:
-            self.all_channels.append((ChannelType.SYSTEM, ch_id, ch_name))
+        # Add predefined system channels (now with numeric IDs)
+        for ch_num_id, ch_str_id, ch_name in self.SYSTEM_CHANNELS:
+            # System channels: display name is the string ID (pmu.xxx), numeric ID is ch_num_id
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_str_id, "", None))
 
         # Add hardware analog input channels (a1 through a20)
+        # Analog voltage base: 1220 + (input_index - 1)
         for i in range(1, 21):
-            for sub_id, sub_name in self.ANALOG_INPUT_SUBCHANNELS:
-                ch_id = f"pmu.a{i}.{sub_id}"
-                ch_name = f"Analog {i} {sub_name}"
-                self.all_channels.append((ChannelType.SYSTEM, ch_id, ch_name))
+            ch_num_id = 1220 + (i - 1)  # 1220-1239
+            ch_name = f"pmu.a{i}.voltage"  # String ID format as display name
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_name, "", None))
 
         # Add hardware digital input channels (d1 through d20)
+        # Digital input base: 0-19 (physical inputs)
         for i in range(1, 21):
-            for sub_id, sub_name in self.DIGITAL_INPUT_SUBCHANNELS:
-                ch_id = f"pmu.d{i}.{sub_id}"
-                ch_name = f"Digital {i} {sub_name}"
-                self.all_channels.append((ChannelType.SYSTEM, ch_id, ch_name))
+            ch_num_id = i - 1  # 0-19
+            ch_name = f"pmu.d{i}.state"  # String ID format as display name
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_name, "", None))
 
-        # Add hardware output sub-channels (o_1 through o_40)
-        for i in range(1, 41):
-            for sub_id, sub_name in self.OUTPUT_SUBCHANNELS:
-                ch_id = f"pmu.o{i}.{sub_id}"
-                ch_name = f"Output {i} {sub_name}"
-                self.all_channels.append((ChannelType.OUTPUT_STATUS, ch_id, ch_name))
+        # Add hardware output sub-channels (o1 through o30)
+        # Output status: 1100 + output_index, current: 1130 + output_index, etc.
+        for i in range(1, 31):
+            idx = i - 1
+            # Status sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1100 + idx, f"pmu.o{i}.status", "", None))
+            # Current sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1130 + idx, f"pmu.o{i}.current", "", None))
+            # Voltage sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1160 + idx, f"pmu.o{i}.voltage", "", None))
+            # Active sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1190 + idx, f"pmu.o{i}.active", "", None))
+            # Duty cycle sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1250 + idx, f"pmu.o{i}.dutyCycle", "", None))
 
         # Add sub-channels for user-created power outputs
         user_outputs = self.channels_data.get("power_outputs", [])
-        for output in user_outputs:
-            if isinstance(output, tuple) and len(output) == 2:
-                output_id, output_name = output
+        for idx, output in enumerate(user_outputs):
+            if isinstance(output, tuple) and len(output) >= 2:
+                output_id, output_name = output[0], output[1]
             else:
                 output_id = output_name = str(output)
-
+            # User outputs use their channel_id (first element) if it's numeric
+            base_id = output_id if isinstance(output_id, int) else (200 + idx)
             for sub_id, sub_name in self.OUTPUT_SUBCHANNELS:
-                ch_id = f"{output_id}.{sub_id}"
                 ch_name = f"{output_name} - {sub_name}"
-                self.all_channels.append((ChannelType.OUTPUT_STATUS, ch_id, ch_name))
+                # Generate sub-channel numeric ID based on base + offset
+                self.all_channels.append((ChannelType.OUTPUT_STATUS, base_id, ch_name, "", None))
 
         # Add sub-channels for user-created timers
         user_timers = self.channels_data.get("timers", [])
-        for timer in user_timers:
-            if isinstance(timer, tuple) and len(timer) == 2:
-                timer_id, timer_name = timer
+        for idx, timer in enumerate(user_timers):
+            if isinstance(timer, tuple) and len(timer) >= 2:
+                timer_id, timer_name = timer[0], timer[1]
             else:
                 timer_id = timer_name = str(timer)
-
+            base_id = timer_id if isinstance(timer_id, int) else (300 + idx)
             for sub_id, sub_name in self.TIMER_SUBCHANNELS:
-                ch_id = f"{timer_id}.{sub_id}"
                 ch_name = f"{timer_name} - {sub_name}"
-                self.all_channels.append((ChannelType.SYSTEM, ch_id, ch_name))
+                self.all_channels.append((ChannelType.SYSTEM, base_id, ch_name, "", None))
 
         self._update_display()
 
@@ -386,19 +394,55 @@ class ChannelSelectorDialog(QDialog):
         filter_lower = filter_text.lower()
         visible_count = 0
 
-        if self.show_tree and self.tree:
+        def format_channel_text(display_name: str, channel_id, units: str, decimal_places) -> str:
+            """Format channel display text with name, ID, units and decimal places."""
+            # Ensure we always have a display text
+            if not display_name:
+                if channel_id is not None:
+                    display_name = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                else:
+                    display_name = "unnamed"
+
+            # Show ID in brackets - numeric with #, string as-is
+            if channel_id is not None:
+                if isinstance(channel_id, int):
+                    text = f"{display_name}  [#{channel_id}]"
+                else:
+                    text = f"{display_name}  [{channel_id}]"
+            else:
+                text = display_name
+
+            # Add units and decimal places if available
+            extra_info = []
+            if units:
+                extra_info.append(units)
+            if decimal_places is not None:
+                extra_info.append(f".{decimal_places}")
+            if extra_info:
+                text += f"  ({', '.join(extra_info)})"
+
+            return text
+
+        if self.show_tree and self.tree is not None:
             self.tree.clear()
             category_items = {}  # cat_name -> QTreeWidgetItem
             type_items = {}  # (cat_name, type_name) -> QTreeWidgetItem
 
-            for gpio_type, channel_id, display_name in self.all_channels:
+            for ch_data in self.all_channels:
+                # Unpack tuple: (channel_type, channel_id, display_name, units, decimal_places)
+                gpio_type = ch_data[0]
+                channel_id = ch_data[1]  # Numeric int ID
+                display_name = ch_data[2]
+                units = ch_data[3] if len(ch_data) > 3 else ""
+                decimal_places = ch_data[4] if len(ch_data) > 4 else None
+
                 # Skip excluded channel (prevents self-reference)
                 if self.exclude_channel is not None and channel_id == self.exclude_channel:
                     continue
 
                 # Convert to string for filtering
-                channel_id_str = str(channel_id)
-                display_name_str = str(display_name)
+                channel_id_str = str(channel_id) if channel_id is not None else ""
+                display_name_str = str(display_name) if display_name else ""
 
                 # Apply text filter
                 if filter_text:
@@ -443,16 +487,18 @@ class ChannelSelectorDialog(QDialog):
                     type_item.setForeground(0, QColor("#888888"))
                     type_items[type_key] = type_item
 
-                # Add channel item under type - show name and ID when different
+                # Add channel item under type
                 item = QTreeWidgetItem(type_items[type_key])
-                # Show "Name [id]" format when they differ, otherwise just name
-                if display_name_str != channel_id_str:
-                    item.setText(0, f"{display_name_str}  [{channel_id_str}]")
-                else:
-                    item.setText(0, display_name_str)
+                item.setText(0, format_channel_text(display_name_str, channel_id, units, decimal_places))
                 item.setText(1, "")  # Type already shown in parent
-                item.setData(0, Qt.ItemDataRole.UserRole, channel_id)  # Store string ID for references
-                item.setToolTip(0, f"{type_name}: {display_name_str}\nID: {channel_id}")
+                item.setData(0, Qt.ItemDataRole.UserRole, channel_id)  # Store ID
+                id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                tooltip = f"{type_name}: {display_name_str}\nChannel ID: {id_display}"
+                if units:
+                    tooltip += f"\nUnits: {units}"
+                if decimal_places is not None:
+                    tooltip += f"\nDecimals: {decimal_places}"
+                item.setToolTip(0, tooltip)
                 visible_count += 1
 
             # Update type counts and collapse large groups
@@ -462,17 +508,23 @@ class ChannelSelectorDialog(QDialog):
                 if child_count > 15:
                     type_item.setExpanded(False)
 
-        elif self.channel_list:
+        elif self.channel_list is not None:
             self.channel_list.clear()
 
-            for gpio_type, channel_id, display_name in self.all_channels:
+            for ch_data in self.all_channels:
+                # Unpack tuple: (channel_type, channel_id, display_name, units, decimal_places)
+                gpio_type = ch_data[0]
+                channel_id = ch_data[1]  # Numeric int ID
+                display_name = ch_data[2]
+                units = ch_data[3] if len(ch_data) > 3 else ""
+                decimal_places = ch_data[4] if len(ch_data) > 4 else None
                 # Skip excluded channel (prevents self-reference)
                 if self.exclude_channel is not None and channel_id == self.exclude_channel:
                     continue
 
                 # Convert to string for filtering
-                channel_id_str = str(channel_id)
-                display_name_str = str(display_name)
+                channel_id_str = str(channel_id) if channel_id is not None else ""
+                display_name_str = str(display_name) if display_name else ""
 
                 # Apply text filter
                 if filter_text:
@@ -497,13 +549,16 @@ class ChannelSelectorDialog(QDialog):
                     if not cat_match:
                         continue
 
-                # Show "Name [id]" format when they differ
-                if display_name_str != channel_id_str:
-                    item = QListWidgetItem(f"{display_name_str}  [{channel_id_str}]")
-                else:
-                    item = QListWidgetItem(display_name_str)
-                item.setData(Qt.ItemDataRole.UserRole, channel_id)  # Store string ID for references
-                item.setToolTip(f"{type_name}: {display_name_str}\nID: {channel_id}")
+                # Create list item with formatted text
+                item = QListWidgetItem(format_channel_text(display_name_str, channel_id, units, decimal_places))
+                item.setData(Qt.ItemDataRole.UserRole, channel_id)  # Store ID
+                id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                tooltip = f"{type_name}: {display_name_str}\nChannel ID: {id_display}"
+                if units:
+                    tooltip += f"\nUnits: {units}"
+                if decimal_places is not None:
+                    tooltip += f"\nDecimals: {decimal_places}"
+                item.setToolTip(tooltip)
                 self.channel_list.addItem(item)
                 visible_count += 1
 
@@ -549,11 +604,9 @@ class ChannelSelectorDialog(QDialog):
 
     def _on_item_double_clicked(self, item, column=0):
         """Handle item double-click."""
-        if self.tree:
-            channel = item.data(0, Qt.ItemDataRole.UserRole)
-            if channel:  # Not a category
-                self.accept()
-        else:
+        # Get channel data - works for both tree and list items
+        channel = item.data(0, Qt.ItemDataRole.UserRole) if self.show_tree else item.data(Qt.ItemDataRole.UserRole)
+        if channel:  # Valid channel selected (not a category header)
             self.accept()
 
     def _on_selection_changed(self):
@@ -568,23 +621,24 @@ class ChannelSelectorDialog(QDialog):
                 channel_id = item.data(0, Qt.ItemDataRole.UserRole)
                 if channel_id is not None:
                     # Find original display name from all_channels
-                    for ch_type, ch_id, ch_name in self.all_channels:
-                        if ch_id == channel_id:
-                            display_text = ch_name
+                    for ch_data in self.all_channels:
+                        if ch_data[1] == channel_id:
+                            display_text = ch_data[2]
                             break
         elif self.channel_list:
             current = self.channel_list.currentItem()
             if current:
                 channel_id = current.data(Qt.ItemDataRole.UserRole)
-                for ch_type, ch_id, ch_name in self.all_channels:
-                    if ch_id == channel_id:
-                        display_text = ch_name
+                for ch_data in self.all_channels:
+                    if ch_data[1] == channel_id:
+                        display_text = ch_data[2]
                         break
 
         if channel_id is not None:
+            id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
             self.preview_label.setText(
-                f"<b>Name:</b> {display_text or channel_id}<br>"
-                f"<b>ID:</b> <code>{channel_id}</code>"
+                f"<b>Name:</b> {display_text or 'unnamed'}<br>"
+                f"<b>Channel ID:</b> <code>{id_display}</code>"
             )
             self.preview_label.setStyleSheet(
                 "color: #fff; padding: 8px; "
@@ -644,6 +698,110 @@ class ChannelSelectorDialog(QDialog):
             if current:
                 return current.data(Qt.ItemDataRole.UserRole)
         return None
+
+    @staticmethod
+    def get_system_channel_name(channel_id: int) -> Optional[str]:
+        """Get string_name for a system channel by its numeric ID.
+
+        This is the central lookup for resolving numeric system channel IDs
+        to their human-readable string names (e.g., 1007 -> "pmu.status").
+
+        Args:
+            channel_id: Numeric channel ID
+
+        Returns:
+            String name (e.g., "pmu.status") or None if not a system channel
+        """
+        if channel_id is None:
+            return None
+
+        # Check predefined system channels
+        for ch_id, str_name, display_name in ChannelSelectorDialog.SYSTEM_CHANNELS:
+            if ch_id == channel_id:
+                return str_name
+
+        # Hardware analog input channels (1220-1239)
+        if 1220 <= channel_id <= 1239:
+            idx = channel_id - 1220 + 1
+            return f"pmu.a{idx}.voltage"
+
+        # Hardware digital input channels (0-19)
+        if 0 <= channel_id <= 19:
+            return f"pmu.d{channel_id + 1}.state"
+
+        # Output status sub-channels (1100-1129)
+        if 1100 <= channel_id <= 1129:
+            idx = channel_id - 1100 + 1
+            return f"pmu.o{idx}.status"
+
+        # Output current sub-channels (1130-1159)
+        if 1130 <= channel_id <= 1159:
+            idx = channel_id - 1130 + 1
+            return f"pmu.o{idx}.current"
+
+        # Output voltage sub-channels (1160-1189)
+        if 1160 <= channel_id <= 1189:
+            idx = channel_id - 1160 + 1
+            return f"pmu.o{idx}.voltage"
+
+        # Output active sub-channels (1190-1219)
+        if 1190 <= channel_id <= 1219:
+            idx = channel_id - 1190 + 1
+            return f"pmu.o{idx}.active"
+
+        # Output duty cycle sub-channels (1250-1279)
+        if 1250 <= channel_id <= 1279:
+            idx = channel_id - 1250 + 1
+            return f"pmu.o{idx}.dutyCycle"
+
+        return None
+
+    @staticmethod
+    def get_channel_display_name(channel_id, available_channels: Optional[Dict[str, List]] = None) -> str:
+        """Get display name for any channel (user or system).
+
+        This is the universal lookup for resolving channel_id to display name.
+        Use this in any dialog that needs to display a channel name.
+
+        Args:
+            channel_id: Channel ID (numeric int or string)
+            available_channels: Dict of available channels for user channel lookup
+
+        Returns:
+            Display name string (e.g., "FuelLevel", "pmu.status") or "#{id}" fallback
+        """
+        if channel_id is None or channel_id == "":
+            return ""
+
+        # Normalize to int if possible
+        numeric_id = None
+        if isinstance(channel_id, int):
+            numeric_id = channel_id
+        elif isinstance(channel_id, str):
+            clean_id = channel_id.lstrip('#').strip()
+            if clean_id.isdigit():
+                numeric_id = int(clean_id)
+
+        # 1. Search user channels in available_channels
+        if available_channels:
+            for category, channels in available_channels.items():
+                for ch in channels:
+                    if isinstance(ch, tuple) and len(ch) >= 2:
+                        ch_id = ch[0]
+                        ch_name = ch[1]
+                        if ch_id == channel_id or (numeric_id is not None and ch_id == numeric_id):
+                            return str(ch_name)
+
+        # 2. Check system channels
+        if numeric_id is not None:
+            system_name = ChannelSelectorDialog.get_system_channel_name(numeric_id)
+            if system_name:
+                return system_name
+
+        # 3. Fallback
+        if numeric_id is not None:
+            return f"#{numeric_id}"
+        return str(channel_id) if channel_id else ""
 
     @staticmethod
     def select_channel(parent=None, current_channel=None,

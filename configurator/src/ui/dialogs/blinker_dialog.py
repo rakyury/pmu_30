@@ -317,48 +317,53 @@ class BlinkerDialog(QDialog):
         self.lane_change_flashes_spin.setEnabled(enabled)
         self.lane_change_timeout_spin.setEnabled(enabled)
 
+    # Channel helper method
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel using central lookup."""
+        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+
     # Channel browser methods
     def _browse_left_channel(self):
         current = self.left_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.left_channel_edit.setText(channel if channel else "")
+            self.left_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_right_channel(self):
         current = self.right_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.right_channel_edit.setText(channel if channel else "")
+            self.right_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_hazard_channel(self):
         current = self.hazard_channel_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.hazard_channel_edit.setText(channel if channel else "")
+            self.hazard_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_left_output(self):
         current = self.left_output_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.left_output_edit.setText(channel if channel else "")
+            self.left_output_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_right_output(self):
         current = self.right_output_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.right_output_edit.setText(channel if channel else "")
+            self.right_output_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_left_trailer(self):
         current = self.left_trailer_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.left_trailer_edit.setText(channel if channel else "")
+            self.left_trailer_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_right_trailer(self):
         current = self.right_trailer_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.right_trailer_edit.setText(channel if channel else "")
+            self.right_trailer_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _on_accept(self):
         """Validate and accept dialog."""
@@ -377,14 +382,15 @@ class BlinkerDialog(QDialog):
         self.name_edit.setText(config.get("name", ""))
         self.enabled_check.setChecked(config.get("enabled", True))
 
-        # I/O channels
-        self.left_channel_edit.setText(config.get("left_channel", ""))
-        self.right_channel_edit.setText(config.get("right_channel", ""))
-        self.hazard_channel_edit.setText(config.get("hazard_channel", ""))
-        self.left_output_edit.setText(config.get("left_output", ""))
-        self.right_output_edit.setText(config.get("right_output", ""))
-        self.left_trailer_edit.setText(config.get("left_trailer_output", ""))
-        self.right_trailer_edit.setText(config.get("right_trailer_output", ""))
+        # I/O channels - convert channel IDs to display names
+        self.left_channel_edit.setText(self._get_channel_display_name(config.get("left_channel", "")))
+        self.right_channel_edit.setText(self._get_channel_display_name(config.get("right_channel", "")))
+        self.hazard_channel_edit.setText(self._get_channel_display_name(config.get("hazard_channel", "")))
+        self.left_output_edit.setText(self._get_channel_display_name(config.get("left_output", "")))
+        self.right_output_edit.setText(self._get_channel_display_name(config.get("right_output", "")))
+        self.left_trailer_edit.setText(self._get_channel_display_name(config.get("left_trailer_output", "")))
+        self.right_trailer_edit.setText(self._get_channel_display_name(config.get("right_trailer_output", "")))
+
 
         # Timing
         self.flash_on_spin.setValue(config.get("flash_on_ms", 500))

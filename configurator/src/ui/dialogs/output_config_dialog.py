@@ -412,16 +412,43 @@ class OutputConfigDialog(QDialog):
         self.soft_start_duration_spin.setEnabled(enabled and self.soft_start_check.isChecked())
 
     def _get_channel_name_by_id(self, channel_id) -> str:
-        """Find channel name by its numeric channel_id."""
-        if channel_id is None:
+        """Find channel name by its numeric channel_id.
+
+        Lookup order:
+        1. User channels in available_channels (tuples)
+        2. System channels via ChannelSelectorDialog.get_system_channel_name()
+        3. Fallback to string representation
+        """
+        if channel_id is None or channel_id == "":
             return ""
+
+        # Normalize to int if string (config may store as string)
+        numeric_id = None
+        if isinstance(channel_id, int):
+            numeric_id = channel_id
+        elif isinstance(channel_id, str):
+            clean_id = channel_id.lstrip('#').strip()
+            if clean_id.isdigit():
+                numeric_id = int(clean_id)
+
+        # 1. Search user channels in available_channels
         for category, channels in self.available_channels.items():
             for ch in channels:
-                if isinstance(ch, tuple) and len(ch) == 2:
-                    ch_id, name = ch
-                    if ch_id == channel_id:
+                if isinstance(ch, tuple) and len(ch) >= 2:
+                    ch_id = ch[0]
+                    name = ch[1]
+                    if ch_id == channel_id or (numeric_id is not None and ch_id == numeric_id):
                         return name
-        # Fallback - return str of channel_id
+
+        # 2. Check system channels
+        if numeric_id is not None:
+            system_name = ChannelSelectorDialog.get_system_channel_name(numeric_id)
+            if system_name:
+                return system_name
+
+        # 3. Fallback - return str of channel_id
+        if numeric_id is not None:
+            return f"#{numeric_id}"
         return str(channel_id) if channel_id else ""
 
     def _browse_control_function(self):

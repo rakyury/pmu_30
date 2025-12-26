@@ -147,19 +147,24 @@ class SwitchDialog(QDialog):
 
         self.accept()
 
+    # Channel helper method
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel using central lookup."""
+        return ChannelSelectorDialog.get_channel_display_name(channel_id, self.available_channels)
+
     def _browse_channel_up(self):
         """Browse and select input channel up."""
         current = self.channel_up_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.channel_up_edit.setText(channel if channel else "")
+            self.channel_up_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _browse_channel_down(self):
         """Browse and select input channel down."""
         current = self.channel_down_edit.text()
         accepted, channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
         if accepted:
-            self.channel_down_edit.setText(channel if channel else "")
+            self.channel_down_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
     def _load_config(self):
         """Load configuration into UI."""
@@ -174,9 +179,9 @@ class SwitchDialog(QDialog):
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
 
-        # Input channels
-        self.channel_up_edit.setText(self.config.get("input_channel_up", ""))
-        self.channel_down_edit.setText(self.config.get("input_channel_down", ""))
+        # Input channels - convert channel IDs to display names
+        self.channel_up_edit.setText(self._get_channel_display_name(self.config.get("input_channel_up", "")))
+        self.channel_down_edit.setText(self._get_channel_display_name(self.config.get("input_channel_down", "")))
 
         # Trigger edges
         trigger_up = self.config.get("trigger_edge_up", "Rising")

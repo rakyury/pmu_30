@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLineEdit, QComboBox, QLabel,
     QWidget, QMessageBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
@@ -64,7 +64,6 @@ class BaseChannelDialog(QDialog):
         ChannelType.TABLE_2D: "t2d_",
         ChannelType.TABLE_3D: "t3d_",
         ChannelType.FILTER: "f_",
-        ChannelType.ENUM: "e_",
         ChannelType.CAN_RX: "can_rx_",
         ChannelType.CAN_TX: "can_tx_",
         ChannelType.LUA_SCRIPT: "lua_",
@@ -86,7 +85,6 @@ class BaseChannelDialog(QDialog):
         ChannelType.TABLE_2D: "Table2D ",
         ChannelType.TABLE_3D: "Table3D ",
         ChannelType.FILTER: "Filter ",
-        ChannelType.ENUM: "Enum ",
         ChannelType.CAN_RX: "CAN RX ",
         ChannelType.CAN_TX: "CAN TX ",
         ChannelType.LUA_SCRIPT: "Script ",
@@ -153,8 +151,39 @@ class BaseChannelDialog(QDialog):
         """Call after subclass has added all content to adjust size"""
         # Ensure dialog fits its content
         self.adjustSize()
-        # Set minimum to current size for sanity, but allow growing
-        self.setMinimumSize(self.sizeHint())
+
+        # Make dialog 50% wider for better readability
+        current_size = self.sizeHint()
+        new_width = int(current_size.width() * 1.5)
+        self.resize(new_width, current_size.height())
+
+        # Set minimum to this new size
+        self.setMinimumSize(new_width, current_size.height())
+
+        # Restore saved geometry if available (overrides the above if saved)
+        self._restore_geometry()
+
+    def _get_geometry_key(self) -> str:
+        """Get settings key for this dialog type's geometry."""
+        class_name = self.__class__.__name__
+        return f"DialogGeometry/{class_name}"
+
+    def _save_geometry(self):
+        """Save dialog geometry to settings."""
+        settings = QSettings("R2M-Sport", "PMU-30 Configurator")
+        settings.setValue(self._get_geometry_key(), self.saveGeometry())
+
+    def _restore_geometry(self):
+        """Restore dialog geometry from settings."""
+        settings = QSettings("R2M-Sport", "PMU-30 Configurator")
+        geometry = settings.value(self._get_geometry_key())
+        if geometry:
+            self.restoreGeometry(geometry)
+
+    def closeEvent(self, event):
+        """Save geometry when dialog closes."""
+        self._save_geometry()
+        super().closeEvent(event)
 
     def _create_basic_group(self):
         """Create basic settings group"""
@@ -198,8 +227,8 @@ class BaseChannelDialog(QDialog):
 
     def _load_base_config(self, config: Dict[str, Any]):
         """Load base configuration fields"""
-        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
-        name = config.get("name", "") or config.get("id", "")
+        # Name is the primary identifier - try 'channel_name' first, then 'name', then 'id'
+        name = config.get("channel_name", "") or config.get("name", "") or config.get("id", "")
         self.name_edit.setText(name)
 
     def _auto_generate_name(self):
@@ -217,10 +246,14 @@ class BaseChannelDialog(QDialog):
         name = self.name_edit.text().strip()
         if not name:
             errors.append("Name is required")
+        # Allow letters, numbers, spaces, underscores, hyphens, parentheses, slashes, dots
+        # Only restriction: must start with a letter or underscore
         elif not name[0].isalpha() and name[0] != '_':
             errors.append("Name must start with a letter or underscore")
-        elif not all(c.isalnum() or c == '_' for c in name):
-            errors.append("Name can only contain letters, numbers, and underscores")
+        # Allow most printable characters for descriptive names
+        # Forbidden: only characters that could cause issues in JSON/firmware: " ' \\ ; { } [ ]
+        elif any(c in name for c in '"\'\\;{}[]'):
+            errors.append("Name cannot contain: \" ' \\ ; { } [ ]")
 
         # Check for duplicate names (excluding current channel in edit mode)
         if name and self.existing_channels:
@@ -260,7 +293,8 @@ class BaseChannelDialog(QDialog):
         name = self.name_edit.text().strip()
         return {
             "channel_id": self._channel_id,
-            "name": name,  # Primary identifier - unique, user-editable
+            "channel_name": name,  # Primary identifier - used by firmware
+            "name": name,  # Alias for backwards compatibility
             "channel_type": self.channel_type.value if self.channel_type else ""
         }
 
@@ -270,7 +304,7 @@ class BaseChannelDialog(QDialog):
 
     def _create_channel_selector(self, placeholder: str = "Select channel...") -> tuple:
         """
-        Create channel selector widget with browse button.
+        Create channel selector widget with browse and clear buttons.
 
         Returns:
             tuple: (container_widget, line_edit)
@@ -278,12 +312,44 @@ class BaseChannelDialog(QDialog):
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
 
         edit = QLineEdit()
         edit.setReadOnly(True)
         edit.setPlaceholderText(placeholder)
         layout.addWidget(edit, stretch=1)
 
+        # Clear button (hidden when empty)
+        clear_btn = QPushButton("×")
+        clear_btn.setMaximumWidth(24)
+        clear_btn.setToolTip("Clear selection")
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #888;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #ff4444;
+            }
+        """)
+        clear_btn.setVisible(False)
+
+        def update_clear_button_visibility():
+            clear_btn.setVisible(bool(edit.text()))
+
+        def clear_selection():
+            edit.setText("")
+            edit.setProperty("channel_id", None)
+            clear_btn.setVisible(False)
+
+        clear_btn.clicked.connect(clear_selection)
+        edit.textChanged.connect(update_clear_button_visibility)
+        layout.addWidget(clear_btn)
+
+        # Browse button
         btn = QPushButton("...")
         btn.setMaximumWidth(30)
         btn.setToolTip("Browse channels")
@@ -315,21 +381,53 @@ class BaseChannelDialog(QDialog):
                 target_edit.setProperty("channel_id", None)
 
     def _get_channel_display_name(self, channel_id) -> str:
-        """Get display name for a channel by its string ID."""
-        if not self.available_channels:
-            return str(channel_id)
+        """Get display name for a channel by its numeric channel_id.
 
-        # Search through all channel categories
-        for category, channels in self.available_channels.items():
-            for ch in channels:
-                if isinstance(ch, tuple) and len(ch) == 2:
-                    ch_id, ch_name = ch
-                    if ch_id == channel_id:
-                        return str(ch_name)
-                elif ch == channel_id:
-                    return str(ch)
+        Lookup order:
+        1. User channels in available_channels (tuples with channel_id, name, ...)
+        2. System channels via ChannelSelectorDialog.get_system_channel_name()
+        3. Fallback to #{channel_id} format
 
-        # Fallback to string representation
+        Returns channel_name (user-friendly) for display in the input field.
+        """
+        if channel_id is None or channel_id == "":
+            return ""
+
+        # Normalize channel_id to int if possible (config may store as string)
+        numeric_id = None
+        if isinstance(channel_id, int):
+            numeric_id = channel_id
+        elif isinstance(channel_id, str):
+            # Handle "#1007" or "1007" format
+            clean_id = channel_id.lstrip('#').strip()
+            if clean_id.isdigit():
+                numeric_id = int(clean_id)
+
+        # 1. Search user channels in available_channels
+        if self.available_channels:
+            for category, channels in self.available_channels.items():
+                for ch in channels:
+                    if isinstance(ch, tuple):
+                        # Format: (channel_id, display_name, units, decimal_places)
+                        if len(ch) >= 2:
+                            ch_id = ch[0]
+                            ch_name = ch[1]
+                            # Compare with both original and numeric ID
+                            if ch_id == channel_id or (numeric_id is not None and ch_id == numeric_id):
+                                return str(ch_name)
+                    elif ch == channel_id or (numeric_id is not None and ch == numeric_id):
+                        return str(ch)
+
+        # 2. Check system channels (uses static lookup in ChannelSelectorDialog)
+        if numeric_id is not None:
+            from .channel_selector_dialog import ChannelSelectorDialog
+            system_name = ChannelSelectorDialog.get_system_channel_name(numeric_id)
+            if system_name:
+                return system_name
+
+        # 3. Fallback: format with # for numeric IDs
+        if numeric_id is not None:
+            return f"#{numeric_id}"
         return str(channel_id)
 
     def _get_channel_id_from_edit(self, edit: QLineEdit):
