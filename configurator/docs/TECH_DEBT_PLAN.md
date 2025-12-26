@@ -242,9 +242,19 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
 - [x] Updated all dialogs to use centralized services
 - [x] Removed global mutable state from base_channel_dialog.py
 - [x] Added 34 unit tests for services
+- [x] Standardized OutputConfigDialog constructor signature (2025-12-27)
+- [x] Standardized HBridgeDialog constructor signature (2025-12-27)
+- [x] Standardized WiperDialog constructor signature (2025-12-27)
+- [x] Standardized BlinkerDialog constructor signature (2025-12-27)
+- [x] Added 21 tests for CAN dialogs (2025-12-27)
+- [x] Fixed channel ID handling in PID, Table, Number dialogs for Python 3.11 (2025-12-27)
 
 ### In Progress
-- [ ] Phase 1: Quick Wins (3 of 3 complete)
+- [x] Phase 1: Quick Wins ✅ COMPLETE
+
+### Next Up
+- [ ] Phase 2: Testing (Add tests for remaining dialogs)
+- [ ] Phase 3: Inheritance Refactoring (Move dialogs to BaseChannelDialog)
 
 ### Blocked
 - None
