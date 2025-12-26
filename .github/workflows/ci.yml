@@ -40,6 +40,42 @@ jobs:
       #     pio run -e pmu30_stm32h743
 
   # ============================================================
+  # Firmware Unit Tests
+  # ============================================================
+  firmware-tests:
+    name: Firmware Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Unity Test Framework
+        run: |
+          git clone --depth 1 https://github.com/ThrowTheSwitch/Unity.git /tmp/Unity
+
+      - name: Compile and Run Tests
+        run: |
+          cd firmware/test
+          # Compile test runner with Unity framework
+          gcc -o test_runner \
+            -I/tmp/Unity/src \
+            -I../include \
+            -DUNIT_TEST \
+            -DPMU30_EMULATOR \
+            /tmp/Unity/src/unity.c \
+            test_main.c \
+            test_channel.c \
+            test_logic.c \
+            test_protection.c \
+            test_can_stream.c \
+            test_protocol.c \
+            -lm
+
+          # Run tests
+          ./test_runner
+
+  # ============================================================
   # Configurator Tests (Python/PyQt6)
   # ============================================================
   configurator-tests:
@@ -76,16 +112,28 @@ jobs:
         run: |
           cd configurator
           python -m pip install --upgrade pip
-          pip install PyQt6 pytest pytest-qt pytest-timeout numpy pyserial
+          pip install PyQt6 pytest pytest-qt pytest-timeout pytest-cov numpy pyserial
 
-      - name: Run tests
+      - name: Run tests with coverage
         env:
           QT_QPA_PLATFORM: offscreen
           PYTHONPATH: ${{ github.workspace }}/configurator/src
         run: |
           cd configurator
           # Skip test_main_window.py - hangs in headless CI due to QTimer widgets
-          xvfb-run -a python -m pytest tests/ui -v --tb=short --timeout=60 --ignore=tests/ui/test_main_window.py
+          xvfb-run -a python -m pytest tests/ui -v --tb=short --timeout=60 \
+            --ignore=tests/ui/test_main_window.py \
+            --cov=src --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: configurator/coverage.xml
+          flags: configurator
+          name: configurator-coverage
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ============================================================
   # Code Quality
@@ -110,4 +158,4 @@ jobs:
       - name: Run Ruff (Python linter)
         run: |
           cd configurator
-          ruff check src/ --ignore E501,F401,F841 || true
+          ruff check src/ --config pyproject.toml

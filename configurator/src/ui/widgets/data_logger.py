@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QGroupBox,
     QPushButton, QComboBox, QSpinBox, QLabel, QCheckBox,
     QTreeWidget, QTreeWidgetItem, QSlider, QToolBar, QFileDialog,
-    QMessageBox, QStatusBar, QMenu, QFrame, QScrollArea, QDoubleSpinBox
+    QMessageBox, QStatusBar, QMenu, QFrame, QScrollArea, QDoubleSpinBox,
+    QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPointF
 from PyQt6.QtGui import QAction, QColor, QPen
