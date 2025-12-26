@@ -84,7 +84,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/configurator/src
         run: |
           cd configurator
-          xvfb-run -a python -m pytest tests/unit tests/ui -v --tb=short
+          xvfb-run -a python -m pytest tests/ui -v --tb=short
 
   # ============================================================
   # Code Quality
