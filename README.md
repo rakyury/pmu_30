@@ -193,7 +193,13 @@ python src/main.py
 
 ## Development Status
 
-Project is in active development. See [docs/project_plan.md](docs/project_plan.md) for current status.
+Project is in active development. See [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md) for current status.
+
+### Quick Links
+- [Roadmap](docs/ROADMAP.md) - Version releases
+- [Changelog](docs/CHANGELOG.md) - Version history
+- [Ecumaster Comparison](docs/ECUMASTER_COMPARISON.md) - Feature comparison
+- [Test Plan](docs/REFACTORING_AND_TEST_PLAN.md) - Testing coverage
 
 ## References
 

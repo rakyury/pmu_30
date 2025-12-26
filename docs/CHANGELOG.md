@@ -10,16 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Complete documentation suite
-- Unified Channel System architecture
-- 64 Logic Functions framework
-- Testing documentation
+- Ecumaster PMU comparison documentation
+- Ecumaster compatibility tasks tracking
+- Documentation cleanup and consolidation
 
 ### Changed
-- Updated README with documentation links
+- Consolidated roadmap documentation
+- Removed duplicate planning documents
 
-### Fixed
-- None
+### Removed
+- `SYNCHRONIZATION_PLAN.md` (superseded)
+- `PROJECT_ACTION_PLAN.md` (too verbose, generic)
+- `PROJECT_DEVELOPMENT_ROADMAP.md` (duplicate)
+- `DOCUMENTATION_UPDATE_PLAN.md` (superseded)
+- `docs/DEVELOPMENT_PLAN.md` (duplicate)
+- `docs/IMPROVEMENT_PLAN.md` (superseded by ECUMASTER_COMPARISON)
 
 ---
 
@@ -34,54 +39,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Edge detection: EDGE_RISING, EDGE_FALLING (one-shot pulse on transitions)
 
 ### Changed
-- **Channel references**: Now use string IDs (e.g., "Timer_7") instead of numeric channel_id for firmware compatibility
-- **Comparison constants**: Removed x1000 scaling - constants are now in same units as channel values:
-  - Timer elapsed in ms → constant in ms
-  - Analog input in mV → constant in mV
-  - Logic output as 0/1000 → constant as 0 or 1000
+- **Channel references**: Now use numeric channel_id instead of string names
+- **Comparison constants**: Removed x1000 scaling - constants are now in same units as channel values
 - **Timer elapsed**: Now outputs raw milliseconds (was incorrectly outputting seconds)
 
 ### Fixed
 - Logic functions (IS_TRUE, IS_GREATER, etc.) not working with timer channels
-- Timer elapsed channel comparison with constants (e.g., "elapsed > 100ms")
-- Channel selector returning numeric IDs instead of string IDs for firmware
+- Timer elapsed channel comparison with constants
+- Channel selector returning correct IDs for firmware
 
 ---
 
-## [1.0.0] - 2024-12-XX
+## [0.2.0] - 2025-12-22
 
 ### Added
-- Initial release
-- 30 PROFET power outputs (40A continuous each)
-- 4 dual H-bridge outputs (30A each)
+- **Channel Refactoring**: GPIO → Channel terminology migration
+  - `channel.py` - New unified channel model
+  - `base_channel_dialog.py` - Renamed base dialog class
+  - Numeric channel ID system (0-1023)
+
+### Changed
+- All dialogs updated to use channel_type instead of gpio_type
+- Firmware parses channel_type with gpio_type fallback
+- Project tree uses ChannelType enum
+
+---
+
+## [0.1.0] - 2025-12-XX
+
+### Added
+- Initial development release
+- 30 PROFET power outputs with protection (emulator)
+- 4 dual H-bridge outputs
 - 20 analog inputs (10-bit ADC)
 - 8 digital inputs with configurable pull-up/down
 - 4 CAN buses (2x CAN FD, 2x CAN 2.0)
-- Unified Channel System (1024 channels)
-- 64 Logic Functions at 500Hz
+- Unified Channel System
+- Logic Functions at 500Hz
 - PID controllers with anti-windup
 - Lookup tables (1D and 2D)
-- WiFi Access Point mode
-- Bluetooth Low Energy
-- USB-C configuration
-- Web interface
-- 500Hz data logging to 512MB storage
-- Real-time clock with battery backup
-- 3-axis accelerometer + gyroscope
-- Per-channel current monitoring
-- Over-current, over-temperature protection
-- Soft-start functionality
+- Modern dock-based UI (Professional)
+- Classic tab-based UI
+- JSON configuration save/load
 - DBC import/export for CAN signals
-
-### Hardware
-- STM32H743VIT6 (480MHz Cortex-M7)
-- PROFET 2 high-side switches
-- BTN8982 H-bridge drivers
-- TJA1463 CAN FD transceivers
-- 8-layer PCB, 3oz copper
-- CNC aluminum enclosure
-- Deutsch DTM connectors
-- IP67 rated
+- Integration tests with emulator
 
 ---
 
@@ -89,15 +90,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
-| 1.0.0 | 2024-12-XX | Initial release |
-
----
-
-## Migration Guides
-
-### Migrating from 0.x to 1.0
-
-No migration required - initial release.
+| 0.2.1 | 2025-12-25 | Logic operations, channel fixes |
+| 0.2.0 | 2025-12-22 | Channel system refactoring |
+| 0.1.0 | 2025-12-XX | Initial development release |
 
 ---
 
