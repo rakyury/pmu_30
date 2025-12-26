@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, DigitalInputSubtype, EdgeType, ButtonMode
+from ui.widgets.time_input import SecondsSpinBox
 
 
 class DigitalInputDialog(BaseChannelDialog):
@@ -122,10 +123,8 @@ class DigitalInputDialog(BaseChannelDialog):
 
         self.debounce_label = QLabel("Debounce:")
         layout.addWidget(self.debounce_label, row, 2)
-        self.debounce_spin = QSpinBox()
-        self.debounce_spin.setRange(0, 10000)
-        self.debounce_spin.setValue(50)
-        self.debounce_spin.setSuffix(" ms")
+        self.debounce_spin = SecondsSpinBox(min_ms=0, max_ms=10000)
+        self.debounce_spin.setValueMs(50)
         self.debounce_spin.setToolTip("Debounce time to filter contact bounce")
         layout.addWidget(self.debounce_spin, row, 3)
 
@@ -462,7 +461,7 @@ class DigitalInputDialog(BaseChannelDialog):
         # Hardware settings
         self.pullup_check.setChecked(config.get("enable_pullup", False))
         self.threshold_spin.setValue(config.get("threshold_voltage", 2.51))
-        self.debounce_spin.setValue(config.get("debounce_ms", 50))
+        self.debounce_spin.setValueMs(config.get("debounce_ms", 50))
 
         # Button function settings
         self.invert_check.setChecked(config.get("invert", False))
@@ -531,7 +530,7 @@ class DigitalInputDialog(BaseChannelDialog):
             "input_pin": self.input_pin_combo.currentData(),
             "enable_pullup": self.pullup_check.isChecked(),
             "threshold_voltage": self.threshold_spin.value(),
-            "debounce_ms": self.debounce_spin.value(),
+            "debounce_ms": self.debounce_spin.valueMs(),
             "invert": self.invert_check.isChecked(),
             "trigger_edge": self._get_edge_combo_value(self.trigger_edge_combo),
             "multiplier": self.multiplier_spin.value(),
