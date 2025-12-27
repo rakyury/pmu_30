@@ -97,8 +97,8 @@ class BaseChannelDialog(QDialog):
         if config:
             self._load_base_config(config)
 
-        if not self.is_edit_mode:
-            # Auto-generate name for new channels
+        if not self.is_edit_mode and not self.name_edit.text().strip():
+            # Auto-generate name for new channels (only if not already set from config)
             self._auto_generate_name()
 
     def _init_base_ui(self):

@@ -254,14 +254,18 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
   - Reduced 114 lines of duplicated code
   - Both dialogs now use base class for channel_id, name, enabled
   - HBridgeDialog preserves tabbed UI structure
+- [x] Refactored WiperDialog to inherit from BaseChannelDialog (2025-12-27)
+- [x] Refactored BlinkerDialog to inherit from BaseChannelDialog (2025-12-27)
+- [x] Refactored SwitchDialog to inherit from BaseChannelDialog (2025-12-27)
+  - Total ~260 lines of duplicated code removed
+  - Fixed BaseChannelDialog to preserve config name when auto-generating
 
 ### In Progress
 - [x] Phase 1: Quick Wins ✅ COMPLETE
 - [x] Phase 2: Testing ✅ COMPLETE (437 UI tests total)
-- [ ] Phase 3: Inheritance Refactoring (4/7 dialogs done)
+- [x] Phase 3: Inheritance Refactoring ✅ COMPLETE (7/7 dialogs)
 
 ### Next Up
-- [ ] Phase 3 continued: Refactor WiperDialog, BlinkerDialog, SwitchDialog to BaseChannelDialog
 - [ ] Phase 4: Architecture improvements
 
 ### Blocked
