@@ -272,8 +272,11 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
     - Moved connect_device, disconnect_device, read/write methods
     - Updated DeviceMixin with LED indicator support
     - Reduced main_window from 2222 to 1836 lines (-386 lines)
-    - Total reduction: 2373 → 1836 lines (-22.6%)
-  - [ ] MainWindow uses ConfigMixin
+  - [x] MainWindow uses MainWindowConfigMixin inheritance (2025-12-27)
+    - Moved new/open/save configuration methods
+    - Moved _load_config_to_ui, _save_config_from_ui, _update_channel_graph
+    - Reduced main_window from 1836 to 1574 lines (-262 lines)
+    - Total reduction: 2373 → 1574 lines (-33.7%)
   - [ ] MainWindow uses ChannelsMixin
 
 ### Next Up
