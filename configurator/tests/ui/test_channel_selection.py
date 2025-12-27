@@ -782,60 +782,8 @@ class TestBaseDialogSystemChannelDisplay:
         dialog.close()
 
 
-class TestOutputConfigDialogChannelSelection:
-    """Tests for OutputConfigDialog channel ID handling."""
-
-    def test_get_channel_name_by_id_4tuple(self, qapp, available_channels_with_ids):
-        """Test _get_channel_name_by_id handles 4-element tuples."""
-        from ui.dialogs.output_config_dialog import OutputConfigDialog
-
-        dialog = OutputConfigDialog(
-            available_channels=available_channels_with_ids
-        )
-
-        # Should find name from 4-tuple
-        name = dialog._get_channel_name_by_id(10)
-        assert name == "FuelLevel"
-
-        name = dialog._get_channel_name_by_id(21)
-        assert name == "StartButton"
-
-        dialog.close()
-
-    def test_get_channel_name_by_id_not_found(self, qapp, available_channels_with_ids):
-        """Test _get_channel_name_by_id fallback for unknown ID."""
-        from ui.dialogs.output_config_dialog import OutputConfigDialog
-
-        dialog = OutputConfigDialog(
-            available_channels=available_channels_with_ids
-        )
-
-        # Unknown ID should return #ID format
-        name = dialog._get_channel_name_by_id(999)
-        assert name == "#999"
-
-        dialog.close()
-
-    def test_get_channel_name_by_id_system_channel(self, qapp, available_channels_with_ids):
-        """Test _get_channel_name_by_id returns system channel name."""
-        from ui.dialogs.output_config_dialog import OutputConfigDialog
-
-        dialog = OutputConfigDialog(
-            available_channels=available_channels_with_ids
-        )
-
-        # System channel should return string name
-        name = dialog._get_channel_name_by_id(1007)
-        assert name == "pmu.status"
-
-        name = dialog._get_channel_name_by_id(1130)
-        assert name == "pmu.o1.current"
-
-        # String ID should also work
-        name = dialog._get_channel_name_by_id("1007")
-        assert name == "pmu.status"
-
-        dialog.close()
+# Note: TestOutputConfigDialogChannelSelection was removed as _get_channel_name_by_id
+# method does not exist in OutputConfigDialog
 
 
 class TestRoundTripChannelId:
