@@ -264,9 +264,16 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
 - [x] Phase 1: Quick Wins ✅ COMPLETE
 - [x] Phase 2: Testing ✅ COMPLETE (437 UI tests total)
 - [x] Phase 3: Inheritance Refactoring ✅ COMPLETE (7/7 dialogs)
+- [ ] Phase 4: Architecture improvements (IN PROGRESS)
+  - [x] MainWindow uses MainWindowTelemetryMixin inheritance (2025-12-27)
+    - Moved _on_telemetry_received, _update_led_indicator, _on_log_received
+    - Reduced main_window from 2373 to 2222 lines (-151 lines)
+  - [ ] MainWindow uses DeviceMixin
+  - [ ] MainWindow uses ConfigMixin
+  - [ ] MainWindow uses ChannelsMixin
 
 ### Next Up
-- [ ] Phase 4: Architecture improvements
+- [ ] Split config_manager.py
 
 ### Blocked
 - None
