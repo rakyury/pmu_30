@@ -4,18 +4,19 @@ Configures windshield wiper control module
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
+    QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QLabel,
     QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 from .channel_selector_dialog import ChannelSelectorDialog
-from .base_channel_dialog import get_next_channel_id
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
 
 
-class WiperDialog(QDialog):
+class WiperDialog(BaseChannelDialog):
     """Dialog for configuring a Wiper control module."""
 
     def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
@@ -34,50 +35,34 @@ class WiperDialog(QDialog):
                 - wiper_config: Alias for config (backwards compatibility)
                 - used_bridges: Alias for used_numbers (backwards compatibility)
         """
-        super().__init__(parent)
         # Handle backwards compatibility aliases
         if config is None:
             config = kwargs.get('wiper_config')
-        self.config = config
+
+        # Store used_numbers before super().__init__
         self.used_numbers = kwargs.get('used_numbers') or kwargs.get('used_bridges') or []
-        self.available_channels = available_channels or {}
-        self.existing_channels = existing_channels or []
+        self._config_for_bridge = config
 
-        # Determine if editing existing or creating new
-        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+        # Initialize base class (creates Basic Settings with name, channel_id, enabled)
+        super().__init__(parent, config, available_channels, ChannelType.WIPER, existing_channels)
 
-        # Store or generate channel_id
-        if self.is_edit_mode:
-            self._channel_id = config.get("channel_id", 0)
-        else:
-            self._channel_id = get_next_channel_id(existing_channels)
-
-        self.setWindowTitle("Edit Wiper Module" if self.is_edit_mode else "New Wiper Module")
-        self.setModal(True)
         self.resize(550, 500)
 
-        self._init_ui()
+        # Create Wiper specific UI
+        self._create_wiper_ui()
 
         if config:
-            self._load_config(config)
-        else:
-            self._auto_generate_name()
+            self._load_specific_config(config)
 
-    def _auto_generate_name(self):
-        """Auto-generate name for new Wiper."""
-        self.name_edit.setText(f"Wiper {self._channel_id}")
-
-    def _init_ui(self):
-        """Initialize UI components."""
-        layout = QVBoxLayout()
-
-        # Create tab widget
+    def _create_wiper_ui(self):
+        """Create Wiper specific UI components."""
+        # Create tabs for organized settings
         tabs = QTabWidget()
 
         # Basic tab
         basic_tab = QWidget()
         basic_layout = QVBoxLayout(basic_tab)
-        basic_layout.addWidget(self._create_basic_group())
+        basic_layout.addWidget(self._create_bridge_group())
         basic_layout.addWidget(self._create_inputs_group())
         basic_layout.addStretch()
         tabs.addTab(basic_tab, "Basic")
@@ -91,37 +76,13 @@ class WiperDialog(QDialog):
         speed_layout.addStretch()
         tabs.addTab(speed_tab, "Speed & Timing")
 
-        layout.addWidget(tabs)
+        # Add tabs to base class content_layout
+        self.content_layout.addWidget(tabs)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self._on_accept)
-        button_layout.addWidget(self.ok_btn)
-
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-
-    def _create_basic_group(self) -> QGroupBox:
-        """Create basic settings group."""
-        group = QGroupBox("Basic Settings")
+    def _create_bridge_group(self) -> QGroupBox:
+        """Create H-Bridge selection group."""
+        group = QGroupBox("H-Bridge Settings")
         layout = QFormLayout()
-
-        # Channel ID (read-only)
-        self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
-        layout.addRow("Channel ID:", self.channel_id_label)
-
-        # Name
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Front Wipers, Rear Wiper")
-        layout.addRow("Name: *", self.name_edit)
 
         # H-Bridge Number
         bridge_layout = QHBoxLayout()
@@ -130,11 +91,6 @@ class WiperDialog(QDialog):
         bridge_layout.addWidget(self.bridge_combo)
         bridge_layout.addStretch()
         layout.addRow("H-Bridge:", bridge_layout)
-
-        # Enabled
-        self.enabled_check = QCheckBox("Enabled")
-        self.enabled_check.setChecked(True)
-        layout.addRow("", self.enabled_check)
 
         group.setLayout(layout)
         return group
@@ -307,8 +263,8 @@ class WiperDialog(QDialog):
 
         # Get current bridge if editing
         current_bridge = None
-        if self.config:
-            current_bridge = self.config.get("hbridge_number")
+        if self._config_for_bridge:
+            current_bridge = self._config_for_bridge.get("hbridge_number")
 
         # Add available bridges (HB1-HB4)
         for bridge in range(4):
@@ -353,30 +309,19 @@ class WiperDialog(QDialog):
         if accepted:
             self.delay_channel_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
-
-        # Validate name
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
+    def _validate_specific(self) -> list:
+        """Validate Wiper specific fields."""
+        errors = []
 
         # Validate bridge selection
         bridge = self.bridge_combo.currentData()
         if bridge is None or bridge < 0:
-            QMessageBox.warning(self, "Validation Error", "Please select an H-Bridge!")
-            self.bridge_combo.setFocus()
-            return
+            errors.append("Please select an H-Bridge")
 
-        self.accept()
+        return errors
 
-    def _load_config(self, config: Dict[str, Any]):
-        """Load configuration into dialog."""
-        self.name_edit.setText(config.get("name", ""))
-        self.enabled_check.setChecked(config.get("enabled", True))
-
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load Wiper specific configuration."""
         # Bridge number
         bridge = config.get("hbridge_number", 0)
         index = self.bridge_combo.findData(bridge)
@@ -407,11 +352,11 @@ class WiperDialog(QDialog):
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
-        return {
-            "channel_id": self._channel_id,
-            "channel_type": "wiper",
-            "name": self.name_edit.text().strip(),
-            "enabled": self.enabled_check.isChecked(),
+        # Get base config (channel_id, name, enabled, channel_type)
+        config = self.get_base_config()
+
+        # Add Wiper specific fields
+        config.update({
             "hbridge_number": self.bridge_combo.currentData(),
             "output_speed": "",  # Reserved for future use
 
@@ -436,4 +381,6 @@ class WiperDialog(QDialog):
             # Wash
             "wash_wipe_count": self.wash_wipe_count_spin.value(),
             "wash_wipe_delay_ms": self.wash_delay_spin.value(),
-        }
+        })
+
+        return config

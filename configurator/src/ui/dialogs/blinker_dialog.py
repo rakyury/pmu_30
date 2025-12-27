@@ -4,18 +4,19 @@ Configures turn signal and hazard light control module
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
+    QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
     QLabel, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 from .channel_selector_dialog import ChannelSelectorDialog
-from .base_channel_dialog import get_next_channel_id
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
 
 
-class BlinkerDialog(QDialog):
+class BlinkerDialog(BaseChannelDialog):
     """Dialog for configuring a Blinker (Turn Signal) control module."""
 
     def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
@@ -32,52 +33,32 @@ class BlinkerDialog(QDialog):
             **kwargs: Additional arguments:
                 - blinker_config: Alias for config (backwards compatibility)
         """
-        super().__init__(parent)
         # Handle backwards compatibility aliases
         if config is None:
             config = kwargs.get('blinker_config')
-        self.config = config
-        self.available_channels = available_channels or {}
-        self.existing_channels = existing_channels or []
 
-        # Determine if editing existing or creating new
-        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+        # Initialize base class (creates Basic Settings with name, channel_id, enabled)
+        super().__init__(parent, config, available_channels, ChannelType.BLINKER, existing_channels)
 
-        # Store or generate channel_id
-        if self.is_edit_mode:
-            self._channel_id = config.get("channel_id", 0)
-        else:
-            self._channel_id = get_next_channel_id(existing_channels)
-
-        self.setWindowTitle("Edit Blinker Module" if self.is_edit_mode else "New Blinker Module")
-        self.setModal(True)
         self.resize(550, 550)
 
-        self._init_ui()
+        # Create Blinker specific UI
+        self._create_blinker_ui()
 
         if config:
-            self._load_config(config)
-        else:
-            self._auto_generate_name()
+            self._load_specific_config(config)
 
-    def _auto_generate_name(self):
-        """Auto-generate name for new Blinker."""
-        self.name_edit.setText(f"Blinker {self._channel_id}")
-
-    def _init_ui(self):
-        """Initialize UI components."""
-        layout = QVBoxLayout()
-
-        # Create tab widget
+    def _create_blinker_ui(self):
+        """Create Blinker specific UI components."""
+        # Create tabs for organized settings
         tabs = QTabWidget()
 
         # Basic tab
         basic_tab = QWidget()
         basic_layout = QVBoxLayout(basic_tab)
-        basic_layout.addWidget(self._create_basic_group())
         basic_layout.addWidget(self._create_io_group())
         basic_layout.addStretch()
-        tabs.addTab(basic_tab, "Basic")
+        tabs.addTab(basic_tab, "I/O")
 
         # Timing tab
         timing_tab = QWidget()
@@ -88,45 +69,8 @@ class BlinkerDialog(QDialog):
         timing_layout.addStretch()
         tabs.addTab(timing_tab, "Timing")
 
-        layout.addWidget(tabs)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self._on_accept)
-        button_layout.addWidget(self.ok_btn)
-
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-
-    def _create_basic_group(self) -> QGroupBox:
-        """Create basic settings group."""
-        group = QGroupBox("Basic Settings")
-        layout = QFormLayout()
-
-        # Channel ID (read-only)
-        self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
-        layout.addRow("Channel ID:", self.channel_id_label)
-
-        # Name
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Turn Signals, Indicators")
-        layout.addRow("Name: *", self.name_edit)
-
-        # Enabled
-        self.enabled_check = QCheckBox("Enabled")
-        self.enabled_check.setChecked(True)
-        layout.addRow("", self.enabled_check)
-
-        group.setLayout(layout)
-        return group
+        # Add tabs to base class content_layout
+        self.content_layout.addWidget(tabs)
 
     def _create_io_group(self) -> QGroupBox:
         """Create inputs/outputs group."""
@@ -380,23 +324,8 @@ class BlinkerDialog(QDialog):
         if accepted:
             self.right_trailer_edit.setText(self._get_channel_display_name(channel) if channel else "")
 
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
-
-        # Validate name
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
-
-        self.accept()
-
-    def _load_config(self, config: Dict[str, Any]):
-        """Load configuration into dialog."""
-        self.name_edit.setText(config.get("name", ""))
-        self.enabled_check.setChecked(config.get("enabled", True))
-
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load Blinker specific configuration."""
         # I/O channels - convert channel IDs to display names
         self.left_channel_edit.setText(self._get_channel_display_name(config.get("left_channel", "")))
         self.right_channel_edit.setText(self._get_channel_display_name(config.get("right_channel", "")))
@@ -405,7 +334,6 @@ class BlinkerDialog(QDialog):
         self.right_output_edit.setText(self._get_channel_display_name(config.get("right_output", "")))
         self.left_trailer_edit.setText(self._get_channel_display_name(config.get("left_trailer_output", "")))
         self.right_trailer_edit.setText(self._get_channel_display_name(config.get("right_trailer_output", "")))
-
 
         # Timing
         self.flash_on_spin.setValue(config.get("flash_on_ms", 500))
@@ -431,12 +359,11 @@ class BlinkerDialog(QDialog):
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
-        return {
-            "channel_id": self._channel_id,
-            "channel_type": "blinker",
-            "name": self.name_edit.text().strip(),
-            "enabled": self.enabled_check.isChecked(),
+        # Get base config (channel_id, name, enabled, channel_type)
+        config = self.get_base_config()
 
+        # Add Blinker specific fields
+        config.update({
             # I/O channels
             "left_channel": self.left_channel_edit.text(),
             "right_channel": self.right_channel_edit.text(),
@@ -461,4 +388,6 @@ class BlinkerDialog(QDialog):
             "hazard_priority": self.hazard_priority_check.isChecked(),
             "fast_flash_on_bulb_out": self.fast_flash_bulb_check.isChecked(),
             "output_mode": self.output_mode_combo.currentData(),
-        }
+        })
+
+        return config

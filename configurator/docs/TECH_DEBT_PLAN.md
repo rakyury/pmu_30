@@ -248,13 +248,21 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
 - [x] Standardized BlinkerDialog constructor signature (2025-12-27)
 - [x] Added 21 tests for CAN dialogs (2025-12-27)
 - [x] Fixed channel ID handling in PID, Table, Number dialogs for Python 3.11 (2025-12-27)
+- [x] Added 38 tests for FilterDialog, SwitchDialog, Table2D/3D, PIDControllerDialog (2025-12-27)
+- [x] Refactored OutputConfigDialog to inherit from BaseChannelDialog (2025-12-27)
+- [x] Refactored HBridgeDialog to inherit from BaseChannelDialog (2025-12-27)
+  - Reduced 114 lines of duplicated code
+  - Both dialogs now use base class for channel_id, name, enabled
+  - HBridgeDialog preserves tabbed UI structure
 
 ### In Progress
 - [x] Phase 1: Quick Wins ✅ COMPLETE
+- [x] Phase 2: Testing ✅ COMPLETE (437 UI tests total)
+- [ ] Phase 3: Inheritance Refactoring (4/7 dialogs done)
 
 ### Next Up
-- [ ] Phase 2: Testing (Add tests for remaining dialogs)
-- [ ] Phase 3: Inheritance Refactoring (Move dialogs to BaseChannelDialog)
+- [ ] Phase 3 continued: Refactor WiperDialog, BlinkerDialog, SwitchDialog to BaseChannelDialog
+- [ ] Phase 4: Architecture improvements
 
 ### Blocked
 - None
