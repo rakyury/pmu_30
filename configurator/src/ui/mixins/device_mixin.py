@@ -17,7 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class MainWindowDeviceMixin:
-    """Mixin for device communication operations."""
+    """Mixin for device communication operations.
+
+    Requires the following attributes on the main window:
+    - device_controller: DeviceController instance
+    - status_message: QLabel for status text
+    - device_status_label: QLabel for connection status
+    - pmu_monitor, output_monitor, analog_monitor, digital_monitor,
+      variables_inspector, pid_tuner, can_monitor: Monitor widgets
+    - led_indicator: LEDIndicator widget
+    - output_leds: OutputLEDs widget
+    - _config_loaded_signal: pyqtSignal(dict)
+    - _config_load_error_signal: pyqtSignal()
+    """
 
     def connect_device(self):
         """Connect to device."""
@@ -45,23 +57,33 @@ class MainWindowDeviceMixin:
         self._set_connected_state(False)
 
     def _set_connected_state(self, connected: bool, connection_type: str = None):
-        """Update UI for connection state."""
+        """Update UI for connection state including LED indicators."""
+        # Update monitor widgets
         widgets = [
             self.pmu_monitor, self.output_monitor, self.analog_monitor,
             self.digital_monitor, self.variables_inspector, self.pid_tuner, self.can_monitor
         ]
-
         for widget in widgets:
             widget.set_connected(connected)
 
+        # Update status labels
         if connected:
             self.status_message.setText(f"Connected via {connection_type}")
             self.device_status_label.setText("ONLINE")
-            self.device_status_label.setStyleSheet("color: #10b981;")
+            self.device_status_label.setStyleSheet("color: #22c55e;")  # Green
+            # Update LED indicators
+            self.led_indicator.set_connection_status(True, False)
+            self.led_indicator.set_can_status(1, True)
         else:
             self.status_message.setText("Disconnected")
             self.device_status_label.setText("OFFLINE")
-            self.device_status_label.setStyleSheet("color: #ef4444;")
+            self.device_status_label.setStyleSheet("color: #ef4444;")  # Red
+            # Update LED indicators
+            self.led_indicator.set_connection_status(False, False)
+            self.led_indicator.set_can_status(1, False)
+            self.led_indicator.set_can_status(2, False)
+            self.led_indicator.set_output_status(0, 0)
+            self.output_leds.set_all_disconnected()
 
     def _on_device_disconnected(self):
         """Handle device disconnection."""
@@ -76,9 +98,11 @@ class MainWindowDeviceMixin:
         """Handle reconnection attempt."""
         max_str = str(max_attempts) if max_attempts > 0 else "∞"
         self.device_status_label.setText("RECONNECTING...")
-        self.device_status_label.setStyleSheet("color: #f59e0b;")
+        self.device_status_label.setStyleSheet("color: #f59e0b;")  # Orange/amber
         self.status_message.setText(f"Reconnecting... attempt {attempt}/{max_str}")
         logger.info(f"Reconnection attempt {attempt}/{max_str}")
+        # Update LED indicator
+        self.led_indicator.set_connection_status(False, True)
 
     def _on_device_reconnect_failed(self):
         """Handle reconnection failure."""
@@ -89,7 +113,7 @@ class MainWindowDeviceMixin:
 
     def _on_device_connected(self):
         """Handle device connection (including after reconnect)."""
-        self._set_connected_state(True, "Emulator")
+        self._set_connected_state(True, "device")
 
     def read_from_device(self):
         """Read configuration from device."""
