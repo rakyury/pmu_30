@@ -8,7 +8,7 @@ Inherits from BaseChannelDialog for common channel handling (name, channel_id).
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QCheckBox, QLabel, QMessageBox
+    QCheckBox, QLabel, QMessageBox, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
@@ -59,10 +59,26 @@ class OutputConfigDialog(BaseChannelDialog):
         # Initialize base class (handles channel_id, name, etc.)
         super().__init__(parent, config, available_channels, ChannelType.POWER_OUTPUT, existing_channels)
 
-        # Create output-specific groups
+        # Create output settings (always visible)
         self._create_output_settings_group()
-        self._create_protection_group()
-        self._create_pwm_group()
+
+        # Create tabbed sections for Protection and PWM
+        self.tab_widget = QTabWidget()
+        self.content_layout.addWidget(self.tab_widget)
+
+        # Protection tab
+        protection_tab = QWidget()
+        protection_layout = QVBoxLayout(protection_tab)
+        self._create_protection_group(protection_layout)
+        protection_layout.addStretch()
+        self.tab_widget.addTab(protection_tab, "Protection")
+
+        # PWM tab
+        pwm_tab = QWidget()
+        pwm_layout = QVBoxLayout(pwm_tab)
+        self._create_pwm_group(pwm_layout)
+        pwm_layout.addStretch()
+        self.tab_widget.addTab(pwm_tab, "PWM")
 
         # Load config if editing
         if config:
@@ -132,7 +148,7 @@ class OutputConfigDialog(BaseChannelDialog):
         output_group.setLayout(output_layout)
         self.content_layout.addWidget(output_group)
 
-    def _create_protection_group(self):
+    def _create_protection_group(self, parent_layout):
         """Create current protection settings group."""
         protection_group = QGroupBox("Current Protection")
         protection_layout = QGridLayout()
@@ -143,7 +159,7 @@ class OutputConfigDialog(BaseChannelDialog):
         self.current_limit_spin.setRange(0.1, 50.0)
         self.current_limit_spin.setValue(10.0)
         self.current_limit_spin.setSuffix(" A")
-        self.current_limit_spin.setDecimals(1)
+        self.current_limit_spin.setDecimals(2)
         self.current_limit_spin.setSingleStep(0.5)
         self.current_limit_spin.setToolTip("Overcurrent shutdown threshold (0.1-50A)")
         protection_layout.addWidget(self.current_limit_spin, 0, 1)
@@ -153,7 +169,7 @@ class OutputConfigDialog(BaseChannelDialog):
         self.inrush_current_spin.setRange(0.1, 100.0)
         self.inrush_current_spin.setValue(20.0)
         self.inrush_current_spin.setSuffix(" A")
-        self.inrush_current_spin.setDecimals(1)
+        self.inrush_current_spin.setDecimals(2)
         self.inrush_current_spin.setSingleStep(1.0)
         self.inrush_current_spin.setToolTip("Peak current allowed during startup")
         protection_layout.addWidget(self.inrush_current_spin, 0, 3)
@@ -188,9 +204,9 @@ class OutputConfigDialog(BaseChannelDialog):
         protection_layout.addWidget(self.retry_delay_spin, 2, 3)
 
         protection_group.setLayout(protection_layout)
-        self.content_layout.addWidget(protection_group)
+        parent_layout.addWidget(protection_group)
 
-    def _create_pwm_group(self):
+    def _create_pwm_group(self, parent_layout):
         """Create PWM settings group."""
         pwm_group = QGroupBox("PWM Settings")
         pwm_layout = QGridLayout()
@@ -253,7 +269,7 @@ class OutputConfigDialog(BaseChannelDialog):
         pwm_layout.addWidget(self.soft_start_duration_spin, 3, 3)
 
         pwm_group.setLayout(pwm_layout)
-        self.content_layout.addWidget(pwm_group)
+        parent_layout.addWidget(pwm_group)
 
     def _validate_specific(self) -> List[str]:
         """Validate output-specific fields."""
@@ -578,3 +594,23 @@ class OutputConfigDialog(BaseChannelDialog):
         })
 
         return config
+
+    def _finalize_ui(self):
+        """Override to customize dialog size - 20% shorter, 40% narrower."""
+        # First adjust to content
+        self.adjustSize()
+
+        # Get base size
+        current_size = self.sizeHint()
+
+        # Apply custom size multipliers:
+        # - Base class uses 1.8x width, we want 40% less: 1.8 * 0.6 = 1.08x
+        # - Height reduced by 20%: 0.8x
+        new_width = int(current_size.width() * 1.08)
+        new_height = int(current_size.height() * 0.8)
+
+        self.resize(new_width, new_height)
+        self.setMinimumSize(new_width, new_height)
+
+        # Restore saved geometry if available
+        self._restore_geometry()
