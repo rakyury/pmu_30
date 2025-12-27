@@ -33,7 +33,7 @@ class MainWindowDeviceMixin:
 
     def connect_device(self):
         """Connect to device."""
-        from .dialogs.connection_dialog import ConnectionDialog
+        from ui.dialogs.connection_dialog import ConnectionDialog
 
         dialog = ConnectionDialog(self)
         if dialog.exec() == ConnectionDialog.DialogCode.Accepted:

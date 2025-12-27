@@ -260,7 +260,7 @@ class MainWindowConfigMixin:
 
     def compare_configurations(self):
         """Compare current configuration with device configuration."""
-        from .dialogs.config_diff_dialog import ConfigDiffDialog
+        from ui.dialogs.config_diff_dialog import ConfigDiffDialog
 
         if not self.device_controller.is_connected():
             QMessageBox.warning(self, "Not Connected", "Please connect to device first.")
@@ -294,7 +294,7 @@ class MainWindowConfigMixin:
 
     def _show_diff_dialog(self, local_config: dict, device_config: dict):
         """Show configuration diff dialog."""
-        from .dialogs.config_diff_dialog import ConfigDiffDialog
+        from ui.dialogs.config_diff_dialog import ConfigDiffDialog
         dialog = ConfigDiffDialog(self, local_config, device_config)
         dialog.exec()
         self.status_message.setText("Configuration comparison complete")

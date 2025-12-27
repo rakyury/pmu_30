@@ -35,23 +35,23 @@ class MainWindowChannelsMixin:
 
     def _create_add_dialog(self, channel_type: ChannelType, available_channels: dict, existing_channels: list):
         """Create appropriate dialog for adding a channel type."""
-        from .dialogs.digital_input_dialog import DigitalInputDialog
-        from .dialogs.analog_input_dialog import AnalogInputDialog
-        from .dialogs.logic_dialog import LogicDialog
-        from .dialogs.timer_dialog import TimerDialog
-        from .dialogs.number_dialog import NumberDialog
-        from .dialogs.filter_dialog import FilterDialog
-        from .dialogs.table_2d_dialog import Table2DDialog
-        from .dialogs.table_3d_dialog import Table3DDialog
-        from .dialogs.output_config_dialog import OutputConfigDialog
-        from .dialogs.switch_dialog import SwitchDialog
-        from .dialogs.can_input_dialog import CANInputDialog
-        from .dialogs.can_output_dialog import CANOutputDialog
-        from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
-        from .dialogs.pid_controller_dialog import PIDControllerDialog
-        from .dialogs.hbridge_dialog import HBridgeDialog
-        from .dialogs.handler_dialog import HandlerDialog
-        from .dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
+        from ui.dialogs.digital_input_dialog import DigitalInputDialog
+        from ui.dialogs.analog_input_dialog import AnalogInputDialog
+        from ui.dialogs.logic_dialog import LogicDialog
+        from ui.dialogs.timer_dialog import TimerDialog
+        from ui.dialogs.number_dialog import NumberDialog
+        from ui.dialogs.filter_dialog import FilterDialog
+        from ui.dialogs.table_2d_dialog import Table2DDialog
+        from ui.dialogs.table_3d_dialog import Table3DDialog
+        from ui.dialogs.output_config_dialog import OutputConfigDialog
+        from ui.dialogs.switch_dialog import SwitchDialog
+        from ui.dialogs.can_input_dialog import CANInputDialog
+        from ui.dialogs.can_output_dialog import CANOutputDialog
+        from ui.dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
+        from ui.dialogs.pid_controller_dialog import PIDControllerDialog
+        from ui.dialogs.hbridge_dialog import HBridgeDialog
+        from ui.dialogs.handler_dialog import HandlerDialog
+        from ui.dialogs.blinkmarine_keypad_dialog import BlinkMarineKeypadDialog
 
         dialogs = {
             ChannelType.DIGITAL_INPUT: lambda: DigitalInputDialog(
@@ -98,7 +98,7 @@ class MainWindowChannelsMixin:
 
     def _create_lua_dialog(self, available_channels: dict, existing_channels: list):
         """Create Lua script dialog with signal connections."""
-        from .dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
+        from ui.dialogs.lua_script_tree_dialog import LuaScriptTreeDialog
         dialog = LuaScriptTreeDialog(self, None, available_channels, existing_channels)
         dialog.run_requested.connect(self._on_lua_run_requested)
         dialog.stop_requested.connect(self._on_lua_stop_requested)
@@ -106,7 +106,7 @@ class MainWindowChannelsMixin:
 
     def _create_can_rx_dialog(self, existing_channels: list):
         """Create CAN RX dialog with message validation."""
-        from .dialogs.can_input_dialog import CANInputDialog
+        from ui.dialogs.can_input_dialog import CANInputDialog
 
         message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
         if not message_ids:
@@ -122,7 +122,7 @@ class MainWindowChannelsMixin:
 
     def _create_can_tx_dialog(self, available_channels: dict, existing_channels: list):
         """Create CAN TX dialog."""
-        from .dialogs.can_output_dialog import CANOutputDialog
+        from ui.dialogs.can_output_dialog import CANOutputDialog
         existing_ids = [ch.get("id", "") for ch in existing_channels]
         return CANOutputDialog(self, output_config=None, existing_ids=existing_ids, available_channels=available_channels)
 
