@@ -31,6 +31,7 @@ class MainWindowConfigMixin:
 
         self.config_manager.new_config()
         self.project_tree.clear_all()
+        self.undo_manager.clear()  # Clear undo history for new config
         self.status_message.setText("Created new configuration")
 
     def open_configuration(self):
@@ -117,6 +118,9 @@ class MainWindowConfigMixin:
         self._update_monitors_from_config(config, channels)
         self._update_channel_graph(channels)
 
+        # Clear undo history after loading config
+        self.undo_manager.clear()
+
     def _load_legacy_config(self, config: dict):
         """Load legacy format configuration."""
         for output in config.get("outputs", []):
@@ -188,12 +192,6 @@ class MainWindowConfigMixin:
                 inputs.append(ch['duty_channel'])
 
         elif ch_type == 'logic':
-            # Handle new format with 'channel' and 'channel_2'
-            if ch.get('channel'):
-                inputs.append(ch['channel'])
-            if ch.get('channel_2'):
-                inputs.append(ch['channel_2'])
-            # Handle legacy format with 'inputs' list
             for inp in ch.get('inputs', []):
                 if isinstance(inp, dict) and inp.get('channel'):
                     inputs.append(inp['channel'])
@@ -217,14 +215,19 @@ class MainWindowConfigMixin:
                 inputs.append(ch['input_channel'])
 
         elif ch_type == 'table_2d':
-            if ch.get('input_channel'):
-                inputs.append(ch['input_channel'])
+            if ch.get('x_axis_channel'):
+                inputs.append(ch['x_axis_channel'])
 
         elif ch_type == 'table_3d':
-            if ch.get('x_input'):
-                inputs.append(ch['x_input'])
-            if ch.get('y_input'):
-                inputs.append(ch['y_input'])
+            if ch.get('x_axis_channel'):
+                inputs.append(ch['x_axis_channel'])
+            if ch.get('y_axis_channel'):
+                inputs.append(ch['y_axis_channel'])
+
+        elif ch_type == 'number':
+            for inp in ch.get('inputs', []):
+                if isinstance(inp, dict) and inp.get('channel'):
+                    inputs.append(inp['channel'])
 
         elif ch_type == 'pid':
             if ch.get('setpoint_channel'):
@@ -233,10 +236,25 @@ class MainWindowConfigMixin:
                 inputs.append(ch['process_channel'])
 
         elif ch_type == 'hbridge':
-            if ch.get('control_channel'):
-                inputs.append(ch['control_channel'])
-            if ch.get('pwm_channel'):
-                inputs.append(ch['pwm_channel'])
+            if ch.get('source_channel'):
+                inputs.append(ch['source_channel'])
+            if ch.get('duty_channel'):
+                inputs.append(ch['duty_channel'])
+            if ch.get('direction_channel'):
+                inputs.append(ch['direction_channel'])
+            if ch.get('pid_setpoint_channel'):
+                inputs.append(ch['pid_setpoint_channel'])
+
+        elif ch_type == 'enum':
+            if ch.get('input_up_channel'):
+                inputs.append(ch['input_up_channel'])
+            if ch.get('input_down_channel'):
+                inputs.append(ch['input_down_channel'])
+
+        elif ch_type == 'can_tx':
+            for sig in ch.get('signals', []):
+                if sig.get('source_channel'):
+                    inputs.append(sig['source_channel'])
 
         return inputs
 
