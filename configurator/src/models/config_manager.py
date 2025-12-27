@@ -13,6 +13,8 @@ from datetime import datetime
 
 from .config_schema import ConfigValidator, create_default_config
 from .channel import ChannelBase, ChannelType, ChannelFactory, CanMessage
+from .config_migration import ConfigMigration
+from .config_can import CANMessageManager
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +74,11 @@ class ConfigManager:
 
             # Migrate from v2.0 to v3.0 if needed
             if version.startswith("2."):
-                loaded_config = self._migrate_v2_to_v3(loaded_config)
+                loaded_config = ConfigMigration.migrate_v2_to_v3(loaded_config)
                 logger.info(f"Migrated configuration from v{version} to v3.0")
 
             # Auto-generate missing IDs from name field
-            loaded_config = self._ensure_channel_ids(loaded_config)
+            loaded_config = ConfigMigration.ensure_channel_ids(loaded_config)
 
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
@@ -133,7 +135,7 @@ class ConfigManager:
         """
         try:
             # Auto-generate missing IDs from name field
-            config_dict = self._ensure_channel_ids(config_dict)
+            config_dict = ConfigMigration.ensure_channel_ids(config_dict)
 
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(config_dict)
@@ -145,7 +147,7 @@ class ConfigManager:
 
             # Compute runtime_channel_id for virtual channels
             # Firmware allocates IDs starting from 200 in order of channel parsing
-            config_dict = self._compute_runtime_channel_ids(config_dict)
+            config_dict = ConfigMigration.compute_runtime_channel_ids(config_dict)
 
             # Apply configuration
             self.config = config_dict
@@ -183,7 +185,7 @@ class ConfigManager:
             self.config["device"]["modified"] = datetime.now().isoformat()
 
             # Convert channel references from names to numeric IDs
-            export_config = self._convert_references_to_ids(self.config)
+            export_config = ConfigMigration.convert_references_to_ids(self.config)
 
             # Ensure parent directory exists
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,10 +216,10 @@ class ConfigManager:
         return [ch for ch in channels if ch.get("channel_type") == channel_type.value]
 
     def get_channel_by_name(self, channel_name: str) -> Optional[Dict[str, Any]]:
-        """Get channel by name (with backwards compatibility for 'id' field)"""
+        """Get channel by name (with backwards compatibility for 'name' and 'id' fields)"""
         for ch in self.config.get("channels", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            name = ch.get("name", "") or ch.get("id", "")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
             if name == channel_name:
                 return ch
         return None
@@ -230,8 +232,8 @@ class ConfigManager:
     def get_channel_index(self, channel_name: str) -> int:
         """Get channel index by name, returns -1 if not found"""
         for i, ch in enumerate(self.config.get("channels", [])):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            name = ch.get("name", "") or ch.get("id", "")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
             if name == channel_name:
                 return i
         return -1
@@ -249,8 +251,8 @@ class ConfigManager:
         if "channels" not in self.config:
             self.config["channels"] = []
 
-        # Check for duplicate name (try 'name' first, fall back to 'id')
-        channel_name = channel_config.get("name", "") or channel_config.get("id", "")
+        # Check for duplicate name (try 'channel_name' first, then 'name', then 'id')
+        channel_name = channel_config.get("channel_name", "") or channel_config.get("name", "") or channel_config.get("id", "")
         if self.get_channel_by_name(channel_name):
             logger.error(f"Channel with name '{channel_name}' already exists")
             return False
@@ -348,8 +350,8 @@ class ConfigManager:
         }
 
         for ch in self.config.get("channels", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            ch_name = ch.get("name", "") or ch.get("id", "")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
             if ch_name and ch_name != exclude_id:
                 channel_type = ch.get("channel_type", "")
                 category = type_to_category.get(channel_type)
@@ -364,8 +366,8 @@ class ConfigManager:
         result = []
         for ch in self.config.get("channels", []):
             if ch.get("channel_type") == channel_type.value:
-                # Try 'name' first, fall back to 'id' for backwards compatibility
-                name = ch.get("name", "") or ch.get("id", "")
+                # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+                name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
                 if name:
                     result.append(name)
         return result
@@ -486,14 +488,14 @@ class ConfigManager:
         # Include system channels that are always available
         all_channel_names = {'zero', 'one'}  # System constant channels
         for ch in self.config.get("channels", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            ch_name = ch.get("name", "") or ch.get("id", "")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
             if ch_name:
                 all_channel_names.add(ch_name)
 
         for ch in self.config.get("channels", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            ch_name = ch.get("name", "") or ch.get("id", "unknown")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "unknown")
             channel_type = ch.get("channel_type", "")
 
             # Check references based on type
@@ -595,8 +597,8 @@ class ConfigManager:
         lines.append("")
         lines.append("Channel list:")
         for ch in self.config.get("channels", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            ch_name = ch.get("name", "") or ch.get("id", "?")
+            # Try 'channel_name' first, then 'name', then 'id' for backwards compatibility
+            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "?")
             ch_type = ch.get("channel_type", "?")
             ch_id = ch.get("channel_id", 0)
             enabled = "enabled" if ch.get("enabled", True) else "disabled"
@@ -605,19 +607,15 @@ class ConfigManager:
         return "\n".join(lines)
 
     # ========== CAN Message Methods (Level 1) ==========
+    # Delegated to CANMessageManager for cleaner separation
 
     def get_all_can_messages(self) -> List[Dict[str, Any]]:
         """Get all CAN messages"""
-        return self.config.get("can_messages", [])
+        return CANMessageManager.get_all_messages(self.config)
 
     def get_can_message_by_name(self, message_name: str) -> Optional[Dict[str, Any]]:
         """Get CAN message by name (with backwards compatibility for 'id' field)"""
-        for msg in self.config.get("can_messages", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            name = msg.get("name", "") or msg.get("id", "")
-            if name == message_name:
-                return msg
-        return None
+        return CANMessageManager.get_message_by_name(self.config, message_name)
 
     # Backwards compatibility alias
     def get_can_message_by_id(self, message_id: str) -> Optional[Dict[str, Any]]:
@@ -626,70 +624,36 @@ class ConfigManager:
 
     def get_can_message_index(self, message_name: str) -> int:
         """Get CAN message index by name, returns -1 if not found"""
-        for i, msg in enumerate(self.config.get("can_messages", [])):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            name = msg.get("name", "") or msg.get("id", "")
-            if name == message_name:
-                return i
-        return -1
+        return CANMessageManager.get_message_index(self.config, message_name)
 
     def add_can_message(self, message_config: Dict[str, Any]) -> bool:
         """Add new CAN message"""
-        if "can_messages" not in self.config:
-            self.config["can_messages"] = []
-
-        # Try 'name' first, fall back to 'id' for backwards compatibility
-        message_name = message_config.get("name", "") or message_config.get("id", "")
-        if self.get_can_message_by_name(message_name):
-            logger.error(f"CAN message with name '{message_name}' already exists")
-            return False
-
-        self.config["can_messages"].append(message_config)
-        self.modified = True
-        logger.info(f"Added CAN message: {message_name}")
-        return True
+        result = CANMessageManager.add_message(self.config, message_config)
+        if result:
+            self.modified = True
+        return result
 
     def update_can_message(self, message_name: str, message_config: Dict[str, Any]) -> bool:
         """Update existing CAN message"""
-        index = self.get_can_message_index(message_name)
-        if index < 0:
-            logger.error(f"CAN message '{message_name}' not found")
-            return False
-
-        self.config["can_messages"][index] = message_config
-        self.modified = True
-        logger.info(f"Updated CAN message: {message_name}")
-        return True
+        result = CANMessageManager.update_message(self.config, message_name, message_config)
+        if result:
+            self.modified = True
+        return result
 
     def remove_can_message(self, message_name: str) -> bool:
         """Remove CAN message"""
-        index = self.get_can_message_index(message_name)
-        if index < 0:
-            logger.error(f"CAN message '{message_name}' not found")
-            return False
-
-        self.config["can_messages"].pop(index)
-        self.modified = True
-        logger.info(f"Removed CAN message: {message_name}")
-        return True
+        result = CANMessageManager.remove_message(self.config, message_name)
+        if result:
+            self.modified = True
+        return result
 
     def get_can_inputs_for_message(self, message_name: str) -> List[Dict[str, Any]]:
         """Get all CAN RX channels that reference a specific message"""
-        can_inputs = []
-        for ch in self.config.get("channels", []):
-            if ch.get("channel_type") == "can_rx" and ch.get("message_ref") == message_name:
-                can_inputs.append(ch)
-        return can_inputs
+        return CANMessageManager.get_inputs_for_message(self.config, message_name)
 
     def get_can_message_names(self) -> List[str]:
         """Get list of all CAN message names"""
-        result = []
-        for msg in self.config.get("can_messages", []):
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            name = msg.get("name", "") or msg.get("id", "")
-            if name:
-                result.append(name)
-        return result
+        return CANMessageManager.get_message_names(self.config)
 
     # Backwards compatibility alias
     def get_can_message_ids(self) -> List[str]:
@@ -698,317 +662,10 @@ class ConfigManager:
 
     def can_message_exists(self, message_name: str) -> bool:
         """Check if CAN message with given name exists"""
-        return self.get_can_message_by_name(message_name) is not None
+        return CANMessageManager.message_exists(self.config, message_name)
 
-    # ========== Runtime ID Computation ==========
-
-    def _compute_runtime_channel_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Compute runtime_channel_id for virtual channels.
-
-        Firmware allocates runtime IDs starting from 200 in the order
-        channels appear in the config. Virtual channel types:
-        - logic, number, timer, filter, switch, enum
-
-        This allows the configurator to match telemetry data (which uses
-        runtime IDs) with the correct channels.
-        """
-        VIRTUAL_CHANNEL_START_ID = 200
-        # Note: enum is excluded because firmware doesn't allocate IDs for enum channels yet
-        VIRTUAL_CHANNEL_TYPES = {'logic', 'number', 'timer', 'filter', 'switch'}
-
-        next_id = VIRTUAL_CHANNEL_START_ID
-        channels = config.get("channels", [])
-
-        for ch in channels:
-            ch_type = ch.get("channel_type", "")
-            if ch_type in VIRTUAL_CHANNEL_TYPES:
-                ch["runtime_channel_id"] = next_id
-                next_id += 1
-
-        return config
-
-    # ========== Migration ==========
-
-    def _ensure_channel_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Ensure all channels have a valid 'id' field.
-        Auto-generates id from 'name' if missing.
-        Sanitizes invalid IDs (containing invalid characters).
-        """
-        import re
-
-        def sanitize_id(raw_id: str) -> str:
-            """Sanitize an ID to contain only valid characters."""
-            # Replace common separators with underscores
-            sanitized = raw_id.replace(".", "_").replace("-", "_").replace(" ", "_")
-            # Remove any remaining invalid characters
-            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
-            # Ensure it starts with a letter
-            if sanitized and not sanitized[0].isalpha():
-                sanitized = "ch_" + sanitized
-            # Collapse multiple underscores
-            sanitized = re.sub(r'_+', '_', sanitized)
-            # Remove trailing underscores
-            sanitized = sanitized.strip("_")
-            return sanitized
-
-        def is_valid_id(channel_id: str) -> bool:
-            """Check if ID matches the required pattern."""
-            return bool(re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', channel_id))
-
-        channels = config.get("channels", [])
-        existing_ids = set()
-
-        # First pass - collect existing valid IDs and sanitize invalid ones
-        for ch in channels:
-            if "id" in ch and ch["id"]:
-                if is_valid_id(ch["id"]):
-                    existing_ids.add(ch["id"])
-                else:
-                    # Sanitize invalid ID
-                    old_id = ch["id"]
-                    new_id = sanitize_id(old_id)
-                    # Ensure uniqueness
-                    base_id = new_id
-                    counter = 1
-                    while new_id in existing_ids:
-                        new_id = f"{base_id}_{counter}"
-                        counter += 1
-                    ch["id"] = new_id
-                    existing_ids.add(new_id)
-                    logger.warning(f"Sanitized invalid channel ID: '{old_id}' -> '{new_id}'")
-
-        # Second pass - generate missing IDs
-        for ch in channels:
-            if "id" not in ch or not ch["id"]:
-                name = ch.get("name", "")
-                channel_type = ch.get("channel_type", "channel")
-
-                # Get prefix based on channel type
-                prefix_map = {
-                    "digital_input": "di_",
-                    "analog_input": "ai_",
-                    "power_output": "out_",
-                    "logic": "l_",
-                    "number": "n_",
-                    "timer": "tm_",
-                    "filter": "flt_",
-                    "enum": "e_",
-                    "table_2d": "t2d_",
-                    "table_3d": "t3d_",
-                    "switch": "sw_",
-                    "can_rx": "crx_",
-                    "can_tx": "ctx_",
-                    "lua_script": "lua_",
-                }
-                prefix = prefix_map.get(channel_type, "ch_")
-
-                # Generate base id from name
-                if name:
-                    base_id = re.sub(r'[^a-z0-9_]', '_', name.lower())
-                    base_id = re.sub(r'_+', '_', base_id).strip('_')
-                else:
-                    base_id = "unnamed"
-
-                # Ensure uniqueness
-                new_id = f"{prefix}{base_id}"
-                counter = 1
-                while new_id in existing_ids:
-                    new_id = f"{prefix}{base_id}_{counter}"
-                    counter += 1
-
-                ch["id"] = new_id
-                existing_ids.add(new_id)
-                logger.debug(f"Generated channel ID: {new_id} from name: {name}")
-
-        return config
-
-    def _migrate_v2_to_v3(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Migrate v2.0 configuration to v3.0 (two-level CAN architecture)
-
-        Creates CAN message objects from existing can_rx channels and
-        updates can_rx channels to reference the new messages.
-        """
-        # Create can_messages array if not exists
-        if "can_messages" not in config:
-            config["can_messages"] = []
-
-        # Track unique messages (can_bus, message_id, is_extended) -> new_message_id
-        message_map = {}
-
-        channels = config.get("channels", [])
-
-        # First pass: collect unique CAN message combinations from can_rx channels
-        for ch in channels:
-            if ch.get("channel_type") == "can_rx" and not ch.get("message_ref"):
-                can_bus = ch.get("can_bus", 1)
-                old_msg_id = ch.get("message_id", 0)
-                is_extended = ch.get("is_extended", False)
-
-                key = (can_bus, old_msg_id, is_extended)
-
-                if key not in message_map:
-                    # Create new message name
-                    new_msg_name = f"msg_can{can_bus}_{old_msg_id:03X}"
-
-                    # Ensure unique name
-                    base_name = new_msg_name
-                    counter = 1
-                    while any((m.get("name", "") or m.get("id", "")) == new_msg_name for m in config["can_messages"]):
-                        new_msg_name = f"{base_name}_{counter}"
-                        counter += 1
-
-                    message_map[key] = new_msg_name
-
-                    # Create CAN message object
-                    can_message = {
-                        "name": new_msg_name,
-                        "can_bus": can_bus,
-                        "base_id": old_msg_id,
-                        "is_extended": is_extended,
-                        "message_type": "normal",
-                        "frame_count": 1,
-                        "dlc": 8,
-                        "timeout_ms": ch.get("timeout_ms", 500),
-                        "enabled": True,
-                        "description": f"Auto-migrated from v2.0"
-                    }
-                    config["can_messages"].append(can_message)
-
-        # Second pass: update can_rx channels to reference messages
-        for ch in channels:
-            if ch.get("channel_type") == "can_rx" and not ch.get("message_ref"):
-                can_bus = ch.get("can_bus", 1)
-                old_msg_id = ch.get("message_id", 0)
-                is_extended = ch.get("is_extended", False)
-
-                key = (can_bus, old_msg_id, is_extended)
-
-                if key in message_map:
-                    # Add new fields
-                    ch["message_ref"] = message_map[key]
-                    ch["frame_offset"] = 0
-
-                    # Convert value_type to data_type if present
-                    if "value_type" in ch:
-                        ch["data_type"] = ch["value_type"]
-
-                    # Convert factor to multiplier if present
-                    if "factor" in ch and "multiplier" not in ch:
-                        ch["multiplier"] = ch["factor"]
-                        ch["divider"] = 1.0
-
-                    # Guess data_format from length
-                    length = ch.get("length", 16)
-                    if length == 8:
-                        ch["data_format"] = "8bit"
-                    elif length == 16:
-                        ch["data_format"] = "16bit"
-                    elif length == 32:
-                        ch["data_format"] = "32bit"
-                    else:
-                        ch["data_format"] = "custom"
-                        ch["bit_length"] = length
-
-                    # Calculate byte_offset from start_bit
-                    start_bit = ch.get("start_bit", 0)
-                    ch["byte_offset"] = start_bit // 8
-
-                    # Set default timeout behavior
-                    if "timeout_behavior" not in ch:
-                        ch["timeout_behavior"] = "use_default"
-
-        # Update version
-        config["version"] = "3.0"
-
-        return config
-
-    def _convert_references_to_ids(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Convert channel references from string names to numeric channel_ids.
-
-        This creates a clean export where the firmware only sees numeric IDs,
-        while the configurator still works with names internally.
-
-        Architecture:
-        - Firmware processes channels by channel_id only
-        - Names are stored separately for Lua script lookups and UI display
-        - This conversion happens only during export (save)
-        """
-        import copy
-        export_config = copy.deepcopy(config)
-
-        # Build name -> channel_id mapping
-        # Include system channels that are always available
-        name_to_id = {
-            'zero': 1012,  # PMU_CHANNEL_CONST_ZERO
-            'one': 1013,   # PMU_CHANNEL_CONST_ONE
-        }
-
-        for ch in export_config.get("channels", []):
-            ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
-            ch_id = ch.get("channel_id", 0)
-            if ch_name and ch_id:
-                name_to_id[ch_name] = ch_id
-
-        # Fields that contain channel references
-        REFERENCE_FIELDS = [
-            # Power output
-            "source_channel", "duty_channel",
-            # Timer
-            "start_channel", "stop_channel",
-            # Filter
-            "input_channel",
-            # Table
-            "x_axis_channel", "y_axis_channel",
-            # Switch
-            "input_up_channel", "input_down_channel",
-            # Logic
-            "channel", "channel_2", "set_channel", "reset_channel", "toggle_channel",
-            # H-Bridge
-            "direction_source_channel", "pwm_source_channel",
-            "position_source_channel", "target_source_channel",
-            # Handler
-            "trigger_channel", "output_channel",
-            # Digital input (button modes)
-            "long_press_output", "double_click_output",
-        ]
-
-        def convert_reference(value):
-            """Convert a single reference value."""
-            if value is None or value == "":
-                return value
-            if isinstance(value, int):
-                return value  # Already numeric
-            if isinstance(value, str):
-                if value in name_to_id:
-                    return name_to_id[value]
-                # Try to parse as numeric string
-                try:
-                    return int(value)
-                except ValueError:
-                    # Unknown channel name - keep as string for backward compatibility
-                    logger.warning(f"Unknown channel reference: '{value}'")
-                    return value
-            return value
-
-        # Convert references in all channels
-        for ch in export_config.get("channels", []):
-            # Convert direct reference fields
-            for field in REFERENCE_FIELDS:
-                if field in ch:
-                    ch[field] = convert_reference(ch[field])
-
-            # Handle 'inputs' array (used by logic and number channels)
-            if "inputs" in ch and isinstance(ch["inputs"], list):
-                ch["inputs"] = [convert_reference(inp) for inp in ch["inputs"]]
-
-            # Handle CAN TX signals
-            if ch.get("channel_type") == "can_tx" and "signals" in ch:
-                for sig in ch.get("signals", []):
-                    if isinstance(sig, dict) and "source_channel" in sig:
-                        sig["source_channel"] = convert_reference(sig["source_channel"])
-
-        return export_config
+    # ========== Migration Methods (delegated to ConfigMigration) ==========
+    # Note: _compute_runtime_channel_ids, _ensure_channel_ids, _migrate_v2_to_v3,
+    # and _convert_references_to_ids have been moved to ConfigMigration class.
+    # The class methods are called directly where needed (load_from_file,
+    # load_from_dict, save_to_file).
