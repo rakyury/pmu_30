@@ -268,7 +268,11 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
   - [x] MainWindow uses MainWindowTelemetryMixin inheritance (2025-12-27)
     - Moved _on_telemetry_received, _update_led_indicator, _on_log_received
     - Reduced main_window from 2373 to 2222 lines (-151 lines)
-  - [ ] MainWindow uses DeviceMixin
+  - [x] MainWindow uses MainWindowDeviceMixin inheritance (2025-12-27)
+    - Moved connect_device, disconnect_device, read/write methods
+    - Updated DeviceMixin with LED indicator support
+    - Reduced main_window from 2222 to 1836 lines (-386 lines)
+    - Total reduction: 2373 → 1836 lines (-22.6%)
   - [ ] MainWindow uses ConfigMixin
   - [ ] MainWindow uses ChannelsMixin
 
