@@ -121,17 +121,17 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
 
 ### 6. Large Files Violating SRP
 
-| File | Lines | Issue |
-|------|-------|-------|
-| `main_window_professional.py` | 2100+ | UI + logic + telemetry |
-| `config_manager.py` | 800+ | I/O + validation + migration |
-| `hbridge_dialog.py` | 900+ | Too many responsibilities |
+| File | Lines | Status | Issue |
+|------|-------|--------|-------|
+| `main_window_professional.py` | ~~2100+~~ 1574 | ✅ IMPROVED | Split via mixins |
+| `config_manager.py` | ~~800+~~ 671 | ✅ IMPROVED | Split to modules |
+| `hbridge_dialog.py` | 900+ | ⚠️ TODO | Too many responsibilities |
 
-**Solution**: Split into components:
-- `MainWindowUI`, `MainWindowController`, `TelemetryHandler`
-- `ConfigLoader`, `ConfigSaver`, `ConfigValidator`, `ConfigMigrator`
+**Completed**:
+- MainWindow split via TelemetryMixin, DeviceMixin, ConfigMixin (-33.7%)
+- ConfigManager split to config_migration.py, config_can.py (-34%)
 
-**Effort**: 5-8 days
+**Effort**: ~~5-8 days~~ 2 days remaining (HBridge)
 
 ---
 
@@ -278,10 +278,13 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
     - Reduced main_window from 1836 to 1574 lines (-262 lines)
     - **Total reduction: 2373 → 1574 lines (-33.7%)**
   - [ ] MainWindow uses ChannelsMixin (DEFERRED - needs major expansion)
+  - [x] Split config_manager.py into focused modules (2025-12-27)
+    - Created `config_migration.py` (295 lines): version migration, ID generation, reference conversion
+    - Created `config_can.py` (105 lines): CAN message CRUD via CANMessageManager
+    - Reduced config_manager.py from 1015 to 671 lines (-34%)
 
 ### Next Up
 - [ ] Expand ChannelsMixin with full channel operations (~400 lines)
-- [ ] Split config_manager.py
 
 ### Blocked
 - None
