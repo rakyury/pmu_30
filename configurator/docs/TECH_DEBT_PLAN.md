@@ -276,10 +276,11 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
     - Moved new/open/save configuration methods
     - Moved _load_config_to_ui, _save_config_from_ui, _update_channel_graph
     - Reduced main_window from 1836 to 1574 lines (-262 lines)
-    - Total reduction: 2373 → 1574 lines (-33.7%)
-  - [ ] MainWindow uses ChannelsMixin
+    - **Total reduction: 2373 → 1574 lines (-33.7%)**
+  - [ ] MainWindow uses ChannelsMixin (DEFERRED - needs major expansion)
 
 ### Next Up
+- [ ] Expand ChannelsMixin with full channel operations (~400 lines)
 - [ ] Split config_manager.py
 
 ### Blocked
