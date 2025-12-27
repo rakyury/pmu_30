@@ -59,12 +59,16 @@ class OutputConfigDialog(BaseChannelDialog):
         # Initialize base class (handles channel_id, name, etc.)
         super().__init__(parent, config, available_channels, ChannelType.POWER_OUTPUT, existing_channels)
 
-        # Create output settings (always visible)
-        self._create_output_settings_group()
-
-        # Create tabbed sections for Protection and PWM
+        # Create tabbed sections
         self.tab_widget = QTabWidget()
         self.content_layout.addWidget(self.tab_widget)
+
+        # Output Settings tab (first)
+        output_tab = QWidget()
+        output_layout = QVBoxLayout(output_tab)
+        self._create_output_settings_group(output_layout)
+        output_layout.addStretch()
+        self.tab_widget.addTab(output_tab, "Output")
 
         # Protection tab
         protection_tab = QWidget()
@@ -80,19 +84,19 @@ class OutputConfigDialog(BaseChannelDialog):
         pwm_layout.addStretch()
         self.tab_widget.addTab(pwm_tab, "PWM")
 
-        # Load config if editing
-        if config:
-            self._load_specific_config(config)
-
-        # Initialize controls state
+        # Initialize controls state BEFORE loading config
         self._on_pwm_toggled(False)
         self._on_soft_start_toggled(False)
         self._on_retry_forever_toggled(False)
 
+        # Load config if editing (this will override the initial state)
+        if config:
+            self._load_specific_config(config)
+
         # Finalize UI sizing
         self._finalize_ui()
 
-    def _create_output_settings_group(self):
+    def _create_output_settings_group(self, parent_layout):
         """Create output-specific settings group (pins, control function)."""
         output_group = QGroupBox("Output Settings")
         output_layout = QFormLayout()
@@ -146,7 +150,7 @@ class OutputConfigDialog(BaseChannelDialog):
         output_layout.addRow("Control Function:", control_function_layout)
 
         output_group.setLayout(output_layout)
-        self.content_layout.addWidget(output_group)
+        parent_layout.addWidget(output_group)
 
     def _create_protection_group(self, parent_layout):
         """Create current protection settings group."""
@@ -596,7 +600,7 @@ class OutputConfigDialog(BaseChannelDialog):
         return config
 
     def _finalize_ui(self):
-        """Override to customize dialog size - 20% shorter, 40% narrower."""
+        """Override to customize dialog size - compact form."""
         # First adjust to content
         self.adjustSize()
 
@@ -604,13 +608,10 @@ class OutputConfigDialog(BaseChannelDialog):
         current_size = self.sizeHint()
 
         # Apply custom size multipliers:
-        # - Base class uses 1.8x width, we want 40% less: 1.8 * 0.6 = 1.08x
-        # - Height reduced by 20%: 0.8x
-        new_width = int(current_size.width() * 1.08)
+        # - Width: 0.86x (compact)
+        # - Height: 0.8x
+        new_width = int(current_size.width() * 0.86)
         new_height = int(current_size.height() * 0.8)
 
         self.resize(new_width, new_height)
         self.setMinimumSize(new_width, new_height)
-
-        # Restore saved geometry if available
-        self._restore_geometry()

@@ -81,10 +81,6 @@ class DigitalMonitor(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
 
-        self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #b0b0b0;")
-        toolbar.addWidget(self.status_label)
-
         toolbar.addStretch()
 
         layout.addLayout(toolbar)
@@ -145,7 +141,9 @@ class DigitalMonitor(QWidget):
             if inp.get('channel_type') != 'digital_input':
                 continue
             pin = inp.get('input_pin')
-            if pin is not None and inp.get('name'):
+            # Check both 'name' and 'channel_name' for backwards compatibility
+            channel_name = inp.get('name') or inp.get('channel_name')
+            if pin is not None and channel_name:
                 configured_by_pin[pin] = inp
 
         # Build merged list: configured inputs override defaults
@@ -179,8 +177,8 @@ class DigitalMonitor(QWidget):
             pin_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_PIN, pin_item)
 
-            # Name
-            name = inp.get('name', '')
+            # Name (check both 'name' and 'channel_name' for backwards compatibility)
+            name = inp.get('name') or inp.get('channel_name', '')
             name_item = QTableWidgetItem(name)
             self.table.setItem(row, self.COL_NAME, name_item)
 
@@ -217,8 +215,6 @@ class DigitalMonitor(QWidget):
         """
         self._digital_inputs = digital_inputs
         self._connected = True
-        self.status_label.setText("Online")
-        self.status_label.setStyleSheet("color: #0a0;")
 
     def _update_values(self):
         """Update displayed values from telemetry."""
@@ -250,12 +246,7 @@ class DigitalMonitor(QWidget):
     def set_connected(self, connected: bool):
         """Set connection state."""
         self._connected = connected
-        if connected:
-            self.status_label.setText("Online")
-            self.status_label.setStyleSheet("color: #0a0;")
-        else:
-            self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #b0b0b0;")
+        if not connected:
             # Clear values
             for row in range(self.table.rowCount()):
                 state_item = self.table.item(row, self.COL_STATE)

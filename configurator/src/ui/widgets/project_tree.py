@@ -80,11 +80,6 @@ class ProjectTree(QWidget):
                 "Timers": {"channel_type": ChannelType.TIMER},
             }
         },
-        "Data": {
-            "subfolders": {
-                "Enumerations": {"channel_type": ChannelType.ENUM},
-            }
-        },
         "Scripts": {
             "subfolders": {
                 "Lua Scripts": {"channel_type": ChannelType.LUA_SCRIPT},
@@ -177,7 +172,6 @@ class ProjectTree(QWidget):
             ChannelType.TABLE_3D: "table",
             ChannelType.SWITCH: "logic",
             ChannelType.TIMER: "timer",
-            ChannelType.ENUM: "table",
             ChannelType.LUA_SCRIPT: "script",
             ChannelType.BLINKMARINE_KEYPAD: "peripheral",
             ChannelType.HANDLER: "handler",
@@ -465,13 +459,14 @@ class ProjectTree(QWidget):
                 channel_type = new_data.get("channel_type")
                 all_channels = self.get_all_channels()
                 channel_data["channel_id"] = get_next_channel_id(all_channels)
-                old_name = channel_data.get("name", channel_data.get("id", ""))
+                old_name = channel_data.get("channel_name", "") or channel_data.get("name", "") or channel_data.get("id", "")
+                channel_data["channel_name"] = f"{old_name} (Copy)"
                 channel_data["name"] = f"{old_name} (Copy)"
                 # Remove old 'id' field if present (use channel_id instead)
                 channel_data.pop("id", None)
 
-                # Display format: "Name [#ID]"
-                display_text = f"{channel_data['name']} [#{channel_data['channel_id']}]"
+                # Display just the name (channel_id shown in dialog)
+                display_text = channel_data['name']
 
                 # Add new item with all 3 columns
                 new_item = QTreeWidgetItem(parent)
@@ -560,17 +555,12 @@ class ProjectTree(QWidget):
             return None
 
         item = QTreeWidgetItem(folder)
-        # Use 'name' field for display (new system), fallback to 'id' for backwards compatibility
-        channel_name = channel_data.get("name", channel_data.get("id", "unnamed"))
+        # Use 'channel_name' field for display, fallback to 'name' then 'id' for backwards compatibility
+        channel_name = channel_data.get("channel_name", "") or channel_data.get("name", "") or channel_data.get("id", "") or "unnamed"
         channel_id = channel_data.get("channel_id", "")
 
-        # Display format: "Name [#ID]" if channel_id exists
-        if channel_id:
-            display_text = f"{channel_name} [#{channel_id}]"
-        else:
-            display_text = channel_name
-
-        item.setText(0, display_text)
+        # Display just the name (channel_id shown in dialog when editing)
+        item.setText(0, channel_name)
         item.setText(1, self._get_channel_details(channel_type, channel_data))
         item.setText(2, self._get_channel_source(channel_type, channel_data))
 
@@ -727,10 +717,6 @@ class ProjectTree(QWidget):
         elif channel_type == ChannelType.TABLE_2D or channel_type == ChannelType.TABLE_3D:
             points = data.get("table_data", [])
             return f"{len(points)} points"
-
-        elif channel_type == ChannelType.ENUM:
-            items = data.get("items", [])
-            return f"{len(items)} items"
 
         elif channel_type == ChannelType.CAN_RX:
             # CAN Input - show message reference and format
@@ -961,7 +947,7 @@ class ProjectTree(QWidget):
     def _get_channel_tooltip(self, channel_type: ChannelType, data: Dict[str, Any]) -> str:
         """Get detailed tooltip for channel."""
         lines = []
-        channel_name = data.get("name", data.get("id", "unnamed"))
+        channel_name = data.get("channel_name", "") or data.get("name", "") or data.get("id", "") or "unnamed"
         channel_id = data.get("channel_id", "")
 
         lines.append(f"<b>{channel_name}</b>")
@@ -1143,10 +1129,6 @@ class ProjectTree(QWidget):
         """Add timer to tree (legacy)."""
         self.add_channel(ChannelType.TIMER, timer_data)
 
-    def add_enum(self, enum_data: Dict[str, Any]):
-        """Add enum to tree."""
-        self.add_channel(ChannelType.ENUM, enum_data)
-
     def add_can_message(self, can_data: Dict[str, Any]):
         """Add CAN message to tree (legacy)."""
         direction = can_data.get("direction", "rx")
@@ -1188,17 +1170,12 @@ class ProjectTree(QWidget):
         if not channel_type:
             return False
 
-        # Update display - use 'name' field (new system), fallback to 'id' for backwards compatibility
-        channel_name = new_data.get("name", new_data.get("id", "unnamed"))
+        # Update display - use 'channel_name' field, fallback to 'name' then 'id' for backwards compatibility
+        channel_name = new_data.get("channel_name", "") or new_data.get("name", "") or new_data.get("id", "") or "unnamed"
         channel_id = new_data.get("channel_id", "")
 
-        # Display format: "Name [#ID]" if channel_id exists
-        if channel_id:
-            display_text = f"{channel_name} [#{channel_id}]"
-        else:
-            display_text = channel_name
-
-        item.setText(0, display_text)
+        # Display just the name (channel_id shown in dialog when editing)
+        item.setText(0, channel_name)
         item.setText(1, self._get_channel_details(channel_type, new_data))
         item.setText(2, self._get_channel_source(channel_type, new_data))
 
@@ -1246,7 +1223,7 @@ class ProjectTree(QWidget):
 
     def find_channel_item(self, channel_id_or_name: str) -> Optional[QTreeWidgetItem]:
         """Find tree item by channel ID or name."""
-        for folder in self.folders.values():
+        for folder in self.folder_items.values():
             for i in range(folder.childCount()):
                 item = folder.child(i)
                 data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1261,7 +1238,7 @@ class ProjectTree(QWidget):
 
     def find_channel_item_by_name(self, name: str) -> Optional[QTreeWidgetItem]:
         """Find tree item by channel name."""
-        for folder in self.folders.values():
+        for folder in self.folder_items.values():
             for i in range(folder.childCount()):
                 item = folder.child(i)
                 data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1286,7 +1263,7 @@ class ProjectTree(QWidget):
             return False
 
         # Update display
-        channel_name = new_data.get("name", new_data.get("id", "unnamed"))
+        channel_name = new_data.get("channel_name", "") or new_data.get("name", "") or new_data.get("id", "") or "unnamed"
         ch_id = new_data.get("channel_id", "")
 
         if ch_id:
@@ -1358,7 +1335,7 @@ class ProjectTree(QWidget):
             return False
 
         # Update display
-        display_name = new_data.get("name", "unnamed")
+        display_name = new_data.get("channel_name", "") or new_data.get("name", "") or new_data.get("id", "") or "unnamed"
         ch_id = new_data.get("channel_id", "")
 
         if ch_id:
@@ -1460,8 +1437,8 @@ class ProjectTree(QWidget):
         """
         used_pins = []
         for output in self.get_all_outputs():
-            # Skip the channel being edited (check 'name' first, then 'id' for backwards compatibility)
-            channel_name = output.get('name', output.get('id', ''))
+            # Skip the channel being edited (check 'channel_name' first for consistency)
+            channel_name = output.get('channel_name', '') or output.get('name', '') or output.get('id', '')
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
             # Collect all pins from this output (can have 1-3 pins)
@@ -1487,8 +1464,8 @@ class ProjectTree(QWidget):
         """
         used_pins = []
         for inp in self.get_channels_by_type(ChannelType.ANALOG_INPUT):
-            # Check 'name' first, then 'id' for backwards compatibility
-            channel_name = inp.get('name', inp.get('id', ''))
+            # Check 'channel_name' first for consistency
+            channel_name = inp.get('channel_name', '') or inp.get('name', '') or inp.get('id', '')
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
             # Pin is stored in 'input_pin' field
@@ -1508,8 +1485,8 @@ class ProjectTree(QWidget):
         """
         used_pins = []
         for inp in self.get_channels_by_type(ChannelType.DIGITAL_INPUT):
-            # Check 'name' first, then 'id' for backwards compatibility
-            channel_name = inp.get('name', inp.get('id', ''))
+            # Check 'channel_name' first for consistency
+            channel_name = inp.get('channel_name', '') or inp.get('name', '') or inp.get('id', '')
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
             # Pin is stored in 'input_pin' field
@@ -1529,8 +1506,8 @@ class ProjectTree(QWidget):
         """
         used_bridges = []
         for hb in self.get_channels_by_type(ChannelType.HBRIDGE):
-            # Check 'name' first, then 'id' for backwards compatibility
-            channel_name = hb.get('name', hb.get('id', ''))
+            # Check 'channel_name' first for consistency
+            channel_name = hb.get('channel_name', '') or hb.get('name', '') or hb.get('id', '')
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
             bridge = hb.get('bridge_number')
@@ -1560,7 +1537,7 @@ class ProjectTree(QWidget):
 
         # Auto-collapse folders with many children
         self._auto_collapse_large_folders()
-        self.configuration_changed.emit()
+        # Note: Don't emit configuration_changed here - loading is not a modification
 
     def _auto_collapse_large_folders(self, threshold: int = 10):
         """Collapse subfolders that have more than threshold children.

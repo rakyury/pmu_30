@@ -675,8 +675,8 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
 
         elif channel_type == ChannelType.CAN_RX:
             # CAN RX = CAN Input (signal extraction from CAN Message)
-            # Get list of CAN messages from config_manager
-            message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
+            # Get list of CAN messages from config_manager (stored as 'name' field)
+            message_ids = [msg.get("name", "") for msg in self.config_manager.get_config().get("can_messages", []) if msg.get("name")]
             if not message_ids:
                 QMessageBox.warning(
                     self, "No CAN Messages",
@@ -685,13 +685,15 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 )
                 return
 
-            existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+            existing_channels = self.project_tree.get_all_channels()
+            existing_ids = [ch.get("id", "") for ch in existing_channels]
 
             dialog = CANInputDialog(
                 self,
                 input_config=None,
                 message_ids=message_ids,
-                existing_channel_ids=existing_ids
+                existing_channel_ids=existing_ids,
+                existing_channels=existing_channels
             )
             if dialog.exec():
                 config = dialog.get_config()
@@ -891,14 +893,16 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
 
             elif channel_type == ChannelType.CAN_RX:
                 # CAN RX = CAN Input (signal extraction from CAN Message)
-                message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
-                existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
+                message_ids = [msg.get("name", "") for msg in self.config_manager.get_config().get("can_messages", []) if msg.get("name")]
+                existing_channels = self.project_tree.get_all_channels()
+                existing_ids = [ch.get("id", "") for ch in existing_channels]
 
                 dialog = CANInputDialog(
                     self,
                     input_config=item_data,
                     message_ids=message_ids,
-                    existing_channel_ids=existing_ids
+                    existing_channel_ids=existing_ids,
+                    existing_channels=existing_channels
                 )
                 if dialog.exec():
                     updated_config = dialog.get_config()
@@ -1154,20 +1158,34 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         logger.info(f"Edit channel from graph: {channel_id}")
         item = self.project_tree.find_channel_item(channel_id)
         if item:
-            self.project_tree.setCurrentItem(item)
-            self._on_project_item_double_clicked(item, 0)
+            self.project_tree.tree.setCurrentItem(item)
+            # Get channel data from item
+            from PyQt6.QtCore import Qt
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                # Structure: {"type": "channel", "channel_type": "power_output", "data": {...}}
+                channel_type = data.get("channel_type", "")
+                self._on_item_edit_requested(channel_type, data)
 
     def _on_monitor_channel_edit(self, channel_type: str, channel_config: dict):
         """Handle double-click on monitor table to edit channel."""
-        logger.info(f"Edit channel from monitor: type={channel_type}, name={channel_config.get('name', '')}")
-        # Find the channel in tree by name and open editor
         channel_name = channel_config.get('name', '')
+        logger.info(f"Edit channel from monitor: type={channel_type}, name={channel_name}")
+
         if not channel_name:
             return
+
+        # Find full channel config in project tree by name
         item = self.project_tree.find_channel_item(channel_name)
         if item:
-            self.project_tree.setCurrentItem(item)
-            self._on_project_item_double_clicked(item, 0)
+            self.project_tree.tree.setCurrentItem(item)
+            # Get full channel data from tree item
+            # Structure: {"type": "channel", "channel_type": "power_output", "data": {...}}
+            from PyQt6.QtCore import Qt
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                item_type = data.get("channel_type", channel_type)
+                self._on_item_edit_requested(item_type, data)
 
     def _on_graph_refresh_requested(self):
         """Handle refresh request from dependency graph."""
