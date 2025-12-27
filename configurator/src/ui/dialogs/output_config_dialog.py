@@ -230,6 +230,13 @@ class OutputConfigDialog(BaseChannelDialog):
         self.duty_function_btn = QPushButton("Browse...")
         self.duty_function_btn.clicked.connect(self._browse_duty_function)
         duty_function_layout.addWidget(self.duty_function_btn)
+
+        self.duty_function_clear_btn = QPushButton("✕")
+        self.duty_function_clear_btn.setFixedWidth(30)
+        self.duty_function_clear_btn.setToolTip("Clear duty function")
+        self.duty_function_clear_btn.clicked.connect(self._clear_duty_function)
+        duty_function_layout.addWidget(self.duty_function_clear_btn)
+
         pwm_layout.addLayout(duty_function_layout, 2, 1, 1, 3)
 
         # Row 3: Enable Soft Start | Soft Start Duration
@@ -384,6 +391,7 @@ class OutputConfigDialog(BaseChannelDialog):
         self.pwm_duty_spin.setEnabled(enabled)
         self.duty_function_edit.setEnabled(enabled)
         self.duty_function_btn.setEnabled(enabled)
+        self.duty_function_clear_btn.setEnabled(enabled)
         self.soft_start_check.setEnabled(enabled)
         self.soft_start_duration_spin.setEnabled(enabled and self.soft_start_check.isChecked())
 
@@ -419,6 +427,11 @@ class OutputConfigDialog(BaseChannelDialog):
                 self.duty_function_edit.setText(name)
             else:
                 self.duty_function_edit.setText("")
+
+    def _clear_duty_function(self):
+        """Clear duty function selection."""
+        self._duty_channel_id = None
+        self.duty_function_edit.setText("")
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load output-specific configuration.
