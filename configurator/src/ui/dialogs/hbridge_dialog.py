@@ -4,18 +4,19 @@ Configures H-Bridge motor controller channels
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
+    QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
     QLabel, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 from .channel_selector_dialog import ChannelSelectorDialog
-from .base_channel_dialog import get_next_channel_id
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
 
 
-class HBridgeDialog(QDialog):
+class HBridgeDialog(BaseChannelDialog):
     """Dialog for configuring an H-Bridge motor controller channel."""
 
     # H-Bridge modes matching firmware
@@ -68,56 +69,37 @@ class HBridgeDialog(QDialog):
                 - hbridge_config: Alias for config (backwards compatibility)
                 - used_numbers: Alias for used_bridges (backwards compatibility)
         """
-        super().__init__(parent)
-
         # Handle backwards compatibility aliases
         if config is None:
             config = kwargs.get('hbridge_config')
-        self.config = config
 
-        # Handle used_bridges/used_numbers naming
+        # Handle used_bridges/used_numbers naming - store before super().__init__
         self.used_bridges = kwargs.get('used_bridges') or kwargs.get('used_numbers') or []
-        self.available_channels = available_channels or {}
-        self.existing_channels = existing_channels or []
+        self._config_for_bridge = config  # Store for bridge combo population
 
-        # Determine if editing existing or creating new
-        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+        # Initialize base class (creates Basic Settings with name, channel_id, enabled)
+        super().__init__(parent, config, available_channels, ChannelType.HBRIDGE, existing_channels)
 
-        # Store or generate channel_id
-        if self.is_edit_mode:
-            self._channel_id = config.get("channel_id", 0)
-        else:
-            self._channel_id = get_next_channel_id(existing_channels)
-
-        self.setWindowTitle("Edit H-Bridge Motor" if self.is_edit_mode else "New H-Bridge Motor")
-        self.setModal(True)
         self.resize(650, 700)
 
-        self._init_ui()
+        # Create H-Bridge specific UI
+        self._create_hbridge_ui()
 
         if config:
-            self._load_config(config)
-        else:
-            self._auto_generate_name()
+            self._load_specific_config(config)
 
-    def _auto_generate_name(self):
-        """Auto-generate name for new H-Bridge."""
-        self.name_edit.setText(f"HBridge Motor {self._channel_id}")
-
-    def _init_ui(self):
-        """Initialize UI components."""
-        layout = QVBoxLayout()
-
-        # Create tab widget
+    def _create_hbridge_ui(self):
+        """Create H-Bridge specific UI components."""
+        # Create tabs for organized settings
         tabs = QTabWidget()
 
-        # Basic tab
-        basic_tab = QWidget()
-        basic_layout = QVBoxLayout(basic_tab)
-        basic_layout.addWidget(self._create_basic_group())
-        basic_layout.addWidget(self._create_control_group())
-        basic_layout.addStretch()
-        tabs.addTab(basic_tab, "Basic")
+        # Control tab (includes bridge number and motor settings)
+        control_tab = QWidget()
+        control_layout = QVBoxLayout(control_tab)
+        control_layout.addWidget(self._create_bridge_settings_group())
+        control_layout.addWidget(self._create_control_group())
+        control_layout.addStretch()
+        tabs.addTab(control_tab, "Control")
 
         # Position Control tab
         position_tab = QWidget()
@@ -136,37 +118,13 @@ class HBridgeDialog(QDialog):
         protection_layout.addStretch()
         tabs.addTab(protection_tab, "Protection")
 
-        layout.addWidget(tabs)
+        # Add tabs to base class content_layout
+        self.content_layout.addWidget(tabs)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self._on_accept)
-        button_layout.addWidget(self.ok_btn)
-
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(button_layout)
-        self.setLayout(layout)
-
-    def _create_basic_group(self) -> QGroupBox:
-        """Create basic settings group."""
-        group = QGroupBox("Basic Settings")
+    def _create_bridge_settings_group(self) -> QGroupBox:
+        """Create bridge-specific settings group (bridge number, preset)."""
+        group = QGroupBox("H-Bridge Settings")
         layout = QFormLayout()
-
-        # Channel ID (read-only)
-        self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
-        layout.addRow("Channel ID:", self.channel_id_label)
-
-        # Name
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Wiper Motor, Window Left, Seat Position")
-        layout.addRow("Name: *", self.name_edit)
 
         # Bridge Number (HB1-HB4)
         bridge_layout = QHBoxLayout()
@@ -182,11 +140,6 @@ class HBridgeDialog(QDialog):
             self.preset_combo.addItem(label, value)
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         layout.addRow("Motor Preset:", self.preset_combo)
-
-        # Enabled
-        self.enabled_check = QCheckBox("Enabled")
-        self.enabled_check.setChecked(True)
-        layout.addRow("", self.enabled_check)
 
         group.setLayout(layout)
         return group
@@ -644,8 +597,8 @@ class HBridgeDialog(QDialog):
 
         # Get current bridge if editing
         current_bridge = None
-        if self.config:
-            current_bridge = self.config.get("bridge_number")
+        if self._config_for_bridge:
+            current_bridge = self._config_for_bridge.get("bridge_number")
 
         # Add available bridges (HB1-HB4)
         for bridge in range(4):
@@ -764,30 +717,19 @@ class HBridgeDialog(QDialog):
         self.stall_current_spin.setEnabled(enabled)
         self.stall_time_spin.setEnabled(enabled)
 
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
-
-        # Validate name
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
+    def _validate_specific(self) -> list:
+        """Validate H-Bridge specific fields."""
+        errors = []
 
         # Validate bridge selection
         bridge = self.bridge_combo.currentData()
         if bridge is None or bridge < 0:
-            QMessageBox.warning(self, "Validation Error", "Please select an H-Bridge!")
-            self.bridge_combo.setFocus()
-            return
+            errors.append("Please select an H-Bridge")
 
-        self.accept()
+        return errors
 
-    def _load_config(self, config: Dict[str, Any]):
-        """Load configuration into dialog."""
-        self.name_edit.setText(config.get("name", ""))
-        self.enabled_check.setChecked(config.get("enabled", True))
-
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load H-Bridge specific configuration."""
         # Bridge number
         bridge = config.get("bridge_number", 0)
         index = self.bridge_combo.findData(bridge)
@@ -898,11 +840,11 @@ class HBridgeDialog(QDialog):
 
     def get_config(self) -> Dict[str, Any]:
         """Get configuration from dialog."""
-        config = {
-            "channel_id": self._channel_id,
-            "channel_type": "hbridge",
-            "name": self.name_edit.text().strip(),
-            "enabled": self.enabled_check.isChecked(),
+        # Get base config (channel_id, name, enabled, channel_type)
+        config = self.get_base_config()
+
+        # Add H-Bridge specific fields
+        config.update({
             "bridge_number": self.bridge_combo.currentData(),
             "motor_preset": self.preset_combo.currentData(),
             "mode": self.mode_combo.currentData(),
@@ -957,6 +899,6 @@ class HBridgeDialog(QDialog):
             "failsafe_position": self.failsafe_position_spin.value(),
             "failsafe_pwm": self.failsafe_pwm_spin.value(),
             "auto_recovery": self.auto_recovery_check.isChecked(),
-        }
+        })
 
         return config

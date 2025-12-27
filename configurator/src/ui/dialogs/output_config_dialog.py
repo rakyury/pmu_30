@@ -1,22 +1,33 @@
 """
 Output Channel Configuration Dialog
 Configures one of 30 high-side switch outputs
+
+Inherits from BaseChannelDialog for common channel handling (name, channel_id).
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
+    QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QCheckBox, QLabel
+    QCheckBox, QLabel, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
+
+from .base_channel_dialog import BaseChannelDialog
 from .channel_selector_dialog import ChannelSelectorDialog
-from .base_channel_dialog import get_next_channel_id
+from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
 
 
-class OutputConfigDialog(QDialog):
-    """Dialog for configuring a single high-side output channel."""
+class OutputConfigDialog(BaseChannelDialog):
+    """Dialog for configuring a single high-side output channel.
+
+    Inherits from BaseChannelDialog which provides:
+    - Channel ID generation and display
+    - Name field with auto-generation
+    - Common validation
+    - Button layout
+    """
 
     def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None,
                  available_channels=None,
@@ -34,64 +45,41 @@ class OutputConfigDialog(QDialog):
                 - output_config: Alias for config (backwards compatibility)
                 - used_channels: Alias for used_pins (backwards compatibility)
         """
-        super().__init__(parent)
-
         # Handle backwards compatibility aliases
         if config is None:
             config = kwargs.get('output_config')
-        self.config = config
 
         # Handle used_pins/used_channels naming inconsistency
         self.used_pins = kwargs.get('used_pins') or kwargs.get('used_channels') or []
-        self.available_channels = available_channels or {}
-        self.existing_channels = existing_channels or []
 
         # Store selected channel IDs (can be numeric int or string ID)
         self._source_channel_id = None  # For control function (int or str)
         self._duty_channel_id = None    # For PWM duty source (int or str)
 
-        # Determine if editing existing or creating new
-        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+        # Initialize base class (handles channel_id, name, etc.)
+        super().__init__(parent, config, available_channels, ChannelType.POWER_OUTPUT, existing_channels)
 
-        # Store or generate channel_id
-        if self.is_edit_mode:
-            self._channel_id = config.get("channel_id", 0)
-        else:
-            self._channel_id = get_next_channel_id(existing_channels)
+        # Create output-specific groups
+        self._create_output_settings_group()
+        self._create_protection_group()
+        self._create_pwm_group()
 
-        self.setWindowTitle("Edit Output" if self.is_edit_mode else "New Output")
-        self.setModal(True)
-        self.resize(600, 480)
-
-        self._init_ui()
-
+        # Load config if editing
         if config:
-            self._load_config(config)
-        else:
-            # Auto-generate name for new outputs
-            self._auto_generate_name()
+            self._load_specific_config(config)
 
-    def _auto_generate_name(self):
-        """Auto-generate name for new output."""
-        self.name_edit.setText(f"Output {self._channel_id}")
+        # Initialize controls state
+        self._on_pwm_toggled(False)
+        self._on_soft_start_toggled(False)
+        self._on_retry_forever_toggled(False)
 
-    def _init_ui(self):
-        """Initialize UI components."""
-        layout = QVBoxLayout()
+        # Finalize UI sizing
+        self._finalize_ui()
 
-        # Basic settings group
-        basic_group = QGroupBox("Basic Settings")
-        basic_layout = QFormLayout()
-
-        # Channel ID (read-only, auto-generated)
-        self.channel_id_label = QLabel(str(self._channel_id))
-        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
-        basic_layout.addRow("Channel ID:", self.channel_id_label)
-
-        # Name (editable)
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., Fuel Pump, Starter, Headlights")
-        basic_layout.addRow("Name: *", self.name_edit)
+    def _create_output_settings_group(self):
+        """Create output-specific settings group (pins, control function)."""
+        output_group = QGroupBox("Output Settings")
+        output_layout = QFormLayout()
 
         # Pin selection - up to 3 pins for increased current capacity
         pin_selection_layout = QVBoxLayout()
@@ -120,7 +108,7 @@ class OutputConfigDialog(QDialog):
         pins_layout.addWidget(self.pin3_combo)
 
         pin_selection_layout.addLayout(pins_layout)
-        basic_layout.addRow("", pin_selection_layout)
+        output_layout.addRow("", pin_selection_layout)
 
         # Function control (output is controlled ONLY by control function)
         control_function_layout = QHBoxLayout()
@@ -139,12 +127,13 @@ class OutputConfigDialog(QDialog):
         self.control_function_clear_btn.clicked.connect(self._clear_control_function)
         control_function_layout.addWidget(self.control_function_clear_btn)
 
-        basic_layout.addRow("Control Function:", control_function_layout)
+        output_layout.addRow("Control Function:", control_function_layout)
 
-        basic_group.setLayout(basic_layout)
-        layout.addWidget(basic_group)
+        output_group.setLayout(output_layout)
+        self.content_layout.addWidget(output_group)
 
-        # Current protection group - organized in 2 columns
+    def _create_protection_group(self):
+        """Create current protection settings group."""
         protection_group = QGroupBox("Current Protection")
         protection_layout = QGridLayout()
 
@@ -199,9 +188,10 @@ class OutputConfigDialog(QDialog):
         protection_layout.addWidget(self.retry_delay_spin, 2, 3)
 
         protection_group.setLayout(protection_layout)
-        layout.addWidget(protection_group)
+        self.content_layout.addWidget(protection_group)
 
-        # PWM settings group - organized in 2 columns
+    def _create_pwm_group(self):
+        """Create PWM settings group."""
         pwm_group = QGroupBox("PWM Settings")
         pwm_layout = QGridLayout()
 
@@ -256,45 +246,17 @@ class OutputConfigDialog(QDialog):
         pwm_layout.addWidget(self.soft_start_duration_spin, 3, 3)
 
         pwm_group.setLayout(pwm_layout)
-        layout.addWidget(pwm_group)
+        self.content_layout.addWidget(pwm_group)
 
-        # Buttons
-        button_layout = QHBoxLayout()
-        button_layout.addStretch()
-
-        self.ok_btn = QPushButton("OK")
-        self.ok_btn.clicked.connect(self._on_accept)
-        button_layout.addWidget(self.ok_btn)
-
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(button_layout)
-
-        self.setLayout(layout)
-
-        # Initialize controls state
-        self._on_pwm_toggled(False)
-        self._on_soft_start_toggled(False)
-        self._on_retry_forever_toggled(False)
-
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
-
-        # Validate name (required field)
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Name is required!")
-            self.name_edit.setFocus()
-            return
+    def _validate_specific(self) -> List[str]:
+        """Validate output-specific fields."""
+        errors = []
 
         # Validate that at least one pin is selected
         pin1 = self.pin1_combo.currentData()
         if pin1 is None or pin1 < 0:
-            QMessageBox.warning(self, "Validation Error", "At least Pin 1 must be selected!")
-            self.pin1_combo.setFocus()
-            return
+            errors.append("At least Pin 1 must be selected")
+            return errors
 
         # Validate no duplicate pins
         pins = []
@@ -304,18 +266,16 @@ class OutputConfigDialog(QDialog):
         pin2 = self.pin2_combo.currentData()
         if pin2 is not None and pin2 >= 0:
             if pin2 in pins:
-                QMessageBox.warning(self, "Validation Error", "Pin 2 cannot be the same as Pin 1!")
-                self.pin2_combo.setFocus()
-                return
-            pins.append(pin2)
+                errors.append("Pin 2 cannot be the same as Pin 1")
+            else:
+                pins.append(pin2)
 
         pin3 = self.pin3_combo.currentData()
         if pin3 is not None and pin3 >= 0:
             if pin3 in pins:
-                QMessageBox.warning(self, "Validation Error", "Pin 3 cannot be the same as Pin 1 or Pin 2!")
-                self.pin3_combo.setFocus()
-                return
-            pins.append(pin3)
+                errors.append("Pin 3 cannot be the same as Pin 1 or Pin 2")
+            else:
+                pins.append(pin3)
 
         # Validate that none of the selected pins are already used by other outputs
         current_pins = []
@@ -324,13 +284,9 @@ class OutputConfigDialog(QDialog):
 
         for pin in pins:
             if pin in self.used_pins and pin not in current_pins:
-                QMessageBox.warning(
-                    self, "Validation Error",
-                    f"Pin O{pin + 1} is already used by another output!"
-                )
-                return
+                errors.append(f"Pin O{pin + 1} is already used by another output")
 
-        self.accept()
+        return errors
 
     def _populate_available_pins(self, combo: QComboBox, include_none: bool = False, exclude_pins: list = None):
         """Populate pin dropdown with available pins.
@@ -431,13 +387,6 @@ class OutputConfigDialog(QDialog):
         self.soft_start_check.setEnabled(enabled)
         self.soft_start_duration_spin.setEnabled(enabled and self.soft_start_check.isChecked())
 
-    def _get_channel_name_by_id(self, channel_id) -> str:
-        """Find channel name by its numeric channel_id.
-
-        Delegates to ChannelDisplayService for centralized lookup.
-        """
-        return ChannelDisplayService.get_display_name(channel_id, self.available_channels)
-
     def _browse_control_function(self):
         """Browse and select control function channel."""
         accepted, channel_id = ChannelSelectorDialog.select_channel(
@@ -447,7 +396,7 @@ class OutputConfigDialog(QDialog):
             # User confirmed - update even if cleared (None)
             self._source_channel_id = channel_id
             if channel_id is not None:
-                name = self._get_channel_name_by_id(channel_id)
+                name = self._get_channel_display_name(channel_id)
                 self.control_function_edit.setText(name)
             else:
                 self.control_function_edit.setText("")
@@ -466,18 +415,16 @@ class OutputConfigDialog(QDialog):
             # User confirmed - update even if cleared (None)
             self._duty_channel_id = channel_id
             if channel_id is not None:
-                name = self._get_channel_name_by_id(channel_id)
+                name = self._get_channel_display_name(channel_id)
                 self.duty_function_edit.setText(name)
             else:
                 self.duty_function_edit.setText("")
 
-    def _load_config(self, config: Dict[str, Any]):
-        """Load configuration into dialog.
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load output-specific configuration.
 
         Supports both nested format (pwm.duty_value) and flat format (duty_fixed).
         """
-        self.name_edit.setText(config.get("name", config.get("id", "")))
-
         # Load pins (up to 3)
         pins = config.get("pins", [])
         if len(pins) > 0:
@@ -494,14 +441,12 @@ class OutputConfigDialog(QDialog):
                 self.pin3_combo.setCurrentIndex(index)
 
         # Control settings - source_channel can be numeric (int) or string (channel ID)
-        # Both formats are valid: int for numeric channel_id, str for string channel IDs
-        # like 'Timer_7', 'one', 'zero', etc.
         source_channel = config.get("source_channel", config.get("control_function"))
         if source_channel is not None:
             self._source_channel_id = source_channel  # Store as-is (int or str)
             if isinstance(source_channel, int):
                 # Numeric channel ID - look up display name
-                display_name = self._get_channel_name_by_id(source_channel)
+                display_name = self._get_channel_display_name(source_channel)
                 self.control_function_edit.setText(display_name if display_name else str(source_channel))
             else:
                 # String channel ID - display as-is
@@ -532,16 +477,14 @@ class OutputConfigDialog(QDialog):
         self.pwm_freq_spin.setValue(
             pwm.get("frequency", config.get("pwm_frequency_hz", 1000)))
 
-        # Duty settings - support both formats:
-        # - nested: pwm.duty_value, pwm.duty_function
-        # - flat: duty_fixed, duty_channel
+        # Duty settings - support both formats
         duty_value = pwm.get("duty_value", config.get("duty_fixed", 50.0))
         duty_channel = pwm.get("duty_function", config.get("duty_channel"))
         self.pwm_duty_spin.setValue(duty_value)
         if duty_channel is not None:
             self._duty_channel_id = duty_channel  # Store as-is (int or str)
             if isinstance(duty_channel, int):
-                display_name = self._get_channel_name_by_id(duty_channel)
+                display_name = self._get_channel_display_name(duty_channel)
                 self.duty_function_edit.setText(display_name if display_name else str(duty_channel))
             else:
                 # String channel ID - display as-is
@@ -561,6 +504,9 @@ class OutputConfigDialog(QDialog):
 
         Outputs both nested and flat formats for compatibility.
         """
+        # Get base config (channel_id, name, channel_type)
+        config = self.get_base_config()
+
         # Collect selected pins (1-3)
         pins = []
         pin1 = self.pin1_combo.currentData()
@@ -582,11 +528,9 @@ class OutputConfigDialog(QDialog):
         soft_start_enabled = self.soft_start_check.isChecked()
         soft_start_ms = self.soft_start_duration_spin.value() if soft_start_enabled else 0
 
-        config = {
-            "channel_id": self._channel_id,
-            "channel_type": "power_output",
+        # Add output-specific fields
+        config.update({
             "pins": pins,
-            "name": name,
             "id": name,  # String name for display
             "source_channel": self._source_channel_id,  # Channel ID (int or str) for firmware
             # Flat format fields for model compatibility
@@ -618,6 +562,6 @@ class OutputConfigDialog(QDialog):
                 "soft_start_enabled": soft_start_enabled,
                 "soft_start_duration_ms": self.soft_start_duration_spin.value()
             }
-        }
+        })
 
         return config

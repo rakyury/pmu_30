@@ -23,7 +23,7 @@ class TestOutputConfigDialog:
         """Test creating new output dialog"""
         dialog = OutputConfigDialog()
         assert dialog is not None
-        assert dialog.windowTitle() == "New Output"
+        assert dialog.windowTitle() == "New Power Output"
         dialog.close()
 
     def test_dialog_creation_edit(self, qapp):
@@ -40,7 +40,7 @@ class TestOutputConfigDialog:
             "duty_fixed": 75.0
         }
         dialog = OutputConfigDialog(output_config=config)
-        assert dialog.windowTitle() == "Edit Output"
+        assert dialog.windowTitle() == "Edit Power Output"
         assert dialog.name_edit.text() == "Fuel Pump"
         assert dialog.current_limit_spin.value() == 15.0
         assert dialog.inrush_current_spin.value() == 30.0
