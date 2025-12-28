@@ -106,7 +106,7 @@ Reads digital HIGH/LOW states from switch inputs, buttons, or digital sensors.
 Reads continuous voltage values and converts them to engineering units.
 
 **Hardware Resources:**
-- 20 analog input pins (0-19, shared with digital inputs)
+- 20 dedicated analog input pins (A1-A20)
 - 12-bit ADC resolution (0-4095)
 - Voltage range: 0-5V (typical), 0-30V with divider
 - Configurable pull-up/pull-down resistors

@@ -14,11 +14,11 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 |----------|-------|-------------|
 | Power Outputs | 30 | o1-o30 (PROFET high-side switches) |
 | Analog Inputs | 20 | a1-a20 (0-5V, 12-bit ADC) |
-| Digital Inputs | 20 | d1-d20 (5-30V tolerant, shared pins with analog) |
+| Digital Inputs | 20 | d1-d20 (5-30V tolerant) |
 | H-Bridges | 4 | hb1-hb4 (dual H-bridge drivers) |
 | Low-Side Outputs | 6 | l1-l6 (ground switching) |
 
-> **Note:** Digital and analog inputs share the same 20 physical pins. Each pin can be configured as either digital or analog input.
+> **Note:** PMU-30 has 20 dedicated analog input pins (A1-A20) and 20 separate dedicated digital input pins (D1-D20).
 
 ---
 
