@@ -515,6 +515,114 @@ The firmware processes channels in a specific order each control cycle:
 4. **Physical Outputs** - Update output states
 5. **CAN TX** - Transmit CAN messages
 
+## Channel ID Assignment
+
+Every channel has two identifiers:
+- **`id`** (string) - Human-readable identifier used in configuration files
+- **`channel_id`** (integer) - Numeric ID used by firmware for fast lookups
+
+### Channel ID Ranges
+
+The firmware reserves specific numeric ID ranges for different channel types:
+
+| Range | Category | Description |
+|-------|----------|-------------|
+| 0-19 | Digital Inputs | Hardware digital input pins (pmu.d1...pmu.d20) |
+| 0-99 | Physical Inputs | All physical input channels |
+| 100-199 | Physical Outputs | Power output channels (PROFET) |
+| **200-999** | **User Channels** | User-defined virtual channels |
+| 1000-1099 | System Channels | PMU core values (voltage, temp, etc.) |
+| 1100-1129 | Output Status | pmu.o1.status ... pmu.o30.status |
+| 1130-1159 | Output Current | pmu.o1.current ... pmu.o30.current |
+| 1160-1189 | Output Voltage | pmu.o1.voltage ... pmu.o30.voltage |
+| 1190-1219 | Output Active | pmu.o1.active ... pmu.o30.active |
+| 1220-1239 | Analog Voltage | pmu.a1.voltage ... pmu.a20.voltage |
+| 1250-1279 | Output Duty | pmu.o1.dutyCycle ... pmu.o30.dutyCycle |
+
+### Automatic ID Assignment
+
+When you create a new channel in the Configurator, the `channel_id` is automatically assigned:
+
+```python
+from models.channel_display_service import ChannelIdGenerator
+
+# Get existing channels
+existing = config_manager.get_all_channels()
+
+# Get next available ID (scans for gaps)
+next_id = ChannelIdGenerator.get_next_channel_id(existing)
+# Returns: 200 (first user channel), or next unused ID
+```
+
+The generator:
+1. Collects all `channel_id` values from existing channels
+2. Scans range 200-999 for the first unused ID
+3. Returns the next available ID
+
+### ID Assignment Flow
+
+```
+┌─────────────────┐     ┌───────────────────────┐     ┌─────────────────┐
+│  User creates   │     │  ChannelIdGenerator   │     │   Config JSON   │
+│  new channel    │────►│  finds next free ID   │────►│   saved with    │
+│  in dialog      │     │  in range 200-999     │     │   channel_id    │
+└─────────────────┘     └───────────────────────┘     └─────────────────┘
+                                   │
+                                   ▼
+                        ┌───────────────────────┐
+                        │  Existing channels:   │
+                        │  200, 201, 202, 204   │
+                        │                       │
+                        │  Next free: 203       │
+                        └───────────────────────┘
+```
+
+### Manual ID Assignment
+
+You can specify `channel_id` manually in the JSON:
+
+```json
+{
+  "id": "ignition",
+  "channel_type": "digital_input",
+  "channel_id": 250,
+  "input_pin": 0
+}
+```
+
+**Note:** Manual IDs must be:
+- In user range (200-999)
+- Not already in use
+- Unique within the configuration
+
+### String ID vs Numeric ID
+
+| Aspect | `id` (string) | `channel_id` (integer) |
+|--------|---------------|------------------------|
+| Used in | Config files, UI | Firmware runtime |
+| Format | `ignition_switch` | `250` |
+| Lookup speed | O(n) hash lookup | O(1) array index |
+| References | `source_channel: "ignition"` | Internal only |
+| Persistence | JSON config | JSON config |
+
+### ID Resolution at Startup
+
+When configuration is loaded, the firmware:
+
+1. Parses all channel definitions
+2. Maps string `id` to numeric `channel_id`
+3. Resolves string references (e.g., `source_channel: "ignition"`)
+4. Builds channel lookup table indexed by `channel_id`
+
+```
+Config:                              Runtime:
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ "source_channel":       │  ──►    │ source_channel_id: 250  │
+│   "ignition"            │         │                         │
+│ "channel_id": 250       │         │ channels[250] = {...}   │
+└─────────────────────────┘         └─────────────────────────┘
+```
+
 ## Channel References
 
 Channels reference each other by their `id` (string) or `channel_id` (numeric):
@@ -528,6 +636,162 @@ Channels reference each other by their `id` (string) or `channel_id` (numeric):
 ```
 
 At runtime, string IDs are resolved to numeric channel IDs for efficient processing.
+
+## Units and Quantities
+
+Channels can specify a **quantity** (physical measurement type) and **unit** for proper display formatting.
+
+### Available Quantities
+
+| Quantity | Units | Default |
+|----------|-------|---------|
+| User | user | user |
+| Acceleration | m/s², g, ft/s² | m/s² |
+| Angle | °, rad | ° |
+| Angular velocity | rpm, krpm, rps, °/s | rpm |
+| Current | A, mA, kA | A |
+| Distance | m, km, cm, mm, mi, in, ft | m |
+| Frequency | Hz, kHz, MHz | Hz |
+| Mass | kg, g, mg, lb, oz | kg |
+| Mass flow rate | kg/h, g/s, lb/h | kg/h |
+| Percentage | %, ‰ | % |
+| Power | W, kW, HP, PS | W |
+| Pressure | kPa, Pa, bar, mbar, psi, atm | kPa |
+| Resistance | Ω, kΩ, MΩ | Ω |
+| Temperature | °C, °F, K | °C |
+| Time | s, ms, µs, min, h | s |
+| Velocity | km/h, m/s, mph, kn | km/h |
+| Voltage | V, mV, kV | V |
+| Volume | L, mL, m³, gal | L |
+| Volume flow rate | L/min, L/h, mL/min | L/min |
+
+### Specifying Units in Configuration
+
+```json
+{
+  "id": "oil_pressure",
+  "channel_type": "analog_input",
+  "input_pin": 5,
+  "quantity": "Pressure",
+  "unit": "psi",
+  "decimal_places": 1,
+  "min_voltage": 0.5,
+  "max_voltage": 4.5,
+  "min_value": 0,
+  "max_value": 100
+}
+```
+
+## Decimal Places and Integer Values
+
+### Internal Representation
+
+**All channel values are stored as 32-bit signed integers (`int32_t`) in the firmware**, not floats. The `decimal_places` property specifies how many decimal places of precision are encoded in the integer:
+
+| decimal_places | Stored Value | Display Value | Scale Factor |
+|----------------|--------------|---------------|--------------|
+| 0 | 1234 | 1234 | 1 |
+| 1 | 1234 | 123.4 | 10 |
+| 2 | 1234 | 12.34 | 100 |
+| 3 | 1234 | 1.234 | 1000 |
+
+### Conversion Formulas
+
+**Float to Integer (Configurator → Firmware):**
+```
+int_value = round(float_value × 10^decimal_places)
+```
+
+**Integer to Float (Firmware → Display):**
+```
+float_value = int_value / 10^decimal_places
+```
+
+### Example
+
+An oil pressure sensor configured with `decimal_places: 1`:
+
+```
+User enters:     75.3 psi
+Stored as:       753 (integer)
+Displayed as:    75.3 psi
+
+Calculation:     75.3 × 10¹ = 753
+Reverse:         753 / 10¹ = 75.3
+```
+
+### Why Integers?
+
+The firmware uses fixed-point integer arithmetic instead of floating-point for several reasons:
+
+1. **Deterministic timing** - Integer operations have consistent execution time
+2. **CAN bus compatibility** - CAN data is natively integer-based
+3. **Memory efficiency** - int32_t uses less RAM than double
+4. **Precision control** - Known precision prevents rounding surprises
+5. **ECUMaster compatibility** - Matches industry standard conventions
+
+### Range Limits
+
+| decimal_places | Min Value | Max Value | Precision |
+|----------------|-----------|-----------|-----------|
+| 0 | -2,147,483,648 | 2,147,483,647 | 1 |
+| 1 | -214,748,364.8 | 214,748,364.7 | 0.1 |
+| 2 | -21,474,836.48 | 21,474,836.47 | 0.01 |
+| 3 | -2,147,483.648 | 2,147,483.647 | 0.001 |
+
+### Channel Type Defaults
+
+| Channel Type | Default decimal_places | Typical Use |
+|--------------|------------------------|-------------|
+| digital_input | 0 | Boolean (0/1) |
+| analog_input | 1-2 | Sensor readings |
+| can_rx | Varies | Depends on source |
+| number | 0-2 | Calculations |
+| timer | 0 | Seconds elapsed |
+| filter | Same as input | Signal smoothing |
+
+### Telemetry Encoding
+
+When telemetry is transmitted, integer values are sent directly. The Configurator applies `decimal_places` to format the display:
+
+```
+┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐
+│    Firmware       │    │    Protocol       │    │   Configurator    │
+│                   │    │                   │    │                   │
+│  value = 753      │───►│  [0xF1, 0x02]     │───►│  753 / 10 = 75.3  │
+│  (int32)          │    │  (little-endian)  │    │  display: "75.3"  │
+└───────────────────┘    └───────────────────┘    └───────────────────┘
+```
+
+### CAN TX Encoding
+
+For CAN transmission, values are scaled using `multiplier`:
+
+```json
+{
+  "id": "ecu_pressure_out",
+  "channel_type": "can_tx",
+  "signals": [{
+    "source_channel": "oil_pressure",
+    "start_bit": 0,
+    "bit_length": 16,
+    "multiplier": 10
+  }]
+}
+```
+
+The multiplier converts the channel value to the CAN signal scale:
+```
+CAN value = channel_value × multiplier
+753 × 10 = 7530 (sent as 0x1D6A)
+```
+
+### Best Practices for Decimal Places
+
+1. **Match sensor resolution** - Don't use more precision than your sensor provides
+2. **Consider CAN compatibility** - Use same scaling as other ECUs on the bus
+3. **Keep it simple** - decimal_places of 0-2 covers most use cases
+4. **Document units** - Always specify quantity/unit alongside decimal_places
 
 ## Best Practices
 
