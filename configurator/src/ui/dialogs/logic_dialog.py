@@ -108,6 +108,7 @@ class LogicDialog(BaseChannelDialog):
 
         # Finalize UI sizing
         self._finalize_ui()
+        self.setFixedWidth(300)
 
     def _create_operation_group(self):
         """Create operation selection group"""
