@@ -14,9 +14,11 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 |----------|-------|-------------|
 | Power Outputs | 30 | o1-o30 (PROFET high-side switches) |
 | Analog Inputs | 20 | a1-a20 (0-5V, 12-bit ADC) |
-| Digital Inputs | 8 | d1-d8 (5-30V tolerant) |
+| Digital Inputs | 20 | d1-d20 (5-30V tolerant, shared pins with analog) |
 | H-Bridges | 4 | hb1-hb4 (dual H-bridge drivers) |
 | Low-Side Outputs | 6 | l1-l6 (ground switching) |
+
+> **Note:** Digital and analog inputs share the same 20 physical pins. Each pin can be configured as either digital or analog input.
 
 ---
 
@@ -357,6 +359,8 @@ Status and active state for outputs 17-30. Same nibble format as Frame 1.
 
 Digital input states and frequency/pulse counters for inputs d1-d8.
 
+> **Note:** The PMU-30 has 20 digital inputs (d1-d20), but only the first 8 (d1-d8) are broadcast via the standard CAN stream due to 8-byte frame size limitations. For monitoring d9-d20, use the telemetry protocol or custom CAN TX channels.
+
 | Byte | Signal | Description |
 |------|--------|-------------|
 | 0 | Digital States | Bitfield for d1-d8 (bit 0 = d1) |
@@ -415,15 +419,17 @@ Status and current for all 4 H-Bridge motor drivers.
 
 ## Coverage Summary
 
-| Resource | Standard (0-7) | Extended (8-15) | Total |
-|----------|----------------|-----------------|-------|
+| Resource | Standard (0-7) | Extended (8-15) | Stream Coverage |
+|----------|----------------|-----------------|-----------------|
 | Outputs States | o1-o16 | o17-o30 | 30/30 |
 | Output Currents | o1-o16 | o17-o30 | 30/30 |
 | Output Voltages | o1-o16 | o17-o30 | 30/30 |
 | Analog Inputs | a1-a16 | a17-a20 | 20/20 |
-| Digital Inputs | - | d1-d8 | 8/8 |
+| Digital Inputs | - | d1-d8 | 8/20 * |
 | H-Bridges | - | hb1-hb4 | 4/4 |
 | Low-Side | l1-l6 | - | 6/6 |
+
+> \* **Digital Inputs:** Hardware has 20 digital inputs, but only d1-d8 are broadcast in the CAN stream. Use telemetry or custom CAN TX for d9-d20.
 
 ---
 
@@ -470,17 +476,28 @@ BO_ 1538 PMU_AnalogInputs1: 8 PMU30
 
 ```json
 {
-  "settings": {
-    "standard_can_stream": {
-      "enabled": true,
-      "can_bus": 1,
-      "base_id": 1536,
-      "is_extended": false,
-      "include_extended_frames": true
-    }
-  }
+  "version": "3.0",
+  "device": {
+    "name": "My PMU"
+  },
+  "standard_can_stream": {
+    "enabled": true,
+    "can_bus": 1,
+    "base_id": 1536,
+    "is_extended": false,
+    "include_extended_frames": true
+  },
+  "channels": [...]
 }
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| enabled | boolean | false | Enable CAN stream transmission |
+| can_bus | integer | 1 | CAN bus (1 = CAN A, 2 = CAN B) |
+| base_id | integer | 0x600 | Base CAN ID (frames use base_id + 0..15) |
+| is_extended | boolean | false | Use 29-bit extended CAN IDs |
+| include_extended_frames | boolean | false | Transmit extended frames 8-15 |
 
 ---
 
@@ -508,3 +525,12 @@ The Standard CAN Stream format (frames 0-7) is compatible with:
 - Generic CAN analyzers
 
 Extended frames (8-15) are PMU-30 specific.
+
+---
+
+## See Also
+
+- [Channel System](channels.md) - Channel types and system channels
+- [Configuration Schema](configuration_schema.md) - Full JSON configuration format
+- [Telemetry](telemetry.md) - Real-time telemetry protocol (includes all 20 digital inputs)
+- [Protocol Specification](protocol_specification.md) - Communication protocol
