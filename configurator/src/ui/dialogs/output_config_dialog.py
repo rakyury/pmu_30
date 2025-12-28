@@ -7,7 +7,7 @@ Inherits from BaseChannelDialog for common channel handling (name, channel_id).
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+    QPushButton, QLineEdit, QComboBox, QSpinBox,
     QCheckBox, QLabel, QMessageBox, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
@@ -17,6 +17,7 @@ from .base_channel_dialog import BaseChannelDialog
 from .channel_selector_dialog import ChannelSelectorDialog
 from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
+from ui.widgets.constant_spinbox import CurrentSpinBox, PercentageSpinBox
 
 
 class OutputConfigDialog(BaseChannelDialog):
@@ -159,21 +160,17 @@ class OutputConfigDialog(BaseChannelDialog):
 
         # Row 0: Current Limit | Inrush Current
         protection_layout.addWidget(QLabel("Current Limit:"), 0, 0)
-        self.current_limit_spin = QDoubleSpinBox()
+        self.current_limit_spin = CurrentSpinBox()
         self.current_limit_spin.setRange(0.1, 50.0)
         self.current_limit_spin.setValue(10.0)
-        self.current_limit_spin.setSuffix(" A")
-        self.current_limit_spin.setDecimals(2)
         self.current_limit_spin.setSingleStep(0.5)
         self.current_limit_spin.setToolTip("Overcurrent shutdown threshold (0.1-50A)")
         protection_layout.addWidget(self.current_limit_spin, 0, 1)
 
         protection_layout.addWidget(QLabel("Inrush Current:"), 0, 2)
-        self.inrush_current_spin = QDoubleSpinBox()
+        self.inrush_current_spin = CurrentSpinBox()
         self.inrush_current_spin.setRange(0.1, 100.0)
         self.inrush_current_spin.setValue(20.0)
-        self.inrush_current_spin.setSuffix(" A")
-        self.inrush_current_spin.setDecimals(2)
         self.inrush_current_spin.setSingleStep(1.0)
         self.inrush_current_spin.setToolTip("Peak current allowed during startup")
         protection_layout.addWidget(self.inrush_current_spin, 0, 3)
@@ -230,11 +227,8 @@ class OutputConfigDialog(BaseChannelDialog):
         pwm_layout.addWidget(self.pwm_freq_spin, 1, 1)
 
         pwm_layout.addWidget(QLabel("Duty Value:"), 1, 2)
-        self.pwm_duty_spin = QDoubleSpinBox()
-        self.pwm_duty_spin.setRange(0.0, 100.0)
+        self.pwm_duty_spin = PercentageSpinBox()
         self.pwm_duty_spin.setValue(50.0)
-        self.pwm_duty_spin.setSuffix(" %")
-        self.pwm_duty_spin.setDecimals(1)
         self.pwm_duty_spin.setSingleStep(5.0)
         self.pwm_duty_spin.setToolTip("Fixed PWM duty cycle (0-100%)")
         pwm_layout.addWidget(self.pwm_duty_spin, 1, 3)
@@ -607,11 +601,11 @@ class OutputConfigDialog(BaseChannelDialog):
         # Get base size
         current_size = self.sizeHint()
 
-        # Apply custom size multipliers:
+        # Apply size adjustments:
         # - Width: 0.86x (compact)
-        # - Height: 0.8x
+        # - Height: 0.7x (30% reduction)
         new_width = int(current_size.width() * 0.86)
-        new_height = int(current_size.height() * 0.8)
+        new_height = int(current_size.height() * 0.7)
 
         self.resize(new_width, new_height)
         self.setMinimumSize(new_width, new_height)

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QTimer
 
 from models.channel import ChannelType
+from models.config_migration import ConfigMigration
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +45,35 @@ class MainWindowDeviceMixin:
 
             if success:
                 self._set_connected_state(True, config.get('type'))
-                QTimer.singleShot(500, self.read_from_device)
+                # Give device/emulator time to fully initialize before reading config
+                QTimer.singleShot(1500, self.read_from_device)
             else:
                 self.status_message.setText("Connection failed")
                 QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.")
         else:
             self.status_message.setText("Connection cancelled")
+
+    def connect_to_emulator(self):
+        """Quick connect to emulator at localhost:9876 (Ctrl+E)."""
+        self.status_message.setText("Connecting to Emulator...")
+
+        config = {
+            'type': 'Emulator',
+            'host': 'localhost',
+            'port': 9876
+        }
+
+        success = self.device_controller.connect(config)
+
+        if success:
+            self._set_connected_state(True, 'Emulator')
+            # Give emulator time to fully initialize before reading config
+            QTimer.singleShot(1500, self.read_from_device)
+        else:
+            self.status_message.setText("Emulator connection failed")
+            QMessageBox.warning(self, "Connection Failed",
+                              "Could not connect to emulator.\n\n"
+                              "Make sure the emulator is running at localhost:9876")
 
     def disconnect_device(self):
         """Disconnect from device."""
@@ -124,7 +148,8 @@ class MainWindowDeviceMixin:
         self.status_message.setText("Reading configuration...")
 
         def read_config_thread():
-            config = self.device_controller.read_configuration(timeout=5.0)
+            # Use longer timeout (15s) for large configurations
+            config = self.device_controller.read_configuration(timeout=15.0)
             if config:
                 self._config_loaded_signal.emit(config)
             else:
@@ -136,6 +161,10 @@ class MainWindowDeviceMixin:
     def _load_config_from_device(self, config: dict):
         """Load configuration received from device into UI."""
         try:
+            # Ensure all channels have valid channel_id before populating UI
+            config = ConfigMigration.ensure_channel_ids(config)
+            config = ConfigMigration.ensure_numeric_channel_ids(config)
+
             self.project_tree.clear_all()
 
             channels = config.get("channels", [])
@@ -197,10 +226,16 @@ class MainWindowDeviceMixin:
             QMessageBox.critical(self, "Write Failed", f"Failed to write configuration:\n{str(e)}")
 
     def _prepare_config_for_write(self) -> dict:
-        """Prepare configuration dict for writing to device."""
+        """Prepare configuration dict for writing to device.
+
+        Converts all channel references from string names to numeric channel_ids
+        so firmware receives clean numeric IDs only.
+        """
         config = self.config_manager.get_config()
         config["channels"] = self.project_tree.get_all_channels()
         config["can_messages"] = self.config_manager.get_all_can_messages()
+        # Convert string references to numeric channel_ids for firmware
+        config = ConfigMigration.convert_references_to_ids(config)
         return config
 
     def _send_config_chunks(self, config_json: bytes, silent: bool = False) -> int:

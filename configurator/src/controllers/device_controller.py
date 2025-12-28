@@ -661,3 +661,52 @@ class DeviceController(QObject):
             logger.info("Device restart requested")
             return True
         return False
+
+    # ========== Emulator-only methods ==========
+
+    def set_digital_input(self, channel: int, state: bool) -> bool:
+        """Set digital input state (emulator only).
+
+        Args:
+            channel: Digital input channel (0-19)
+            state: Input state (True=HIGH, False=LOW)
+        """
+        from communication.protocol import FrameBuilder, encode_frame
+        frame = FrameBuilder.emu_set_digital_input(channel, state)
+        frame_bytes = encode_frame(frame)
+        if self._send_frame(frame_bytes):
+            logger.debug(f"Set digital input {channel} = {state}")
+            return True
+        return False
+
+    def set_analog_input(self, channel: int, voltage: float) -> bool:
+        """Set analog input voltage (emulator only).
+
+        Args:
+            channel: Analog input channel (0-19)
+            voltage: Voltage in volts (0.0-5.0)
+        """
+        from communication.protocol import FrameBuilder, encode_frame
+        voltage_mv = int(voltage * 1000)
+        frame = FrameBuilder.emu_set_analog_input(channel, voltage_mv)
+        frame_bytes = encode_frame(frame)
+        if self._send_frame(frame_bytes):
+            logger.debug(f"Set analog input {channel} = {voltage}V")
+            return True
+        return False
+
+    def inject_can_message(self, bus_id: int, can_id: int, data: bytes) -> bool:
+        """Inject CAN message for testing (emulator only).
+
+        Args:
+            bus_id: CAN bus index (0 or 1)
+            can_id: CAN message ID
+            data: CAN data bytes (up to 8)
+        """
+        from communication.protocol import FrameBuilder, encode_frame
+        frame = FrameBuilder.emu_inject_can(bus_id, can_id, data)
+        frame_bytes = encode_frame(frame)
+        if self._send_frame(frame_bytes):
+            logger.debug(f"Injected CAN message bus={bus_id} id=0x{can_id:X}")
+            return True
+        return False

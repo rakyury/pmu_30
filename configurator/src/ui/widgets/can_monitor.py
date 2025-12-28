@@ -108,10 +108,6 @@ class CANMonitor(QWidget):
         status_layout.addStretch()
         status_layout.addWidget(self.bus_load_label)
 
-        self.connection_label = QLabel("Offline")
-        self.connection_label.setStyleSheet("color: #b0b0b0;")
-        status_layout.addWidget(self.connection_label)
-
         layout.addLayout(status_layout)
 
         # Counters
@@ -803,14 +799,13 @@ class CANMonitor(QWidget):
     def set_connected(self, connected: bool):
         """Update connection state."""
         self._connected = connected
-        if connected:
-            self.connection_label.setText("Online")
-            self.connection_label.setStyleSheet("color: #22c55e; font-weight: bold;")
-        else:
-            self.connection_label.setText("Offline")
-            self.connection_label.setStyleSheet("color: #b0b0b0;")
-            # Clear values
+        if not connected:
+            # Clear values when disconnected
             self.signal_values.clear()
             for row in range(self.decoded_table.rowCount()):
-                self.decoded_table.item(row, 1).setText("---")
-                self.decoded_table.item(row, 3).setText("---")
+                value_item = self.decoded_table.item(row, 1)
+                age_item = self.decoded_table.item(row, 3)
+                if value_item:
+                    value_item.setText("---")
+                if age_item:
+                    age_item.setText("---")

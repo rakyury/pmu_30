@@ -5,7 +5,7 @@ Configures H-Bridge motor controller channels
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
+    QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
     QLabel, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
@@ -14,6 +14,7 @@ from .channel_selector_dialog import ChannelSelectorDialog
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
+from ui.widgets.constant_spinbox import VoltageSpinBox, ScalingFactorSpinBox, CurrentSpinBox
 
 
 class HBridgeDialog(BaseChannelDialog):
@@ -80,7 +81,7 @@ class HBridgeDialog(BaseChannelDialog):
         # Initialize base class (creates Basic Settings with name, channel_id, enabled)
         super().__init__(parent, config, available_channels, ChannelType.HBRIDGE, existing_channels)
 
-        self.resize(650, 700)
+        self.resize(650, 595)  # 15% shorter
 
         # Create H-Bridge specific UI
         self._create_hbridge_ui()
@@ -342,20 +343,16 @@ class HBridgeDialog(BaseChannelDialog):
 
         # Valid voltage range (ECUMaster feature)
         layout.addWidget(QLabel("Valid Min V:"), 5, 0)
-        self.valid_voltage_min_spin = QDoubleSpinBox()
+        self.valid_voltage_min_spin = VoltageSpinBox()
         self.valid_voltage_min_spin.setRange(0.0, 5.0)
         self.valid_voltage_min_spin.setValue(0.2)
-        self.valid_voltage_min_spin.setSuffix(" V")
-        self.valid_voltage_min_spin.setDecimals(2)
         self.valid_voltage_min_spin.setToolTip("Min valid feedback voltage (output disabled if below)")
         layout.addWidget(self.valid_voltage_min_spin, 5, 1)
 
         layout.addWidget(QLabel("Valid Max V:"), 5, 2)
-        self.valid_voltage_max_spin = QDoubleSpinBox()
+        self.valid_voltage_max_spin = VoltageSpinBox()
         self.valid_voltage_max_spin.setRange(0.0, 5.0)
         self.valid_voltage_max_spin.setValue(4.8)
-        self.valid_voltage_max_spin.setSuffix(" V")
-        self.valid_voltage_max_spin.setDecimals(2)
         self.valid_voltage_max_spin.setToolTip("Max valid feedback voltage (output disabled if above)")
         layout.addWidget(self.valid_voltage_max_spin, 5, 3)
 
@@ -384,37 +381,33 @@ class HBridgeDialog(BaseChannelDialog):
 
         # Kp
         layout.addWidget(QLabel("Kp (Proportional):"), 0, 0)
-        self.kp_spin = QDoubleSpinBox()
+        self.kp_spin = ScalingFactorSpinBox()
         self.kp_spin.setRange(0.0, 100.0)
         self.kp_spin.setValue(1.0)
-        self.kp_spin.setDecimals(2)
         self.kp_spin.setSingleStep(0.1)
         layout.addWidget(self.kp_spin, 0, 1)
 
         # Ki
         layout.addWidget(QLabel("Ki (Integral):"), 0, 2)
-        self.ki_spin = QDoubleSpinBox()
+        self.ki_spin = ScalingFactorSpinBox()
         self.ki_spin.setRange(0.0, 100.0)
         self.ki_spin.setValue(0.0)
-        self.ki_spin.setDecimals(2)
         self.ki_spin.setSingleStep(0.01)
         layout.addWidget(self.ki_spin, 0, 3)
 
         # Kd
         layout.addWidget(QLabel("Kd (Derivative):"), 1, 0)
-        self.kd_spin = QDoubleSpinBox()
+        self.kd_spin = ScalingFactorSpinBox()
         self.kd_spin.setRange(0.0, 100.0)
         self.kd_spin.setValue(0.0)
-        self.kd_spin.setDecimals(2)
         self.kd_spin.setSingleStep(0.01)
         layout.addWidget(self.kd_spin, 1, 1)
 
         # Kd Filter (ECUMaster feature - reduces rattle)
         layout.addWidget(QLabel("Kd Filter:"), 1, 2)
-        self.kd_filter_spin = QDoubleSpinBox()
+        self.kd_filter_spin = ScalingFactorSpinBox()
         self.kd_filter_spin.setRange(0.0, 1.0)
         self.kd_filter_spin.setValue(0.1)
-        self.kd_filter_spin.setDecimals(2)
         self.kd_filter_spin.setSingleStep(0.05)
         self.kd_filter_spin.setToolTip(
             "Derivative filter coefficient (0-1)\n"
@@ -446,21 +439,17 @@ class HBridgeDialog(BaseChannelDialog):
 
         # Current limit
         layout.addWidget(QLabel("Current Limit:"), 0, 0)
-        self.current_limit_spin = QDoubleSpinBox()
+        self.current_limit_spin = CurrentSpinBox()
         self.current_limit_spin.setRange(0.1, 50.0)
         self.current_limit_spin.setValue(10.0)
-        self.current_limit_spin.setSuffix(" A")
-        self.current_limit_spin.setDecimals(2)
         self.current_limit_spin.setSingleStep(0.5)
         layout.addWidget(self.current_limit_spin, 0, 1)
 
         # Inrush current
         layout.addWidget(QLabel("Inrush Current:"), 0, 2)
-        self.inrush_current_spin = QDoubleSpinBox()
+        self.inrush_current_spin = CurrentSpinBox()
         self.inrush_current_spin.setRange(0.1, 100.0)
         self.inrush_current_spin.setValue(30.0)
-        self.inrush_current_spin.setSuffix(" A")
-        self.inrush_current_spin.setDecimals(2)
         layout.addWidget(self.inrush_current_spin, 0, 3)
 
         # Inrush time
@@ -502,11 +491,9 @@ class HBridgeDialog(BaseChannelDialog):
 
         # Stall current threshold
         layout.addWidget(QLabel("Stall Current:"), 1, 0)
-        self.stall_current_spin = QDoubleSpinBox()
+        self.stall_current_spin = CurrentSpinBox()
         self.stall_current_spin.setRange(0.1, 50.0)
         self.stall_current_spin.setValue(5.0)
-        self.stall_current_spin.setSuffix(" A")
-        self.stall_current_spin.setDecimals(2)
         self.stall_current_spin.setToolTip("Current threshold indicating stall")
         layout.addWidget(self.stall_current_spin, 1, 1)
 

@@ -4,7 +4,7 @@ Lookup table with X axis channel and auto-generated values
 """
 
 from PyQt6.QtWidgets import (
-    QGroupBox, QSpinBox, QDoubleSpinBox, QPushButton,
+    QGroupBox, QSpinBox, QPushButton,
     QLabel, QGridLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QVBoxLayout, QWidget, QMessageBox
 )
@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType
+from ui.widgets.constant_spinbox import ConstantSpinBox
 
 
 class Table2DDialog(BaseChannelDialog):
@@ -66,26 +67,23 @@ class Table2DDialog(BaseChannelDialog):
         layout.addWidget(self.x_channel_widget, row, 1, 1, 3)
         row += 1
 
-        # X axis: min, max, step
+        # X axis: min, max, step (use ConstantSpinBox for integer storage)
         layout.addWidget(QLabel("min:"), row, 0)
-        self.x_min_spin = QDoubleSpinBox()
-        self.x_min_spin.setRange(-1000000, 1000000)
-        self.x_min_spin.setDecimals(2)
+        self.x_min_spin = ConstantSpinBox()
+        self.x_min_spin.setRange(-10000.00, 10000.00)
         self.x_min_spin.setValue(0)
         layout.addWidget(self.x_min_spin, row, 1)
 
         layout.addWidget(QLabel("max:"), row, 2)
-        self.x_max_spin = QDoubleSpinBox()
-        self.x_max_spin.setRange(-1000000, 1000000)
-        self.x_max_spin.setDecimals(2)
+        self.x_max_spin = ConstantSpinBox()
+        self.x_max_spin.setRange(-10000.00, 10000.00)
         self.x_max_spin.setValue(100)
         layout.addWidget(self.x_max_spin, row, 3)
         row += 1
 
         layout.addWidget(QLabel("step:"), row, 0)
-        self.x_step_spin = QDoubleSpinBox()
-        self.x_step_spin.setRange(0.001, 100000)
-        self.x_step_spin.setDecimals(2)
+        self.x_step_spin = ConstantSpinBox()
+        self.x_step_spin.setRange(0.01, 10000.00)
         self.x_step_spin.setValue(10)
         layout.addWidget(self.x_step_spin, row, 1)
 

@@ -23,8 +23,10 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_adc.h"
+#include "pmu_channel.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -92,6 +94,7 @@ HAL_StatusTypeDef PMU_ADC_Init(void)
         inputs[i].filter_index = 0;
         inputs[i].last_edge_time = 0;
         inputs[i].edge_count = 0;
+        inputs[i].channel_id = 0;  /* No channel sync until set */
     }
 
     /* Initialize ADC peripheral for analog inputs
@@ -383,6 +386,38 @@ uint8_t PMU_ADC_GetDigitalState(uint8_t channel)
 }
 
 /**
+ * @brief Set digital state (for emulator/testing)
+ * @param channel Input channel (0-19)
+ * @param state Digital state (0 or 1)
+ * @note Also syncs to channel system
+ */
+void PMU_ADC_SetDigitalState(uint8_t channel, uint8_t state)
+{
+    if (!IS_VALID_INPUT(channel)) {
+        return;
+    }
+    inputs[channel].digital_state = state ? 1 : 0;
+
+    /* Sync to channel system so power outputs can read current value */
+    if (inputs[channel].channel_id > 0) {
+        PMU_Channel_UpdateValue(inputs[channel].channel_id, inputs[channel].digital_state);
+    }
+}
+
+/**
+ * @brief Get input type (for emulator to determine voltage logic)
+ * @param channel Input channel (0-19)
+ * @retval Input type (PMU_LegacyInputType_t) or -1 if not configured
+ */
+int PMU_ADC_GetInputType(uint8_t channel)
+{
+    if (!IS_VALID_INPUT(channel) || input_configs[channel] == NULL) {
+        return -1;
+    }
+    return (int)input_configs[channel]->type;
+}
+
+/**
  * @brief Get frequency (for frequency inputs)
  * @param channel Input channel (0-19)
  * @retval Frequency in Hz
@@ -429,6 +464,26 @@ HAL_StatusTypeDef PMU_ADC_SetConfig(uint8_t channel, PMU_InputConfig_t* config)
     return HAL_OK;
 }
 
+/**
+ * @brief Set channel system ID for input
+ * @param channel Input channel (0-19)
+ * @param channel_id Channel system ID for PMU_Channel_SetValue
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_ADC_SetChannelId(uint8_t channel, uint16_t channel_id)
+{
+    if (!IS_VALID_INPUT(channel)) {
+        return HAL_ERROR;
+    }
+
+    inputs[channel].channel_id = channel_id;
+
+    /* Sync initial state to channel system immediately */
+    PMU_Channel_UpdateValue(channel_id, inputs[channel].digital_state);
+
+    return HAL_OK;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -465,6 +520,10 @@ static void ADC_ProcessSwitchActiveLow(uint8_t channel)
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
             inputs[channel].debounce_counter = 0;
+            /* Sync to channel system so power outputs can read current value */
+            if (inputs[channel].channel_id > 0) {
+                PMU_Channel_UpdateValue(inputs[channel].channel_id, new_state);
+            }
         }
     } else {
         inputs[channel].debounce_counter = 0;
@@ -503,6 +562,10 @@ static void ADC_ProcessSwitchActiveHigh(uint8_t channel)
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
             inputs[channel].debounce_counter = 0;
+            /* Sync to channel system so power outputs can read current value */
+            if (inputs[channel].channel_id > 0) {
+                PMU_Channel_UpdateValue(inputs[channel].channel_id, new_state);
+            }
         }
     } else {
         inputs[channel].debounce_counter = 0;

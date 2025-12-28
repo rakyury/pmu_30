@@ -5,7 +5,7 @@ Configures turn signal and hazard light control module
 
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox, QDoubleSpinBox,
+    QPushButton, QLineEdit, QComboBox, QCheckBox, QSpinBox,
     QLabel, QTabWidget, QWidget
 )
 from PyQt6.QtCore import Qt
@@ -14,6 +14,7 @@ from .channel_selector_dialog import ChannelSelectorDialog
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType
 from models.channel_display_service import ChannelDisplayService
+from ui.widgets.constant_spinbox import ScalingFactorSpinBox
 
 
 class BlinkerDialog(BaseChannelDialog):
@@ -193,20 +194,18 @@ class BlinkerDialog(BaseChannelDialog):
 
         # Flash rate (Hz)
         layout.addWidget(QLabel("Flash Rate:"), 1, 0)
-        self.flash_rate_spin = QDoubleSpinBox()
+        self.flash_rate_spin = ScalingFactorSpinBox()
         self.flash_rate_spin.setRange(0.5, 5.0)
         self.flash_rate_spin.setValue(1.0)
         self.flash_rate_spin.setSuffix(" Hz")
-        self.flash_rate_spin.setDecimals(1)
         layout.addWidget(self.flash_rate_spin, 1, 1)
 
         # Fast flash rate (bulb out)
         layout.addWidget(QLabel("Fast Flash:"), 1, 2)
-        self.fast_flash_spin = QDoubleSpinBox()
+        self.fast_flash_spin = ScalingFactorSpinBox()
         self.fast_flash_spin.setRange(1.0, 10.0)
         self.fast_flash_spin.setValue(2.0)
         self.fast_flash_spin.setSuffix(" Hz")
-        self.fast_flash_spin.setDecimals(1)
         self.fast_flash_spin.setToolTip("Fast flash rate for bulb-out detection")
         layout.addWidget(self.fast_flash_spin, 1, 3)
 

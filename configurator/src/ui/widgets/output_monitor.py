@@ -84,10 +84,6 @@ class OutputMonitor(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
 
-        self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #b0b0b0;")
-        toolbar.addWidget(self.status_label)
-
         toolbar.addStretch()
 
         # Reset peaks button
@@ -196,14 +192,16 @@ class OutputMonitor(QWidget):
         secondary_pins = set()
 
         # Create mapping of configured outputs by primary pin
-        # Only include outputs that have a name (id)
+        # Only include outputs that have a name
         configured_by_pin = {}
         for out in outputs:
             # Only consider outputs with a name as "configured"
-            name = out.get('id', out.get('name', ''))
+            # Priority: name > channel_name > id (for backwards compatibility)
+            name = out.get('name') or out.get('channel_name') or out.get('id', '')
             if not name:
                 continue
-            pins = out.get('pins', [out.get('channel', -1)])
+            # Support multiple field names: output_pins, pins, channel
+            pins = out.get('output_pins') or out.get('pins') or [out.get('channel', -1)]
             if pins:
                 primary_pin = pins[0]
                 if primary_pin >= 0:
@@ -222,8 +220,10 @@ class OutputMonitor(QWidget):
                 output_data['_is_default'] = True
             elif channel in configured_by_pin:
                 cfg = configured_by_pin[channel]
-                output_data['name'] = cfg.get('id', cfg.get('name', ''))
-                output_data['pins'] = cfg.get('pins', [channel])
+                # Priority: name > channel_name > id (for backwards compatibility)
+                output_data['name'] = cfg.get('name') or cfg.get('channel_name') or cfg.get('id', '')
+                # Support multiple field names: output_pins, pins, channel
+                output_data['pins'] = cfg.get('output_pins') or cfg.get('pins') or [channel]
                 output_data['enabled'] = cfg.get('enabled', True)
                 output_data['_is_default'] = False
                 output_data['_is_hidden'] = False
@@ -237,11 +237,9 @@ class OutputMonitor(QWidget):
         """Set connection state."""
         self._connected = connected
         if connected:
-            self.status_label.setText("Online")
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            pass  # Connection status shown in status bar
         else:
-            self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #b0b0b0;")
+            pass  # Connection status shown in status bar
             # Reset all values to "?"
             self._reset_values()
 
@@ -344,10 +342,13 @@ class OutputMonitor(QWidget):
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""
+        bg_brush = QBrush(color)
+        fg_brush = QBrush(QColor(255, 255, 255))  # White text
         for col in range(9):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(QBrush(color))
+                item.setBackground(bg_brush)
+                item.setForeground(fg_brush)
 
     def _update_values(self):
         """Update real-time values (when connected to device)."""
@@ -407,7 +408,8 @@ class OutputMonitor(QWidget):
             is_default = output_config.get('_is_default', True) or not name
 
             # Get list of physical pins for this output
-            pins = output_config.get('pins', [output_config.get('channel', orig_idx)])
+            # Support multiple field names: output_pins, pins, channel
+            pins = output_config.get('output_pins') or output_config.get('pins') or [output_config.get('channel', orig_idx)]
             if not pins:
                 pins = [orig_idx]
 

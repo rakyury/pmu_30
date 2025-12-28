@@ -5,7 +5,6 @@ from .digital_input_dialog import DigitalInputDialog
 from .analog_input_dialog import AnalogInputDialog
 from .logic_dialog import LogicDialog
 from .timer_dialog import TimerDialog
-from .enum_dialog import EnumDialog
 from .number_dialog import NumberDialog
 from .filter_dialog import FilterDialog
 from .table_2d_dialog import Table2DDialog
@@ -37,7 +36,6 @@ __all__ = [
     'AnalogInputDialog',
     'LogicDialog',
     'TimerDialog',
-    'EnumDialog',
     'NumberDialog',
     'FilterDialog',
     'Table2DDialog',

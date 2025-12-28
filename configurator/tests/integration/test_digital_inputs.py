@@ -22,6 +22,9 @@ import json
 from .helpers import (
     BASE_CONFIG,
     ChannelState,
+    make_digital_input_config,
+    make_output_config,
+    make_logic_config,
 )
 
 

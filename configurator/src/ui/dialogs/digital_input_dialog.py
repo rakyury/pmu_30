@@ -4,7 +4,7 @@ Supports multiple subtypes: Switch, Frequency, RPM, Flex Fuel, Beacon, PULS oil 
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QComboBox, QSpinBox, QDoubleSpinBox,
+    QFormLayout, QGroupBox, QComboBox, QSpinBox,
     QCheckBox, QLabel, QGridLayout, QWidget, QVBoxLayout, QHBoxLayout,
     QProgressBar, QFrame
 )
@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, List
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, DigitalInputSubtype, EdgeType, ButtonMode
 from ui.widgets.time_input import SecondsSpinBox
+from ui.widgets.constant_spinbox import VoltageSpinBox, ScalingFactorSpinBox
 
 
 class DigitalInputDialog(BaseChannelDialog):
@@ -113,11 +114,8 @@ class DigitalInputDialog(BaseChannelDialog):
 
         # Threshold and Debounce in same row
         layout.addWidget(QLabel("Threshold:"), row, 0)
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(0.0, 30.0)
-        self.threshold_spin.setDecimals(2)
+        self.threshold_spin = VoltageSpinBox()
         self.threshold_spin.setValue(2.51)
-        self.threshold_spin.setSuffix(" V")
         self.threshold_spin.setToolTip("Voltage threshold for digital state detection")
         layout.addWidget(self.threshold_spin, row, 1)
 
@@ -370,17 +368,15 @@ class DigitalInputDialog(BaseChannelDialog):
 
         # Multiplier and Divider in same row
         layout.addWidget(QLabel("Multiplier:"), row, 0)
-        self.multiplier_spin = QDoubleSpinBox()
-        self.multiplier_spin.setRange(0.001, 1000.0)
-        self.multiplier_spin.setDecimals(3)
+        self.multiplier_spin = ScalingFactorSpinBox()
+        self.multiplier_spin.setRange(0.0001, 1000.0)
         self.multiplier_spin.setValue(1.0)
         self.multiplier_spin.setToolTip("Output = Input * Multiplier / Divider")
         layout.addWidget(self.multiplier_spin, row, 1)
 
         layout.addWidget(QLabel("Divider:"), row, 2)
-        self.divider_spin = QDoubleSpinBox()
-        self.divider_spin.setRange(0.001, 1000.0)
-        self.divider_spin.setDecimals(3)
+        self.divider_spin = ScalingFactorSpinBox()
+        self.divider_spin.setRange(0.0001, 1000.0)
         self.divider_spin.setValue(1.0)
         self.divider_spin.setToolTip("Output = Input * Multiplier / Divider")
         layout.addWidget(self.divider_spin, row, 3)
@@ -564,3 +560,15 @@ class DigitalInputDialog(BaseChannelDialog):
                     config["reset_channel"] = self.reset_channel_edit.text().strip()
 
         return config
+
+    def _finalize_ui(self):
+        """Override to customize dialog size - compact height."""
+        self.adjustSize()
+        current_size = self.sizeHint()
+
+        # Height reduced by 45% (much more compact)
+        new_width = current_size.width()
+        new_height = int(current_size.height() * 0.55)
+
+        self.resize(new_width, new_height)
+        self.setMinimumSize(new_width, new_height)

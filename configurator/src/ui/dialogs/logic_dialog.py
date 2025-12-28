@@ -4,7 +4,7 @@ Dynamic UI based on operation type
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGridLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
+    QFormLayout, QGridLayout, QGroupBox, QComboBox, QSpinBox,
     QLabel, QStackedWidget, QWidget, QVBoxLayout, QCheckBox
 )
 from PyQt6.QtCore import Qt
@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, LogicOperation, LogicPolarity, LogicDefaultState, EdgeType
+from ui.widgets.constant_spinbox import ConstantSpinBox, ScalingFactorSpinBox, TimeDelaySpinBox
 
 
 class LogicDialog(BaseChannelDialog):
@@ -182,20 +183,14 @@ class LogicDialog(BaseChannelDialog):
         )
         layout.addWidget(self.is_tf_channel_widget, 0, 1, 1, 3)
 
-        # Row 1: True delay | False delay
+        # Row 1: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 1, 0)
-        self.is_tf_true_delay = QDoubleSpinBox()
-        self.is_tf_true_delay.setRange(0, 3600)
-        self.is_tf_true_delay.setDecimals(2)
-        self.is_tf_true_delay.setSuffix(" s")
+        self.is_tf_true_delay = TimeDelaySpinBox()
         self.is_tf_true_delay.setValue(0)
         layout.addWidget(self.is_tf_true_delay, 1, 1)
 
         layout.addWidget(QLabel("False delay:"), 1, 2)
-        self.is_tf_false_delay = QDoubleSpinBox()
-        self.is_tf_false_delay.setRange(0, 3600)
-        self.is_tf_false_delay.setDecimals(2)
-        self.is_tf_false_delay.setSuffix(" s")
+        self.is_tf_false_delay = TimeDelaySpinBox()
         self.is_tf_false_delay.setValue(0)
         layout.addWidget(self.is_tf_false_delay, 1, 3)
 
@@ -216,26 +211,19 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Constant | (empty)
         layout.addWidget(QLabel("Constant:"), 1, 0)
-        self.cmp_constant = QDoubleSpinBox()
-        self.cmp_constant.setRange(-1000000, 1000000)
-        self.cmp_constant.setDecimals(4)
+        self.cmp_constant = ConstantSpinBox()
+        self.cmp_constant.setRange(-10000.00, 10000.00)
         self.cmp_constant.setValue(0)
         layout.addWidget(self.cmp_constant, 1, 1)
 
-        # Row 2: True delay | False delay
+        # Row 2: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 2, 0)
-        self.cmp_true_delay = QDoubleSpinBox()
-        self.cmp_true_delay.setRange(0, 3600)
-        self.cmp_true_delay.setDecimals(2)
-        self.cmp_true_delay.setSuffix(" s")
+        self.cmp_true_delay = TimeDelaySpinBox()
         self.cmp_true_delay.setValue(0)
         layout.addWidget(self.cmp_true_delay, 2, 1)
 
         layout.addWidget(QLabel("False delay:"), 2, 2)
-        self.cmp_false_delay = QDoubleSpinBox()
-        self.cmp_false_delay.setRange(0, 3600)
-        self.cmp_false_delay.setDecimals(2)
-        self.cmp_false_delay.setSuffix(" s")
+        self.cmp_false_delay = TimeDelaySpinBox()
         self.cmp_false_delay.setValue(0)
         layout.addWidget(self.cmp_false_delay, 2, 3)
 
@@ -261,20 +249,14 @@ class LogicDialog(BaseChannelDialog):
         )
         layout.addWidget(self.and_or_ch2_widget, 1, 1, 1, 3)
 
-        # Row 2: True delay | False delay
+        # Row 2: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 2, 0)
-        self.and_or_true_delay = QDoubleSpinBox()
-        self.and_or_true_delay.setRange(0, 3600)
-        self.and_or_true_delay.setDecimals(2)
-        self.and_or_true_delay.setSuffix(" s")
+        self.and_or_true_delay = TimeDelaySpinBox()
         self.and_or_true_delay.setValue(0)
         layout.addWidget(self.and_or_true_delay, 2, 1)
 
         layout.addWidget(QLabel("False delay:"), 2, 2)
-        self.and_or_false_delay = QDoubleSpinBox()
-        self.and_or_false_delay.setRange(0, 3600)
-        self.and_or_false_delay.setDecimals(2)
-        self.and_or_false_delay.setSuffix(" s")
+        self.and_or_false_delay = TimeDelaySpinBox()
         self.and_or_false_delay.setValue(0)
         layout.addWidget(self.and_or_false_delay, 2, 3)
 
@@ -295,16 +277,14 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Threshold | Time on
         layout.addWidget(QLabel("Threshold:"), 1, 0)
-        self.changed_threshold = QDoubleSpinBox()
-        self.changed_threshold.setRange(0, 1000000)
-        self.changed_threshold.setDecimals(4)
+        self.changed_threshold = ConstantSpinBox()
+        self.changed_threshold.setRange(0, 10000.00)
         self.changed_threshold.setValue(1.0)
         layout.addWidget(self.changed_threshold, 1, 1)
 
         layout.addWidget(QLabel("Time on:"), 1, 2)
-        self.changed_time_on = QDoubleSpinBox()
-        self.changed_time_on.setRange(0, 3600)
-        self.changed_time_on.setDecimals(2)
+        self.changed_time_on = ScalingFactorSpinBox()
+        self.changed_time_on.setRange(0, 3600.0)
         self.changed_time_on.setSuffix(" s")
         self.changed_time_on.setValue(0.5)
         layout.addWidget(self.changed_time_on, 1, 3)
@@ -333,16 +313,14 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 2: Upper value | Lower value
         layout.addWidget(QLabel("Upper value:"), 2, 0)
-        self.hyst_upper = QDoubleSpinBox()
-        self.hyst_upper.setRange(-1000000, 1000000)
-        self.hyst_upper.setDecimals(2)
+        self.hyst_upper = ConstantSpinBox()
+        self.hyst_upper.setRange(-10000.00, 10000.00)
         self.hyst_upper.setValue(100.0)
         layout.addWidget(self.hyst_upper, 2, 1)
 
         layout.addWidget(QLabel("Lower value:"), 2, 2)
-        self.hyst_lower = QDoubleSpinBox()
-        self.hyst_lower.setRange(-1000000, 1000000)
-        self.hyst_lower.setDecimals(2)
+        self.hyst_lower = ConstantSpinBox()
+        self.hyst_lower.setRange(-10000.00, 10000.00)
         self.hyst_lower.setValue(0.0)
         layout.addWidget(self.hyst_lower, 2, 3)
 
@@ -447,9 +425,8 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 2: Time on | Retrigger
         layout.addWidget(QLabel("Time on:"), 2, 0)
-        self.pulse_time_on = QDoubleSpinBox()
-        self.pulse_time_on.setRange(0.01, 3600)
-        self.pulse_time_on.setDecimals(2)
+        self.pulse_time_on = ScalingFactorSpinBox()
+        self.pulse_time_on.setRange(0.01, 3600.0)
         self.pulse_time_on.setSuffix(" s")
         self.pulse_time_on.setValue(0.5)
         layout.addWidget(self.pulse_time_on, 2, 1)
@@ -475,17 +452,15 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Time on | Time off
         layout.addWidget(QLabel("Time on:"), 1, 0)
-        self.flash_time_on = QDoubleSpinBox()
-        self.flash_time_on.setRange(0.01, 3600)
-        self.flash_time_on.setDecimals(2)
+        self.flash_time_on = ScalingFactorSpinBox()
+        self.flash_time_on.setRange(0.01, 3600.0)
         self.flash_time_on.setSuffix(" s")
         self.flash_time_on.setValue(0.5)
         layout.addWidget(self.flash_time_on, 1, 1)
 
         layout.addWidget(QLabel("Time off:"), 1, 2)
-        self.flash_time_off = QDoubleSpinBox()
-        self.flash_time_off.setRange(0.01, 3600)
-        self.flash_time_off.setDecimals(2)
+        self.flash_time_off = ScalingFactorSpinBox()
+        self.flash_time_off.setRange(0.01, 3600.0)
         self.flash_time_off.setSuffix(" s")
         self.flash_time_off.setValue(0.5)
         layout.addWidget(self.flash_time_off, 1, 3)

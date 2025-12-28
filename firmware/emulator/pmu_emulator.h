@@ -306,8 +306,8 @@ typedef struct {
     /* ADC Channels */
     PMU_Emu_ADC_Channel_t adc[20];
 
-    /* Digital Inputs */
-    PMU_Emu_Digital_Input_t digital_inputs[16];
+    /* Digital Inputs (20 separate GPIO pins, independent from ADC) */
+    PMU_Emu_Digital_Input_t digital_inputs[20];
 
     /* CAN Bus */
     PMU_Emu_CAN_Message_t can_rx_queue[64];
@@ -351,7 +351,7 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 
 #define PMU_EMU_ADC_CHANNELS        20
-#define PMU_EMU_DIGITAL_INPUTS      16
+#define PMU_EMU_DIGITAL_INPUTS      20  /* 20 separate GPIO pins for digital inputs */
 #define PMU_EMU_PROFET_CHANNELS     30
 #define PMU_EMU_HBRIDGE_CHANNELS    4
 #define PMU_EMU_CAN_BUSES           4

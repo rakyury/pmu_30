@@ -1244,10 +1244,12 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     offset += 4;
 
     /* 16. digital_inputs (4 bytes, bitmask for 20 inputs) */
-    /* Use ADC system's digital_state which correctly handles active_low/active_high */
+    /* Digital inputs are SEPARATE GPIO pins from analog ADC inputs!
+     * Read directly from emulator's digital_inputs[] state. */
     uint32_t di_states = 0;
     for (int i = 0; i < 20; i++) {
-        if (PMU_ADC_GetDigitalState(i)) {
+        const PMU_Emu_Digital_Input_t* di = PMU_Emu_DI_GetChannel((uint8_t)i);
+        if (di != NULL && di->debounced_state) {
             di_states |= (1U << i);
         }
     }

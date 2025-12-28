@@ -171,8 +171,8 @@ class TestDigitalInputDialog:
         dialog = DigitalInputDialog()
         dialog.name_edit.setText("Test")
 
-        # Divider should have a minimum value > 0
-        assert dialog.divider_spin.minimum() >= 0.001
+        # Divider should have a minimum value > 0 (ScalingFactorSpinBox uses 4 decimals)
+        assert dialog.divider_spin.minimum() >= 0.0001
         dialog.close()
 
     def test_validation_rpm_teeth_minimum(self, qapp):

@@ -32,6 +32,7 @@
 #include "pmu_timer.h"
 #include "pmu_blinkmarine.h"
 #include "pmu_config_json.h"
+#include "pmu_adc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,11 +117,13 @@ int PMU_Emu_Init(void)
     emulator.running = true;
     emulator.paused = false;
 
-    /* Initialize ADC channels to 0V */
+    /* Initialize ADC channels to 0V
+     * NOTE: enabled=false means digital inputs will sync to ADC.
+     * Set enabled=true when manually injecting voltage values. */
     for (int i = 0; i < PMU_EMU_ADC_CHANNELS; i++) {
         emulator.adc[i].raw_value = 0;
         emulator.adc[i].voltage_v = 0.0f;
-        emulator.adc[i].enabled = true;
+        emulator.adc[i].enabled = false;  /* Allow digital input sync by default */
         emulator.adc[i].use_noise = false;
         emulator.adc[i].noise_amplitude = 10;
     }
@@ -242,6 +245,17 @@ int PMU_Emu_Init(void)
     emulator.flash_temp_C = 25;
     emulator.flash_file_count = 0;
 
+    /* Initialize digital inputs to ON state by default.
+     * Low-side switches (active_low) are normally connected to ground,
+     * so default state should be ON (pressed/active). */
+    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS; i++) {
+        emulator.digital_inputs[i].state = true;
+        emulator.digital_inputs[i].debounced_state = true;
+        emulator.digital_inputs[i].inverted = false;
+        emulator.digital_inputs[i].debounce_ms = 50;
+        emulator.digital_inputs[i].last_change_ms = 0;
+    }
+
     /* Seed random for noise */
     srand((unsigned int)time(NULL));
 
@@ -288,6 +302,14 @@ PMU_Emulator_t* PMU_Emu_GetState(void)
  */
 void PMU_Emu_Tick(uint32_t delta_ms)
 {
+    static uint32_t tick_debug = 0;
+    tick_debug++;
+    if (tick_debug % 5000 == 1) {
+        printf("[TICK] init=%d, paused=%d, delta=%d, scale=%.1f\n",
+               emu_initialized, emulator.paused, delta_ms, emulator.time_scale);
+        fflush(stdout);
+    }
+
     if (!emu_initialized || emulator.paused) {
         return;
     }
@@ -306,9 +328,12 @@ void PMU_Emu_Tick(uint32_t delta_ms)
         emulator.uptime_accum_ms %= 1000;
     }
 
-    /* Update emulator subsystems (hardware simulation) */
-    Emu_UpdateADC(scaled_delta);
+    /* Update emulator subsystems (hardware simulation)
+     * IMPORTANT: Digital inputs must update BEFORE ADC so that
+     * switch state changes are reflected in ADC values before
+     * they are copied to the DMA buffer */
     Emu_UpdateDigitalInputs(scaled_delta);
+    Emu_UpdateADC(scaled_delta);
     Emu_UpdateCAN(scaled_delta);
     Emu_UpdatePROFET(scaled_delta);
     Emu_UpdateHBridge(scaled_delta);
@@ -481,6 +506,15 @@ int PMU_Emu_DI_SetState(uint8_t channel, bool state)
         di->debounced_state = di->inverted ? !state : state;
     }
 
+    /* NOTE: Do NOT call PMU_ADC_SetDigitalState() directly here!
+     * The digital_state must be computed by PMU_ADC_Update() which applies
+     * the correct subtype logic (switch_active_low vs switch_active_high).
+     * The flow is:
+     * 1. DI state change updates emulator.digital_inputs[]
+     * 2. Emu_UpdateDigitalInputs() sets emulator.adc[].raw_value based on input type
+     * 3. Emu_UpdateADC() syncs to adc_dma_buffer[]
+     * 4. PMU_ADC_Update() processes and sets correct digital_state via type handlers */
+
     EMU_LOG("DI[%d] = %d", channel, state);
     return 0;
 }
@@ -621,29 +655,13 @@ static void Emu_UpdateDigitalInputs(uint32_t delta_ms)
         }
     }
 
-    /* Sync digital inputs to ADC channels for switch processing.
-     * Maps first 16 digital inputs to first 16 ADC channels.
-     * HIGH = 5V (raw value 1023), LOW = 0V (raw value 0).
-     * Only syncs if the ADC channel is NOT enabled for voltage injection. */
-    for (int i = 0; i < PMU_EMU_DIGITAL_INPUTS && i < PMU_EMU_ADC_CHANNELS; i++) {
-        PMU_Emu_Digital_Input_t* di = &emulator.digital_inputs[i];
-
-        /* Only sync if not explicitly set by voltage injection */
-        if (!emulator.adc[i].enabled) {
-            /* Set ADC raw value based on digital state:
-             * For active-low switch: HIGH (pressed) = 0V, LOW (released) = 5V
-             * The ADC module will apply threshold detection */
-            if (di->debounced_state) {
-                /* Digital input HIGH -> switch closed to ground -> 0V */
-                emulator.adc[i].raw_value = 0;
-                emulator.adc[i].voltage_v = 0.0f;
-            } else {
-                /* Digital input LOW -> switch open, pulled up -> 5V */
-                emulator.adc[i].raw_value = 1023;
-                emulator.adc[i].voltage_v = 5.0f;
-            }
-        }
-    }
+    /* ARCHITECTURE NOTE:
+     * Analog inputs (A1-A20) and Digital inputs (D1-D20) are SEPARATE physical pins!
+     * - ADC channels (emulator.adc[]) store analog voltage readings
+     * - Digital inputs (emulator.digital_inputs[]) store GPIO states
+     * They should NOT be synced - each has independent hardware on the real board.
+     * Analog pins go through ADC, digital pins are pure GPIO.
+     */
 }
 
 /* ============================================================================

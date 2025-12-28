@@ -25,7 +25,6 @@ class ChannelType(Enum):
     SWITCH = "switch"
     TIMER = "timer"
     FILTER = "filter"
-    ENUM = "enum"
     LUA_SCRIPT = "lua_script"
     PID = "pid"
     BLINKMARINE_KEYPAD = "blinkmarine_keypad"
@@ -201,15 +200,17 @@ class ChannelBase:
         """Convert to dictionary for JSON serialization"""
         return {
             "channel_id": self.channel_id,
-            "name": self.name,
+            "channel_name": self.name,
             "channel_type": self.channel_type.value
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ChannelBase':
         """Create from dictionary"""
-        # Backwards compatibility: try 'name' first, fall back to 'id'
-        name = data.get("name", "") or data.get("id", "")
+        # Use 'channel_name' field (current format)
+        name = data.get("channel_name", "")
+        if not name:
+            raise ValueError("Channel missing required 'channel_name' field")
         return cls(
             name=name,
             channel_type=ChannelType(data.get("channel_type", "digital_input")),
@@ -320,7 +321,7 @@ class DigitalInputChannel(ChannelBase):
             button_mode = ButtonMode.DIRECT
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.DIGITAL_INPUT,
             channel_id=data.get("channel_id", 0),
             subtype=DigitalInputSubtype(data.get("subtype", "switch_active_low")),
@@ -436,7 +437,7 @@ class AnalogInputChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'AnalogInputChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.ANALOG_INPUT,
             channel_id=data.get("channel_id", 0),
             subtype=AnalogInputSubtype(data.get("subtype", "linear")),
@@ -522,10 +523,10 @@ class PowerOutputChannel(ChannelBase):
         retry_count = data.get("retry_count", prot_obj.get("retry_count", 3))
         retry_forever = data.get("retry_forever", prot_obj.get("retry_forever", False))
 
-        # Name: try 'name' first, fall back to 'id' for backwards compatibility
-        name = data.get("name", "") or data.get("id", "")
+        # Name is required
+        name = data.get("channel_name", "")
         if not name:
-            name = f"Output{data.get('channel_id', 0)}"
+            raise ValueError("Power output missing required 'channel_name' field")
 
         return cls(
             name=name,
@@ -712,7 +713,7 @@ class LogicChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'LogicChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.LOGIC,
             channel_id=data.get("channel_id", 0),
             operation=LogicOperation(data.get("operation", "is_true")),
@@ -884,7 +885,7 @@ class NumberChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'NumberChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.NUMBER,
             channel_id=data.get("channel_id", 0),
             operation=MathOperation(data.get("operation", "constant")),
@@ -933,7 +934,7 @@ class TimerChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TimerChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.TIMER,
             channel_id=data.get("channel_id", 0),
             start_channel=data.get("start_channel", ""),
@@ -991,7 +992,7 @@ class FilterChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'FilterChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.FILTER,
             channel_id=data.get("channel_id", 0),
             filter_type=FilterType(data.get("filter_type", "moving_avg")),
@@ -1002,58 +1003,6 @@ class FilterChannel(ChannelBase):
 
     def get_input_channels(self) -> List[str]:
         return [self.input_channel] if self.input_channel else []
-
-
-@dataclass
-class EnumItem:
-    """Single enumeration item"""
-    value: int
-    text: str
-    color: str = "#FFFFFF"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "value": self.value,
-            "text": self.text,
-            "color": self.color
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'EnumItem':
-        return cls(
-            value=data.get("value", 0),
-            text=data.get("text", ""),
-            color=data.get("color", "#FFFFFF")
-        )
-
-
-@dataclass
-class EnumChannel(ChannelBase):
-    """Enumeration channel"""
-    is_bitfield: bool = False
-    items: List[EnumItem] = field(default_factory=list)
-
-    def __post_init__(self):
-        self.channel_type = ChannelType.ENUM
-
-    def to_dict(self) -> Dict[str, Any]:
-        data = super().to_dict()
-        data.update({
-            "is_bitfield": self.is_bitfield,
-            "items": [item.to_dict() for item in self.items]
-        })
-        return data
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'EnumChannel':
-        items = [EnumItem.from_dict(item) for item in data.get("items", [])]
-        return cls(
-            name=data.get("name", "") or data.get("id", ""),
-            channel_type=ChannelType.ENUM,
-            channel_id=data.get("channel_id", 0),
-            is_bitfield=data.get("is_bitfield", False),
-            items=items
-        )
 
 
 @dataclass
@@ -1090,7 +1039,7 @@ class Table2DChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Table2DChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.TABLE_2D,
             channel_id=data.get("channel_id", 0),
             x_axis_channel=data.get("x_axis_channel", ""),
@@ -1161,7 +1110,7 @@ class Table3DChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Table3DChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.TABLE_3D,
             channel_id=data.get("channel_id", 0),
             x_axis_channel=data.get("x_axis_channel", ""),
@@ -1241,7 +1190,7 @@ class SwitchChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SwitchChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.SWITCH,
             channel_id=data.get("channel_id", 0),
             switch_type=data.get("switch_type", "latching"),
@@ -1282,7 +1231,6 @@ class CanMessage:
     frame_count: int = 1                       # 1-8 for compound messages
     dlc: int = 8                               # Data Length Code (0-64)
     timeout_ms: int = 500                      # Reception timeout
-    enabled: bool = True
     description: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -1296,13 +1244,12 @@ class CanMessage:
             "frame_count": self.frame_count,
             "dlc": self.dlc,
             "timeout_ms": self.timeout_ms,
-            "enabled": self.enabled,
             "description": self.description
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'CanMessage':
-        """Create from dictionary"""
+        """Create from dictionary - CAN messages use 'name' field"""
         msg_type_str = data.get("message_type", "normal")
         try:
             msg_type = CanMessageType(msg_type_str)
@@ -1310,7 +1257,7 @@ class CanMessage:
             msg_type = CanMessageType.NORMAL
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("name", ""),
             can_bus=data.get("can_bus", 1),
             base_id=data.get("base_id", 0),
             is_extended=data.get("is_extended", False),
@@ -1318,7 +1265,6 @@ class CanMessage:
             frame_count=data.get("frame_count", 1),
             dlc=data.get("dlc", 8),
             timeout_ms=data.get("timeout_ms", 500),
-            enabled=data.get("enabled", True),
             description=data.get("description", "")
         )
 
@@ -1461,7 +1407,7 @@ class CanRxChannel(ChannelBase):
             timeout_behavior = CanTimeoutBehavior.USE_DEFAULT
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.CAN_RX,
             channel_id=data.get("channel_id", 0),
             # New fields
@@ -1569,7 +1515,7 @@ class CanTxChannel(ChannelBase):
     def from_dict(cls, data: Dict[str, Any]) -> 'CanTxChannel':
         signals = [CanTxSignal.from_dict(sig) for sig in data.get("signals", [])]
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.CAN_TX,
             channel_id=data.get("channel_id", 0),
             can_bus=data.get("can_bus", 1),
@@ -1603,7 +1549,6 @@ class LuaPriority(Enum):
 class LuaScriptChannel(ChannelBase):
     """Lua script channel for custom logic"""
     description: str = ""
-    enabled: bool = True
     script: str = ""
     trigger_type: LuaTriggerType = LuaTriggerType.MANUAL
     trigger_period_ms: int = 100
@@ -1618,7 +1563,6 @@ class LuaScriptChannel(ChannelBase):
         data = super().to_dict()
         data.update({
             "description": self.description,
-            "enabled": self.enabled,
             "script": self.script,
             "trigger_type": self.trigger_type.value if isinstance(self.trigger_type, LuaTriggerType) else self.trigger_type,
             "trigger_period_ms": self.trigger_period_ms,
@@ -1645,11 +1589,10 @@ class LuaScriptChannel(ChannelBase):
             priority = LuaPriority.NORMAL
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.LUA_SCRIPT,
             channel_id=data.get("channel_id", 0),
             description=data.get("description", ""),
-            enabled=data.get("enabled", True),
             script=data.get("script", ""),
             trigger_type=trigger_type,
             trigger_period_ms=data.get("trigger_period_ms", 100),
@@ -1706,7 +1649,6 @@ class PIDChannel(ChannelBase):
     derivative_filter_coeff: float = 0.1 # Filter coefficient (0-1)
 
     # Control options
-    enabled: bool = True
     reversed: bool = False               # Reverse acting controller
 
     def __post_init__(self):
@@ -1728,7 +1670,6 @@ class PIDChannel(ChannelBase):
             "anti_windup": self.anti_windup,
             "derivative_filter": self.derivative_filter,
             "derivative_filter_coeff": self.derivative_filter_coeff,
-            "enabled": self.enabled,
             "reversed": self.reversed,
         })
         return data
@@ -1736,7 +1677,7 @@ class PIDChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PIDChannel':
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.PID,
             channel_id=data.get("channel_id", 0),
             setpoint_channel=data.get("setpoint_channel", ""),
@@ -1752,7 +1693,6 @@ class PIDChannel(ChannelBase):
             anti_windup=data.get("anti_windup", True),
             derivative_filter=data.get("derivative_filter", True),
             derivative_filter_coeff=data.get("derivative_filter_coeff", 0.1),
-            enabled=data.get("enabled", True),
             reversed=data.get("reversed", False),
         )
 
@@ -1958,7 +1898,7 @@ class HBridgeChannel(ChannelBase):
             motor_preset = HBridgeMotorPreset.CUSTOM
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.HBRIDGE,
             channel_id=data.get("channel_id", 0),
             bridge_number=data.get("bridge_number", 0),
@@ -2113,7 +2053,6 @@ class HandlerChannel(ChannelBase):
     lua_function: str = ""
 
     # Handler options
-    enabled: bool = True
     description: str = ""
 
     def __post_init__(self):
@@ -2133,7 +2072,6 @@ class HandlerChannel(ChannelBase):
             "message_id": self.message_id,
             "message_data": self.message_data,
             "lua_function": self.lua_function,
-            "enabled": self.enabled,
             "description": self.description,
         })
         return data
@@ -2155,7 +2093,7 @@ class HandlerChannel(ChannelBase):
             action = ActionType.WRITE_CHANNEL
 
         return cls(
-            name=data.get("name", "") or data.get("id", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.HANDLER,
             channel_id=data.get("channel_id", 0),
             event=event,
@@ -2169,7 +2107,6 @@ class HandlerChannel(ChannelBase):
             message_id=data.get("message_id", 0),
             message_data=data.get("message_data", [0] * 8),
             lua_function=data.get("lua_function", ""),
-            enabled=data.get("enabled", True),
             description=data.get("description", ""),
         )
 
@@ -2292,7 +2229,7 @@ class WiperChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'WiperChannel':
         return cls(
-            name=data.get("name", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.WIPER,
             channel_id=data.get("channel_id", 0),
             hbridge_number=data.get("hbridge_number", 0),
@@ -2422,7 +2359,7 @@ class BlinkerChannel(ChannelBase):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BlinkerChannel':
         return cls(
-            name=data.get("name", ""),
+            name=data.get("channel_name", ""),
             channel_type=ChannelType.BLINKER,
             channel_id=data.get("channel_id", 0),
             left_output=data.get("left_output", ""),
@@ -2487,7 +2424,6 @@ CHANNEL_CLASS_MAP = {
     ChannelType.NUMBER: NumberChannel,
     ChannelType.TIMER: TimerChannel,
     ChannelType.FILTER: FilterChannel,
-    ChannelType.ENUM: EnumChannel,
     ChannelType.TABLE_2D: Table2DChannel,
     ChannelType.TABLE_3D: Table3DChannel,
     ChannelType.SWITCH: SwitchChannel,
@@ -2533,7 +2469,6 @@ CHANNEL_PREFIX_MAP = {
     ChannelType.NUMBER: "n_",
     ChannelType.TIMER: "tm_",
     ChannelType.FILTER: "flt_",
-    ChannelType.ENUM: "e_",
     ChannelType.TABLE_2D: "t2d_",
     ChannelType.TABLE_3D: "t3d_",
     ChannelType.SWITCH: "sw_",
@@ -2561,7 +2496,6 @@ def get_channel_display_name(channel_type: ChannelType) -> str:
         ChannelType.NUMBER: "Math/Number",
         ChannelType.TIMER: "Timer",
         ChannelType.FILTER: "Filter",
-        ChannelType.ENUM: "Enumeration",
         ChannelType.TABLE_2D: "2D Table",
         ChannelType.TABLE_3D: "3D Table",
         ChannelType.SWITCH: "Switch",

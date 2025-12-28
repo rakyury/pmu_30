@@ -240,8 +240,8 @@ class CANTab(QWidget):
         self.msg_stats_label.setText(f"Messages: {len(self.can_messages)}")
 
     def _get_message_ids(self) -> List[str]:
-        """Get list of message IDs."""
-        return [msg.get("id", "") for msg in self.can_messages]
+        """Get list of message IDs (stored as 'name' in config)."""
+        return [msg.get("name", "") for msg in self.can_messages if msg.get("name")]
 
     def _add_message(self):
         """Add new CAN message."""
@@ -425,16 +425,19 @@ class CANTab(QWidget):
             return
 
         existing_ids = self._get_input_ids()
+        existing_channels = []
         if self.config_manager:
+            existing_channels = self.config_manager.get_all_channels()
             # Also include other channel IDs
-            all_channel_ids = [ch.get("id", "") for ch in self.config_manager.get_all_channels()]
+            all_channel_ids = [ch.get("id", "") for ch in existing_channels]
             existing_ids = list(set(existing_ids + all_channel_ids))
 
         dialog = CANInputDialog(
             self,
             input_config=None,
             message_ids=message_ids,
-            existing_channel_ids=existing_ids
+            existing_channel_ids=existing_ids,
+            existing_channels=existing_channels
         )
 
         if dialog.exec():
@@ -462,15 +465,18 @@ class CANTab(QWidget):
 
         message_ids = self._get_message_ids()
         existing_ids = self._get_input_ids()
+        existing_channels = []
         if self.config_manager:
-            all_channel_ids = [ch.get("id", "") for ch in self.config_manager.get_all_channels()]
+            existing_channels = self.config_manager.get_all_channels()
+            all_channel_ids = [ch.get("id", "") for ch in existing_channels]
             existing_ids = list(set(existing_ids + all_channel_ids))
 
         dialog = CANInputDialog(
             self,
             input_config=self.can_inputs[original_index],
             message_ids=message_ids,
-            existing_channel_ids=existing_ids
+            existing_channel_ids=existing_ids,
+            existing_channels=existing_channels
         )
 
         if dialog.exec():

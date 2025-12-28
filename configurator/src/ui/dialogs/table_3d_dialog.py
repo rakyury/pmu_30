@@ -5,7 +5,7 @@ Features MoTeC M1-style 3D surface visualization
 """
 
 from PyQt6.QtWidgets import (
-    QGroupBox, QSpinBox, QDoubleSpinBox, QPushButton,
+    QGroupBox, QSpinBox, QPushButton,
     QLabel, QGridLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QVBoxLayout, QHBoxLayout, QMessageBox,
     QTabWidget, QWidget, QSplitter, QCheckBox, QSlider, QSizePolicy
@@ -17,6 +17,7 @@ import numpy as np
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType
+from ui.widgets.constant_spinbox import ConstantSpinBox
 
 # Try to import pyqtgraph for 3D visualization
 try:
@@ -104,27 +105,24 @@ class Table3DDialog(BaseChannelDialog):
         layout.addWidget(self.x_channel_widget, row, 1, 1, 3)
         row += 1
 
-        # X axis: min, max
+        # X axis: min, max (use ConstantSpinBox for integer storage)
         layout.addWidget(QLabel("min:"), row, 0)
-        self.x_min_spin = QDoubleSpinBox()
-        self.x_min_spin.setRange(-1000000, 1000000)
-        self.x_min_spin.setDecimals(2)
+        self.x_min_spin = ConstantSpinBox()
+        self.x_min_spin.setRange(-10000.00, 10000.00)
         self.x_min_spin.setValue(0)
         layout.addWidget(self.x_min_spin, row, 1)
 
         layout.addWidget(QLabel("max:"), row, 2)
-        self.x_max_spin = QDoubleSpinBox()
-        self.x_max_spin.setRange(-1000000, 1000000)
-        self.x_max_spin.setDecimals(2)
+        self.x_max_spin = ConstantSpinBox()
+        self.x_max_spin.setRange(-10000.00, 10000.00)
         self.x_max_spin.setValue(100)
         layout.addWidget(self.x_max_spin, row, 3)
         row += 1
 
         # X axis: step and columns
         layout.addWidget(QLabel("step:"), row, 0)
-        self.x_step_spin = QDoubleSpinBox()
-        self.x_step_spin.setRange(0.001, 100000)
-        self.x_step_spin.setDecimals(2)
+        self.x_step_spin = ConstantSpinBox()
+        self.x_step_spin.setRange(0.01, 10000.00)
         self.x_step_spin.setValue(10)
         layout.addWidget(self.x_step_spin, row, 1)
 
@@ -141,27 +139,24 @@ class Table3DDialog(BaseChannelDialog):
         layout.addWidget(self.y_channel_widget, row, 1, 1, 3)
         row += 1
 
-        # Y axis: min, max
+        # Y axis: min, max (use ConstantSpinBox for integer storage)
         layout.addWidget(QLabel("min:"), row, 0)
-        self.y_min_spin = QDoubleSpinBox()
-        self.y_min_spin.setRange(-1000000, 1000000)
-        self.y_min_spin.setDecimals(2)
+        self.y_min_spin = ConstantSpinBox()
+        self.y_min_spin.setRange(-10000.00, 10000.00)
         self.y_min_spin.setValue(0)
         layout.addWidget(self.y_min_spin, row, 1)
 
         layout.addWidget(QLabel("max:"), row, 2)
-        self.y_max_spin = QDoubleSpinBox()
-        self.y_max_spin.setRange(-1000000, 1000000)
-        self.y_max_spin.setDecimals(2)
+        self.y_max_spin = ConstantSpinBox()
+        self.y_max_spin.setRange(-10000.00, 10000.00)
         self.y_max_spin.setValue(100)
         layout.addWidget(self.y_max_spin, row, 3)
         row += 1
 
         # Y axis: step and rows
         layout.addWidget(QLabel("step:"), row, 0)
-        self.y_step_spin = QDoubleSpinBox()
-        self.y_step_spin.setRange(0.001, 100000)
-        self.y_step_spin.setDecimals(2)
+        self.y_step_spin = ConstantSpinBox()
+        self.y_step_spin.setRange(0.01, 10000.00)
         self.y_step_spin.setValue(10)
         layout.addWidget(self.y_step_spin, row, 1)
 

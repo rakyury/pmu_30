@@ -34,7 +34,8 @@ extern "C" {
 /* PMU-30 Hardware Configuration */
 #define PMU30_NUM_OUTPUTS           30      /* Number of PROFET 2 outputs */
 #define PMU30_NUM_HBRIDGES          4       /* Number of dual H-bridges */
-#define PMU30_NUM_ADC_INPUTS        20      /* Number of analog inputs */
+#define PMU30_NUM_ADC_INPUTS        20      /* Number of ANALOG inputs (A1-A20) */
+#define PMU30_NUM_DIGITAL_INPUTS    20      /* Number of DIGITAL inputs (D1-D20) */
 #define PMU30_NUM_DAC_OUTPUTS       10      /* Number of DAC outputs */
 #define PMU30_NUM_CAN_BUSES         4       /* 2x CAN FD + 2x CAN 2.0 */
 #define PMU30_NUM_LEDS              30      /* Bicolor LEDs per channel */

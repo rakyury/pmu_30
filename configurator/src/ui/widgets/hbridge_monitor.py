@@ -85,10 +85,6 @@ class HBridgeMonitor(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
 
-        self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #b0b0b0;")
-        toolbar.addWidget(self.status_label)
-
         toolbar.addStretch()
 
         # All Stop button
@@ -275,11 +271,9 @@ class HBridgeMonitor(QWidget):
         """Set connection state."""
         self._connected = connected
         if connected:
-            self.status_label.setText("Online")
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            pass  # Connection status shown in status bar
         else:
-            self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #b0b0b0;")
+            pass  # Connection status shown in status bar
             self._reset_values()
 
     def _reset_values(self):
@@ -368,10 +362,13 @@ class HBridgeMonitor(QWidget):
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""
+        bg_brush = QBrush(color)
+        fg_brush = QBrush(QColor(255, 255, 255))  # White text
         for col in range(10):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(QBrush(color))
+                item.setBackground(bg_brush)
+                item.setForeground(fg_brush)
 
     def _update_values(self):
         """Update real-time values (called by timer)."""

@@ -151,10 +151,6 @@ class ProjectTree(QWidget):
 
     def _get_channel_status_color(self, channel_type: ChannelType, data: Dict[str, Any]) -> str:
         """Get status color for channel based on type and state."""
-        # Check enabled state first
-        enabled = data.get("enabled", True)
-        if not enabled:
-            return self.STATUS_COLORS["disabled"]
 
         # Map channel type to color category
         type_color_map = {
@@ -674,8 +670,6 @@ class ProjectTree(QWidget):
                     parts.append(f"Ch#{source_channel}")
                 else:
                     parts.append(str(source_channel))
-            elif data.get('enabled', False):
-                parts.append("ON")
 
             # PWM indicator
             pwm_enabled = data.get('pwm_enabled', False) or data.get('pwm', {}).get('enabled', False)
@@ -745,17 +739,13 @@ class ProjectTree(QWidget):
 
         elif channel_type == ChannelType.LUA_SCRIPT:
             trigger = data.get("trigger_type", "manual")
-            enabled = data.get("enabled", True)
-            status = "[ON]" if enabled else "[OFF]"
-            return f"{trigger} {status}"
+            return f"{trigger}"
 
         elif channel_type == ChannelType.PID:
             kp = data.get("kp", 1.0)
             ki = data.get("ki", 0.0)
             kd = data.get("kd", 0.0)
-            enabled = data.get("enabled", True)
-            status = "[ON]" if enabled else "[OFF]"
-            return f"P:{kp:.2f} I:{ki:.2f} D:{kd:.2f} {status}"
+            return f"P:{kp:.2f} I:{ki:.2f} D:{kd:.2f}"
 
         elif channel_type == ChannelType.HBRIDGE:
             bridge = data.get("bridge_number", 0)
@@ -765,9 +755,7 @@ class ProjectTree(QWidget):
             preset = data.get("motor_preset", "custom")
             if hasattr(preset, 'value'):
                 preset = preset.value
-            enabled = data.get("enabled", True)
-            status = "[ON]" if enabled else "[OFF]"
-            return f"HB{bridge + 1} {mode} ({preset}) {status}"
+            return f"HB{bridge + 1} {mode} ({preset})"
 
         elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
             keypad_type = data.get("keypad_type", "2x6")
@@ -779,8 +767,6 @@ class ProjectTree(QWidget):
         elif channel_type == ChannelType.HANDLER:
             event = data.get("event", "channel_on")
             action = data.get("action", "write_channel")
-            enabled = data.get("enabled", True)
-            status = "[ON]" if enabled else "[OFF]"
             # Format event display
             event_display = {
                 "channel_on": "ON",
@@ -801,7 +787,7 @@ class ProjectTree(QWidget):
                 "run_lua": "→LUA",
                 "set_output": "→OUT",
             }.get(action, action)
-            return f"{event_display} {action_display} {status}"
+            return f"{event_display} {action_display}"
 
         return ""
 
@@ -814,8 +800,6 @@ class ProjectTree(QWidget):
                 if isinstance(source, int):
                     return f"Channel #{source}"
                 return str(source)
-            if data.get('enabled', False):
-                return "Always ON"
             return "Manual"
 
         # H-Bridge - show direction/speed source
@@ -1059,7 +1043,6 @@ class ProjectTree(QWidget):
 
         elif channel_type == ChannelType.LUA_SCRIPT:
             lines.append(f"<b>Trigger:</b> {data.get('trigger_type', 'manual')}")
-            lines.append(f"<b>Enabled:</b> {'Yes' if data.get('enabled', True) else 'No'}")
             code = data.get('code', '')
             if code:
                 lines.append(f"<b>Code Lines:</b> {len(code.splitlines())}")
@@ -1091,7 +1074,6 @@ class ProjectTree(QWidget):
                 lua_func = data.get('lua_function', '')
                 if lua_func:
                     lines.append(f"<b>Lua Function:</b> {lua_func}")
-            lines.append(f"<b>Enabled:</b> {'Yes' if data.get('enabled', True) else 'No'}")
 
         return "<br>".join(lines)
 
@@ -1229,9 +1211,9 @@ class ProjectTree(QWidget):
                 data = item.data(0, Qt.ItemDataRole.UserRole)
                 if isinstance(data, dict):
                     channel_data = data.get("data", data)
-                    # Check both id and name for compatibility
+                    # Check id, name, and channel_name for compatibility
                     item_id = channel_data.get("id", "")
-                    item_name = channel_data.get("name", "")
+                    item_name = channel_data.get("name", "") or channel_data.get("channel_name", "")
                     if item_id == channel_id_or_name or item_name == channel_id_or_name:
                         return item
         return None
@@ -1244,7 +1226,9 @@ class ProjectTree(QWidget):
                 data = item.data(0, Qt.ItemDataRole.UserRole)
                 if isinstance(data, dict):
                     channel_data = data.get("data", data)
-                    if channel_data.get("name") == name:
+                    # Check both name and channel_name for compatibility
+                    item_name = channel_data.get("name", "") or channel_data.get("channel_name", "")
+                    if item_name == name:
                         return item
         return None
 

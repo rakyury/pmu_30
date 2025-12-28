@@ -387,11 +387,19 @@ class CANOutputDialog(QDialog):
             self.name_edit.setFocus()
             return
 
-        # Check name format
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
+        # Check name format - allow most characters except problematic ones
+        forbidden_chars = '"\'\\;{}[]'
+        if not name[0].isalpha() and name[0] != '_':
             QMessageBox.warning(
                 self, "Validation Error",
-                "Name must start with a letter and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore!"
+            )
+            self.name_edit.setFocus()
+            return
+        if any(c in name for c in forbidden_chars):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Name cannot contain: \" ' \\ ; { } [ ]"
             )
             self.name_edit.setFocus()
             return

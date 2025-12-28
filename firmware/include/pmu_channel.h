@@ -210,6 +210,16 @@ int32_t PMU_Channel_GetValue(uint16_t channel_id);
 HAL_StatusTypeDef PMU_Channel_SetValue(uint16_t channel_id, int32_t value);
 
 /**
+ * @brief Update channel value (for INPUT channels)
+ * @param channel_id Channel ID
+ * @param value Value to set
+ * @retval HAL status
+ * @note Unlike PMU_Channel_SetValue, this function allows setting INPUT channel values.
+ *       Use this for syncing hardware input states to the channel system.
+ */
+HAL_StatusTypeDef PMU_Channel_UpdateValue(uint16_t channel_id, int32_t value);
+
+/**
  * @brief Get channel information
  * @param channel_id Channel ID
  * @retval Pointer to channel structure (or NULL if not found)

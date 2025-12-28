@@ -545,9 +545,40 @@ class BlinkMarineKeypadDialog(QDialog):
             alt_color_combo.setProperty("button_index", i)
             self.led_table.setCellWidget(i, 4, alt_color_combo)
 
-            # LED channel (for channel-controlled mode)
-            led_channel_item = QTableWidgetItem(config.get("led_channel_name", ""))
-            self.led_table.setItem(i, 5, led_channel_item)
+            # LED channel (for channel-controlled mode) - use channel selector combo
+            led_channel_combo = self._create_led_channel_combo()
+            led_channel_name = config.get("led_channel_name", "")
+            if led_channel_name:
+                # Find and set the matching channel in combo
+                idx = led_channel_combo.findText(led_channel_name)
+                if idx >= 0:
+                    led_channel_combo.setCurrentIndex(idx)
+            led_channel_combo.setProperty("button_index", i)
+            self.led_table.setCellWidget(i, 5, led_channel_combo)
+
+    def _create_led_channel_combo(self) -> QComboBox:
+        """Create a channel selector combo box for LED control.
+
+        Returns:
+            QComboBox populated with available channels from all categories.
+        """
+        combo = QComboBox()
+        combo.addItem("", "")  # Empty option (no channel)
+
+        # Add channels from all available categories
+        for category, channels in self.available_channels.items():
+            if isinstance(channels, list):
+                for ch in channels:
+                    if isinstance(ch, dict):
+                        # Channel dict with channel_name and channel_id
+                        name = ch.get("channel_name", ch.get("name", ""))
+                        if name:
+                            combo.addItem(name, ch.get("channel_id", name))
+                    elif isinstance(ch, str):
+                        # Simple string channel name
+                        combo.addItem(ch, ch)
+
+        return combo
 
     def _on_button_clicked(self):
         """Handle keypad button click (for selection)."""
@@ -723,8 +754,8 @@ class BlinkMarineKeypadDialog(QDialog):
             alt_color_widget = self.led_table.cellWidget(i, 4)
             led_secondary = alt_color_widget.currentIndex() if isinstance(alt_color_widget, QComboBox) else 1
 
-            led_channel_item = self.led_table.item(i, 5)
-            led_channel_name = led_channel_item.text() if led_channel_item else ""
+            led_channel_widget = self.led_table.cellWidget(i, 5)
+            led_channel_name = led_channel_widget.currentText() if isinstance(led_channel_widget, QComboBox) else ""
 
             buttons.append({
                 "enabled": enabled,

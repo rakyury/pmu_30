@@ -1462,13 +1462,12 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
             self.status_message.setText("Not connected - cannot emulate input")
             return
 
-        import asyncio
-        asyncio.create_task(
-            self.device_controller.comm_manager.set_digital_input(pin, state)
-        )
-        state_str = "ON" if state else "OFF"
-        logger.info(f"Emulated D{pin + 1} = {state_str}")
-        self.status_message.setText(f"Emulated D{pin + 1} = {state_str}")
+        if self.device_controller.set_digital_input(pin, state):
+            state_str = "ON" if state else "OFF"
+            logger.info(f"Emulated D{pin + 1} = {state_str}")
+            self.status_message.setText(f"Emulated D{pin + 1} = {state_str}")
+        else:
+            self.status_message.setText(f"Failed to emulate D{pin + 1}")
 
     def _on_emulator_analog_changed(self, pin: int, voltage: float):
         """Handle analog input emulation from InputEmulatorWidget."""
@@ -1476,12 +1475,11 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
             self.status_message.setText("Not connected - cannot emulate input")
             return
 
-        import asyncio
-        asyncio.create_task(
-            self.device_controller.comm_manager.set_analog_input(pin, voltage)
-        )
-        logger.info(f"Emulated A{pin + 1} = {voltage:.2f}V")
-        self.status_message.setText(f"Emulated A{pin + 1} = {voltage:.2f}V")
+        if self.device_controller.set_analog_input(pin, voltage):
+            logger.info(f"Emulated A{pin + 1} = {voltage:.2f}V")
+            self.status_message.setText(f"Emulated A{pin + 1} = {voltage:.2f}V")
+        else:
+            self.status_message.setText(f"Failed to emulate A{pin + 1}")
 
     def _on_emulator_can_injected(self, bus_id: int, can_id: int, data: bytes):
         """Handle CAN message injection from InputEmulatorWidget."""
@@ -1489,13 +1487,12 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
             self.status_message.setText("Not connected - cannot inject CAN")
             return
 
-        import asyncio
-        asyncio.create_task(
-            self.device_controller.comm_manager.inject_can_message(bus_id, can_id, data)
-        )
-        data_str = " ".join(f"{b:02X}" for b in data)
-        logger.info(f"Injected CAN{bus_id + 1} 0x{can_id:X} [{len(data)}] {data_str}")
-        self.status_message.setText(f"Injected CAN{bus_id + 1} 0x{can_id:X}")
+        if self.device_controller.inject_can_message(bus_id, can_id, data):
+            data_str = " ".join(f"{b:02X}" for b in data)
+            logger.info(f"Injected CAN{bus_id + 1} 0x{can_id:X} [{len(data)}] {data_str}")
+            self.status_message.setText(f"Injected CAN{bus_id + 1} 0x{can_id:X}")
+        else:
+            self.status_message.setText(f"Failed to inject CAN message")
 
     # Telemetry methods (_on_telemetry_received, _update_led_indicator, _on_log_received)
     # are provided by MainWindowTelemetryMixin

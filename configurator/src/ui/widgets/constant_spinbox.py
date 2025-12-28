@@ -263,6 +263,26 @@ class CurrentSpinBox(ConstantSpinBox):
         self.setSuffix(" A")
 
 
+class TimeDelaySpinBox(QDoubleSpinBox):
+    """
+    Spinbox for time delay values in seconds.
+
+    Uses 2 decimal places, displays values directly (no internal scaling).
+    Suitable for true_delay_s, false_delay_s, and similar time parameters.
+    """
+
+    def __init__(self, parent: QWidget = None):
+        super().__init__(parent)
+
+        # 2 decimal places for seconds
+        self.setDecimals(2)
+        self.setSingleStep(0.1)
+
+        # Default range: 0 to 3600 seconds (1 hour)
+        self.setRange(0.0, 3600.0)
+        self.setSuffix(" s")
+
+
 # Convenience function to create appropriate spinbox for a field type
 def create_constant_spinbox(
     field_type: str = "default",

@@ -4,7 +4,7 @@ Math operations with operation-specific UI
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
+    QFormLayout, QGroupBox, QComboBox, QSpinBox,
     QLabel, QStackedWidget, QWidget, QGridLayout, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
@@ -15,6 +15,7 @@ from models.channel import ChannelType, MathOperation, ChannelMultiplier
 from models.quantities import (
     get_quantity_names, get_units_for_quantity, get_default_unit, DisplayConfig
 )
+from ui.widgets.constant_spinbox import ConstantSpinBox
 
 
 class NumberDialog(BaseChannelDialog):
@@ -204,9 +205,8 @@ class NumberDialog(BaseChannelDialog):
         layout.setColumnStretch(1, 1)
 
         layout.addWidget(QLabel("Value:"), 0, 0)
-        self.constant_value_spin = QDoubleSpinBox()
-        self.constant_value_spin.setRange(-1000000, 1000000)
-        self.constant_value_spin.setDecimals(2)  # Default 2 decimals, updated by decimal_spin
+        self.constant_value_spin = ConstantSpinBox()
+        self.constant_value_spin.setRange(-10000.00, 10000.00)  # Display range
         layout.addWidget(self.constant_value_spin, 0, 1)
 
         self.stacked_widget.addWidget(page)
@@ -264,50 +264,52 @@ class NumberDialog(BaseChannelDialog):
 
         # Min and Max in same row
         layout.addWidget(QLabel("Minimum:"), 1, 0)
-        self.clamp_min_spin = QDoubleSpinBox()
-        self.clamp_min_spin.setRange(-1000000, 1000000)
-        self.clamp_min_spin.setDecimals(2)
+        self.clamp_min_spin = ConstantSpinBox()
+        self.clamp_min_spin.setRange(-10000.00, 10000.00)
         self.clamp_min_spin.setValue(0.0)
         layout.addWidget(self.clamp_min_spin, 1, 1)
 
         layout.addWidget(QLabel("Maximum:"), 1, 2)
-        self.clamp_max_spin = QDoubleSpinBox()
-        self.clamp_max_spin.setRange(-1000000, 1000000)
-        self.clamp_max_spin.setDecimals(2)
+        self.clamp_max_spin = ConstantSpinBox()
+        self.clamp_max_spin.setRange(-10000.00, 10000.00)
         self.clamp_max_spin.setValue(100.0)
         layout.addWidget(self.clamp_max_spin, 1, 3)
 
         self.stacked_widget.addWidget(page)
 
     def _create_lookup_page(self, count: int):
-        """Create lookup page with N values"""
+        """Create lookup page with selector + N channel inputs.
+
+        Lookup operation: Selector value (0 to N-1) determines which of the
+        N input channels to use as output. For example:
+        - Lookup4: selector=2 outputs the value from Channel [2]
+        """
         page = QWidget()
         layout = QGridLayout(page)
         layout.setColumnStretch(1, 1)
         layout.setColumnStretch(3, 1)
 
-        # Channel with multiplier
-        layout.addWidget(QLabel("Channel: *"), 0, 0)
-        container, edit, mult = self._create_channel_with_multiplier("Select input channel...")
-        setattr(self, f"lookup{count}_container", container)
-        setattr(self, f"lookup{count}_edit", edit)
-        setattr(self, f"lookup{count}_mult", mult)
+        # Selector channel with multiplier (determines which input to use)
+        layout.addWidget(QLabel("Selector: *"), 0, 0)
+        container, edit, mult = self._create_channel_with_multiplier("Select selector channel...")
+        setattr(self, f"lookup{count}_selector_container", container)
+        setattr(self, f"lookup{count}_selector_edit", edit)
+        setattr(self, f"lookup{count}_selector_mult", mult)
         layout.addWidget(container, 0, 1, 1, 3)
 
-        # Value spinboxes
+        # N input channel selectors (channels to select from)
         row = 1
         for i in range(count):
             col = (i % 2) * 2
             if i % 2 == 0 and i > 0:
                 row += 1
 
-            layout.addWidget(QLabel(f"Value [{i}]:"), row, col)
-            spin = QDoubleSpinBox()
-            spin.setRange(-1000000, 1000000)
-            spin.setDecimals(2)
-            spin.setValue(0.0)
-            setattr(self, f"lookup{count}_value{i}", spin)
-            layout.addWidget(spin, row, col + 1)
+            layout.addWidget(QLabel(f"Channel [{i}]:"), row, col)
+            ch_container, ch_edit, ch_mult = self._create_channel_with_multiplier(f"Select channel {i}...")
+            setattr(self, f"lookup{count}_ch{i}_container", ch_container)
+            setattr(self, f"lookup{count}_ch{i}_edit", ch_edit)
+            setattr(self, f"lookup{count}_ch{i}_mult", ch_mult)
+            layout.addWidget(ch_container, row, col + 1)
 
         if count % 2 == 1:
             row += 1
@@ -315,23 +317,16 @@ class NumberDialog(BaseChannelDialog):
         self.stacked_widget.addWidget(page)
 
     def _on_decimal_places_changed(self, value: int):
-        """Update all value spinboxes to match decimal places setting."""
-        # Update constant value spinbox
-        if hasattr(self, 'constant_value_spin'):
-            self.constant_value_spin.setDecimals(value)
+        """
+        Handle decimal places setting change.
 
-        # Update clamp spinboxes
-        if hasattr(self, 'clamp_min_spin'):
-            self.clamp_min_spin.setDecimals(value)
-        if hasattr(self, 'clamp_max_spin'):
-            self.clamp_max_spin.setDecimals(value)
-
-        # Update lookup value spinboxes
-        for count in [2, 3, 4, 5]:
-            for i in range(count):
-                spin_name = f"lookup{count}_value{i}"
-                if hasattr(self, spin_name):
-                    getattr(self, spin_name).setDecimals(value)
+        Note: ConstantSpinBox always uses 2 decimal places for input.
+        The decimal_places setting is stored in config for display purposes
+        (e.g., in monitors or when formatting output values).
+        """
+        # ConstantSpinBox uses fixed 2 decimal places - no dynamic update needed
+        # decimal_places value is saved in config for display formatting elsewhere
+        pass
 
     def _on_operation_changed(self):
         """Handle operation type change"""
@@ -353,10 +348,10 @@ class NumberDialog(BaseChannelDialog):
             "min": "Output = min(Input1, Input2)",
             "max": "Output = max(Input1, Input2)",
             "clamp": "Output = value limited to min/max range",
-            "lookup2": "2-point lookup table",
-            "lookup3": "3-point lookup table",
-            "lookup4": "4-point lookup table",
-            "lookup5": "5-point lookup table",
+            "lookup2": "Selector 0-1 selects from 2 channels",
+            "lookup3": "Selector 0-2 selects from 3 channels",
+            "lookup4": "Selector 0-3 selects from 4 channels",
+            "lookup5": "Selector 0-4 selects from 5 channels",
         }
         self.op_description.setText(descriptions.get(operation, ""))
 
@@ -382,7 +377,7 @@ class NumberDialog(BaseChannelDialog):
         # Load quantity/unit settings
         quantity = config.get("quantity", "User")
         unit = config.get("unit", "user")
-        decimal_places = config.get("decimal_places", 0)
+        decimal_places = config.get("decimal_places", 2)  # Default 2 decimals
 
         index = self.quantity_combo.findText(quantity)
         if index >= 0:
@@ -431,17 +426,25 @@ class NumberDialog(BaseChannelDialog):
 
         elif operation.startswith("lookup"):
             count = int(operation[-1])
-            edit = getattr(self, f"lookup{count}_edit")
-            mult = getattr(self, f"lookup{count}_mult")
-            if inputs:
-                self._set_channel_edit_value(edit, inputs[0])
-            if multipliers:
-                self._set_multiplier_value(mult, multipliers[0])
-            lookup_values = config.get("lookup_values", [])
+            # Load selector channel
+            selector_edit = getattr(self, f"lookup{count}_selector_edit")
+            selector_mult = getattr(self, f"lookup{count}_selector_mult")
+            selector_channel = config.get("selector_channel")
+            selector_multiplier = config.get("selector_multiplier", "mul_1")
+            if selector_channel:
+                self._set_channel_edit_value(selector_edit, selector_channel)
+            self._set_multiplier_value(selector_mult, selector_multiplier)
+
+            # Load lookup input channels
+            lookup_channels = config.get("lookup_channels", inputs or [])
+            lookup_multipliers = config.get("lookup_multipliers", multipliers or [])
             for i in range(count):
-                spin = getattr(self, f"lookup{count}_value{i}")
-                if i < len(lookup_values):
-                    spin.setValue(lookup_values[i])
+                ch_edit = getattr(self, f"lookup{count}_ch{i}_edit")
+                ch_mult = getattr(self, f"lookup{count}_ch{i}_mult")
+                if i < len(lookup_channels) and lookup_channels[i]:
+                    self._set_channel_edit_value(ch_edit, lookup_channels[i])
+                if i < len(lookup_multipliers):
+                    self._set_multiplier_value(ch_mult, lookup_multipliers[i])
 
     def _validate_specific(self) -> List[str]:
         """Validate type-specific fields"""
@@ -468,9 +471,18 @@ class NumberDialog(BaseChannelDialog):
 
         elif operation.startswith("lookup"):
             count = int(operation[-1])
-            edit = getattr(self, f"lookup{count}_edit")
-            if not edit.text().strip():
-                errors.append("Channel is required")
+            selector_edit = getattr(self, f"lookup{count}_selector_edit")
+            if not selector_edit.text().strip():
+                errors.append("Selector channel is required")
+            # At least one input channel should be selected
+            has_any_channel = False
+            for i in range(count):
+                ch_edit = getattr(self, f"lookup{count}_ch{i}_edit")
+                if ch_edit.text().strip():
+                    has_any_channel = True
+                    break
+            if not has_any_channel:
+                errors.append("At least one input channel is required")
 
         return errors
 
@@ -522,14 +534,41 @@ class NumberDialog(BaseChannelDialog):
 
         elif operation.startswith("lookup"):
             count = int(operation[-1])
-            edit = getattr(self, f"lookup{count}_edit")
-            mult = getattr(self, f"lookup{count}_mult")
-            channel_id = self._get_channel_id_from_edit(edit)
-            config["inputs"] = [channel_id if channel_id else ""]
-            config["input_multipliers"] = [self._get_multiplier_value(mult)]
-            config["lookup_values"] = []
+            # Save selector channel
+            selector_edit = getattr(self, f"lookup{count}_selector_edit")
+            selector_mult = getattr(self, f"lookup{count}_selector_mult")
+            selector_id = self._get_channel_id_from_edit(selector_edit)
+            config["selector_channel"] = selector_id if selector_id else ""
+            config["selector_multiplier"] = self._get_multiplier_value(selector_mult)
+
+            # Save lookup input channels
+            lookup_channels = []
+            lookup_multipliers = []
             for i in range(count):
-                spin = getattr(self, f"lookup{count}_value{i}")
-                config["lookup_values"].append(spin.value())
+                ch_edit = getattr(self, f"lookup{count}_ch{i}_edit")
+                ch_mult = getattr(self, f"lookup{count}_ch{i}_mult")
+                ch_id = self._get_channel_id_from_edit(ch_edit)
+                lookup_channels.append(ch_id if ch_id else "")
+                lookup_multipliers.append(self._get_multiplier_value(ch_mult))
+
+            config["lookup_channels"] = lookup_channels
+            config["lookup_multipliers"] = lookup_multipliers
+            # Keep backwards compatibility
+            config["inputs"] = [config["selector_channel"]]
+            config["input_multipliers"] = [config["selector_multiplier"]]
 
         return config
+
+    def _finalize_ui(self):
+        """Override to customize dialog size - compact form."""
+        self.adjustSize()
+        current_size = self.sizeHint()
+
+        # Apply size adjustments:
+        # - Width: 1.3x (slightly wider than content)
+        # - Height: 0.7x (30% reduction)
+        new_width = int(current_size.width() * 1.3)
+        new_height = int(current_size.height() * 0.7)
+
+        self.resize(new_width, new_height)
+        self.setMinimumSize(new_width, new_height)

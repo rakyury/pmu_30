@@ -180,7 +180,8 @@ class TestFilterDialogConfig:
     def test_time_constant_range(self, qapp):
         """Test time constant spinbox range."""
         dialog = FilterDialog()
-        assert dialog.time_const_spin.minimum() == 0.001
+        # TimeDelaySpinBox uses 2 decimal places (0.01 minimum)
+        assert dialog.time_const_spin.minimum() == 0.01
         assert dialog.time_const_spin.maximum() == 100.0
         dialog.close()
 

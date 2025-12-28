@@ -4,7 +4,7 @@ Signal filtering with different filter types
 """
 
 from PyQt6.QtWidgets import (
-    QGroupBox, QComboBox, QSpinBox, QDoubleSpinBox,
+    QGroupBox, QComboBox, QSpinBox,
     QLabel, QGridLayout
 )
 from PyQt6.QtCore import Qt
@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, FilterType
+from ui.widgets.constant_spinbox import TimeDelaySpinBox
 
 
 class FilterDialog(BaseChannelDialog):
@@ -80,14 +81,12 @@ class FilterDialog(BaseChannelDialog):
         self.window_spin.setToolTip("Number of samples in the filter window")
         layout.addWidget(self.window_spin, row, 1)
 
-        # Time constant (for low pass)
+        # Time constant (for low pass) - uses TimeDelaySpinBox for 2 decimal precision
         self.time_const_label = QLabel("Time Constant:")
         layout.addWidget(self.time_const_label, row, 2)
-        self.time_const_spin = QDoubleSpinBox()
-        self.time_const_spin.setRange(0.001, 100.0)
-        self.time_const_spin.setDecimals(3)
-        self.time_const_spin.setValue(0.1)
-        self.time_const_spin.setSuffix(" s")
+        self.time_const_spin = TimeDelaySpinBox()
+        self.time_const_spin.setRange(0.01, 100.0)
+        self.time_const_spin.setValue(0.10)
         self.time_const_spin.setToolTip("Filter time constant in seconds")
         layout.addWidget(self.time_const_spin, row, 3)
         row += 1

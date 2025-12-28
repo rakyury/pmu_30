@@ -12,6 +12,90 @@ Analysis of 35 dialogs revealed that only 11 inherit from `BaseChannelDialog`. T
 
 ---
 
+## 🚨 CRITICAL: Channel ID Architecture Problem
+
+> **Status**: BLOCKING - Causes runtime control failures (Horn doesn't respond to HornBtn)
+> **Added**: 2025-12-28
+> **Priority**: MUST FIX IMMEDIATELY
+
+### Problem Description
+
+Current system has **TWO separate channel ID systems**:
+
+1. **JSON channel_id** - Assigned by configurator, saved in config files
+2. **Runtime channel_id** - Assigned dynamically by `PMU_Channel_Register()` at firmware startup
+
+This creates a complex mapping layer (`MapJsonIdToRuntimeId`) that frequently fails:
+
+```
+Example bug flow:
+1. Config: HornBtn has channel_id=6 in JSON
+2. Firmware: PMU_Channel_Register() assigns runtime_id=55 (50 + pin5)
+3. Mapping: AddChannelIdMapping(6, 55)
+4. Config: Horn output has source_channel="HornBtn" (string reference)
+5. Parsing: JSON_ResolveChannel("HornBtn") returns 55 (runtime ID!)
+6. Update: MapJsonIdToRuntimeId(55) looks for JSON ID 55 - NOT FOUND!
+7. Result: Horn doesn't work - mapping fails silently
+```
+
+### Root Cause
+
+`JSON_ResolveChannel()` returns the **runtime_id** when resolving by name, but `PMU_PowerOutput_Update()` expects a **JSON_id** to map.
+
+### Correct Architecture (MUST IMPLEMENT)
+
+**Channel IDs should be CONSTANT and IDENTICAL in JSON and Runtime:**
+
+| Channel Type | ID Range | Assignment | Example |
+|--------------|----------|------------|---------|
+| Analog Inputs | 0-19 | Fixed: pin number | ADC0 = 0, ADC1 = 1 |
+| Digital Inputs | 50-69 | Fixed: 50 + pin | DI0 = 50, DI5 = 55 |
+| Power Outputs | 100-129 | Fixed: 100 + pin | OUT0 = 100, OUT4 = 104 |
+| H-Bridges | 130-133 | Fixed: 130 + idx | HB0 = 130 |
+| CAN RX Channels | 200-299 | Fixed: 200 + idx | First CAN input = 200 |
+| CAN TX Channels | 300-399 | Fixed: 300 + idx | First CAN output = 300 |
+| Logic Channels | 400-499 | Fixed: 400 + idx | Logic0 = 400 |
+| Number Channels | 500-599 | Fixed: 500 + idx | Math0 = 500 |
+| Timer Channels | 600-699 | Fixed: 600 + idx | Timer0 = 600 |
+| Filter Channels | 700-799 | Fixed: 700 + idx | Filter0 = 700 |
+| Switch Channels | 800-899 | Fixed: 800 + idx | Switch0 = 800 |
+| User Channels | 1000+ | Auto-increment | Custom channels |
+
+**Benefits:**
+1. No mapping layer needed
+2. Configs work without device connection
+3. Predictable, debuggable IDs
+4. Firmware and configurator use same constants
+
+### Files to Modify
+
+#### Firmware:
+- `pmu_config_json.c` - Remove `AddChannelIdMapping`, `MapJsonIdToRuntimeId`, use fixed IDs
+- `pmu_channel.c` - Use fixed channel_id instead of dynamic allocation
+- `pmu_adc.c` - Digital inputs use 50+pin, analog use pin number directly
+- `pmu_profet.c` - Power outputs use 100+pin
+- `pmu_hbridge.c` - H-bridges use 130+idx
+
+#### Configurator:
+- `config_schema.py` - Define ID ranges as constants
+- `base_channel_dialog.py` - Use fixed IDs based on channel type
+- `digital_input_dialog.py` - ID = 50 + pin
+- `analog_input_dialog.py` - ID = pin
+- `output_config_dialog.py` - ID = 100 + first_pin
+
+### Migration Steps
+
+1. Define constants in firmware header (`pmu_channel_ids.h`)
+2. Define same constants in configurator (`constants.py`)
+3. Update firmware parsing to use fixed IDs
+4. Update configurator to generate fixed IDs
+5. Remove mapping layer completely
+6. Test all channel references work correctly
+
+**Effort**: 2-3 days
+
+---
+
 ## 🔴 Critical Priority (Blocking Issues)
 
 ### 1. Channel Display Name Logic Duplication
@@ -282,6 +366,14 @@ def get_next_channel_id(existing_channels: List[Dict]) -> int:
     - Created `config_migration.py` (295 lines): version migration, ID generation, reference conversion
     - Created `config_can.py` (105 lines): CAN message CRUD via CANMessageManager
     - Reduced config_manager.py from 1015 to 671 lines (-34%)
+- [x] Fixed monitor widgets field naming convention (2025-12-27)
+    - **Issue**: Monitors displayed `id` field (e.g., `out_horn`) instead of display name (`Horn`)
+    - **Root cause**: Priority was `id > name`, should be `name > channel_name > id`
+    - **Fixed files**:
+      - `output_monitor.py`: lines 199-200, 222-223
+      - `digital_monitor.py`: lines 144-146, 180-181
+      - `analog_monitor.py`: lines 162-163, 178-179
+    - **Convention**: All monitors must use priority `name > channel_name > id` for display
 
 ### Next Up
 - [ ] Expand ChannelsMixin with full channel operations (~400 lines)

@@ -49,6 +49,7 @@ typedef struct {
     uint8_t filter_index;           /* Filter buffer index */
     uint32_t last_edge_time;        /* Last edge time for frequency */
     uint8_t edge_count;             /* Edge count for frequency */
+    uint16_t channel_id;            /* Channel system ID for PMU_Channel_SetValue */
 } PMU_ADC_Input_t;
 
 /* Exported constants --------------------------------------------------------*/
@@ -100,6 +101,21 @@ float PMU_ADC_GetScaledValue(uint8_t channel);
 uint8_t PMU_ADC_GetDigitalState(uint8_t channel);
 
 /**
+ * @brief Set digital state (for emulator/testing)
+ * @param channel Input channel (0-19)
+ * @param state Digital state (0 or 1)
+ * @note Also syncs to channel system
+ */
+void PMU_ADC_SetDigitalState(uint8_t channel, uint8_t state);
+
+/**
+ * @brief Get input type (for emulator to determine voltage logic)
+ * @param channel Input channel (0-19)
+ * @retval Input type (PMU_LegacyInputType_t) or -1 if not configured
+ */
+int PMU_ADC_GetInputType(uint8_t channel);
+
+/**
  * @brief Get frequency (for frequency inputs)
  * @param channel Input channel (0-19)
  * @retval Frequency in Hz
@@ -120,6 +136,14 @@ PMU_ADC_Input_t* PMU_ADC_GetInputData(uint8_t channel);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_ADC_SetConfig(uint8_t channel, PMU_InputConfig_t* config);
+
+/**
+ * @brief Set channel system ID for input
+ * @param channel Input channel (0-19)
+ * @param channel_id Channel system ID for PMU_Channel_SetValue
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_ADC_SetChannelId(uint8_t channel, uint16_t channel_id);
 
 #ifdef __cplusplus
 }

@@ -24,6 +24,7 @@
 #include "pmu_wifi.h"
 #include "pmu_bluetooth.h"
 #include "pmu_handler.h"
+#include "pmu_channel_ids.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -146,6 +147,8 @@ static void AddChannelIdMapping(uint16_t json_id, uint16_t runtime_id) {
         channel_id_map[channel_id_map_count].json_id = json_id;
         channel_id_map[channel_id_map_count].runtime_id = runtime_id;
         channel_id_map_count++;
+        printf("[MAP] JSON %d -> Runtime %d (count=%d)\n", json_id, runtime_id, channel_id_map_count);
+        fflush(stdout);
     }
 }
 
@@ -156,6 +159,48 @@ static uint16_t MapJsonIdToRuntimeId(uint16_t json_id) {
         }
     }
     return json_id;  /* Return as-is if no mapping found */
+}
+
+/**
+ * @brief Check if channel ID is already a known runtime ID (from a fixed range)
+ *
+ * IDs resolved from channel names are already runtime IDs and should not be mapped.
+ * Only IDs from JSON channel_id fields (small sequential numbers) need mapping.
+ */
+static bool IsKnownRuntimeId(uint16_t channel_id) {
+    /* Check all known fixed ID ranges from pmu_channel_ids.h */
+    return PMU_CHID_IS_ANALOG(channel_id) ||
+           PMU_CHID_IS_DIGITAL(channel_id) ||
+           PMU_CHID_IS_OUTPUT(channel_id) ||
+           PMU_CHID_IS_HBRIDGE(channel_id) ||
+           PMU_CHID_IS_CAN_RX(channel_id) ||
+           PMU_CHID_IS_CAN_TX(channel_id) ||
+           PMU_CHID_IS_LOGIC(channel_id) ||
+           PMU_CHID_IS_NUMBER(channel_id) ||
+           PMU_CHID_IS_TIMER(channel_id) ||
+           PMU_CHID_IS_FILTER(channel_id) ||
+           PMU_CHID_IS_SWITCH(channel_id) ||
+           PMU_CHID_IS_PID(channel_id);
+}
+
+/**
+ * @brief Resolve channel ID to runtime ID (smart mapping)
+ *
+ * If the ID is already a known runtime ID (from name resolution), use it directly.
+ * Otherwise, try to map it from JSON ID to runtime ID.
+ */
+static uint16_t ResolveToRuntimeId(uint16_t channel_id) {
+    if (channel_id == 0) return 0;
+
+    /* First try explicit JSON->Runtime mapping (has priority) */
+    uint16_t mapped_id = MapJsonIdToRuntimeId(channel_id);
+    if (mapped_id != channel_id) {
+        /* Mapping found - use the mapped runtime ID */
+        return mapped_id;
+    }
+
+    /* No mapping found - use as-is (it's either a runtime ID or unmapped JSON ID) */
+    return channel_id;
 }
 
 /* Helper to get input channel value by ID (new, preferred) */
@@ -765,7 +810,7 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         }
 
         item = cJSON_GetObjectItem(hb, "enabled");
-        config.enabled = item ? cJSON_IsTrue(item) : true;
+        config.enabled = true;  /* Channels always enabled */
 
         /* Mode */
         item = cJSON_GetObjectItem(hb, "mode");
@@ -1510,7 +1555,7 @@ static bool JSON_ParseCanMessages(cJSON* messages_array, PMU_JSON_LoadStats_t* s
         config.frame_count = (uint8_t)JSON_GetInt(msg, "frame_count", 1);
         config.dlc = (uint8_t)JSON_GetInt(msg, "dlc", 8);
         config.timeout_ms = (uint16_t)JSON_GetInt(msg, "timeout_ms", 500);
-        config.enabled = JSON_GetBool(msg, "enabled", true);
+        config.enabled = true;  /* Channels always enabled */
 
         /* TODO: Register message with CAN subsystem */
         /* PMU_CAN_RegisterMessage(&config); */
@@ -1615,7 +1660,7 @@ static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t*
         if (config.length > 8) config.length = 8;
 
         config.timeout_ms = (uint16_t)JSON_GetInt(frame, "timeout_ms", 100);
-        config.enabled = JSON_GetBool(frame, "enabled", true);
+        config.enabled = true;  /* Frames always enabled */
 
         /* Parse default data if provided */
         cJSON* default_data = cJSON_GetObjectItem(frame, "default_data");
@@ -2234,6 +2279,9 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_DigitalInputConfig_t config = {0};
 
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
+
     /* Get channel name - required field */
     const char* id = JSON_GetString(channel_obj, "channel_name", "");
     if (strlen(id) == 0) {
@@ -2338,6 +2386,14 @@ static bool JSON_ParseDigitalInput(cJSON* channel_obj)
         HAL_StatusTypeDef ch_result = PMU_Channel_Register(&channel);
         printf("[CONFIG] Digital input ch%d '%s' (ID=%d) result=%d\n", pin, config.id, channel.channel_id, ch_result);
         fflush(stdout);
+
+        /* Set channel_id in ADC system for PMU_Channel_SetValue sync */
+        PMU_ADC_SetChannelId(pin, channel.channel_id);
+
+        /* Add mapping from JSON channel_id to runtime channel_id */
+        if (json_channel_id != 0) {
+            AddChannelIdMapping(json_channel_id, channel.channel_id);
+        }
     }
 #else
     (void)channel_obj;
@@ -2353,6 +2409,9 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
 #ifdef JSON_PARSING_ENABLED
     PMU_AnalogInputConfig_t config = {0};
 
+    /* Get JSON channel_id for mapping */
+    uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
+
     /* Get channel name - required field */
     const char* id = JSON_GetString(channel_obj, "channel_name", "");
     if (strlen(id) == 0) {
@@ -2362,6 +2421,14 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
     printf("[CONFIG] Parsing analog input: id='%s'\n", id);
     fflush(stdout);
     strncpy(config.id, id, PMU_CHANNEL_ID_LEN - 1);
+
+    /* Check if analog input is enabled - skip ADC config if disabled */
+    bool enabled = JSON_GetBool(channel_obj, "enabled", false);
+    if (!enabled) {
+        printf("[CONFIG] Analog input '%s' is disabled, skipping ADC config\n", id);
+        fflush(stdout);
+        return true;  /* Return true to not break parsing, just skip this channel */
+    }
 
     /* Parse subtype */
     const char* subtype = JSON_GetString(channel_obj, "subtype", "linear");
@@ -2515,6 +2582,11 @@ static bool JSON_ParseAnalogInput(cJSON* channel_obj)
         printf("[CONFIG] Channel ch%d '%s' class=0x%02X result=%d\n",
                adc_channel, config.id, channel.hw_class, ch_result);
         fflush(stdout);
+
+        /* Add mapping from JSON channel_id to runtime channel_id */
+        if (json_channel_id != 0) {
+            AddChannelIdMapping(json_channel_id, channel.channel_id);
+        }
     }
 #else
     (void)channel_obj;
@@ -3475,7 +3547,7 @@ static bool JSON_ParsePID(cJSON* channel_obj)
     config.derivative_filter_coeff = JSON_GetFloat(channel_obj, "derivative_filter_coeff", 0.1f);
 
     /* Control options */
-    config.enabled = JSON_GetBool(channel_obj, "enabled", true);
+    config.enabled = true;  /* Channels always enabled */
     config.reversed = JSON_GetBool(channel_obj, "reversed", false);
 
     /* Register PID controller */
@@ -3520,7 +3592,7 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
     keypad.destination_address = (uint8_t)JSON_GetInt(channel_obj, "destination_address", PMU_BM_DEFAULT_DEST_ADDR);
     keypad.use_extended_id = JSON_GetBool(channel_obj, "use_extended_id", true);
     keypad.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", PMU_BM_DEFAULT_TIMEOUT_MS);
-    keypad.enabled = JSON_GetBool(channel_obj, "enabled", true);
+    keypad.enabled = true;  /* Keypads always enabled */
 
     /* Brightness settings (0-63) */
     keypad.led_brightness = (uint8_t)JSON_GetInt(channel_obj, "led_brightness", 0x3F);
@@ -3540,7 +3612,7 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
             PMU_BM_ButtonConfig_t* btn = &keypad.buttons[i];
 
             /* Button enabled */
-            btn->enabled = JSON_GetBool(button, "enabled", true);
+            btn->enabled = true;  /* Buttons always enabled */
 
             /* LED colors (indexes into PMU_BM_LedColor_t enum) */
             btn->led_on_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_on_color", PMU_BM_LED_GREEN);
@@ -3598,7 +3670,23 @@ static bool JSON_ParseHandler(cJSON* channel_obj)
  */
 void PMU_PowerOutput_Update(void)
 {
+    static uint32_t call_counter = 0;
+    call_counter++;
+    if (call_counter % 5000 == 1) {
+        printf("[PWR_UPDATE] Called, count=%d\n", call_counter);
+        fflush(stdout);
+    }
+
 #ifdef JSON_PARSING_ENABLED
+    static uint32_t debug_counter = 0;
+    debug_counter++;
+
+    /* Debug every 5 seconds */
+    if (debug_counter % 5000 == 1) {
+        printf("[PWR_UPD] power_output_count=%d\n", power_output_count);
+        fflush(stdout);
+    }
+
     for (uint8_t i = 0; i < power_output_count; i++) {
         PMU_PowerOutputConfig_t* cfg = &power_output_storage[i];
 
@@ -3607,12 +3695,27 @@ void PMU_PowerOutput_Update(void)
             continue;
         }
 
-        /* Resolve source channel to value - prefer ID, fallback to name */
+        /* Resolve source channel to value
+         * source_channel_id may be:
+         * - A runtime ID (50-69 for digital inputs) if resolved from string name
+         * - A JSON ID (small number like 6) if parsed from numeric field
+         * ResolveToRuntimeId handles both cases correctly.
+         */
         const PMU_Channel_t* source_ch = NULL;
         if (cfg->source_channel_id != 0) {
-            /* Map JSON channel_id to runtime channel_id */
-            uint16_t runtime_id = MapJsonIdToRuntimeId(cfg->source_channel_id);
+            /* Smart resolve: use directly if known runtime ID, otherwise map */
+            uint16_t runtime_id = ResolveToRuntimeId(cfg->source_channel_id);
             source_ch = PMU_Channel_GetInfo(runtime_id);
+
+            /* Debug output every 1000 calls (~1 second at 1kHz) */
+            if (debug_counter % 1000 == 1) {
+                printf("[PWR_OUT] '%s': src_id=%d, runtime=%d, ch=%p\n",
+                       cfg->id, cfg->source_channel_id, runtime_id, (void*)source_ch);
+                if (source_ch) {
+                    printf("  -> src_name='%s', value=%d\n", source_ch->name, source_ch->value);
+                }
+                fflush(stdout);
+            }
         }
         /* source_ch already resolved by ID */
         if (!source_ch) {
@@ -3623,6 +3726,12 @@ void PMU_PowerOutput_Update(void)
         int32_t source_value = source_ch->value;
         bool output_active = (source_value > 0);
 
+        /* Debug output every 1000 calls */
+        if (debug_counter % 1000 == 1) {
+            printf("  -> value=%d, active=%d, pins=%d\n", source_value, output_active, cfg->output_pin_count);
+            fflush(stdout);
+        }
+
         /* Apply to all configured pins */
         for (int p = 0; p < cfg->output_pin_count; p++) {
             uint8_t pin = cfg->output_pins[p];
@@ -3630,6 +3739,10 @@ void PMU_PowerOutput_Update(void)
 
             /* Skip if manual override is set */
             if (PMU_PROFET_HasManualOverride(pin)) {
+                if (debug_counter % 1000 == 1) {
+                    printf("  -> pin %d has MANUAL OVERRIDE!\n", pin);
+                    fflush(stdout);
+                }
                 continue;
             }
 

@@ -438,6 +438,38 @@ HAL_StatusTypeDef PMU_Channel_SetValue(uint16_t channel_id, int32_t value)
 }
 
 /**
+ * @brief Update channel value (for internal hardware/ADC use)
+ * @note Unlike SetValue, this can update INPUT channels (used by ADC system)
+ * @param channel_id Channel ID
+ * @param value New value
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_Channel_UpdateValue(uint16_t channel_id, int32_t value)
+{
+    PMU_ChannelEntry_t* entry = Channel_FindEntry(channel_id);
+
+    if (!entry) {
+        return HAL_ERROR;
+    }
+
+    PMU_Channel_t* ch = &entry->channel;
+
+    /* Check if enabled */
+    if (!(ch->flags & PMU_CHANNEL_FLAG_ENABLED)) {
+        return HAL_ERROR;
+    }
+
+    /* Clamp value to range */
+    if (value < ch->min_value) value = ch->min_value;
+    if (value > ch->max_value) value = ch->max_value;
+
+    /* Update cached value (no output write for inputs) */
+    entry->channel.value = value;
+
+    return HAL_OK;
+}
+
+/**
  * @brief Get channel information
  * @param channel_id Channel ID
  * @retval Pointer to channel structure (or NULL if not found)

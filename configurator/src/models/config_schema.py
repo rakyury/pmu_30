@@ -49,7 +49,6 @@ PMU_CONFIG_SCHEMA = {
                     "frame_count": {"type": "integer", "minimum": 1, "maximum": 8},
                     "dlc": {"type": "integer", "minimum": 0, "maximum": 64},
                     "timeout_ms": {"type": "integer", "minimum": 0, "maximum": 65535},
-                    "enabled": {"type": "boolean"},
                     "description": {"type": "string"}
                 }
             }
@@ -71,7 +70,6 @@ PMU_CONFIG_SCHEMA = {
                             "lua_script", "handler", "blinkmarine_keypad"
                         ]
                     },
-                    "enabled": {"type": "boolean"},
                     "description": {"type": "string"}
                 }
             }
@@ -104,9 +102,9 @@ CHANNEL_TYPE_SCHEMAS = {
     "digital_input": {
         "subtype": {
             "type": "string",
-            "enum": ["switch_active_low", "switch_active_high", "frequency", "rpm", "flex_fuel", "beacon", "puls_oil_sensor"]
+            "enum": ["switch_active_low", "switch_active_high", "frequency", "rpm", "flex_fuel", "beacon", "puls_oil_sensor", "keypad_button"]
         },
-        "input_pin": {"type": "integer", "minimum": 0, "maximum": 7},
+        "input_pin": {"type": "integer", "minimum": 0, "maximum": 19},
         "enable_pullup": {"type": "boolean"},
         "threshold_voltage": {"type": "number", "minimum": 0, "maximum": 30},
         "debounce_ms": {"type": "integer", "minimum": 0, "maximum": 10000},
@@ -294,11 +292,48 @@ CHANNEL_TYPE_SCHEMAS = {
         "timeout_ms": {"type": "integer"}
     },
     "can_tx": {
-        "can_bus": {"type": "integer", "enum": [1, 2]},
+        "enabled": {"type": "boolean"},
+                "can_bus": {"type": "integer", "enum": [1, 2]},
         "message_id": {"type": "integer", "minimum": 0},
         "is_extended": {"type": "boolean"},
         "cycle_time_ms": {"type": "integer", "minimum": 1},
         "signals": {"type": "array"}
+    },
+    "pid": {
+        "setpoint_channel": {"type": "string"},
+        "process_channel": {"type": "string"},
+        "kp": {"type": "number"},
+        "ki": {"type": "number"},
+        "kd": {"type": "number"},
+        "output_min": {"type": "number"},
+        "output_max": {"type": "number"},
+        "sample_time_ms": {"type": "integer", "minimum": 1}
+    },
+    "hbridge": {
+        "bridge_number": {"type": "integer", "minimum": 0, "maximum": 3},
+        "source_channel": {"type": "string"},
+        "duty_channel": {"type": "string"},
+        "direction_channel": {"type": "string"},
+        "mode": {"type": "string", "enum": ["direct", "pid"]},
+        "pwm_frequency_hz": {"type": "integer", "minimum": 1, "maximum": 20000},
+        "current_limit_a": {"type": "number"},
+        "pid_setpoint_channel": {"type": "string"}
+    },
+    "lua_script": {
+        "script": {"type": "string"},
+        "input_channels": {"type": "array", "items": {"type": "string"}},
+        "output_channels": {"type": "array", "items": {"type": "string"}}
+    },
+    "handler": {
+        "handler_type": {"type": "string"},
+        "trigger_channel": {"type": "string"},
+        "actions": {"type": "array"}
+    },
+    "blinkmarine_keypad": {
+        "keypad_type": {"type": "string", "enum": ["2x6", "4x4"]},
+        "can_bus": {"type": "integer", "enum": [1, 2, 3, 4]},
+        "node_id": {"type": "integer", "minimum": 1, "maximum": 127},
+        "buttons": {"type": "object"}
     }
 }
 
@@ -411,17 +446,17 @@ class ConfigValidator:
         if isinstance(can_messages, list):
             for i, msg in enumerate(can_messages):
                 if isinstance(msg, dict):
-                    # Try 'name' first, fall back to 'id' for backwards compatibility
-                    msg_name = msg.get("name", "") or msg.get("id", "")
-                    if msg_name:
-                        if msg_name in all_message_ids:
-                            errors.append(f"Duplicate CAN message name: '{msg_name}'")
-                        all_message_ids.add(msg_name)
+                    # Use 'id' for reference validation (message_ref uses id, not name)
+                    msg_id = msg.get("id", "")
+                    if msg_id:
+                        if msg_id in all_message_ids:
+                            errors.append(f"Duplicate CAN message ID: '{msg_id}'")
+                        all_message_ids.add(msg_id)
 
                     # Validate required fields
                     path = f"can_messages[{i}]"
-                    if not msg_name:
-                        errors.append(f"{path}.name is required")
+                    if not msg_id:
+                        errors.append(f"{path}.id is required")
                     if "can_bus" not in msg:
                         errors.append(f"{path}.can_bus is required")
                     elif not isinstance(msg["can_bus"], int) or not (1 <= msg["can_bus"] <= 4):
@@ -485,7 +520,8 @@ class ConfigValidator:
                 "digital_input", "analog_input", "power_output",
                 "can_rx", "can_tx", "logic", "number",
                 "table_2d", "table_3d", "switch", "timer",
-                "filter", "enum"
+                "filter", "enum", "pid", "hbridge",
+                "lua_script", "handler", "blinkmarine_keypad"
             ]
             if channel_type not in allowed_types:
                 errors.append(f"{path}.channel_type: '{channel_type}' is not valid")
@@ -510,8 +546,8 @@ class ConfigValidator:
         if channel_type == "digital_input":
             if "input_pin" in channel:
                 pin = channel["input_pin"]
-                if not isinstance(pin, int) or not (0 <= pin <= 7):
-                    errors.append(f"{path}.input_pin must be between 0 and 7")
+                if not isinstance(pin, int) or not (0 <= pin <= 19):
+                    errors.append(f"{path}.input_pin must be between 0 and 19")
 
         elif channel_type == "analog_input":
             if "input_pin" in channel:
@@ -653,9 +689,9 @@ class ConfigValidator:
         for ch in channels:
             if not isinstance(ch, dict):
                 continue
-            # Try 'name' first, fall back to 'id' for backwards compatibility
-            ch_name = ch.get("name", "") or ch.get("id", "")
-            if not ch_name:
+            # Use 'id' for dependency tracking (channel references use id, not name)
+            ch_id = ch.get("id", "")
+            if not ch_id:
                 continue
 
             deps = set()
@@ -699,7 +735,7 @@ class ConfigValidator:
                     if isinstance(sig, dict) and sig.get("source_channel"):
                         deps.add(sig["source_channel"])
 
-            dependencies[ch_name] = deps
+            dependencies[ch_id] = deps
 
         # Find cycles using DFS
         cycles = []
@@ -749,9 +785,285 @@ class ConfigValidator:
         return error_msg
 
 
-def create_default_config() -> Dict[str, Any]:
-    """Create a default empty configuration"""
+def create_default_config(include_hardware: bool = True) -> Dict[str, Any]:
+    """Create a default configuration with all PMU-30 hardware channels.
+
+    Args:
+        include_hardware: If True, creates all 30 outputs, 20 analog inputs,
+                         20 digital inputs, and 4 H-bridges. If False, creates
+                         minimal config with just example tables.
+
+    Returns:
+        Complete PMU-30 configuration dictionary.
+    """
     from datetime import datetime
+
+    channels = []
+    channel_id = 200  # User channels start at 200
+
+    if include_hardware:
+        # Create 30 Power Outputs (O1-O30)
+        # o_1...o_20 linked to digital inputs d_1...d_20
+        # o_21...o_30 linked to analog inputs a_1...a_10
+        for i in range(30):
+            if i < 20:
+                # First 20 outputs -> digital inputs
+                source = f"d_{i + 1}"
+            else:
+                # Last 10 outputs -> analog inputs
+                source = f"a_{i - 19}"  # o_21->a_1, o_22->a_2, etc.
+            channels.append({
+                "channel_type": "power_output",
+                "channel_id": channel_id,
+                "channel_name": f"o_{i + 1}",
+                "output_pins": [i],
+                "source_channel": source,
+                "output_mode": "on_off",
+                "max_current": 10000,
+                "inrush_time_ms": 100,
+                "retry_count": 3,
+                "retry_delay_ms": 1000,
+                "pwm_frequency_hz": 1000,
+                "soft_start_ms": 0,
+                "enabled": True
+            })
+            channel_id += 1
+
+        # Create 20 Analog Inputs (A1-A20)
+        for i in range(20):
+            channels.append({
+                "channel_type": "analog_input",
+                "channel_id": channel_id,
+                "channel_name": f"a_{i + 1}",
+                "input_pin": i,
+                "subtype": "linear",
+                "pullup_option": "none",
+                "min_voltage": 0.0,
+                "max_voltage": 5.0,
+                "min_value": 0.0,
+                "max_value": 100.0,
+                "decimal_places": 1,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create 20 Digital Inputs (D1-D20)
+        # All enabled by default for 1:1 mapping with outputs
+        for i in range(20):
+            channels.append({
+                "channel_type": "digital_input",
+                "channel_id": channel_id,
+                "channel_name": f"d_{i + 1}",
+                "input_pin": i,
+                "subtype": "switch_active_low",
+                "threshold_voltage": 2.5,
+                "debounce_ms": 50,
+                "enable_pullup": True,
+                "enabled": True
+            })
+            channel_id += 1
+
+        # Create 4 H-Bridge Motors (HB1-HB4)
+        for i in range(4):
+            channels.append({
+                "channel_type": "hbridge",
+                "channel_id": channel_id,
+                "channel_name": f"hb_{i + 1}",
+                "motor_index": i,
+                "source_channel": "",
+                "control_mode": "direction_pwm",
+                "pwm_frequency_hz": 1000,
+                "acceleration_ms": 100,
+                "deceleration_ms": 100,
+                "current_limit_a": 10.0,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create example Logic channels with diverse operations
+        # Base defaults for all logic channels
+        logic_defaults = {
+            "channel_type": "logic",
+            "channel": "",
+            "channel_2": "",
+            "true_delay_s": 0.0,
+            "false_delay_s": 0.0,
+            "constant": 0.0,
+            "threshold": 0.0,
+            "time_on_s": 0.5,
+            "time_off_s": 0.5,
+            "polarity": "normal",
+            "upper_value": 100.0,
+            "lower_value": 0.0,
+            "set_channel": "",
+            "reset_channel": "",
+            "toggle_channel": "",
+            "default_state": "off",
+            "edge": "rising",
+            "pulse_count": 1,
+            "retrigger": False,
+            "enabled": True
+        }
+
+        # Logic channel examples with various operation types
+        logic_examples = [
+            # 1. AND: Both digital inputs must be active
+            {"channel_name": "logic_1", "operation": "and",
+             "channel": 250, "channel_2": 251},  # d_1 AND d_2
+
+            # 2. OR: Either digital input activates
+            {"channel_name": "logic_2", "operation": "or",
+             "channel": 252, "channel_2": 253},  # d_3 OR d_4
+
+            # 3. NOT: Invert digital input
+            {"channel_name": "logic_3", "operation": "not",
+             "channel": 254},  # NOT d_5
+
+            # 4. GREATER: Analog threshold comparison
+            {"channel_name": "logic_4", "operation": "greater",
+             "channel": 230, "constant": 2.50},  # a_1 > 2.5V
+
+            # 5. HYSTERESIS: Analog with upper/lower thresholds
+            {"channel_name": "logic_5", "operation": "hysteresis",
+             "channel": 231, "upper_value": 3.50, "lower_value": 1.50},  # a_2
+
+            # 6. TOGGLE: Toggle output on rising edge
+            {"channel_name": "logic_6", "operation": "toggle",
+             "toggle_channel": 255, "edge": "rising"},  # toggle by d_6
+
+            # 7. PULSE: Generate 0.5s pulse on edge
+            {"channel_name": "logic_7", "operation": "pulse",
+             "channel": 256, "time_on_s": 0.50, "pulse_count": 1},  # pulse on d_7
+
+            # 8. FLASH: Blink 0.5s on/off when active
+            {"channel_name": "logic_8", "operation": "flash",
+             "channel": 257, "time_on_s": 0.50, "time_off_s": 0.50},  # flash when d_8
+
+            # 9. SET_RESET_LATCH: SR flip-flop
+            {"channel_name": "logic_9", "operation": "set_reset_latch",
+             "set_channel": 258, "reset_channel": 259},  # set=d_9, reset=d_10
+
+            # 10. XOR: Exclusive OR
+            {"channel_name": "logic_10", "operation": "xor",
+             "channel": 260, "channel_2": 261},  # d_11 XOR d_12
+        ]
+
+        for i, example in enumerate(logic_examples):
+            logic_channel = logic_defaults.copy()
+            logic_channel["channel_id"] = channel_id
+            logic_channel.update(example)
+            channels.append(logic_channel)
+            channel_id += 1
+
+        # Create example Timer channels
+        for i in range(10):
+            channels.append({
+                "channel_type": "timer",
+                "channel_id": channel_id,
+                "channel_name": f"timer_{i + 1}",
+                "trigger_channel": "",
+                "mode": "oneshot",
+                "duration_ms": 1000,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create example Filter channels
+        for i in range(10):
+            channels.append({
+                "channel_type": "filter",
+                "channel_id": channel_id,
+                "channel_name": f"filter_{i + 1}",
+                "source_channel": "",
+                "filter_type": "lowpass",
+                "cutoff_hz": 10.0,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create example Switch channels
+        for i in range(10):
+            channels.append({
+                "channel_type": "switch",
+                "channel_id": channel_id,
+                "channel_name": f"switch_{i + 1}",
+                "trigger_channel": "",
+                "mode": "toggle",
+                "initial_state": False,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create example Number channels
+        for i in range(10):
+            channels.append({
+                "channel_type": "number",
+                "channel_id": channel_id,
+                "channel_name": f"num_{i + 1}",
+                "operation": "constant",
+                "value": 0.0,
+                "enabled": False
+            })
+            channel_id += 1
+
+        # Create example PID channels
+        for i in range(4):
+            channels.append({
+                "channel_type": "pid",
+                "channel_id": channel_id,
+                "channel_name": f"pid_{i + 1}",
+                "input_channel": "",
+                "setpoint_channel": "",
+                "output_channel": "",
+                "kp": 1.0,
+                "ki": 0.0,
+                "kd": 0.0,
+                "min_output": 0.0,
+                "max_output": 100.0,
+                "enabled": False
+            })
+            channel_id += 1
+
+    # Add example tables
+    channels.extend([
+        {
+            "channel_type": "table_2d",
+            "channel_id": channel_id,
+            "channel_name": "t2d_example",
+            "x_axis_channel": "",
+            "x_min": 0.0,
+            "x_max": 100.0,
+            "x_step": 10.0,
+            "x_values": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+            "output_values": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+            "decimal_places": 0,
+            "enabled": False
+        },
+        {
+            "channel_type": "table_3d",
+            "channel_id": channel_id + 1,
+            "channel_name": "t3d_example",
+            "x_axis_channel": "",
+            "y_axis_channel": "",
+            "x_min": 0.0,
+            "x_max": 100.0,
+            "x_step": 25.0,
+            "x_values": [0, 25, 50, 75, 100],
+            "y_min": 0.0,
+            "y_max": 100.0,
+            "y_step": 25.0,
+            "y_values": [0, 25, 50, 75, 100],
+            "data": [
+                [0, 25, 50, 75, 100],
+                [25, 50, 75, 100, 125],
+                [50, 75, 100, 125, 150],
+                [75, 100, 125, 150, 175],
+                [100, 125, 150, 175, 200]
+            ],
+            "decimal_places": 0,
+            "enabled": False
+        }
+    ])
 
     return {
         "version": "3.0",
@@ -763,8 +1075,8 @@ def create_default_config() -> Dict[str, Any]:
             "created": datetime.now().isoformat(),
             "modified": datetime.now().isoformat()
         },
-        "can_messages": [],  # Level 1 - CAN Message Objects
-        "channels": [],
+        "can_messages": [],
+        "channels": channels,
         "system": {
             "control_frequency_hz": 1000,
             "logic_frequency_hz": 500,

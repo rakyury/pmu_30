@@ -560,8 +560,7 @@ class PIDTuner(QWidget):
             self.connection_label.setText("Online")
             self.connection_label.setStyleSheet("color: #22c55e; font-weight: bold;")
         else:
-            self.connection_label.setText("Offline")
-            self.connection_label.setStyleSheet("color: #b0b0b0;")
+            pass  # Connection status shown in status bar
             # Clear real-time values
             self.current_setpoint_label.setText("---")
             self.current_process_label.setText("---")

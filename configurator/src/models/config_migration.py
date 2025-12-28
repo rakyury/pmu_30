@@ -153,6 +153,34 @@ class ConfigMigration:
         return config
 
     @classmethod
+    def ensure_numeric_channel_ids(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Ensure all channels have a numeric 'channel_id' field.
+        Auto-generates unique IDs for channels without one.
+        """
+        channels = config.get("channels", [])
+
+        # Find max existing channel_id
+        max_id = 0
+        for ch in channels:
+            ch_id = ch.get("channel_id")
+            if isinstance(ch_id, int) and ch_id > max_id:
+                max_id = ch_id
+
+        # Start from max + 1 (or 1 if none exist)
+        next_id = max(max_id + 1, 1)
+
+        # Assign channel_id to channels that don't have one (None, 0, or empty)
+        for ch in channels:
+            ch_id = ch.get("channel_id")
+            if ch_id is None or ch_id == 0 or ch_id == "":
+                ch["channel_id"] = next_id
+                logger.debug(f"Assigned channel_id {next_id} to channel '{ch.get('name', ch.get('id', 'unknown'))}'")
+                next_id += 1
+
+        return config
+
+    @classmethod
     def migrate_v2_to_v3(cls, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Migrate v2.0 configuration to v3.0 (two-level CAN architecture).

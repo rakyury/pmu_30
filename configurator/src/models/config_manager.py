@@ -77,8 +77,11 @@ class ConfigManager:
                 loaded_config = ConfigMigration.migrate_v2_to_v3(loaded_config)
                 logger.info(f"Migrated configuration from v{version} to v3.0")
 
-            # Auto-generate missing IDs from name field
+            # Auto-generate missing string IDs from name field
             loaded_config = ConfigMigration.ensure_channel_ids(loaded_config)
+
+            # Auto-generate missing numeric channel_ids
+            loaded_config = ConfigMigration.ensure_numeric_channel_ids(loaded_config)
 
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
@@ -134,8 +137,18 @@ class ConfigManager:
             Tuple[bool, Optional[str]]: (success, error_message)
         """
         try:
-            # Auto-generate missing IDs from name field
+            # DEBUG: Check what we received
+            logger.info(f"load_from_dict: config keys={list(config_dict.keys())}")
+            can_msgs = config_dict.get("can_messages", [])
+            logger.info(f"load_from_dict: can_messages count={len(can_msgs)}")
+            if can_msgs:
+                logger.info(f"load_from_dict: can_messages[0]={can_msgs[0]}")
+
+            # Auto-generate missing string IDs from name field
             config_dict = ConfigMigration.ensure_channel_ids(config_dict)
+
+            # Auto-generate missing numeric channel_ids
+            config_dict = ConfigMigration.ensure_numeric_channel_ids(config_dict)
 
             # Validate configuration
             is_valid, validation_errors = ConfigValidator.validate_config(config_dict)

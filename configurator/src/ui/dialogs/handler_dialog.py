@@ -4,7 +4,7 @@ Configures event handlers that react to system events and execute actions
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
+    QFormLayout, QGroupBox, QComboBox, QSpinBox,
     QGridLayout, QLabel, QWidget, QCheckBox, QLineEdit, QStackedWidget,
     QHBoxLayout, QTextEdit
 )
@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, EventType, ActionType
+from ui.widgets.constant_spinbox import ConstantSpinBox
 
 
 class HandlerDialog(BaseChannelDialog):
@@ -72,9 +73,8 @@ class HandlerDialog(BaseChannelDialog):
         # Threshold value (for threshold events)
         self.threshold_label = QLabel("Threshold Value:")
         layout.addWidget(self.threshold_label, row, 0)
-        self.threshold_spin = QDoubleSpinBox()
-        self.threshold_spin.setRange(-1000000, 1000000)
-        self.threshold_spin.setDecimals(2)
+        self.threshold_spin = ConstantSpinBox()
+        self.threshold_spin.setRange(-10000.00, 10000.00)
         self.threshold_spin.setValue(0.0)
         layout.addWidget(self.threshold_spin, row, 1)
         row += 1
@@ -140,9 +140,8 @@ class HandlerDialog(BaseChannelDialog):
             "Target channel to write to..."
         )
         channel_layout.addRow("Target Channel: *", self.target_channel_widget)
-        self.value_spin = QDoubleSpinBox()
-        self.value_spin.setRange(-1000000, 1000000)
-        self.value_spin.setDecimals(2)
+        self.value_spin = ConstantSpinBox()
+        self.value_spin.setRange(-10000.00, 10000.00)
         self.value_spin.setValue(1.0)
         channel_layout.addRow("Value to Write:", self.value_spin)
         self.action_stack.addWidget(channel_page)

@@ -75,10 +75,6 @@ class AnalogMonitor(QWidget):
         # Toolbar
         toolbar = QHBoxLayout()
 
-        self.status_label = QLabel("Offline")
-        self.status_label.setStyleSheet("color: #b0b0b0;")
-        toolbar.addWidget(self.status_label)
-
         toolbar.addStretch()
 
         # Info button
@@ -159,11 +155,15 @@ class AnalogMonitor(QWidget):
         Only inputs with a valid name/id are considered "configured".
         """
         # Create a mapping of configured inputs by pin number
-        # Only include inputs that have a name (id)
+        # Only include ANALOG inputs that have a name
         configured_by_pin = {}
         for inp in inputs:
+            # Only process analog inputs
+            if inp.get('channel_type') != 'analog_input':
+                continue
             # Only consider inputs with a name as "configured"
-            name = inp.get('id', inp.get('name', ''))
+            # Priority: name > channel_name > id (for backwards compatibility)
+            name = inp.get('name') or inp.get('channel_name') or inp.get('id', '')
             if not name:
                 continue
             pin = inp.get('input_pin', inp.get('channel', -1))
@@ -178,7 +178,8 @@ class AnalogMonitor(QWidget):
             channel = input_data.get('channel', i)
             if channel in configured_by_pin:
                 cfg = configured_by_pin[channel]
-                input_data['name'] = cfg.get('id', cfg.get('name', ''))
+                # Priority: name > channel_name > id (for backwards compatibility)
+                input_data['name'] = cfg.get('name') or cfg.get('channel_name') or cfg.get('id', '')
                 input_data['pull_mode'] = cfg.get('pull_mode', 'none')
                 input_data['enabled'] = cfg.get('enabled', True)
                 input_data['_is_default'] = False
@@ -202,12 +203,7 @@ class AnalogMonitor(QWidget):
     def set_connected(self, connected: bool):
         """Set connection state."""
         self._connected = connected
-        if connected:
-            self.status_label.setText("Online")
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
-        else:
-            self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #b0b0b0;")
+        if not connected:
             # Reset all values to "?"
             self._reset_values()
 
@@ -272,10 +268,13 @@ class AnalogMonitor(QWidget):
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""
+        bg_brush = QBrush(color)
+        fg_brush = QBrush(QColor(255, 255, 255))  # White text
         for col in range(5):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(QBrush(color))
+                item.setBackground(bg_brush)
+                item.setForeground(fg_brush)
 
     def _update_values(self):
         """Update real-time values (when connected to device)."""

@@ -26,14 +26,14 @@ async def emulator_connection():
 
     transport = EmulatorTransport()
     try:
-        connected = await asyncio.wait_for(
+        await asyncio.wait_for(
             transport.connect("localhost:9876"),
             timeout=5.0
         )
-    except Exception:
-        pytest.skip("Could not connect to emulator")
+    except Exception as e:
+        pytest.skip(f"Could not connect to emulator: {e}")
 
-    if not connected:
+    if not transport.is_connected:
         pytest.skip("Could not connect to emulator")
 
     protocol = AsyncProtocolHandler(transport)

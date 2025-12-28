@@ -140,7 +140,8 @@ class DigitalMonitor(QWidget):
             # Only process digital inputs
             if inp.get('channel_type') != 'digital_input':
                 continue
-            pin = inp.get('input_pin')
+            # Support both 'input_pin' and 'channel' field names for pin number
+            pin = inp.get('input_pin') if inp.get('input_pin') is not None else inp.get('channel')
             # Check both 'name' and 'channel_name' for backwards compatibility
             channel_name = inp.get('name') or inp.get('channel_name')
             if pin is not None and channel_name:
@@ -170,7 +171,8 @@ class DigitalMonitor(QWidget):
 
         for row, inp in enumerate(self.inputs_data):
             is_default = inp.get('_is_default', True)
-            pin = inp.get('input_pin', row)
+            # Support both 'input_pin' and 'channel' field names
+            pin = inp.get('input_pin') if inp.get('input_pin') is not None else inp.get('channel', row)
 
             # Pin
             pin_item = QTableWidgetItem(f"D{pin + 1}")
@@ -187,8 +189,8 @@ class DigitalMonitor(QWidget):
             state_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_STATE, state_item)
 
-            # Type
-            subtype = inp.get('subtype', '')
+            # Type - support both 'subtype' and 'input_type' field names
+            subtype = inp.get('subtype') or inp.get('input_type', '')
             type_display = self.TYPE_NAMES.get(subtype, subtype)
             type_item = QTableWidgetItem(type_display)
             self.table.setItem(row, self.COL_TYPE, type_item)
@@ -201,11 +203,13 @@ class DigitalMonitor(QWidget):
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for a row."""
-        brush = QBrush(color)
+        bg_brush = QBrush(color)
+        fg_brush = QBrush(QColor(255, 255, 255))  # White text
         for col in range(self.table.columnCount()):
             item = self.table.item(row, col)
             if item:
-                item.setBackground(brush)
+                item.setBackground(bg_brush)
+                item.setForeground(fg_brush)
 
     def update_from_telemetry(self, digital_inputs: list):
         """Update from telemetry digital input states.
@@ -223,9 +227,11 @@ class DigitalMonitor(QWidget):
 
         for row, inp in enumerate(self.inputs_data):
             is_default = inp.get('_is_default', True)
-            pin = inp.get('input_pin', row)
+            # Support both 'input_pin' and 'channel' field names
+            pin = inp.get('input_pin') if inp.get('input_pin') is not None else inp.get('channel', row)
 
-            # Get digital state directly from telemetry
+            # Get logical state from telemetry
+            # Note: firmware should apply subtype logic and return logical state
             if pin < len(self._digital_inputs):
                 state = self._digital_inputs[pin]
             else:

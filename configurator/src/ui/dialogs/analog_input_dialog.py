@@ -13,6 +13,8 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, AnalogInputSubtype
+from ui.widgets.time_input import SecondsSpinBox
+from ui.widgets.constant_spinbox import VoltageSpinBox
 
 
 class AnalogInputDialog(BaseChannelDialog):
@@ -102,6 +104,7 @@ class AnalogInputDialog(BaseChannelDialog):
         self.decimal_spin = QSpinBox()
         self.decimal_spin.setRange(0, 6)
         self.decimal_spin.setValue(0)
+        self.decimal_spin.valueChanged.connect(self._on_decimal_changed)
         layout.addWidget(self.decimal_spin, row, 3)
 
         settings_group.setLayout(layout)
@@ -117,11 +120,8 @@ class AnalogInputDialog(BaseChannelDialog):
 
         # 1 if voltage > threshold for time
         layout.addWidget(QLabel("1 if voltage >:"), row, 0)
-        self.threshold_high_spin = QDoubleSpinBox()
-        self.threshold_high_spin.setRange(0.0, 30.0)
-        self.threshold_high_spin.setDecimals(2)
+        self.threshold_high_spin = VoltageSpinBox()
         self.threshold_high_spin.setValue(2.5)
-        self.threshold_high_spin.setSuffix(" V")
         layout.addWidget(self.threshold_high_spin, row, 1)
 
         layout.addWidget(QLabel("for:"), row, 2)
@@ -134,11 +134,8 @@ class AnalogInputDialog(BaseChannelDialog):
 
         # 0 if voltage < threshold for time
         layout.addWidget(QLabel("0 if voltage <:"), row, 0)
-        self.threshold_low_spin = QDoubleSpinBox()
-        self.threshold_low_spin.setRange(0.0, 30.0)
-        self.threshold_low_spin.setDecimals(2)
+        self.threshold_low_spin = VoltageSpinBox()
         self.threshold_low_spin.setValue(1.5)
-        self.threshold_low_spin.setSuffix(" V")
         layout.addWidget(self.threshold_low_spin, row, 1)
 
         layout.addWidget(QLabel("for:"), row, 2)
@@ -165,10 +162,8 @@ class AnalogInputDialog(BaseChannelDialog):
         layout.addWidget(self.positions_spin, 0, 1)
 
         layout.addWidget(QLabel("Debounce:"), 0, 2)
-        self.debounce_spin = QSpinBox()
-        self.debounce_spin.setRange(0, 1000)
-        self.debounce_spin.setValue(50)
-        self.debounce_spin.setSuffix(" ms")
+        self.debounce_spin = SecondsSpinBox(min_ms=0, max_ms=1000)
+        self.debounce_spin.setValueMs(50)
         layout.addWidget(self.debounce_spin, 0, 3)
 
         self.rotary_group.setLayout(layout)
@@ -182,34 +177,30 @@ class AnalogInputDialog(BaseChannelDialog):
         layout.setColumnStretch(3, 1)
         row = 0
 
-        # Min value row
+        # Min value row - decimals controlled by decimal_spin
         layout.addWidget(QLabel("Min value:"), row, 0)
         self.min_value_spin = QDoubleSpinBox()
         self.min_value_spin.setRange(-1000000, 1000000)
-        self.min_value_spin.setDecimals(2)
-        self.min_value_spin.setValue(0.0)
+        self.min_value_spin.setDecimals(0)  # Will be updated by decimal_spin
+        self.min_value_spin.setValue(0)
         layout.addWidget(self.min_value_spin, row, 1)
 
-        layout.addWidget(QLabel("for voltage [V]:"), row, 2)
-        self.min_voltage_spin = QDoubleSpinBox()
-        self.min_voltage_spin.setRange(0.0, 30.0)
-        self.min_voltage_spin.setDecimals(2)
+        layout.addWidget(QLabel("for voltage:"), row, 2)
+        self.min_voltage_spin = VoltageSpinBox()
         self.min_voltage_spin.setValue(0.0)
         layout.addWidget(self.min_voltage_spin, row, 3)
         row += 1
 
-        # Max value row
+        # Max value row - decimals controlled by decimal_spin
         layout.addWidget(QLabel("Max value:"), row, 0)
         self.max_value_spin = QDoubleSpinBox()
         self.max_value_spin.setRange(-1000000, 1000000)
-        self.max_value_spin.setDecimals(2)
-        self.max_value_spin.setValue(100.0)
+        self.max_value_spin.setDecimals(0)  # Will be updated by decimal_spin
+        self.max_value_spin.setValue(100)
         layout.addWidget(self.max_value_spin, row, 1)
 
-        layout.addWidget(QLabel("for voltage [V]:"), row, 2)
-        self.max_voltage_spin = QDoubleSpinBox()
-        self.max_voltage_spin.setRange(0.0, 30.0)
-        self.max_voltage_spin.setDecimals(2)
+        layout.addWidget(QLabel("for voltage:"), row, 2)
+        self.max_voltage_spin = VoltageSpinBox()
         self.max_voltage_spin.setValue(5.0)
         layout.addWidget(self.max_voltage_spin, row, 3)
 
@@ -276,6 +267,14 @@ class AnalogInputDialog(BaseChannelDialog):
         # Decimal places only for linear/calibrated
         self.decimal_label.setVisible(is_linear or is_calibrated)
         self.decimal_spin.setVisible(is_linear or is_calibrated)
+
+    def _on_decimal_changed(self, decimals: int):
+        """Update spinbox decimal places when decimal_spin changes"""
+        # Update min/max value spinboxes
+        if hasattr(self, 'min_value_spin'):
+            self.min_value_spin.setDecimals(decimals)
+        if hasattr(self, 'max_value_spin'):
+            self.max_value_spin.setDecimals(decimals)
 
     def _add_calibration_row(self):
         """Add row to calibration table"""
@@ -358,12 +357,12 @@ class AnalogInputDialog(BaseChannelDialog):
 
         # Rotary switch
         self.positions_spin.setValue(config.get("positions", 4))
-        self.debounce_spin.setValue(config.get("debounce_ms", 50))
+        self.debounce_spin.setValueMs(config.get("debounce_ms", 50))
 
-        # Linear mode values
-        self.min_value_spin.setValue(config.get("min_value", 0.0))
+        # Linear mode values (float, decimals set by decimal_spin)
+        self.min_value_spin.setValue(float(config.get("min_value", 0)))
         self.min_voltage_spin.setValue(config.get("min_voltage", 0.0))
-        self.max_value_spin.setValue(config.get("max_value", 100.0))
+        self.max_value_spin.setValue(float(config.get("max_value", 100)))
         self.max_voltage_spin.setValue(config.get("max_voltage", 5.0))
 
         # Calibration points
@@ -423,7 +422,7 @@ class AnalogInputDialog(BaseChannelDialog):
             "threshold_low": self.threshold_low_spin.value(),
             "threshold_low_time_ms": self.threshold_low_time_spin.value(),
             "positions": self.positions_spin.value(),
-            "debounce_ms": self.debounce_spin.value(),
+            "debounce_ms": self.debounce_spin.valueMs(),
             "min_voltage": self.min_voltage_spin.value(),
             "max_voltage": self.max_voltage_spin.value(),
             "min_value": self.min_value_spin.value(),
@@ -432,3 +431,17 @@ class AnalogInputDialog(BaseChannelDialog):
         })
 
         return config
+
+    def _finalize_ui(self):
+        """Override to customize dialog size - compact form."""
+        self.adjustSize()
+        current_size = self.sizeHint()
+
+        # Apply size adjustments:
+        # - Width: 0.75x (narrower)
+        # - Height: 0.7x (30% reduction)
+        new_width = int(current_size.width() * 0.75)
+        new_height = int(current_size.height() * 0.7)
+
+        self.resize(new_width, new_height)
+        self.setMinimumSize(new_width, new_height)

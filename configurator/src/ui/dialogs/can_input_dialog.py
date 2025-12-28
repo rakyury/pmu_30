@@ -7,11 +7,19 @@ References a CAN Message Object and defines how to extract a signal value.
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
-    QLabel, QCheckBox, QMessageBox, QFrame
+    QPushButton, QLineEdit, QComboBox, QSpinBox,
+    QLabel, QCheckBox, QMessageBox, QFrame, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
+
+import logging
+
+from models.channel_display_service import ChannelIdGenerator
+from models.quantities import get_quantity_names, get_units_for_quantity, get_default_unit
+from ui.widgets.constant_spinbox import ConstantSpinBox
+
+logger = logging.getLogger(__name__)
 
 
 class CANInputDialog(QDialog):
@@ -130,7 +138,8 @@ class CANInputDialog(QDialog):
 
     def __init__(self, parent=None, input_config: Optional[Dict[str, Any]] = None,
                  message_ids: Optional[List[str]] = None,
-                 existing_channel_ids: Optional[List[str]] = None):
+                 existing_channel_ids: Optional[List[str]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
         """
         Initialize CAN Input Dialog.
 
@@ -138,18 +147,27 @@ class CANInputDialog(QDialog):
             parent: Parent widget
             input_config: Existing input configuration (for editing)
             message_ids: List of available CAN message IDs
-            existing_channel_ids: List of existing channel IDs (for validation)
+            existing_channel_ids: List of existing channel IDs (for name validation)
+            existing_channels: List of all existing channel configs (for channel_id generation)
         """
         super().__init__(parent)
         self.input_config = input_config
         self.message_ids = message_ids or []
         self.existing_channel_ids = existing_channel_ids or []
+        self.existing_channels = existing_channels or []
         # For backwards compatibility, try 'name' first, fall back to 'id'
         self.editing_name = (input_config.get("name", "") or input_config.get("id", "")) if input_config else ""
 
+        # Generate or load channel_id (must be positive integer, 0 means not assigned)
+        existing_ch_id = input_config.get("channel_id") if input_config else None
+        if isinstance(existing_ch_id, int) and existing_ch_id > 0:
+            self._channel_id = existing_ch_id
+        else:
+            self._channel_id = ChannelIdGenerator.get_next_channel_id(self.existing_channels)
+
         self.setWindowTitle("CAN Input" if not input_config else f"Edit CAN Input: {self.editing_name}")
         self.setModal(True)
-        self.resize(550, 650)
+        self.resize(182, 333)  # Very compact (10% narrower)
 
         self._init_ui()
 
@@ -181,6 +199,12 @@ class CANInputDialog(QDialog):
         id_group = QGroupBox("Identification")
         id_layout = QFormLayout()
 
+        # Channel ID (read-only, shown when editing)
+        if self.input_config:
+            self.channel_id_label = QLabel(str(self._channel_id))
+            self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
+            id_layout.addRow("Channel ID:", self.channel_id_label)
+
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("e.g., EngineRPM, CoolantTemp")
         self.name_edit.setToolTip("Unique channel name")
@@ -194,12 +218,21 @@ class CANInputDialog(QDialog):
         msg_layout = QFormLayout()
 
         self.message_combo = QComboBox()
-        if not self.message_ids:
+
+        # When editing, ensure the current message_ref is in the list even if not in message_ids
+        effective_message_ids = list(self.message_ids)
+        if self.input_config:
+            current_ref = self.input_config.get("message_ref", "")
+            if current_ref and current_ref not in effective_message_ids:
+                effective_message_ids.insert(0, current_ref)
+                logger.warning(f"Message ref '{current_ref}' not in available messages, adding to list")
+
+        if not effective_message_ids:
             self.message_combo.addItem("(No messages available)", "")
             self.message_combo.setEnabled(False)
         else:
             self.message_combo.addItem("-- Select Message --", "")
-            for msg_id in self.message_ids:
+            for msg_id in effective_message_ids:
                 self.message_combo.addItem(msg_id, msg_id)
         self.message_combo.setToolTip("Select the CAN message this input reads from")
         msg_layout.addRow("Message: *", self.message_combo)
@@ -271,28 +304,25 @@ class CANInputDialog(QDialog):
         data_group.setLayout(data_layout)
         layout.addWidget(data_group)
 
-        # Scaling group
+        # Scaling group - integer values
         scale_group = QGroupBox("Scaling")
         scale_layout = QFormLayout()
 
-        self.multiplier_spin = QDoubleSpinBox()
+        self.multiplier_spin = QSpinBox()
         self.multiplier_spin.setRange(-1000000, 1000000)
-        self.multiplier_spin.setDecimals(6)
-        self.multiplier_spin.setValue(1.0)
+        self.multiplier_spin.setValue(1)
         self.multiplier_spin.setToolTip("Multiplier (value * multiplier)")
         scale_layout.addRow("Multiplier:", self.multiplier_spin)
 
-        self.divider_spin = QDoubleSpinBox()
-        self.divider_spin.setRange(0.000001, 1000000)
-        self.divider_spin.setDecimals(6)
-        self.divider_spin.setValue(1.0)
+        self.divider_spin = QSpinBox()
+        self.divider_spin.setRange(1, 1000000)
+        self.divider_spin.setValue(1)
         self.divider_spin.setToolTip("Divider (value / divider)")
         scale_layout.addRow("Divider:", self.divider_spin)
 
-        self.offset_spin = QDoubleSpinBox()
+        self.offset_spin = QSpinBox()
         self.offset_spin.setRange(-1000000, 1000000)
-        self.offset_spin.setDecimals(4)
-        self.offset_spin.setValue(0.0)
+        self.offset_spin.setValue(0)
         self.offset_spin.setToolTip("Offset added after multiplier/divider")
         scale_layout.addRow("Offset:", self.offset_spin)
 
@@ -302,6 +332,28 @@ class CANInputDialog(QDialog):
         self.decimals_spin.setToolTip("Decimal places for display")
         scale_layout.addRow("Decimal Places:", self.decimals_spin)
 
+        # Quantity/Unit selection
+        qu_container = QWidget()
+        qu_layout = QHBoxLayout(qu_container)
+        qu_layout.setContentsMargins(0, 0, 0, 0)
+        qu_layout.setSpacing(4)
+
+        self.quantity_combo = QComboBox()
+        self.quantity_combo.setMinimumWidth(120)
+        for name in get_quantity_names():
+            self.quantity_combo.addItem(name)
+        self.quantity_combo.currentTextChanged.connect(self._on_quantity_changed)
+        qu_layout.addWidget(self.quantity_combo)
+
+        self.unit_combo = QComboBox()
+        self.unit_combo.setMinimumWidth(70)
+        qu_layout.addWidget(self.unit_combo)
+
+        scale_layout.addRow("Quantity/Unit:", qu_container)
+
+        # Initialize units for default quantity
+        self._on_quantity_changed(self.quantity_combo.currentText())
+
         scale_group.setLayout(scale_layout)
         layout.addWidget(scale_group)
 
@@ -309,9 +361,8 @@ class CANInputDialog(QDialog):
         timeout_group = QGroupBox("Timeout Behavior")
         timeout_layout = QFormLayout()
 
-        self.default_value_spin = QDoubleSpinBox()
-        self.default_value_spin.setRange(-1000000, 1000000)
-        self.default_value_spin.setDecimals(4)
+        self.default_value_spin = ConstantSpinBox()
+        self.default_value_spin.setRange(-10000.00, 10000.00)
         self.default_value_spin.setValue(0.0)
         self.default_value_spin.setToolTip("Value to use when message times out")
         timeout_layout.addRow("Default Value:", self.default_value_spin)
@@ -324,8 +375,6 @@ class CANInputDialog(QDialog):
 
         timeout_group.setLayout(timeout_layout)
         layout.addWidget(timeout_group)
-
-        layout.addStretch()
 
         # Buttons
         button_layout = QHBoxLayout()
@@ -381,12 +430,19 @@ class CANInputDialog(QDialog):
             self.name_edit.setFocus()
             return
 
-        # Check name format
-        import re
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', channel_name):
+        # Check name format - allow most characters except problematic ones
+        forbidden_chars = '"\'\\;{}[]'
+        if not channel_name[0].isalpha() and channel_name[0] != '_':
             QMessageBox.warning(
                 self, "Validation Error",
-                "Name must start with a letter or underscore and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore!"
+            )
+            self.name_edit.setFocus()
+            return
+        if any(c in channel_name for c in forbidden_chars):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Name cannot contain: \" ' \\ ; { } [ ]"
             )
             self.name_edit.setFocus()
             return
@@ -421,17 +477,44 @@ class CANInputDialog(QDialog):
 
         self.accept()
 
+    def _on_quantity_changed(self, quantity: str):
+        """Update available units when quantity changes."""
+        units = get_units_for_quantity(quantity)
+        default_unit = get_default_unit(quantity)
+
+        self.unit_combo.clear()
+        for unit in units:
+            self.unit_combo.addItem(unit.symbol)
+
+        index = self.unit_combo.findText(default_unit)
+        if index >= 0:
+            self.unit_combo.setCurrentIndex(index)
+
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
+        logger.debug(f"CANInputDialog._load_config: config={config}")
+        logger.debug(f"CANInputDialog._load_config: message_ids={self.message_ids}")
+
         # For backwards compatibility, try 'name' first, fall back to 'id'
         name = config.get("name", "") or config.get("id", "")
         self.name_edit.setText(name)
 
         # Message reference
         message_ref = config.get("message_ref", "")
+        logger.debug(f"CANInputDialog._load_config: message_ref='{message_ref}'")
+
+        # List all combo items for debugging
+        combo_items = [(self.message_combo.itemText(i), self.message_combo.itemData(i))
+                       for i in range(self.message_combo.count())]
+        logger.debug(f"CANInputDialog._load_config: combo items={combo_items}")
+
         idx = self.message_combo.findData(message_ref)
+        logger.debug(f"CANInputDialog._load_config: findData('{message_ref}') = {idx}")
+
         if idx >= 0:
             self.message_combo.setCurrentIndex(idx)
+        else:
+            logger.warning(f"Message ref '{message_ref}' not found in combo. Available: {[item[1] for item in combo_items]}")
 
         # Frame offset
         self.frame_offset_spin.setValue(config.get("frame_offset", 0))
@@ -466,11 +549,21 @@ class CANInputDialog(QDialog):
         self.start_bit_spin.setValue(config.get("start_bit", 0))
         self.bit_length_spin.setValue(config.get("bit_length", 16))
 
-        # Scaling
-        self.multiplier_spin.setValue(config.get("multiplier", 1.0))
-        self.divider_spin.setValue(config.get("divider", 1.0))
-        self.offset_spin.setValue(config.get("offset", 0.0))
+        # Scaling (integer values)
+        self.multiplier_spin.setValue(int(config.get("multiplier", 1)))
+        self.divider_spin.setValue(max(1, int(config.get("divider", 1))))
+        self.offset_spin.setValue(int(config.get("offset", 0)))
         self.decimals_spin.setValue(config.get("decimal_places", 0))
+
+        # Quantity/Unit
+        quantity = config.get("quantity", "User")
+        index = self.quantity_combo.findText(quantity)
+        if index >= 0:
+            self.quantity_combo.setCurrentIndex(index)
+        unit = config.get("unit", "user")
+        index = self.unit_combo.findText(unit)
+        if index >= 0:
+            self.unit_combo.setCurrentIndex(index)
 
         # Timeout behavior
         self.default_value_spin.setValue(config.get("default_value", 0.0))
@@ -496,6 +589,7 @@ class CANInputDialog(QDialog):
         timeout_behavior = self.TIMEOUT_BEHAVIORS[timeout_behavior_index][1]
 
         config = {
+            "channel_id": self._channel_id,
             "name": self.name_edit.text().strip(),
             "channel_type": "can_rx",
             "message_ref": self.message_combo.currentData() or "",
@@ -510,6 +604,8 @@ class CANInputDialog(QDialog):
             "divider": self.divider_spin.value(),
             "offset": self.offset_spin.value(),
             "decimal_places": self.decimals_spin.value(),
+            "quantity": self.quantity_combo.currentText(),
+            "unit": self.unit_combo.currentText(),
             "default_value": self.default_value_spin.value(),
             "timeout_behavior": timeout_behavior,
         }

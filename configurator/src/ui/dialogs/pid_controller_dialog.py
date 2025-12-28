@@ -4,12 +4,13 @@ Configures a single PID controller channel for the PMU-30
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QDoubleSpinBox, QCheckBox, QSpinBox,
+    QFormLayout, QGroupBox, QCheckBox, QSpinBox,
     QLineEdit, QWidget, QHBoxLayout, QPushButton, QTabWidget, QVBoxLayout
 )
 from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelType
+from ui.widgets.constant_spinbox import ConstantSpinBox
 from .base_channel_dialog import BaseChannelDialog
 
 
@@ -62,10 +63,9 @@ class PIDControllerDialog(BaseChannelDialog):
         io_layout.addRow("Setpoint Channel:", self.setpoint_container)
 
         # Fixed setpoint value
-        self.setpoint_value_spin = QDoubleSpinBox()
+        self.setpoint_value_spin = ConstantSpinBox()
         self.setpoint_value_spin.setRange(-100000.0, 100000.0)
         self.setpoint_value_spin.setValue(0.0)
-        self.setpoint_value_spin.setDecimals(2)
         self.setpoint_value_spin.setToolTip("Fixed setpoint value (used if no setpoint channel)")
         io_layout.addRow("Setpoint Value:", self.setpoint_value_spin)
 
@@ -84,30 +84,27 @@ class PIDControllerDialog(BaseChannelDialog):
         io_group.setLayout(io_layout)
         main_layout.addWidget(io_group)
 
-        # PID Parameters
+        # PID Parameters (2 decimal places)
         pid_group = QGroupBox("PID Parameters")
         pid_layout = QFormLayout()
 
-        self.kp_spin = QDoubleSpinBox()
+        self.kp_spin = ConstantSpinBox()
         self.kp_spin.setRange(-10000.0, 10000.0)
         self.kp_spin.setValue(1.0)
-        self.kp_spin.setDecimals(2)
         self.kp_spin.setSingleStep(0.1)
         self.kp_spin.setToolTip("Proportional gain - responds to current error")
         pid_layout.addRow("Kp (Proportional):", self.kp_spin)
 
-        self.ki_spin = QDoubleSpinBox()
+        self.ki_spin = ConstantSpinBox()
         self.ki_spin.setRange(-10000.0, 10000.0)
         self.ki_spin.setValue(0.0)
-        self.ki_spin.setDecimals(2)
         self.ki_spin.setSingleStep(0.01)
         self.ki_spin.setToolTip("Integral gain - responds to accumulated error")
         pid_layout.addRow("Ki (Integral):", self.ki_spin)
 
-        self.kd_spin = QDoubleSpinBox()
+        self.kd_spin = ConstantSpinBox()
         self.kd_spin.setRange(-10000.0, 10000.0)
         self.kd_spin.setValue(0.0)
-        self.kd_spin.setDecimals(2)
         self.kd_spin.setSingleStep(0.01)
         self.kd_spin.setToolTip("Derivative gain - responds to rate of error change")
         pid_layout.addRow("Kd (Derivative):", self.kd_spin)
@@ -127,17 +124,15 @@ class PIDControllerDialog(BaseChannelDialog):
         limits_group = QGroupBox("Output Limits")
         limits_layout = QFormLayout()
 
-        self.output_min_spin = QDoubleSpinBox()
+        self.output_min_spin = ConstantSpinBox()
         self.output_min_spin.setRange(-100000.0, 100000.0)
         self.output_min_spin.setValue(0.0)
-        self.output_min_spin.setDecimals(2)
         self.output_min_spin.setToolTip("Minimum output value (clamp)")
         limits_layout.addRow("Output Min:", self.output_min_spin)
 
-        self.output_max_spin = QDoubleSpinBox()
+        self.output_max_spin = ConstantSpinBox()
         self.output_max_spin.setRange(-100000.0, 100000.0)
         self.output_max_spin.setValue(100.0)
-        self.output_max_spin.setDecimals(2)
         self.output_max_spin.setToolTip("Maximum output value (clamp)")
         limits_layout.addRow("Output Max:", self.output_max_spin)
 
@@ -165,10 +160,9 @@ class PIDControllerDialog(BaseChannelDialog):
         self.derivative_filter_check.setToolTip("Apply low-pass filter to derivative term to reduce noise")
         settings_layout.addRow("", self.derivative_filter_check)
 
-        self.filter_coeff_spin = QDoubleSpinBox()
+        self.filter_coeff_spin = ConstantSpinBox()
         self.filter_coeff_spin.setRange(0.0, 1.0)
         self.filter_coeff_spin.setValue(0.1)
-        self.filter_coeff_spin.setDecimals(3)
         self.filter_coeff_spin.setSingleStep(0.01)
         self.filter_coeff_spin.setToolTip("Derivative filter coefficient (0-1, lower = more filtering)")
         settings_layout.addRow("Filter Coefficient:", self.filter_coeff_spin)

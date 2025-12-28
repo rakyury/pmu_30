@@ -91,7 +91,6 @@ typedef struct {
     uint32_t tables_2d;           /**< Number of 2D tables */
     uint32_t tables_3d;           /**< Number of 3D tables */
     uint32_t switches;            /**< Number of switches */
-    uint32_t enums;               /**< Number of enumerations */
     uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
     uint32_t lin_frame_objects;   /**< Number of LIN frame objects (Level 1) */

@@ -232,15 +232,26 @@ pmu.setVirtual(0, timer)
         self._update_buttons()
 
     def _add_basic_fields(self):
-        """Add name, description, and enabled fields to basic group."""
-        # Find the basic group
-        basic_group = self.scroll_widget.findChildren(QGroupBox)[0]
+        """Add description and enabled fields to basic group.
+
+        Note: name_edit is already created by BaseChannelDialog.
+        """
+        # Find the basic group from the content layout
+        basic_group = None
+        for i in range(self.content_layout.count()):
+            item = self.content_layout.itemAt(i)
+            if item and item.widget() and isinstance(item.widget(), QGroupBox):
+                basic_group = item.widget()
+                break
+
+        if not basic_group:
+            return
+
         basic_layout = basic_group.layout()
 
-        # Name field
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Human-readable name for the script")
-        basic_layout.addRow("Name:", self.name_edit)
+        # Update name field placeholder (already exists from base class)
+        if hasattr(self, 'name_edit') and self.name_edit:
+            self.name_edit.setPlaceholderText("Human-readable name for the script")
 
         # Enabled checkbox
         self.enabled_check = QCheckBox("Script Enabled")
@@ -707,8 +718,10 @@ pmu.setVirtual(0, timer)
             self._log_console(message or "Execution failed", "error")
 
     def _load_lua_config(self, config: Dict[str, Any]):
-        """Load Lua-specific configuration."""
-        self.name_edit.setText(config.get("name", ""))
+        """Load Lua-specific configuration.
+
+        Note: name is already loaded by BaseChannelDialog._load_base_config()
+        """
         self.enabled_check.setChecked(config.get("enabled", True))
         self.description_edit.setText(config.get("description", ""))
 

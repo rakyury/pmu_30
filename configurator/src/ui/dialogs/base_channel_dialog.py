@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLineEdit, QComboBox, QLabel,
     QWidget, QMessageBox
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
@@ -84,11 +84,15 @@ class BaseChannelDialog(QDialog):
         self.available_channels = available_channels or {}
         self.channel_type = channel_type
         self.existing_channels = existing_channels or []
-        self.is_edit_mode = bool(config and config.get("channel_id") is not None)
+
+        # channel_id must be positive integer (0 means not assigned)
+        existing_ch_id = config.get("channel_id") if config else None
+        has_valid_channel_id = isinstance(existing_ch_id, int) and existing_ch_id > 0
+        self.is_edit_mode = bool(config and has_valid_channel_id)
 
         # Store or generate channel_id
-        if self.is_edit_mode:
-            self._channel_id = config.get("channel_id", 0)
+        if has_valid_channel_id:
+            self._channel_id = existing_ch_id
         else:
             self._channel_id = get_next_channel_id(existing_channels)
 
@@ -132,38 +136,13 @@ class BaseChannelDialog(QDialog):
         # Ensure dialog fits its content
         self.adjustSize()
 
-        # Make dialog 50% wider for better readability
+        # Apply size adjustments:
+        # - Width: scale by 1.8x for better readability
+        # - Height: 0.7x (30% reduction for compact forms)
         current_size = self.sizeHint()
-        new_width = int(current_size.width() * 1.5)
-        self.resize(new_width, current_size.height())
-
-        # Set minimum to this new size
-        self.setMinimumSize(new_width, current_size.height())
-
-        # Restore saved geometry if available (overrides the above if saved)
-        self._restore_geometry()
-
-    def _get_geometry_key(self) -> str:
-        """Get settings key for this dialog type's geometry."""
-        class_name = self.__class__.__name__
-        return f"DialogGeometry/{class_name}"
-
-    def _save_geometry(self):
-        """Save dialog geometry to settings."""
-        settings = QSettings("R2M-Sport", "PMU-30 Configurator")
-        settings.setValue(self._get_geometry_key(), self.saveGeometry())
-
-    def _restore_geometry(self):
-        """Restore dialog geometry from settings."""
-        settings = QSettings("R2M-Sport", "PMU-30 Configurator")
-        geometry = settings.value(self._get_geometry_key())
-        if geometry:
-            self.restoreGeometry(geometry)
-
-    def closeEvent(self, event):
-        """Save geometry when dialog closes."""
-        self._save_geometry()
-        super().closeEvent(event)
+        new_width = int(current_size.width() * 1.8)
+        new_height = int(current_size.height() * 0.7)
+        self.resize(new_width, new_height)
 
     def _create_basic_group(self):
         """Create basic settings group"""

@@ -301,12 +301,19 @@ class CANMessageDialog(QDialog):
             self.name_edit.setFocus()
             return
 
-        # Check name format
-        import re
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', msg_name):
+        # Check name format - allow most characters except problematic ones
+        forbidden_chars = '"\'\\;{}[]'
+        if not msg_name[0].isalpha() and msg_name[0] != '_':
             QMessageBox.warning(
                 self, "Validation Error",
-                "Message name must start with a letter or underscore and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore!"
+            )
+            self.name_edit.setFocus()
+            return
+        if any(c in msg_name for c in forbidden_chars):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Name cannot contain: \" ' \\ ; { } [ ]"
             )
             self.name_edit.setFocus()
             return
