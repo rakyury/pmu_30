@@ -108,27 +108,266 @@ Reads continuous voltage values and converts them to engineering units.
 **Hardware Resources:**
 - 20 dedicated analog input pins (A1-A20)
 - 12-bit ADC resolution (0-4095)
-- Voltage range: 0-5V (typical), 0-30V with divider
+- Voltage range: 0-5V (typical), 0-30V with external divider
 - Configurable pull-up/pull-down resistors
 
-**Key Behaviors:**
-- **Scaling**: Linear voltage-to-value mapping
-- **Calibration**: Multi-point calibration curves
-- **Rotary Switch**: Auto-detects multi-position switches
-- **Threshold**: Can output digital states based on voltage thresholds
+---
 
-**Example - Oil Pressure Sensor:**
+#### Analog Input Subtypes
+
+| Subtype | Value | Description | Output Type |
+|---------|-------|-------------|-------------|
+| `switch_active_low` | 0 | Voltage threshold → digital output | Boolean (0/1) |
+| `switch_active_high` | 1 | Voltage threshold → digital output | Boolean (0/1) |
+| `rotary_switch` | 2 | Multi-position switch detector | Integer (0-N) |
+| `linear` | 3 | Linear voltage-to-value scaling | Float |
+| `calibrated` | 4 | Multi-point calibration curve | Float |
+
+---
+
+#### Subtype: Switch (Active Low / Active High)
+
+Converts analog voltage to a digital on/off signal using configurable thresholds with hysteresis and debounce.
+
+**How it works:**
+- **Active High**: Output = 1 when voltage > high threshold
+- **Active Low**: Output = 1 when voltage < low threshold (inverted logic)
+- Hysteresis between high/low thresholds prevents oscillation
+- Time-based debounce filters noise
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `threshold_high` | float | 2.5 | Upper threshold voltage (V) |
+| `threshold_high_time_ms` | int | 50 | Time above threshold before switching ON |
+| `threshold_low` | float | 1.5 | Lower threshold voltage (V) |
+| `threshold_low_time_ms` | int | 50 | Time below threshold before switching OFF |
+
+**Example - Button on Analog Pin:**
+```json
+{
+  "id": "start_button",
+  "channel_type": "analog_input",
+  "subtype": "switch_active_high",
+  "input_pin": 0,
+  "pullup_option": "10k_up",
+  "threshold_high": 3.5,
+  "threshold_high_time_ms": 20,
+  "threshold_low": 1.5,
+  "threshold_low_time_ms": 20
+}
+```
+
+---
+
+#### Subtype: Rotary Switch
+
+Detects multi-position rotary switches using voltage divider networks.
+
+**How it works:**
+- Divides voltage range into N equal zones
+- Each zone maps to a position number (0 to N-1)
+- Debounce prevents false transitions during switching
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `positions` | int | 4 | Number of switch positions (2-12) |
+| `debounce_ms` | int | 50 | Debounce time in milliseconds |
+
+**Example - 6-Position Mode Selector:**
+```json
+{
+  "id": "drive_mode",
+  "channel_type": "analog_input",
+  "subtype": "rotary_switch",
+  "input_pin": 3,
+  "pullup_option": "10k_up",
+  "positions": 6,
+  "debounce_ms": 100
+}
+```
+
+**Voltage Zones (example for 6 positions on 5V):**
+| Position | Voltage Range |
+|----------|---------------|
+| 0 | 0.00V - 0.83V |
+| 1 | 0.83V - 1.67V |
+| 2 | 1.67V - 2.50V |
+| 3 | 2.50V - 3.33V |
+| 4 | 3.33V - 4.17V |
+| 5 | 4.17V - 5.00V |
+
+---
+
+#### Subtype: Linear
+
+Maps voltage linearly to engineering units. Most common for analog sensors.
+
+**How it works:**
+```
+                    (voltage - min_voltage)
+output = min_value + ────────────────────────── × (max_value - min_value)
+                    (max_voltage - min_voltage)
+```
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `min_voltage` | float | 0.0 | Voltage at minimum value (V) |
+| `max_voltage` | float | 5.0 | Voltage at maximum value (V) |
+| `min_value` | float | 0 | Output at min_voltage |
+| `max_value` | float | 100 | Output at max_voltage |
+| `decimal_places` | int | 0 | Display precision (0-6) |
+
+**Example - Oil Pressure Sensor (0.5-4.5V = 0-10 bar):**
 ```json
 {
   "id": "oil_pressure",
   "channel_type": "analog_input",
-  "input_pin": 4,
   "subtype": "linear",
+  "input_pin": 4,
+  "pullup_option": "none",
   "min_voltage": 0.5,
   "max_voltage": 4.5,
   "min_value": 0,
   "max_value": 100,
-  "decimal_places": 1
+  "decimal_places": 1,
+  "quantity": "Pressure",
+  "unit": "bar"
+}
+```
+
+**Example - Fuel Level Sender (240Ω empty, 33Ω full with 10K pullup):**
+```json
+{
+  "id": "fuel_level",
+  "channel_type": "analog_input",
+  "subtype": "linear",
+  "input_pin": 5,
+  "pullup_option": "10k_up",
+  "min_voltage": 0.65,
+  "max_voltage": 3.3,
+  "min_value": 0,
+  "max_value": 100,
+  "decimal_places": 0,
+  "quantity": "Percentage",
+  "unit": "%"
+}
+```
+
+---
+
+#### Subtype: Calibrated
+
+Uses a multi-point lookup table for non-linear sensors like thermistors.
+
+**How it works:**
+- Define up to 16 voltage-value pairs
+- Firmware interpolates between points
+- Best for NTC thermistors, custom sensors
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `calibration_points` | array | Array of {voltage, value} pairs |
+| `decimal_places` | int | Display precision (0-6) |
+
+**Example - NTC Thermistor (Coolant Temperature):**
+```json
+{
+  "id": "coolant_temp",
+  "channel_type": "analog_input",
+  "subtype": "calibrated",
+  "input_pin": 6,
+  "pullup_option": "10k_up",
+  "decimal_places": 0,
+  "quantity": "Temperature",
+  "unit": "°C",
+  "calibration_points": [
+    {"voltage": 0.25, "value": 120},
+    {"voltage": 0.50, "value": 100},
+    {"voltage": 1.00, "value": 80},
+    {"voltage": 1.50, "value": 60},
+    {"voltage": 2.00, "value": 40},
+    {"voltage": 2.50, "value": 25},
+    {"voltage": 3.00, "value": 10},
+    {"voltage": 3.50, "value": 0},
+    {"voltage": 4.00, "value": -10},
+    {"voltage": 4.50, "value": -20}
+  ]
+}
+```
+
+---
+
+#### Pullup/Pulldown Options
+
+Configure internal resistors for proper sensor biasing.
+
+| Option | Value | Description | Use Case |
+|--------|-------|-------------|----------|
+| `1m_down` | Default | 1MΩ to GND | General purpose, high impedance |
+| `none` | - | No internal resistor | Voltage output sensors (0.5-4.5V) |
+| `10k_up` | 10kΩ to VCC | Pull-up to 5V | NTC thermistors, variable resistors |
+| `10k_down` | 10kΩ to GND | Pull-down | Switches to VCC |
+| `100k_up` | 100kΩ to VCC | Weak pull-up | High impedance sensors |
+| `100k_down` | 100kΩ to GND | Weak pull-down | High impedance sensors |
+
+**Choosing the right pullup:**
+- **Voltage output sensors** (0.5-4.5V): Use `none`
+- **NTC thermistors**: Use `10k_up` (matches most automotive thermistors)
+- **Resistive fuel senders**: Use `10k_up` or match sender resistance range
+- **Switches to ground**: Use `10k_up`
+- **Switches to VCC**: Use `10k_down`
+
+---
+
+#### Quantity and Unit System
+
+The PMU-30 uses a comprehensive quantity/unit system for display purposes. Values are stored as integers internally, with `decimal_places` determining precision.
+
+**Available Quantities:**
+
+| Quantity | Default Unit | Available Units |
+|----------|--------------|-----------------|
+| User | user | user |
+| Voltage | V | V, mV, kV |
+| Current | A | A, mA, kA |
+| Temperature | °C | °C, °F, K |
+| Pressure | kPa | kPa, Pa, bar, mbar, psi, atm, mmHg, inHg |
+| Percentage | % | %, ‰ |
+| Angular velocity | rpm | rpm, krpm, rps, °/s |
+| Velocity | km/h | km/h, m/s, mph, kn |
+| Frequency | Hz | Hz, kHz, MHz, rpm |
+| Time | s | s, ms, µs, min, h |
+| Distance | m | m, km, cm, mm, mi, in, ft, yd |
+| Mass | kg | kg, g, mg, lb, oz |
+| Force | N | N, kN, lbf, kgf |
+| Power | W | W, kW, HP, PS |
+| Energy | J | J, kJ, Wh, kWh, cal |
+| Resistance | Ω | Ω, kΩ, MΩ |
+| Angle | ° | °, rad |
+| Air fuel ratio | AFR | AFR, λ |
+| Lambda | λ | λ, AFR |
+| Volume | L | L, mL, m³, gal, qt |
+| Volume flow rate | L/min | L/min, L/h, mL/min, gal/h |
+| Mass flow rate | kg/h | kg/h, g/s, lb/h |
+
+**Example with Quantity/Unit:**
+```json
+{
+  "id": "boost_pressure",
+  "channel_type": "analog_input",
+  "subtype": "linear",
+  "input_pin": 7,
+  "min_voltage": 0.5,
+  "max_voltage": 4.5,
+  "min_value": 0,
+  "max_value": 300,
+  "decimal_places": 1,
+  "quantity": "Pressure",
+  "unit": "kPa"
 }
 ```
 
@@ -152,14 +391,15 @@ Controls high-side PROFET switches with protection features.
 - **Soft Start**: Gradual ramp-up to reduce inrush current
 - **Protection**: Auto-retry on fault with configurable limits
 
-**Example - Headlights with Soft Start:**
+**Example - Headlights with Soft Start (PWM ramp-up):**
 ```json
 {
   "id": "headlights",
   "channel_type": "power_output",
   "output_pins": [0, 1],
   "source_channel": "lights_switch",
-  "pwm_enabled": false,
+  "pwm_enabled": true,
+  "pwm_frequency_hz": 1000,
   "soft_start_ms": 500,
   "current_limit_a": 15.0,
   "inrush_current_a": 25.0,
@@ -167,6 +407,8 @@ Controls high-side PROFET switches with protection features.
   "retry_count": 3
 }
 ```
+
+> **Note:** `soft_start_ms` requires `pwm_enabled: true`. It ramps the duty cycle from 0% to 100% over the specified time to reduce inrush current on capacitive/inductive loads.
 
 **Example - LED Bar with PWM Dimming:**
 ```json
