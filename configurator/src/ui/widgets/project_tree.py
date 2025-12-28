@@ -26,6 +26,7 @@ class ProjectTree(QWidget):
     item_edited = pyqtSignal(str, object)  # (channel_type, item_data)
     item_deleted = pyqtSignal(str, object)  # (channel_type, item_data)
     configuration_changed = pyqtSignal()
+    show_dependents_requested = pyqtSignal(str, str)  # (channel_type, channel_name)
 
     # Status colors for icons
     STATUS_COLORS = {
@@ -405,6 +406,13 @@ class ProjectTree(QWidget):
             duplicate_action = menu.addAction("Duplicate")
             duplicate_action.triggered.connect(self._duplicate_item)
 
+            # Show what depends on this channel (for logic functions and similar)
+            ch_type = data.get("channel_type")
+            if ch_type and ch_type.value in ("logic", "number", "timer", "filter", "switch", "table_2d", "table_3d", "pid", "enum"):
+                menu.addSeparator()
+                dependents_action = menu.addAction("Show Dependents")
+                dependents_action.triggered.connect(lambda checked=False, d=data: self._show_dependents(d))
+
             menu.addSeparator()
 
             delete_action = menu.addAction("Delete")
@@ -528,6 +536,20 @@ class ProjectTree(QWidget):
                 logger.warning("Edit button: channel has no type")
         else:
             logger.debug(f"Edit button: item is not a channel")
+
+    def _show_dependents(self, data: Dict[str, Any]):
+        """Show channels that depend on this channel."""
+        if not data:
+            return
+
+        channel_data = data.get("data", {})
+        channel_type = data.get("channel_type")
+
+        # Get channel name for signal
+        channel_name = channel_data.get("channel_name", "") or channel_data.get("name", "") or channel_data.get("id", "")
+
+        if channel_type and channel_name:
+            self.show_dependents_requested.emit(channel_type.value, channel_name)
 
     # ========== Add channel methods ==========
 

@@ -29,7 +29,7 @@ from .mixins import (
 from .widgets import (
     ProjectTree, OutputMonitor, AnalogMonitor, DigitalMonitor, VariablesInspector,
     PMUMonitorWidget, HBridgeMonitor, PIDTuner, CANMonitor, DataLoggerWidget,
-    ChannelGraphWidget, LogViewerWidget, ChannelSearchDialog, ConnectionStatusWidget,
+    LogViewerWidget, ChannelSearchDialog, ConnectionStatusWidget,
     InputEmulatorWidget
 )
 
@@ -219,6 +219,7 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
 
         # Variables Inspector tab
         self.variables_inspector = VariablesInspector()
+        self.variables_inspector.channel_edit_requested.connect(self._on_variables_channel_edit)
         self.monitor_tabs.addTab(self.variables_inspector, "Variables")
 
         # PID Tuner tab
@@ -235,12 +236,6 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         # Data Logger tab
         self.data_logger = DataLoggerWidget()
         self.monitor_tabs.addTab(self.data_logger, "Data Logger")
-
-        # Channel Graph tab (dependency visualization)
-        self.channel_graph = ChannelGraphWidget()
-        self.channel_graph.channel_edit_requested.connect(self._on_graph_channel_edit)
-        self.channel_graph.refresh_requested.connect(self._on_graph_refresh_requested)
-        self.monitor_tabs.addTab(self.channel_graph, "Dependencies")
 
         # Log Viewer tab (firmware logs)
         self.log_viewer = LogViewerWidget()
@@ -370,6 +365,7 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         device_menu.addSeparator()
 
         restart_action = QAction("Restart Device", self)
+        restart_action.setShortcut("Ctrl+Shift+R")
         restart_action.triggered.connect(self.restart_device)
         device_menu.addAction(restart_action)
 
@@ -429,9 +425,6 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         reset_layout_action.triggered.connect(self._reset_layout)
         windows_menu.addAction(reset_layout_action)
 
-        # View menu
-        view_menu = menubar.addMenu("View")
-
         # Help menu
         help_menu = menubar.addMenu("Help")
 
@@ -486,6 +479,7 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         self.project_tree.item_edited.connect(self._on_item_edit_requested)
         self.project_tree.item_deleted.connect(self._on_item_deleted)
         self.project_tree.configuration_changed.connect(self._on_config_changed)
+        self.project_tree.show_dependents_requested.connect(self._on_show_dependents_requested)
 
         # Device controller signals - use QueuedConnection for thread safety
         # (signals may be emitted from background receive thread)
@@ -503,6 +497,8 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
             self._on_device_reconnect_failed, Qt.ConnectionType.QueuedConnection)
         self.device_controller.connected.connect(
             self._on_device_connected, Qt.ConnectionType.QueuedConnection)
+        self.device_controller.boot_complete.connect(
+            self._on_boot_complete, Qt.ConnectionType.QueuedConnection)
 
         # Internal signals for config loading from thread
         self._config_loaded_signal.connect(self._load_config_from_device)
@@ -1187,24 +1183,50 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 self._remove_keypad_button_channels(keypad_id)
                 logger.info(f"Removed button channels for deleted keypad '{keypad_id}'")
 
-    # Configuration methods (new_configuration, open_configuration, save_configuration,
-    # _load_config_to_ui, _save_config_from_ui, _on_config_changed, _update_channel_graph,
-    # compare_configurations) are provided by MainWindowConfigMixin
+    def _on_show_dependents_requested(self, channel_type: str, channel_name: str):
+        """Show channels that depend on the selected channel."""
+        from PyQt6.QtWidgets import QMessageBox
 
-    def _on_graph_channel_edit(self, channel_id: str):
-        """Handle double-click on graph node to edit channel."""
-        # Find channel in tree and open editor
-        logger.info(f"Edit channel from graph: {channel_id}")
-        item = self.project_tree.find_channel_item(channel_id)
-        if item:
-            self.project_tree.tree.setCurrentItem(item)
-            # Get channel data from item
-            from PyQt6.QtCore import Qt
-            data = item.data(0, Qt.ItemDataRole.UserRole)
-            if isinstance(data, dict):
-                # Structure: {"type": "channel", "channel_type": "power_output", "data": {...}}
-                channel_type = data.get("channel_type", "")
-                self._on_item_edit_requested(channel_type, data)
+        # Get all channels
+        all_channels = self.project_tree.get_all_channels()
+
+        # Find the channel_id of the target channel
+        target_channel_id = None
+        for ch in all_channels:
+            ch_name = ch.get('channel_name', '') or ch.get('name', '') or ch.get('id', '')
+            if ch_name == channel_name:
+                target_channel_id = ch.get('channel_id')
+                break
+
+        if target_channel_id is None:
+            QMessageBox.warning(self, "Error", f"Channel '{channel_name}' not found.")
+            return
+
+        # Find channels that reference this channel
+        dependents = []
+        for ch in all_channels:
+            ch_name = ch.get('channel_name', '') or ch.get('name', '') or ch.get('id', '')
+            if ch_name == channel_name:
+                continue  # Skip self
+
+            # Check if this channel references the target channel by ID or name
+            referenced = self._extract_input_channels(ch)
+            if target_channel_id in referenced or channel_name in referenced:
+                ch_type = ch.get('channel_type', 'unknown')
+                dependents.append(f"{ch_name} ({ch_type})")
+
+        # Show results in message box
+        if dependents:
+            msg = f"<b>{channel_name}</b> is used by:<br><br>"
+            msg += "<br>".join(f"• {dep}" for dep in dependents)
+        else:
+            msg = f"<b>{channel_name}</b> is not used by any other channel."
+
+        QMessageBox.information(self, "Channel Dependents", msg)
+
+    # Configuration methods (new_configuration, open_configuration, save_configuration,
+    # _load_config_to_ui, _save_config_from_ui, _on_config_changed,
+    # compare_configurations) are provided by MainWindowConfigMixin
 
     def _on_monitor_channel_edit(self, channel_type: str, channel_config: dict):
         """Handle double-click on monitor table to edit channel."""
@@ -1227,17 +1249,25 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 item_type = data.get("channel_type", channel_type)
                 self._on_item_edit_requested(item_type, data)
 
-    def _on_graph_refresh_requested(self):
-        """Handle refresh request from dependency graph."""
-        # Get current channels from project tree
-        channels = self.project_tree.get_all_channels()
-        if channels:
-            self._update_channel_graph(channels)
+    def _on_variables_channel_edit(self, channel_type: str, channel_id: str):
+        """Handle double-click on variables inspector to edit channel."""
+        logger.info(f"Edit channel from variables: type={channel_type}, id={channel_id}")
+
+        if not channel_id:
+            return
+
+        # Find full channel config in project tree by channel_id (which is the channel name)
+        item = self.project_tree.find_channel_item(channel_id)
+        if item:
+            self.project_tree.tree.setCurrentItem(item)
+            # Get full channel data from tree item
+            from PyQt6.QtCore import Qt
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, dict):
+                item_type = data.get("channel_type", channel_type)
+                self._on_item_edit_requested(item_type, data)
         else:
-            # Try from config manager
-            config = self.config_manager.get_config()
-            channels = config.get("channels", [])
-            self._update_channel_graph(channels)
+            logger.warning(f"Channel not found in project tree: {channel_id}")
 
     # Device methods (connect_device, disconnect_device, read_from_device, write_to_device,
     # _load_config_from_device, _show_read_error, _apply_output_to_device,
