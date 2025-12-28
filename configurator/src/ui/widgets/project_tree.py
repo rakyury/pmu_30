@@ -33,73 +33,56 @@ class ProjectTree(QWidget):
 
     # Status colors for icons
     STATUS_COLORS = {
-        "enabled": "#22c55e",      # Green - active/enabled
-        "disabled": "#6b7280",     # Gray - disabled
-        "error": "#ef4444",        # Red - error state
-        "warning": "#f59e0b",      # Orange - warning
-        "input": "#3b82f6",        # Blue - input
-        "output": "#8b5cf6",       # Purple - output
-        "logic": "#06b6d4",        # Cyan - logic/function
-        "timer": "#ec4899",        # Pink - timer
-        "table": "#14b8a6",        # Teal - table
-        "can": "#f97316",          # Orange - CAN
-        "script": "#84cc16",       # Lime - script
-        "peripheral": "#a855f7",   # Violet - peripheral
-        "handler": "#f43f5e",      # Rose - event handler
+        "enabled": "#22c55e", "disabled": "#6b7280", "error": "#ef4444",
+        "warning": "#f59e0b", "input": "#3b82f6", "output": "#8b5cf6",
+        "logic": "#06b6d4", "timer": "#ec4899", "table": "#14b8a6",
+        "can": "#f97316", "script": "#84cc16", "peripheral": "#a855f7",
+        "handler": "#f43f5e",
     }
 
-    # Folder structure with channel types
-    FOLDER_STRUCTURE = {
-        "Inputs": {
-            "subfolders": {
-                "Digital Inputs": {"channel_type": ChannelType.DIGITAL_INPUT},
-                "Analog Inputs": {"channel_type": ChannelType.ANALOG_INPUT},
-                "CAN Inputs": {"channel_type": ChannelType.CAN_RX},
-            }
-        },
-        "Outputs": {
-            "subfolders": {
-                "Power Outputs": {"channel_type": ChannelType.POWER_OUTPUT},
-                "H-Bridge Motors": {"channel_type": ChannelType.HBRIDGE},
-                "CAN Outputs": {"channel_type": ChannelType.CAN_TX},
-            }
-        },
-        "Functions": {
-            "subfolders": {
-                "Logic": {"channel_type": ChannelType.LOGIC},
-                "Math": {"channel_type": ChannelType.NUMBER},
-                "Filters": {"channel_type": ChannelType.FILTER},
-                "PID Controllers": {"channel_type": ChannelType.PID},
-            }
-        },
-        "Tables": {
-            "subfolders": {
-                "2D Tables": {"channel_type": ChannelType.TABLE_2D},
-                "3D Tables": {"channel_type": ChannelType.TABLE_3D},
-            }
-        },
-        "State": {
-            "subfolders": {
-                "Switches": {"channel_type": ChannelType.SWITCH},
-                "Timers": {"channel_type": ChannelType.TIMER},
-            }
-        },
-        "Scripts": {
-            "subfolders": {
-                "Lua Scripts": {"channel_type": ChannelType.LUA_SCRIPT},
-            }
-        },
-        "Handlers": {
-            "subfolders": {
-                "Event Handlers": {"channel_type": ChannelType.HANDLER},
-            }
-        },
-        "Peripherals": {
-            "subfolders": {
-                "CAN Keypads": {"channel_type": ChannelType.BLINKMARINE_KEYPAD},
-            }
-        },
+    # Map channel types to color categories
+    CHANNEL_COLOR_MAP = {
+        ChannelType.DIGITAL_INPUT: "input", ChannelType.ANALOG_INPUT: "input",
+        ChannelType.CAN_RX: "can", ChannelType.POWER_OUTPUT: "output",
+        ChannelType.HBRIDGE: "output", ChannelType.CAN_TX: "can",
+        ChannelType.LOGIC: "logic", ChannelType.NUMBER: "logic",
+        ChannelType.FILTER: "logic", ChannelType.PID: "logic",
+        ChannelType.TABLE_2D: "table", ChannelType.TABLE_3D: "table",
+        ChannelType.SWITCH: "logic", ChannelType.TIMER: "timer",
+        ChannelType.LUA_SCRIPT: "script", ChannelType.BLINKMARINE_KEYPAD: "peripheral",
+        ChannelType.HANDLER: "handler",
     }
+
+    # Folder structure: (parent_name, [(subfolder_name, channel_type), ...])
+    FOLDER_STRUCTURE = [
+        ("Inputs", [
+            ("Digital Inputs", ChannelType.DIGITAL_INPUT),
+            ("Analog Inputs", ChannelType.ANALOG_INPUT),
+            ("CAN Inputs", ChannelType.CAN_RX),
+        ]),
+        ("Outputs", [
+            ("Power Outputs", ChannelType.POWER_OUTPUT),
+            ("H-Bridge Motors", ChannelType.HBRIDGE),
+            ("CAN Outputs", ChannelType.CAN_TX),
+        ]),
+        ("Functions", [
+            ("Logic", ChannelType.LOGIC),
+            ("Math", ChannelType.NUMBER),
+            ("Filters", ChannelType.FILTER),
+            ("PID Controllers", ChannelType.PID),
+        ]),
+        ("Tables", [
+            ("2D Tables", ChannelType.TABLE_2D),
+            ("3D Tables", ChannelType.TABLE_3D),
+        ]),
+        ("State", [
+            ("Switches", ChannelType.SWITCH),
+            ("Timers", ChannelType.TIMER),
+        ]),
+        ("Scripts", [("Lua Scripts", ChannelType.LUA_SCRIPT)]),
+        ("Handlers", [("Event Handlers", ChannelType.HANDLER)]),
+        ("Peripherals", [("CAN Keypads", ChannelType.BLINKMARINE_KEYPAD)]),
+    ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -155,29 +138,7 @@ class ProjectTree(QWidget):
 
     def _get_channel_status_color(self, channel_type: ChannelType, data: Dict[str, Any]) -> str:
         """Get status color for channel based on type and state."""
-
-        # Map channel type to color category
-        type_color_map = {
-            ChannelType.DIGITAL_INPUT: "input",
-            ChannelType.ANALOG_INPUT: "input",
-            ChannelType.CAN_RX: "can",
-            ChannelType.POWER_OUTPUT: "output",
-            ChannelType.HBRIDGE: "output",
-            ChannelType.CAN_TX: "can",
-            ChannelType.LOGIC: "logic",
-            ChannelType.NUMBER: "logic",
-            ChannelType.FILTER: "logic",
-            ChannelType.PID: "logic",
-            ChannelType.TABLE_2D: "table",
-            ChannelType.TABLE_3D: "table",
-            ChannelType.SWITCH: "logic",
-            ChannelType.TIMER: "timer",
-            ChannelType.LUA_SCRIPT: "script",
-            ChannelType.BLINKMARINE_KEYPAD: "peripheral",
-            ChannelType.HANDLER: "handler",
-        }
-
-        color_key = type_color_map.get(channel_type, "enabled")
+        color_key = self.CHANNEL_COLOR_MAP.get(channel_type, "enabled")
         return self.STATUS_COLORS.get(color_key, self.STATUS_COLORS["enabled"])
 
     def _init_ui(self):
@@ -231,23 +192,17 @@ class ProjectTree(QWidget):
         # Buttons panel
         button_layout = QVBoxLayout()
         button_layout.setSpacing(2)
-
-        self.add_btn = QPushButton("Add")
-        self.add_btn.clicked.connect(self._add_item)
-        button_layout.addWidget(self.add_btn)
-
-        self.duplicate_btn = QPushButton("Duplicate")
-        self.duplicate_btn.clicked.connect(self._duplicate_item)
-        button_layout.addWidget(self.duplicate_btn)
-
-        self.delete_btn = QPushButton("Delete")
-        self.delete_btn.clicked.connect(self._delete_item)
-        button_layout.addWidget(self.delete_btn)
-
-        self.edit_btn = QPushButton("Edit")
-        self.edit_btn.clicked.connect(self._edit_item)
-        button_layout.addWidget(self.edit_btn)
-
+        buttons = [
+            ("add_btn", "Add", self._add_item),
+            ("duplicate_btn", "Duplicate", self._duplicate_item),
+            ("delete_btn", "Delete", self._delete_item),
+            ("edit_btn", "Edit", self._edit_item),
+        ]
+        for attr, label, handler in buttons:
+            btn = QPushButton(label)
+            btn.clicked.connect(handler)
+            button_layout.addWidget(btn)
+            setattr(self, attr, btn)
         button_layout.addStretch()
 
         # Main horizontal layout
@@ -261,15 +216,11 @@ class ProjectTree(QWidget):
         """Create hierarchical folder structure."""
         self.folder_items: Dict[str, QTreeWidgetItem] = {}
 
-        # Bold font for root folders
-        bold_font = QFont()
+        bold_font, italic_font = QFont(), QFont()
         bold_font.setBold(True)
-
-        # Italic font for subfolders
-        italic_font = QFont()
         italic_font.setItalic(True)
 
-        for folder_name, folder_info in self.FOLDER_STRUCTURE.items():
+        for folder_name, subfolders in self.FOLDER_STRUCTURE:
             # Create main folder with 3 columns
             main_folder = QTreeWidgetItem(self.tree, [folder_name, "", ""])
             main_folder.setData(0, Qt.ItemDataRole.UserRole, {
@@ -278,32 +229,26 @@ class ProjectTree(QWidget):
             })
             main_folder.setFont(0, bold_font)
             main_folder.setExpanded(True)
-
             self.folder_items[folder_name] = main_folder
 
             # Create subfolders
-            for subfolder_name, subfolder_info in folder_info.get("subfolders", {}).items():
+            for subfolder_name, channel_type in subfolders:
                 subfolder = QTreeWidgetItem(main_folder, [subfolder_name, "", ""])
                 subfolder.setData(0, Qt.ItemDataRole.UserRole, {
                     "type": "folder",
                     "folder_name": subfolder_name,
-                    "channel_type": subfolder_info.get("channel_type")
+                    "channel_type": channel_type
                 })
                 subfolder.setFont(0, italic_font)
                 subfolder.setExpanded(False)
-
-                # Store reference
-                key = f"{folder_name}/{subfolder_name}"
-                self.folder_items[key] = subfolder
+                self.folder_items[f"{folder_name}/{subfolder_name}"] = subfolder
 
     def _map_folders_to_channel_types(self):
         """Map folders to channel types for quick access."""
-        for folder_name, folder_info in self.FOLDER_STRUCTURE.items():
-            for subfolder_name, subfolder_info in folder_info.get("subfolders", {}).items():
-                channel_type = subfolder_info.get("channel_type")
-                if channel_type:
-                    key = f"{folder_name}/{subfolder_name}"
-                    self.channel_type_folders[channel_type] = self.folder_items.get(key)
+        for folder_name, subfolders in self.FOLDER_STRUCTURE:
+            for subfolder_name, channel_type in subfolders:
+                key = f"{folder_name}/{subfolder_name}"
+                self.channel_type_folders[channel_type] = self.folder_items.get(key)
 
     def _get_folder_for_type(self, channel_type: ChannelType) -> Optional[QTreeWidgetItem]:
         """Get folder item for channel type."""
@@ -942,94 +887,62 @@ class ProjectTree(QWidget):
         """Get all BlinkMarine CAN keypads."""
         return self.get_channels_by_type(ChannelType.BLINKMARINE_KEYPAD)
 
-    def get_all_used_output_pins(self, exclude_channel_id: str = None) -> List[int]:
-        """Get all output pins currently in use by power outputs.
+    def _get_used_resources(self,
+                            channel_type: Optional[ChannelType],
+                            field_name: str,
+                            exclude_channel_id: str = None,
+                            include_legacy_channel: bool = False) -> List[int]:
+        """Generic method to get used hardware resources from channels.
 
         Args:
-            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
+            channel_type: Channel type to query, or None to use get_all_outputs()
+            field_name: Field name to extract (e.g., 'input_pin', 'bridge_number', 'pins')
+            exclude_channel_id: Optional channel name to exclude (for editing)
+            include_legacy_channel: If True, also check legacy 'channel' field
 
         Returns:
-            List of used output pin numbers (0-29)
+            List of used resource numbers
         """
-        used_pins = []
-        for output in self.get_all_outputs():
-            # Skip the channel being edited (check 'channel_name' first for consistency)
-            channel_name = output.get('channel_name', '') or output.get('name', '') or output.get('id', '')
+        used = []
+        channels = self.get_all_outputs() if channel_type is None else self.get_channels_by_type(channel_type)
+
+        for ch in channels:
+            # Get channel name for exclusion check
+            channel_name = ch.get('channel_name', '') or ch.get('name', '') or ch.get('id', '')
             if exclude_channel_id and channel_name == exclude_channel_id:
                 continue
-            # Collect all pins from this output (can have 1-3 pins)
-            pins = output.get('pins', [])
-            if isinstance(pins, list):
-                used_pins.extend(pins)
-            elif isinstance(pins, int):
-                used_pins.append(pins)
-            # Also check legacy 'channel' field
-            channel = output.get('channel')
-            if channel is not None and channel not in used_pins:
-                used_pins.append(channel)
-        return used_pins
+
+            # Extract the resource value(s)
+            value = ch.get(field_name)
+            if value is not None:
+                if isinstance(value, list):
+                    used.extend(value)
+                else:
+                    used.append(value)
+
+            # For outputs, also check legacy 'channel' field
+            if include_legacy_channel:
+                channel = ch.get('channel')
+                if channel is not None and channel not in used:
+                    used.append(channel)
+
+        return used
+
+    def get_all_used_output_pins(self, exclude_channel_id: str = None) -> List[int]:
+        """Get all output pins currently in use by power outputs (0-29)."""
+        return self._get_used_resources(None, 'pins', exclude_channel_id, include_legacy_channel=True)
 
     def get_all_used_analog_input_pins(self, exclude_channel_id: str = None) -> List[int]:
-        """Get all analog input pins currently in use.
-
-        Args:
-            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
-
-        Returns:
-            List of used analog input pin numbers (0-19)
-        """
-        used_pins = []
-        for inp in self.get_channels_by_type(ChannelType.ANALOG_INPUT):
-            # Check 'channel_name' first for consistency
-            channel_name = inp.get('channel_name', '') or inp.get('name', '') or inp.get('id', '')
-            if exclude_channel_id and channel_name == exclude_channel_id:
-                continue
-            # Pin is stored in 'input_pin' field
-            pin = inp.get('input_pin')
-            if pin is not None:
-                used_pins.append(pin)
-        return used_pins
+        """Get all analog input pins currently in use (0-19)."""
+        return self._get_used_resources(ChannelType.ANALOG_INPUT, 'input_pin', exclude_channel_id)
 
     def get_all_used_digital_input_pins(self, exclude_channel_id: str = None) -> List[int]:
-        """Get all digital input pins currently in use.
-
-        Args:
-            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
-
-        Returns:
-            List of used digital input pin numbers
-        """
-        used_pins = []
-        for inp in self.get_channels_by_type(ChannelType.DIGITAL_INPUT):
-            # Check 'channel_name' first for consistency
-            channel_name = inp.get('channel_name', '') or inp.get('name', '') or inp.get('id', '')
-            if exclude_channel_id and channel_name == exclude_channel_id:
-                continue
-            # Pin is stored in 'input_pin' field
-            pin = inp.get('input_pin')
-            if pin is not None:
-                used_pins.append(pin)
-        return used_pins
+        """Get all digital input pins currently in use."""
+        return self._get_used_resources(ChannelType.DIGITAL_INPUT, 'input_pin', exclude_channel_id)
 
     def get_all_used_hbridge_numbers(self, exclude_channel_id: str = None) -> List[int]:
-        """Get all H-Bridge numbers currently in use.
-
-        Args:
-            exclude_channel_id: Optional channel name to exclude (for editing existing channel)
-
-        Returns:
-            List of used H-Bridge numbers (0-3)
-        """
-        used_bridges = []
-        for hb in self.get_channels_by_type(ChannelType.HBRIDGE):
-            # Check 'channel_name' first for consistency
-            channel_name = hb.get('channel_name', '') or hb.get('name', '') or hb.get('id', '')
-            if exclude_channel_id and channel_name == exclude_channel_id:
-                continue
-            bridge = hb.get('bridge_number')
-            if bridge is not None:
-                used_bridges.append(bridge)
-        return used_bridges
+        """Get all H-Bridge numbers currently in use (0-3)."""
+        return self._get_used_resources(ChannelType.HBRIDGE, 'bridge_number', exclude_channel_id)
 
     def clear_all(self):
         """Clear all channels from tree (keep folder structure)."""
