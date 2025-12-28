@@ -15,6 +15,7 @@ from .config_schema import ConfigValidator, create_default_config
 from .channel import ChannelBase, ChannelType, ChannelFactory, CanMessage
 from .config_migration import ConfigMigration
 from .config_can import CANMessageManager
+from .channel_display_service import ChannelIdGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +401,18 @@ class ConfigManager:
         if channel_type:
             return sum(1 for ch in channels if ch.get("channel_type") == channel_type.value)
         return len(channels)
+
+    def get_next_channel_id(self) -> int:
+        """Get next available channel ID for a new channel.
+
+        Convenience method that delegates to ChannelIdGenerator with the
+        current configuration's channels. Use this when you have access to
+        ConfigManager and don't want to gather existing_channels manually.
+
+        Returns:
+            Next available channel ID in user range (200-999)
+        """
+        return ChannelIdGenerator.get_next_channel_id(self.get_all_channels())
 
     # ========== Convenience Methods for Specific Channel Types ==========
 
