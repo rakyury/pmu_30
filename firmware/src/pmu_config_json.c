@@ -25,6 +25,7 @@
 #include "pmu_bluetooth.h"
 #include "pmu_handler.h"
 #include "pmu_channel_ids.h"
+#include "pmu_json_helpers.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -206,17 +207,22 @@ static uint16_t ResolveToRuntimeId(uint16_t channel_id) {
 /* Helper to get input channel value by ID (new, preferred) */
 static int32_t GetInputChannelValueById(uint16_t channel_id) {
     if (channel_id == 0) return 0;
-    const PMU_Channel_t* ch = PMU_Channel_GetInfo(channel_id);
+
+    /* Translate JSON channel_id to runtime channel_id */
+    uint16_t runtime_id = MapJsonIdToRuntimeId(channel_id);
+
+    const PMU_Channel_t* ch = PMU_Channel_GetInfo(runtime_id);
     if (!ch) {
         /* Only warn after initial config load is complete */
         if (!config_loading_phase) {
             static uint32_t warn_cnt_id = 0;
             if (++warn_cnt_id <= 5) {
-                printf("[WARN] Channel ID %u not found!\n", channel_id);
+                printf("[WARN] Channel ID %u (runtime=%u) not found!\n", channel_id, runtime_id);
             }
         }
         return 0;
     }
+
     return ch->value;
 }
 
@@ -782,6 +788,27 @@ static bool JSON_ParseOutputs(cJSON* outputs_array)
     return true;
 }
 
+/* Enum maps for HBridge parsing */
+static const JSON_EnumMap_t hbridge_mode_map[] = {
+    {"coast", 0}, {"forward", 1}, {"reverse", 2}, {"brake", 3},
+    {"wiper_park", 4}, {"pid_position", 5}, JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t hbridge_pwm_mode_map[] = {
+    {"fixed", PMU_HBRIDGE_PWM_FIXED},
+    {"channel", PMU_HBRIDGE_PWM_CHANNEL},
+    {"channel_offset", PMU_HBRIDGE_PWM_BIDIRECTIONAL},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t hbridge_failsafe_mode_map[] = {
+    {"park", PMU_HBRIDGE_FAILSAFE_PARK},
+    {"brake", PMU_HBRIDGE_FAILSAFE_BRAKE},
+    {"coast", PMU_HBRIDGE_FAILSAFE_COAST},
+    {"custom_position", PMU_HBRIDGE_FAILSAFE_CUSTOM},
+    JSON_ENUM_MAP_END
+};
+
 /**
  * @brief Parse H-bridges array from JSON
  */
@@ -799,170 +826,70 @@ static bool JSON_ParseHBridges(cJSON* hbridges_array)
         PMU_HBridgeConfig_t config = {0};
 
         /* Basic settings */
-        cJSON* item = cJSON_GetObjectItem(hb, "name");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.name, item->valuestring, sizeof(config.name) - 1);
-        }
-
-        item = cJSON_GetObjectItem(hb, "bridge_number");
-        if (item && cJSON_IsNumber(item)) {
-            config.bridge = (uint8_t)item->valueint;
-        }
-
-        item = cJSON_GetObjectItem(hb, "enabled");
+        JSON_CopyString(hb, "name", config.name, sizeof(config.name));
+        config.bridge = JSON_GetUint8(hb, "bridge_number", 0);
         config.enabled = true;  /* Channels always enabled */
-
-        /* Mode */
-        item = cJSON_GetObjectItem(hb, "mode");
-        if (item && cJSON_IsString(item)) {
-            if (strcmp(item->valuestring, "coast") == 0) config.mode = 0;
-            else if (strcmp(item->valuestring, "forward") == 0) config.mode = 1;
-            else if (strcmp(item->valuestring, "reverse") == 0) config.mode = 2;
-            else if (strcmp(item->valuestring, "brake") == 0) config.mode = 3;
-            else if (strcmp(item->valuestring, "wiper_park") == 0) config.mode = 4;
-            else if (strcmp(item->valuestring, "pid_position") == 0) config.mode = 5;
-        }
-
-        item = cJSON_GetObjectItem(hb, "motor_preset");
-        if (item && cJSON_IsString(item)) {
-            strncpy(config.motor_preset, item->valuestring, sizeof(config.motor_preset) - 1);
-        }
+        config.mode = JSON_GetEnum(hb, "mode", hbridge_mode_map, 0);
+        JSON_CopyString(hb, "motor_preset", config.motor_preset, sizeof(config.motor_preset));
 
         /* Control sources */
         config.source_channel_id = JSON_GetChannelRef(hb, "source_channel");
-
         config.direction_source_channel_id = JSON_GetChannelRef(hb, "direction_source_channel");
-
-        item = cJSON_GetObjectItem(hb, "invert_direction");
-        config.invert_direction = item ? cJSON_IsTrue(item) : false;
+        config.invert_direction = JSON_GetBool(hb, "invert_direction", false);
 
         /* PWM control */
-        item = cJSON_GetObjectItem(hb, "pwm_mode");
-        if (item && cJSON_IsString(item)) {
-            if (strcmp(item->valuestring, "fixed") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_FIXED;
-            else if (strcmp(item->valuestring, "channel") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_CHANNEL;
-            else if (strcmp(item->valuestring, "channel_offset") == 0) config.pwm_mode = PMU_HBRIDGE_PWM_BIDIRECTIONAL;
-        }
-
-        item = cJSON_GetObjectItem(hb, "pwm_frequency");
-        config.pwm_frequency = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 1000;
-
-        item = cJSON_GetObjectItem(hb, "pwm_value");
-        config.pwm_value = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 255;
-
+        config.pwm_mode = JSON_GetEnum(hb, "pwm_mode", hbridge_pwm_mode_map, PMU_HBRIDGE_PWM_FIXED);
+        config.pwm_frequency = JSON_GetUint16(hb, "pwm_frequency", 1000);
+        config.pwm_value = JSON_GetUint8(hb, "pwm_value", 255);
         config.pwm_source_channel_id = JSON_GetChannelRef(hb, "pwm_source_channel");
-
-        item = cJSON_GetObjectItem(hb, "duty_limit_percent");
-        config.duty_limit_percent = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 100;
+        config.duty_limit_percent = JSON_GetUint8(hb, "duty_limit_percent", 100);
 
         /* Position control */
-        item = cJSON_GetObjectItem(hb, "position_feedback_enabled");
-        config.position_feedback_enabled = item ? cJSON_IsTrue(item) : false;
-
+        config.position_feedback_enabled = JSON_GetBool(hb, "position_feedback_enabled", false);
         config.position_source_channel_id = JSON_GetChannelRef(hb, "position_source_channel");
-
-        item = cJSON_GetObjectItem(hb, "target_position");
-        config.target_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
-
+        config.target_position = JSON_GetUint16(hb, "target_position", 0);
         config.target_source_channel_id = JSON_GetChannelRef(hb, "target_source_channel");
-
-        item = cJSON_GetObjectItem(hb, "position_min");
-        config.position_min = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
-
-        item = cJSON_GetObjectItem(hb, "position_max");
-        config.position_max = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 65535;
-
-        item = cJSON_GetObjectItem(hb, "position_deadband");
-        config.position_deadband = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
-
-        item = cJSON_GetObjectItem(hb, "position_park");
-        config.position_park = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
+        config.position_min = JSON_GetUint16(hb, "position_min", 0);
+        config.position_max = JSON_GetUint16(hb, "position_max", 65535);
+        config.position_deadband = JSON_GetUint16(hb, "position_deadband", 50);
+        config.position_park = JSON_GetFloat(hb, "position_park", 0.0f);
 
         /* Valid voltage range */
-        item = cJSON_GetObjectItem(hb, "valid_voltage_min");
-        config.valid_voltage_min = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.2f;
-
-        item = cJSON_GetObjectItem(hb, "valid_voltage_max");
-        config.valid_voltage_max = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 4.8f;
+        config.valid_voltage_min = JSON_GetFloat(hb, "valid_voltage_min", 0.2f);
+        config.valid_voltage_max = JSON_GetFloat(hb, "valid_voltage_max", 4.8f);
 
         /* Position margins */
-        item = cJSON_GetObjectItem(hb, "lower_margin");
-        config.lower_margin = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
-
-        item = cJSON_GetObjectItem(hb, "upper_margin");
-        config.upper_margin = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 50;
+        config.lower_margin = JSON_GetUint16(hb, "lower_margin", 50);
+        config.upper_margin = JSON_GetUint16(hb, "upper_margin", 50);
 
         /* PID control */
-        item = cJSON_GetObjectItem(hb, "pid_kp");
-        config.pid_kp = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 1.0f;
-
-        item = cJSON_GetObjectItem(hb, "pid_ki");
-        config.pid_ki = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
-
-        item = cJSON_GetObjectItem(hb, "pid_kd");
-        config.pid_kd = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.0f;
-
-        item = cJSON_GetObjectItem(hb, "pid_kd_filter");
-        config.pid_kd_filter = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 0.1f;
-
-        item = cJSON_GetObjectItem(hb, "pid_output_min");
-        config.pid_output_min = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : -255;
-
-        item = cJSON_GetObjectItem(hb, "pid_output_max");
-        config.pid_output_max = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : 255;
+        config.pid_kp = JSON_GetFloat(hb, "pid_kp", 1.0f);
+        config.pid_ki = JSON_GetFloat(hb, "pid_ki", 0.0f);
+        config.pid_kd = JSON_GetFloat(hb, "pid_kd", 0.0f);
+        config.pid_kd_filter = JSON_GetFloat(hb, "pid_kd_filter", 0.1f);
+        config.pid_output_min = JSON_GetInt16(hb, "pid_output_min", -255);
+        config.pid_output_max = JSON_GetInt16(hb, "pid_output_max", 255);
 
         /* Current protection */
-        item = cJSON_GetObjectItem(hb, "current_limit_a");
-        config.current_limit_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 10.0f;
-
-        item = cJSON_GetObjectItem(hb, "inrush_current_a");
-        config.inrush_current_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 30.0f;
-
-        item = cJSON_GetObjectItem(hb, "inrush_time_ms");
-        config.inrush_time_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 500;
-
-        item = cJSON_GetObjectItem(hb, "retry_count");
-        config.retry_count = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 3;
-
-        item = cJSON_GetObjectItem(hb, "retry_delay_ms");
-        config.retry_delay_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 1000;
+        config.current_limit_a = JSON_GetFloat(hb, "current_limit_a", 10.0f);
+        config.inrush_current_a = JSON_GetFloat(hb, "inrush_current_a", 30.0f);
+        config.inrush_time_ms = JSON_GetUint16(hb, "inrush_time_ms", 500);
+        config.retry_count = JSON_GetUint8(hb, "retry_count", 3);
+        config.retry_delay_ms = JSON_GetUint16(hb, "retry_delay_ms", 1000);
 
         /* Stall detection */
-        item = cJSON_GetObjectItem(hb, "stall_detection_enabled");
-        config.stall_detection_enabled = item ? cJSON_IsTrue(item) : true;
-
-        item = cJSON_GetObjectItem(hb, "stall_current_threshold_a");
-        config.stall_current_threshold_a = item && cJSON_IsNumber(item) ? (float)item->valuedouble : 5.0f;
-
-        item = cJSON_GetObjectItem(hb, "stall_time_threshold_ms");
-        config.stall_time_threshold_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 500;
-
-        item = cJSON_GetObjectItem(hb, "overtemperature_threshold_c");
-        config.overtemperature_threshold_c = item && cJSON_IsNumber(item) ? (int16_t)item->valueint : 120;
+        config.stall_detection_enabled = JSON_GetBool(hb, "stall_detection_enabled", true);
+        config.stall_current_threshold_a = JSON_GetFloat(hb, "stall_current_threshold_a", 5.0f);
+        config.stall_time_threshold_ms = JSON_GetUint16(hb, "stall_time_threshold_ms", 500);
+        config.overtemperature_threshold_c = JSON_GetInt16(hb, "overtemperature_threshold_c", 120);
 
         /* Signal loss failsafe */
-        item = cJSON_GetObjectItem(hb, "failsafe_enabled");
-        config.failsafe_enabled = item ? cJSON_IsTrue(item) : true;
-
-        item = cJSON_GetObjectItem(hb, "signal_timeout_ms");
-        config.signal_timeout_ms = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 100;
-
-        item = cJSON_GetObjectItem(hb, "failsafe_mode");
-        if (item && cJSON_IsString(item)) {
-            if (strcmp(item->valuestring, "park") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_PARK;
-            else if (strcmp(item->valuestring, "brake") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_BRAKE;
-            else if (strcmp(item->valuestring, "coast") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_COAST;
-            else if (strcmp(item->valuestring, "custom_position") == 0) config.failsafe_mode = PMU_HBRIDGE_FAILSAFE_CUSTOM;
-        }
-
-        item = cJSON_GetObjectItem(hb, "failsafe_position");
-        config.failsafe_position = item && cJSON_IsNumber(item) ? (uint16_t)item->valueint : 0;
-
-        item = cJSON_GetObjectItem(hb, "failsafe_pwm");
-        config.failsafe_pwm = item && cJSON_IsNumber(item) ? (uint8_t)item->valueint : 100;
-
-        item = cJSON_GetObjectItem(hb, "auto_recovery");
-        config.auto_recovery = item ? cJSON_IsTrue(item) : true;
+        config.failsafe_enabled = JSON_GetBool(hb, "failsafe_enabled", true);
+        config.signal_timeout_ms = JSON_GetUint16(hb, "signal_timeout_ms", 100);
+        config.failsafe_mode = JSON_GetEnum(hb, "failsafe_mode", hbridge_failsafe_mode_map, PMU_HBRIDGE_FAILSAFE_PARK);
+        config.failsafe_position = JSON_GetUint16(hb, "failsafe_position", 0);
+        config.failsafe_pwm = JSON_GetUint8(hb, "failsafe_pwm", 100);
+        config.auto_recovery = JSON_GetBool(hb, "auto_recovery", true);
 
         /* Store the configuration */
         if (config.bridge < PMU30_NUM_HBRIDGES) {
@@ -3797,19 +3724,12 @@ uint8_t PMU_PowerOutput_GetCount(void)
 void PMU_LogicChannel_Update(void)
 {
 #ifdef JSON_PARSING_ENABLED
-    static uint32_t debug_counter = 0;
-    bool debug = (++debug_counter % 5000 == 1);
-
     for (uint8_t i = 0; i < logic_count; i++) {
         PMU_LogicRuntime_t* rt = &logic_storage[i];
         PMU_LogicConfig_t* cfg = &rt->config;
 
         int32_t input1 = GetInputChannelValueById(cfg->channel_id);
         int32_t input2 = GetInputChannelValueById(cfg->channel_2_id);
-
-        if (debug) {
-            printf("[LOGIC] '%s': ch_id=%u=%d, op=%d\n", cfg->id, cfg->channel_id, input1, cfg->operation);
-        }
 
         bool result = false;
 
