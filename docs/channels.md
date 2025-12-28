@@ -397,7 +397,7 @@ Controls high-side PROFET switches with protection features.
   "id": "headlights",
   "channel_type": "power_output",
   "output_pins": [0, 1],
-  "source_channel": "lights_switch",
+  "source_channel_id": 200,
   "pwm_enabled": true,
   "pwm_frequency_hz": 1000,
   "soft_start_ms": 500,
@@ -416,13 +416,15 @@ Controls high-side PROFET switches with protection features.
   "id": "led_bar",
   "channel_type": "power_output",
   "output_pins": [5],
-  "source_channel": "lights_on",
+  "source_channel_id": 200,
   "pwm_enabled": true,
   "pwm_frequency_hz": 500,
-  "duty_channel": "dimmer_level",
+  "duty_channel_id": 201,
   "current_limit_a": 10.0
 }
 ```
+
+> **Note:** Channel references use integer IDs (`source_channel_id`, `duty_channel_id`), not string names. Use channel_id 0 for "none".
 
 ### H-Bridge (`hbridge`)
 
@@ -446,13 +448,15 @@ Controls DC motors with bidirectional operation.
   "id": "window_motor",
   "channel_type": "hbridge",
   "bridge_number": 0,
-  "source_channel": "window_enable",
-  "direction_channel": "window_direction",
-  "duty_channel": "window_speed",
-  "pwm_frequency_hz": 20000,
+  "source_channel_id": 200,
+  "direction_source_channel_id": 201,
+  "pwm_source_channel_id": 202,
+  "pwm_frequency": 20000,
   "current_limit_a": 20.0
 }
 ```
+
+> **Note:** All channel references use integer IDs (e.g., `source_channel_id`, `direction_source_channel_id`). Use 0 for "none".
 
 ## Virtual Channels
 
@@ -491,8 +495,8 @@ Boolean operations on input channels.
   "id": "brake_active",
   "channel_type": "logic",
   "operation": "or",
-  "channel": "brake_pedal",
-  "channel_2": "ebrake_switch",
+  "channel_id": 10,
+  "channel_2_id": 11,
   "false_delay_s": 0.5
 }
 ```
@@ -571,7 +575,7 @@ Signal smoothing and noise reduction.
   "id": "oil_pressure_smooth",
   "channel_type": "filter",
   "filter_type": "moving_avg",
-  "input_channel": "oil_pressure_raw",
+  "input_channel_id": 205,
   "window_size": 10
 }
 ```
@@ -586,8 +590,8 @@ Multi-state selector controlled by up/down inputs.
   "id": "wiper_mode",
   "channel_type": "switch",
   "switch_type": "latching",
-  "input_up_channel": "wiper_up_btn",
-  "input_down_channel": "wiper_down_btn",
+  "input_up_channel_id": 15,
+  "input_down_channel_id": 16,
   "state_first": 0,
   "state_last": 3,
   "state_default": 0
@@ -603,8 +607,8 @@ Lookup tables for non-linear mappings.
 {
   "id": "boost_target",
   "channel_type": "table_3d",
-  "x_axis_channel": "rpm",
-  "y_axis_channel": "tps",
+  "x_axis_channel_id": 300,
+  "y_axis_channel_id": 301,
   "interpolation": "linear",
   "x_values": [1000, 2000, 3000, 4000, 5000],
   "y_values": [0, 25, 50, 75, 100],
@@ -644,7 +648,7 @@ Interface with CAN bus for data exchange.
   "message_id": 768,
   "cycle_time_ms": 100,
   "signals": [
-    {"source_channel": "battery_voltage", "start_bit": 0, "bit_length": 16}
+    {"source_channel_id": 1000, "start_bit": 0, "bit_length": 16}
   ]
 }
 ```
@@ -728,16 +732,18 @@ System channels can be referenced like any other channel:
   "id": "low_voltage_warning",
   "channel_type": "logic",
   "operation": "less",
-  "channel": "pmu.batteryVoltage",
+  "channel_id": 1000,
   "constant": 11500
 }
 ```
+
+> **Note:** System channels are referenced by their numeric ID. `pmu.batteryVoltage` = ID 1000.
 
 ```json
 {
   "id": "output_current_table",
   "channel_type": "table_2d",
-  "x_axis_channel": "pmu.o1.current",
+  "x_axis_channel_id": 1130,
   "data": [
     {"x": 0, "y": 0},
     {"x": 5000, "y": 50},
@@ -867,17 +873,24 @@ Config:                              Runtime:
 
 ## Channel References
 
-Channels reference each other by their `id` (string) or `channel_id` (numeric):
+Channels reference each other by numeric `channel_id`:
 
 ```json
 {
-  "source_channel": "ignition_switch",
-  "channel": "brake_pedal",
-  "inputs": ["temp_1", "temp_2", "temp_3"]
+  "source_channel_id": 200,
+  "channel_id": 10,
+  "input_ids": [5, 6, 7]
 }
 ```
 
-At runtime, string IDs are resolved to numeric channel IDs for efficient processing.
+**Important:** All channel references in JSON configuration use integer IDs:
+- `channel_id`, `channel_2_id` - Logic inputs
+- `source_channel_id` - Output activation source
+- `duty_channel_id` - PWM duty source
+- `input_ids` - Array of input channel IDs
+- Use `0` for "none" (no channel linked)
+
+The configurator UI shows human-readable names, but stores integer IDs in the JSON configuration.
 
 ## Units and Quantities
 
