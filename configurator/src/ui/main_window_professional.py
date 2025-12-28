@@ -29,7 +29,8 @@ from .mixins import (
 from .widgets import (
     ProjectTree, OutputMonitor, AnalogMonitor, DigitalMonitor, VariablesInspector,
     PMUMonitorWidget, HBridgeMonitor, PIDTuner, CANMonitor, DataLoggerWidget,
-    ChannelGraphWidget, LogViewerWidget, ChannelSearchDialog, ConnectionStatusWidget
+    ChannelGraphWidget, LogViewerWidget, ChannelSearchDialog, ConnectionStatusWidget,
+    InputEmulatorWidget
 )
 
 # Channel dialogs
@@ -245,6 +246,13 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         self.log_viewer = LogViewerWidget()
         self.monitor_tabs.addTab(self.log_viewer, "Logs")
 
+        # Input Emulator tab (for testing - emulator only)
+        self.input_emulator = InputEmulatorWidget()
+        self.input_emulator.digital_input_changed.connect(self._on_emulator_digital_changed)
+        self.input_emulator.analog_input_changed.connect(self._on_emulator_analog_changed)
+        self.input_emulator.can_message_injected.connect(self._on_emulator_can_injected)
+        self.monitor_tabs.addTab(self.input_emulator, "Emulator")
+
         self.monitor_dock.setWidget(self.monitor_tabs)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitor_dock)
 
@@ -334,6 +342,11 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
         connect_action.setShortcut("Ctrl+D")
         connect_action.triggered.connect(self.connect_device)
         device_menu.addAction(connect_action)
+
+        emulator_action = QAction("Connect to Emulator", self)
+        emulator_action.setShortcut("Ctrl+E")
+        emulator_action.triggered.connect(self.connect_to_emulator)
+        device_menu.addAction(emulator_action)
 
         disconnect_action = QAction("Disconnect", self)
         disconnect_action.triggered.connect(self.disconnect_device)
@@ -797,6 +810,10 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 if result:
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    # Update digital monitor to reflect changes
+                    self.digital_monitor.set_inputs(self.project_tree.get_all_inputs())
+                    # Send updated config to device
+                    self._send_config_to_device_silent()
                     logger.info(f"Digital input updated: {updated_config.get('name')}")
 
             elif channel_type == ChannelType.ANALOG_INPUT:
@@ -811,6 +828,8 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
                     self.analog_monitor.set_inputs(self.project_tree.get_all_inputs())
+                    # Send updated config to device
+                    self._send_config_to_device_silent()
                     logger.info(f"Analog input updated: {updated_config.get('name')}")
 
             elif channel_type == ChannelType.POWER_OUTPUT:
@@ -847,6 +866,8 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
                     self.hbridge_monitor.set_hbridges(self.project_tree.get_all_hbridges())
+                    # Send updated config to device
+                    self._send_config_to_device_silent()
                     logger.info(f"H-Bridge updated: {updated_config.get('name')}")
 
             elif channel_type == ChannelType.LOGIC:
@@ -854,46 +875,58 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.NUMBER:
                 dialog = NumberDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.TIMER:
                 dialog = TimerDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.SWITCH:
                 dialog = SwitchDialog(self, item_data, available_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.TABLE_2D:
                 dialog = Table2DDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.TABLE_3D:
                 dialog = Table3DDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.FILTER:
                 dialog = FilterDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.CAN_RX:
                 # CAN RX = CAN Input (signal extraction from CAN Message)
-                message_ids = [msg.get("name", "") for msg in self.config_manager.get_config().get("can_messages", []) if msg.get("name")]
+                full_config = self.config_manager.get_config()
+                logger.info(f"CAN_RX edit: config keys={list(full_config.keys())}")
+                can_messages_raw = full_config.get("can_messages", [])
+                logger.info(f"CAN_RX edit: can_messages count={len(can_messages_raw)}, names={[msg.get('name', '') for msg in can_messages_raw]}")
+                message_ids = [msg.get("name", "") for msg in can_messages_raw if msg.get("name")]
+                logger.info(f"CAN_RX edit: message_ids={message_ids}, item message_ref={item_data.get('message_ref', 'NOT SET')}")
                 existing_channels = self.project_tree.get_all_channels()
                 existing_ids = [ch.get("id", "") for ch in existing_channels]
 
@@ -907,6 +940,7 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.CAN_TX:
                 existing_ids = [ch.get("id", "") for ch in self.project_tree.get_all_channels()]
@@ -921,6 +955,7 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.LUA_SCRIPT:
                 dialog = LuaScriptTreeDialog(self, item_data, available_channels, existing_channels)
@@ -929,12 +964,14 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.PID:
                 dialog = PIDControllerDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
                 old_keypad_name = item_data.get("name", "")
@@ -944,12 +981,14 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
                     self.project_tree.update_current_item(updated_config)
                     # Sync virtual channels for keypad buttons (ECUMaster style)
                     self._sync_keypad_button_channels(updated_config, old_keypad_name)
+                    self._send_config_to_device_silent()
 
             elif channel_type == ChannelType.HANDLER:
                 dialog = HandlerDialog(self, item_data, available_channels, existing_channels)
                 if dialog.exec():
                     updated_config = dialog.get_config()
                     self.project_tree.update_current_item(updated_config)
+                    self._send_config_to_device_silent()
 
         except Exception as e:
             logger.error(f"Error in channel edit dialog: {e}")
@@ -1169,7 +1208,8 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
 
     def _on_monitor_channel_edit(self, channel_type: str, channel_config: dict):
         """Handle double-click on monitor table to edit channel."""
-        channel_name = channel_config.get('name', '')
+        # Priority: name > channel_name (for backwards compatibility)
+        channel_name = channel_config.get('name') or channel_config.get('channel_name', '')
         logger.info(f"Edit channel from monitor: type={channel_type}, name={channel_name}")
 
         if not channel_name:
@@ -1415,6 +1455,47 @@ class MainWindowProfessional(MainWindowConfigMixin, MainWindowDeviceMixin, MainW
             # Send to emulator via WebSocket if available
             logger.info(f"H-Bridge command (no device): HB{bridge + 1} mode={command} PWM={pwm}")
             self.status_message.setText(f"H-Bridge HB{bridge + 1}: {command.upper()} (not connected)")
+
+    def _on_emulator_digital_changed(self, pin: int, state: bool):
+        """Handle digital input emulation from InputEmulatorWidget."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - cannot emulate input")
+            return
+
+        import asyncio
+        asyncio.create_task(
+            self.device_controller.comm_manager.set_digital_input(pin, state)
+        )
+        state_str = "ON" if state else "OFF"
+        logger.info(f"Emulated D{pin + 1} = {state_str}")
+        self.status_message.setText(f"Emulated D{pin + 1} = {state_str}")
+
+    def _on_emulator_analog_changed(self, pin: int, voltage: float):
+        """Handle analog input emulation from InputEmulatorWidget."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - cannot emulate input")
+            return
+
+        import asyncio
+        asyncio.create_task(
+            self.device_controller.comm_manager.set_analog_input(pin, voltage)
+        )
+        logger.info(f"Emulated A{pin + 1} = {voltage:.2f}V")
+        self.status_message.setText(f"Emulated A{pin + 1} = {voltage:.2f}V")
+
+    def _on_emulator_can_injected(self, bus_id: int, can_id: int, data: bytes):
+        """Handle CAN message injection from InputEmulatorWidget."""
+        if not self.device_controller.is_connected():
+            self.status_message.setText("Not connected - cannot inject CAN")
+            return
+
+        import asyncio
+        asyncio.create_task(
+            self.device_controller.comm_manager.inject_can_message(bus_id, can_id, data)
+        )
+        data_str = " ".join(f"{b:02X}" for b in data)
+        logger.info(f"Injected CAN{bus_id + 1} 0x{can_id:X} [{len(data)}] {data_str}")
+        self.status_message.setText(f"Injected CAN{bus_id + 1} 0x{can_id:X}")
 
     # Telemetry methods (_on_telemetry_received, _update_led_indicator, _on_log_received)
     # are provided by MainWindowTelemetryMixin

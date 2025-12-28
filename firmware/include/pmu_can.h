@@ -411,6 +411,20 @@ void PMU_CAN_ProcessInputs(void);
  */
 void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc, uint8_t is_extended);
 
+/**
+ * @brief Inject CAN message for testing (emulator use)
+ *
+ * Simulates reception of a CAN message. Used for testing CAN input
+ * channel chains without real CAN hardware.
+ *
+ * @param bus_id Bus index (0 or 1)
+ * @param can_id CAN message ID (11-bit standard)
+ * @param data Data bytes (up to 8)
+ * @param dlc Data length (0-8)
+ * @retval HAL_OK on success
+ */
+HAL_StatusTypeDef PMU_CAN_InjectMessage(uint8_t bus_id, uint32_t can_id, uint8_t* data, uint8_t dlc);
+
 #ifdef __cplusplus
 }
 #endif

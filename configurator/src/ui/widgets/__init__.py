@@ -12,6 +12,7 @@ from .hbridge_monitor import HBridgeMonitor
 from .pid_tuner import PIDTuner
 from .can_monitor import CANMonitor
 from .data_logger import DataLoggerWidget
+from .input_emulator import InputEmulatorWidget
 from .channel_graph import ChannelGraphWidget
 from .log_viewer import LogViewerWidget
 from .channel_search import ChannelSearchDialog
@@ -43,6 +44,7 @@ __all__ = [
     'PIDTuner',
     'CANMonitor',
     'DataLoggerWidget',
+    'InputEmulatorWidget',
     'ChannelGraphWidget',
     'LogViewerWidget',
     'ChannelSearchDialog',

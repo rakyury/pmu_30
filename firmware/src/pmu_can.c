@@ -1191,4 +1191,19 @@ void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, 
     }
 }
 
+/**
+ * @brief Inject CAN message for testing (emulator use)
+ */
+HAL_StatusTypeDef PMU_CAN_InjectMessage(uint8_t bus_id, uint32_t can_id, uint8_t* data, uint8_t dlc)
+{
+    if (bus_id > 1 || dlc > 8 || data == NULL) {
+        return HAL_ERROR;
+    }
+
+    /* Use the standard message handler - as if we received the message */
+    PMU_CAN_HandleRxMessage((PMU_CAN_Bus_t)bus_id, can_id, data, dlc, 0);
+
+    return HAL_OK;
+}
+
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

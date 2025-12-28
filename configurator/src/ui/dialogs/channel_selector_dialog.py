@@ -35,6 +35,7 @@ class ChannelSelectorDialog(QDialog):
             "icon_color": "#ef4444",  # Red
             "types": [
                 (ChannelType.POWER_OUTPUT, "Power Outputs"),
+                (ChannelType.HBRIDGE, "H-Bridge Motors"),
                 (ChannelType.CAN_TX, "CAN TX"),
             ]
         },
@@ -44,6 +45,7 @@ class ChannelSelectorDialog(QDialog):
                 (ChannelType.LOGIC, "Logic Functions"),
                 (ChannelType.NUMBER, "Math Channels"),
                 (ChannelType.FILTER, "Filters"),
+                (ChannelType.PID, "PID Controllers"),
             ]
         },
         "Tables": {
@@ -111,6 +113,7 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.DIGITAL_INPUT: "digital_inputs",
         ChannelType.ANALOG_INPUT: "analog_inputs",
         ChannelType.POWER_OUTPUT: "power_outputs",
+        ChannelType.HBRIDGE: "hbridges",
         ChannelType.CAN_RX: "can_rx",
         ChannelType.CAN_TX: "can_tx",
         ChannelType.LOGIC: "logic",
@@ -120,6 +123,7 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.SWITCH: "switches",
         ChannelType.TIMER: "timers",
         ChannelType.FILTER: "filters",
+        ChannelType.PID: "pid_controllers",
         ChannelType.SYSTEM: "system",
         ChannelType.OUTPUT_STATUS: "output_status",
     }

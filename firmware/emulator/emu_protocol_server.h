@@ -95,6 +95,7 @@ typedef struct {
 #define EMU_MSG_SET_OUTPUT          0x85
 #define EMU_MSG_SET_ANALOG_INPUT    0x86
 #define EMU_MSG_SET_BUTTON          0x87
+#define EMU_MSG_INJECT_CAN          0x88  /* Inject CAN message for testing */
 #define EMU_MSG_EMU_ACK             0x8F
 
 /* Exported functions --------------------------------------------------------*/

@@ -15,6 +15,7 @@
 #include "pmu_channel.h"
 #include "pmu_profet.h"
 #include "pmu_blinkmarine.h"
+#include "pmu_adc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1031,6 +1032,45 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
             break;
         }
 
+        case EMU_MSG_INJECT_CAN: {
+            /* Inject CAN message for testing CAN inputs
+             * Payload format: [bus_id:1][can_id:4][dlc:1][data:0-8]
+             * Minimum length: 6 (bus_id + can_id + dlc + 0 data bytes)
+             */
+            if (len >= 6) {
+                uint8_t bus_id = payload[0];
+                uint32_t can_id = payload[1] | (payload[2] << 8) |
+                                  (payload[3] << 16) | (payload[4] << 24);
+                uint8_t dlc = payload[5];
+
+                if (dlc > 8) dlc = 8;
+
+                uint8_t data[8] = {0};
+                for (int i = 0; i < dlc && i + 6 < len; i++) {
+                    data[i] = payload[6 + i];
+                }
+
+                LOG_SERVER("INJECT_CAN: Bus%d ID=0x%03X DLC=%d", bus_id, can_id, dlc);
+
+                /* Inject CAN message into the CAN subsystem */
+                HAL_StatusTypeDef result = PMU_CAN_InjectMessage(bus_id, can_id, data, dlc);
+
+                /* Send to WebUI log */
+                {
+                    char log_msg[80];
+                    snprintf(log_msg, sizeof(log_msg), "CAN Inject: Bus%d ID=0x%03X [%02X %02X %02X %02X %02X %02X %02X %02X]",
+                             bus_id, can_id, data[0], data[1], data[2], data[3],
+                             data[4], data[5], data[6], data[7]);
+                    EMU_WebUI_SendLog(1, "can", log_msg);
+                }
+
+                /* Send ACK */
+                resp[0] = (result == HAL_OK) ? 1 : 0;
+                Server_SendResponse(client_idx, EMU_MSG_EMU_ACK, resp, 1);
+            }
+            break;
+        }
+
         default:
             LOG_SERVER("Unknown message type 0x%02X", msg_type);
             /* Send error */
@@ -1204,9 +1244,10 @@ static void Server_BuildTelemetry(uint8_t* buffer, size_t* len)
     offset += 4;
 
     /* 16. digital_inputs (4 bytes, bitmask for 20 inputs) */
+    /* Use ADC system's digital_state which correctly handles active_low/active_high */
     uint32_t di_states = 0;
     for (int i = 0; i < 20; i++) {
-        if (emu->digital_inputs[i].debounced_state) {
+        if (PMU_ADC_GetDigitalState(i)) {
             di_states |= (1U << i);
         }
     }

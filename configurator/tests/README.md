@@ -12,6 +12,41 @@
 
 ## Running Tests
 
+---
+
+## 🚨 CRITICAL TESTS - MUST RUN AFTER EVERY CHANGE
+
+These tests verify the fundamental control flow of the PMU-30.
+**Run after ANY firmware or configurator modification!**
+
+```bash
+# Start emulator first:
+start "" "../firmware/.pio/build/pmu30_emulator/program.exe"
+
+# Run critical tests:
+python -m pytest tests/integration/test_control_flow_critical.py -v -s --timeout=60
+```
+
+### Critical Test Flows
+
+| Test | Description | Pass Criteria |
+|------|-------------|---------------|
+| `test_low_side_switch_controls_output` | LOW-SIDE DI → Output | DI=ON → OUT=ON, change to HIGH-SIDE → OUT=OFF |
+| `test_high_side_switch_controls_output` | HIGH-SIDE DI → Output | DI HIGH=ON → OUT=ON, DI LOW=OFF → OUT=OFF |
+| `test_timer_oneshot_controls_output` | Timer → Output | Trigger → OUT=ON, wait → OUT=OFF |
+| `test_timer_retriggerable_controls_output` | Retriggerable Timer | Retrigger resets timeout |
+| `test_input_type_change_updates_output` | Input type change | Changing DI type updates output immediately |
+
+### Quick Validation Script
+
+```bash
+# Run from configurator directory:
+python run_critical_tests.py
+```
+
+---
+
+
 ### Run all tests with pytest
 ```bash
 cd configurator
@@ -76,7 +111,8 @@ tests/
 │   ├── test_switch_channels.py # Switch tests (13)
 │   ├── test_arithmetic_functions.py  # Arithmetic tests (11)
 │   ├── test_atomic_config.py   # Config tests (12)
-│   └── test_flash_autosave.py  # Flash tests (11)
+│   ├── test_flash_autosave.py  # Flash tests (11)
+│   └── test_control_flow_critical.py  # CRITICAL: Control flow tests (5)
 ├── test_config_manager.py      # ConfigManager tests (13)
 ├── test_config_validation.py   # Validation tests (15)
 ├── test_protocol.py            # Protocol tests (27)
@@ -144,6 +180,147 @@ class TestMyFeature:
         config = BASE_CONFIG.copy()
         # ... test code
 ```
+
+---
+
+## 🔧 Test Configuration Templates
+
+### BASE_CONFIG
+
+Empty base configuration for custom test setups:
+```python
+from .helpers import BASE_CONFIG
+
+config = BASE_CONFIG.copy()
+config["channels"] = [
+    make_digital_input_config(1, "di_test", "switch_active_low"),
+    make_output_config(1, "o_test", "di_test"),
+]
+```
+
+### COMPREHENSIVE_TEST_CONFIG
+
+**⚠️ CRITICAL: Use this for full integration testing!**
+
+Complete configuration with ALL channel types and REAL logic connections:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    COMPREHENSIVE TEST CONFIG                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  DIGITAL INPUTS (5)          ANALOG INPUTS (3)                      │
+│  ├── di_ignition (low)       ├── ai_coolant_temp                    │
+│  ├── di_start_btn (high)     ├── ai_oil_pressure                    │
+│  ├── di_brake (low)          └── ai_throttle                        │
+│  ├── di_launch_btn (high)                                           │
+│  └── di_pit_limiter (high)                                          │
+│         │                           │                               │
+│         ▼                           ▼                               │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                    LOGIC CHANNELS (16)                        │  │
+│  ├──────────────────────────────────────────────────────────────┤  │
+│  │ Boolean Gates:    and, or, not, xor, nand, nor               │  │
+│  │ Comparisons:      greater, less, equal, not_equal,           │  │
+│  │                   greater_equal, less_equal, in_range        │  │
+│  │ Special:          hysteresis, flash, pulse, toggle, latch    │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│         │                           │                               │
+│         ▼                           ▼                               │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                   NUMBER CHANNELS (11)                        │  │
+│  ├──────────────────────────────────────────────────────────────┤  │
+│  │ Operations:       constant, add, subtract, multiply, divide  │  │
+│  │                   min, max, average, abs, scale, clamp       │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│         │                                                          │
+│         ▼                                                          │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                   POWER OUTPUTS (6)                           │  │
+│  ├──────────────────────────────────────────────────────────────┤  │
+│  │ o_fuel_pump      ← di_ignition (direct)                      │  │
+│  │ o_starter        ← l_start_ready (AND logic)                 │  │
+│  │ o_fan            ← l_fan_control (hysteresis) + PWM          │  │
+│  │ o_warning_lamp   ← l_warning_flash (flash logic)             │  │
+│  │ o_fuel_relay     ← l_fuel_pump_latch (SR latch)              │  │
+│  │ o_boost_solenoid ← l_engine_safe (complex chain)             │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│         │                                                          │
+│         ▼                                                          │
+│  ┌──────────────────────────────────────────────────────────────┐  │
+│  │                      CAN TX (2 messages)                      │  │
+│  ├──────────────────────────────────────────────────────────────┤  │
+│  │ 0x600: ignition, engine_safe, coolant_temp, throttle         │  │
+│  │ 0x601: fuel_pump, fan, starter, warning                      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  Also includes: Filters (2), Timers (2), Tables (1)                 │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Usage:**
+```python
+import json
+from .helpers import COMPREHENSIVE_TEST_CONFIG
+
+class TestComprehensiveFlow:
+    async def test_full_chain(self, protocol_handler):
+        # Send complete config with all channel types
+        response = await protocol_handler.send_config(
+            json.dumps(COMPREHENSIVE_TEST_CONFIG)
+        )
+        assert response.success
+
+        # Test: di_ignition (active_low) → o_fuel_pump
+        # di_ignition defaults to ON (active_low with no signal = ON)
+        await asyncio.sleep(0.5)
+        telemetry = await protocol_handler.get_telemetry()
+        assert telemetry.outputs[0] == 1  # o_fuel_pump should be ON
+```
+
+### Channel Flow Examples
+
+| Input | Logic/Number | Output | CAN Signal |
+|-------|--------------|--------|------------|
+| `di_ignition` | direct | `o_fuel_pump` | `ctx_pmu_status.ignition` |
+| `di_ignition` + `di_brake` | `l_start_ready` (AND) | `o_starter` | `ctx_outputs.starter` |
+| `ai_coolant_temp` | `l_fan_control` (hysteresis 85-95°C) | `o_fan` | `ctx_outputs.fan` |
+| `ai_coolant_temp` > 95°C | `l_temp_high` → `l_warning_flash` | `o_warning_lamp` | `ctx_outputs.warning` |
+| `ai_oil_pressure` + `ai_coolant_temp` | `l_pressure_ok` + `l_temp_normal` → `l_engine_safe` | `o_boost_solenoid` | `ctx_pmu_status.engine_safe` |
+
+### Helper Functions
+
+```python
+from .helpers import (
+    make_digital_input_config,  # Digital input with type
+    make_analog_input_config,   # Analog input with scaling
+    make_output_config,         # Power output with source
+    make_logic_config,          # Logic operation
+    make_number_config,         # Number operation
+    make_timer_config,          # Timer channel
+    make_filter_config,         # Filter channel
+    make_table_2d_config,       # 2D lookup table
+)
+
+# Example: Create logic AND gate
+logic = make_logic_config(
+    channel_id=400,
+    name="l_ready",
+    operation="and",
+    input1="di_ignition",
+    input2="di_brake"
+)
+
+# Example: Create number with subtraction
+number = make_number_config(
+    channel_id=500,
+    name="n_temp_diff",
+    operation="subtract",
+    inputs=["ai_temp1", "ai_temp2"]
+)
+```
+
+---
 
 ## Coverage Goals
 

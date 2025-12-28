@@ -108,7 +108,8 @@ class MainWindowChannelsMixin:
         """Create CAN RX dialog with message validation."""
         from ui.dialogs.can_input_dialog import CANInputDialog
 
-        message_ids = [msg.get("id", "") for msg in self.config_manager.get_config().get("can_messages", [])]
+        # CAN messages stored with 'name' field, not 'id'
+        message_ids = [msg.get("name", "") for msg in self.config_manager.get_config().get("can_messages", []) if msg.get("name")]
         if not message_ids:
             QMessageBox.warning(
                 self, "No CAN Messages",
@@ -118,7 +119,13 @@ class MainWindowChannelsMixin:
             return None
 
         existing_ids = [ch.get("id", "") for ch in existing_channels]
-        return CANInputDialog(self, input_config=None, message_ids=message_ids, existing_channel_ids=existing_ids)
+        return CANInputDialog(
+            self,
+            input_config=None,
+            message_ids=message_ids,
+            existing_channel_ids=existing_ids,
+            existing_channels=existing_channels
+        )
 
     def _create_can_tx_dialog(self, available_channels: dict, existing_channels: list):
         """Create CAN TX dialog."""
@@ -180,6 +187,7 @@ class MainWindowChannelsMixin:
             "digital_inputs": ChannelType.DIGITAL_INPUT,
             "analog_inputs": ChannelType.ANALOG_INPUT,
             "power_outputs": ChannelType.POWER_OUTPUT,
+            "hbridges": ChannelType.HBRIDGE,
             "logic": ChannelType.LOGIC,
             "numbers": ChannelType.NUMBER,
             "tables_2d": ChannelType.TABLE_2D,
@@ -246,9 +254,20 @@ class MainWindowChannelsMixin:
             logger.warning("Keypad has no name, skipping button channel sync")
             return
 
-        keypad_type = keypad_config.get("keypad_type", "2x6")
-        button_count = 12 if keypad_type == "2x6" else 16
-        button_configs = keypad_config.get("buttons", {})
+        # Handle both dialog format (type: int 0/1) and legacy format (keypad_type: "2x6"/"2x8")
+        keypad_type = keypad_config.get("type", keypad_config.get("keypad_type", 0))
+        if isinstance(keypad_type, str):
+            button_count = 12 if keypad_type == "2x6" else 16
+        else:
+            # Dialog returns 0=PKP2600SI (12 buttons), 1=PKP2800SI (16 buttons)
+            button_count = 12 if keypad_type == 0 else 16
+
+        # Handle both list (from dialog) and dict (legacy) formats for buttons
+        button_configs_raw = keypad_config.get("buttons", [])
+        if isinstance(button_configs_raw, list):
+            button_configs = {i: cfg for i, cfg in enumerate(button_configs_raw)}
+        else:
+            button_configs = button_configs_raw
 
         if old_keypad_name and old_keypad_name != keypad_name:
             self._remove_keypad_button_channels(old_keypad_name)

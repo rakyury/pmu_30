@@ -75,6 +75,7 @@ class MessageType(IntEnum):
     EMU_SET_DIGITAL_INPUT = 0x84
     EMU_SET_OUTPUT = 0x85
     EMU_SET_ANALOG_INPUT = 0x86
+    EMU_INJECT_CAN = 0x88  # Inject CAN message for testing
     EMU_ACK = 0x8F
 
 
@@ -409,6 +410,24 @@ class FrameBuilder:
         """
         payload = struct.pack("<BH", channel, voltage_mv)
         return ProtocolFrame(msg_type=MessageType.EMU_SET_ANALOG_INPUT, payload=payload)
+
+    @staticmethod
+    def emu_inject_can(bus_id: int, can_id: int, data: bytes) -> ProtocolFrame:
+        """
+        Inject CAN message for testing CAN input channels (emulator only).
+
+        Args:
+            bus_id: CAN bus index (0 or 1)
+            can_id: CAN message ID (11-bit or 29-bit)
+            data: CAN data bytes (up to 8 bytes)
+
+        Payload format: [bus_id:1][can_id:4][dlc:1][data:0-8]
+        """
+        dlc = min(len(data), 8)
+        # Pad data to 8 bytes
+        padded_data = data[:8].ljust(8, b'\x00')
+        payload = struct.pack("<BI", bus_id, can_id) + struct.pack("<B", dlc) + padded_data[:dlc]
+        return ProtocolFrame(msg_type=MessageType.EMU_INJECT_CAN, payload=payload)
 
 
 class FrameParser:

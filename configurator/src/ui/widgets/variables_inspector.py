@@ -179,13 +179,11 @@ class VariablesInspector(QWidget):
         """Set connection state."""
         self._connected = connected
         if connected:
-            self.status_label.setText("Online")
-            self.status_label.setStyleSheet("color: green; font-weight: bold;")
+            pass  # Connection status shown in status bar
             # Set constant channel values (they don't come from telemetry)
             self._update_constant_channels()
         else:
-            self.status_label.setText("Offline")
-            self.status_label.setStyleSheet("color: #b0b0b0;")
+            pass  # Connection status shown in status bar
             # Reset all values to "?"
             self._reset_values()
 
@@ -679,7 +677,7 @@ class VariablesInspector(QWidget):
         try:
             can_inputs = config_manager.get_can_inputs()
             for ch in can_inputs:
-                if ch.get('enabled', True):
+                if True:  # All channels are active
                     channels.append({
                         'id': ch.get('id', ''),
                         'name': ch.get('id', ''),
@@ -797,16 +795,14 @@ class VariablesInspector(QWidget):
             for ch in all_channels:
                 ch_type = ch.get('channel_type', '')
                 ch_id = ch.get('id', '')
+                # Use channel_name for display, fallback to id
+                ch_display_name = ch.get('channel_name', ch.get('name', ch_id))
 
                 if ch_type in VIRTUAL_CHANNEL_TYPES:
-                    # Map channel type to display prefix
-                    prefixes = {'logic': 'k_', 'number': 'n_', 'switch': 's_', 'can_rx': 'crx_', 'timer': 't_', 'filter': 'f_'}
-                    prefix = prefixes.get(ch_type, '')
-
-                    # Main channel
+                    # Main channel - use the channel_name for display (e.g., "logic_1")
                     channels.append({
                         'id': ch_id,
-                        'name': f'{prefix}{ch_id}',
+                        'name': ch_display_name,
                         'unit': ch.get('unit', ''),
                         'channel_type': ch_type,
                         'channel_id': virtual_channel_id
@@ -815,11 +811,10 @@ class VariablesInspector(QWidget):
 
                     # Timer has additional sub-properties
                     if ch_type == 'timer':
-                        ch_name = ch.get('name', ch_id)
                         # .elapsed - elapsed time
                         channels.append({
                             'id': f'{ch_id}.elapsed',
-                            'name': f'{ch_name} - Elapsed',
+                            'name': f'{ch_display_name} - Elapsed',
                             'unit': 'ms',
                             'channel_type': 'timer_elapsed',
                             'channel_id': virtual_channel_id
@@ -828,7 +823,7 @@ class VariablesInspector(QWidget):
                         # .running - is timer running
                         channels.append({
                             'id': f'{ch_id}.running',
-                            'name': f'{ch_name} - Running',
+                            'name': f'{ch_display_name} - Running',
                             'unit': '',
                             'channel_type': 'timer_running',
                             'channel_id': virtual_channel_id
