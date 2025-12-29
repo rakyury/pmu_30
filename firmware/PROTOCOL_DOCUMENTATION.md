@@ -571,6 +571,147 @@ print(response.decode('utf-8'))
 
 ---
 
+### Atomic Channel Configuration Update
+
+Update a single channel's configuration without full config reload.
+This is useful for real-time tuning from the configurator UI.
+
+```python
+import json
+
+# Channel type discriminators
+CHANNEL_TYPES = {
+    'power_output': 0x01,
+    'hbridge': 0x02,
+    'digital_input': 0x03,
+    'analog_input': 0x04,
+    'logic': 0x05,
+    'number': 0x06,
+    'timer': 0x07,
+    'filter': 0x08,
+    'switch': 0x09,
+    'table_2d': 0x0A,
+    'table_3d': 0x0B,
+    'can_rx': 0x0C,
+    'can_tx': 0x0D,
+    'pid': 0x0E,
+    'lua_script': 0x0F,
+    'handler': 0x10,
+    'blinkmarine_keypad': 0x11,
+}
+
+def set_channel_config(channel_type: str, channel_id: int, config: dict):
+    """
+    Send atomic channel configuration update.
+
+    Args:
+        channel_type: Type string (e.g., 'power_output', 'logic')
+        channel_id: Numeric channel ID
+        config: Configuration dictionary
+
+    Returns:
+        Tuple of (success, error_message)
+    """
+    type_code = CHANNEL_TYPES.get(channel_type)
+    if type_code is None:
+        return False, f"Unknown channel type: {channel_type}"
+
+    # Serialize config to compact JSON
+    config_json = json.dumps(config, separators=(',', ':')).encode('utf-8')
+    json_len = len(config_json)
+
+    # Build payload: type(1) + channel_id(2) + json_len(2) + json_data
+    payload = struct.pack('<BHH', type_code, channel_id, json_len) + config_json
+
+    # Send SET_CHANNEL_CONFIG (0x66)
+    response = send_command(0x66, payload)
+
+    if response is None:
+        return False, "No response"
+
+    # Parse CHANNEL_CONFIG_ACK (0x67) response
+    # Format: channel_id(2) + success(1) + error_code(2) + error_msg(N)
+    if len(response) < 5:
+        return False, "Response too short"
+
+    resp_channel_id, success, error_code = struct.unpack('<HBH', response[0:5])
+    error_msg = response[5:].decode('utf-8', errors='replace') if len(response) > 5 else ""
+
+    return bool(success), error_msg
+
+
+# Example 1: Update power output PWM settings
+output_config = {
+    "channel_id": 105,              # Output 5 (100 + index)
+    "channel_name": "FuelPump",
+    "pins": [5],
+    "pwm_enabled": True,
+    "pwm_frequency": 200,           # 200 Hz
+    "default_duty": 750,            # 75% duty cycle
+    "source_channel_id": 50,        # Linked to analog input
+    "invert": False,
+    "retry_count": 3,
+    "retry_delay_ms": 100
+}
+
+success, error = set_channel_config('power_output', 105, output_config)
+if success:
+    print("Output 5 config updated - PWM now active at 200Hz/75%")
+else:
+    print(f"Failed: {error}")
+
+
+# Example 2: Update logic channel condition
+logic_config = {
+    "channel_id": 201,
+    "channel_name": "OverheatWarning",
+    "operator": "greater_than",
+    "input_a_channel_id": 1002,     # MCU temperature (system channel)
+    "threshold": 85000,              # 85°C in milli-degrees
+    "hysteresis": 5000               # 5°C hysteresis
+}
+
+success, error = set_channel_config('logic', 201, logic_config)
+if success:
+    print("Logic channel updated - overheat threshold set to 85°C")
+else:
+    print(f"Failed: {error}")
+
+
+# Example 3: Update PID controller tuning
+pid_config = {
+    "channel_id": 250,
+    "channel_name": "IdleControl",
+    "input_channel_id": 10,          # RPM sensor
+    "setpoint_channel_id": 220,      # Target RPM number channel
+    "output_channel_id": 108,        # Idle valve output
+    "kp": 1500,                      # Proportional gain (scaled x1000)
+    "ki": 200,                       # Integral gain (scaled x1000)
+    "kd": 50,                        # Derivative gain (scaled x1000)
+    "output_min": 0,
+    "output_max": 1000,
+    "sample_time_ms": 20
+}
+
+success, error = set_channel_config('pid', 250, pid_config)
+if success:
+    print("PID tuning updated - Kp=1.5, Ki=0.2, Kd=0.05")
+else:
+    print(f"Failed: {error}")
+```
+
+**Error Codes:**
+
+| Code | Meaning |
+|------|---------|
+| 0x0000 | Success |
+| 0x0001 | Invalid channel type |
+| 0x0002 | Channel not found |
+| 0x0003 | JSON parse error |
+| 0x0004 | Validation error |
+
+---
+
 ### Data Logging Example
 
 ```python
