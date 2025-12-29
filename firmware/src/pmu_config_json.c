@@ -809,6 +809,93 @@ static const JSON_EnumMap_t hbridge_failsafe_mode_map[] = {
     JSON_ENUM_MAP_END
 };
 
+/* Enum maps for Logic operations */
+static const JSON_EnumMap_t logic_operation_map[] = {
+    {"is_true", PMU_LOGIC_IS_TRUE}, {"is_false", PMU_LOGIC_IS_FALSE},
+    {"equal", PMU_LOGIC_EQUAL}, {"not_equal", PMU_LOGIC_NOT_EQUAL},
+    {"less", PMU_LOGIC_LESS}, {"greater", PMU_LOGIC_GREATER},
+    {"less_equal", PMU_LOGIC_LESS_EQUAL}, {"greater_equal", PMU_LOGIC_GREATER_EQUAL},
+    {"and", PMU_LOGIC_AND}, {"or", PMU_LOGIC_OR}, {"xor", PMU_LOGIC_XOR},
+    {"not", PMU_LOGIC_NOT}, {"nand", PMU_LOGIC_NAND}, {"nor", PMU_LOGIC_NOR},
+    {"in_range", PMU_LOGIC_IN_RANGE}, {"changed", PMU_LOGIC_CHANGED},
+    {"hysteresis", PMU_LOGIC_HYSTERESIS}, {"set_reset_latch", PMU_LOGIC_SET_RESET_LATCH},
+    {"toggle", PMU_LOGIC_TOGGLE}, {"pulse", PMU_LOGIC_PULSE}, {"flash", PMU_LOGIC_FLASH},
+    {"rising_edge", PMU_LOGIC_EDGE_RISING}, {"edge_rising", PMU_LOGIC_EDGE_RISING},
+    {"falling_edge", PMU_LOGIC_EDGE_FALLING}, {"edge_falling", PMU_LOGIC_EDGE_FALLING},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t logic_polarity_map[] = {
+    {"normal", PMU_POLARITY_NORMAL}, {"inverted", PMU_POLARITY_INVERTED},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t logic_edge_map[] = {
+    {"rising", PMU_EDGE_RISING}, {"falling", PMU_EDGE_FALLING}, {"both", PMU_EDGE_BOTH},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t logic_default_state_map[] = {
+    {"off", PMU_DEFAULT_STATE_OFF}, {"on", PMU_DEFAULT_STATE_ON},
+    JSON_ENUM_MAP_END
+};
+
+/* Enum maps for Number/Math operations */
+static const JSON_EnumMap_t number_operation_map[] = {
+    {"constant", PMU_MATH_CONSTANT}, {"channel", PMU_MATH_CHANNEL},
+    {"add", PMU_MATH_ADD}, {"subtract", PMU_MATH_SUBTRACT},
+    {"multiply", PMU_MATH_MULTIPLY}, {"divide", PMU_MATH_DIVIDE},
+    {"modulo", PMU_MATH_MODULO}, {"min", PMU_MATH_MIN}, {"max", PMU_MATH_MAX},
+    {"clamp", PMU_MATH_CLAMP}, {"lookup2", PMU_MATH_LOOKUP2},
+    {"lookup3", PMU_MATH_LOOKUP3}, {"lookup4", PMU_MATH_LOOKUP4},
+    {"lookup5", PMU_MATH_LOOKUP5},
+    JSON_ENUM_MAP_END
+};
+
+/* Enum maps for Timer */
+static const JSON_EnumMap_t timer_edge_map[] = {
+    {"rising", PMU_EDGE_RISING}, {"falling", PMU_EDGE_FALLING},
+    {"both", PMU_EDGE_BOTH}, {"level", PMU_EDGE_LEVEL},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t timer_mode_map[] = {
+    {"count_up", PMU_TIMER_MODE_COUNT_UP}, {"count_down", PMU_TIMER_MODE_COUNT_DOWN},
+    JSON_ENUM_MAP_END
+};
+
+/* Enum maps for Filter */
+static const JSON_EnumMap_t filter_type_map[] = {
+    {"moving_avg", PMU_FILTER_MOVING_AVG}, {"low_pass", PMU_FILTER_LOW_PASS},
+    {"min_window", PMU_FILTER_MIN_WINDOW}, {"max_window", PMU_FILTER_MAX_WINDOW},
+    {"median", PMU_FILTER_MEDIAN},
+    JSON_ENUM_MAP_END
+};
+
+/* Enum maps for CAN */
+static const JSON_EnumMap_t can_data_type_map[] = {
+    {"unsigned", PMU_CAN_DATA_TYPE_UNSIGNED}, {"signed", PMU_CAN_DATA_TYPE_SIGNED},
+    {"float", PMU_CAN_DATA_TYPE_FLOAT},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t can_byte_order_map[] = {
+    {"little_endian", 1}, {"big_endian", 0},
+    JSON_ENUM_MAP_END
+};
+
+/* Combined data type+format map for CAN TX (encode: high nibble=type, low nibble=format) */
+#define CAN_DTYPE(type, fmt) (((type) << 4) | (fmt))
+static const JSON_EnumMap_t can_tx_dtype_map[] = {
+    {"int8",   CAN_DTYPE(PMU_CAN_DATA_TYPE_SIGNED, PMU_CAN_DATA_FORMAT_8BIT)},
+    {"uint8",  CAN_DTYPE(PMU_CAN_DATA_TYPE_UNSIGNED, PMU_CAN_DATA_FORMAT_8BIT)},
+    {"int16",  CAN_DTYPE(PMU_CAN_DATA_TYPE_SIGNED, PMU_CAN_DATA_FORMAT_16BIT)},
+    {"uint16", CAN_DTYPE(PMU_CAN_DATA_TYPE_UNSIGNED, PMU_CAN_DATA_FORMAT_16BIT)},
+    {"int32",  CAN_DTYPE(PMU_CAN_DATA_TYPE_SIGNED, PMU_CAN_DATA_FORMAT_32BIT)},
+    {"uint32", CAN_DTYPE(PMU_CAN_DATA_TYPE_UNSIGNED, PMU_CAN_DATA_FORMAT_32BIT)},
+    JSON_ENUM_MAP_END
+};
+
 /**
  * @brief Parse H-bridges array from JSON
  */
@@ -2677,31 +2764,8 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     /* Get JSON channel_id for mapping */
     uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
-    /* Parse operation */
-    const char* op = JSON_GetString(channel_obj, "operation", "is_true");
-    if (strcmp(op, "is_true") == 0) config.operation = PMU_LOGIC_IS_TRUE;
-    else if (strcmp(op, "is_false") == 0) config.operation = PMU_LOGIC_IS_FALSE;
-    else if (strcmp(op, "equal") == 0) config.operation = PMU_LOGIC_EQUAL;
-    else if (strcmp(op, "not_equal") == 0) config.operation = PMU_LOGIC_NOT_EQUAL;
-    else if (strcmp(op, "less") == 0) config.operation = PMU_LOGIC_LESS;
-    else if (strcmp(op, "greater") == 0) config.operation = PMU_LOGIC_GREATER;
-    else if (strcmp(op, "less_equal") == 0) config.operation = PMU_LOGIC_LESS_EQUAL;
-    else if (strcmp(op, "greater_equal") == 0) config.operation = PMU_LOGIC_GREATER_EQUAL;
-    else if (strcmp(op, "and") == 0) config.operation = PMU_LOGIC_AND;
-    else if (strcmp(op, "or") == 0) config.operation = PMU_LOGIC_OR;
-    else if (strcmp(op, "xor") == 0) config.operation = PMU_LOGIC_XOR;
-    else if (strcmp(op, "not") == 0) config.operation = PMU_LOGIC_NOT;
-    else if (strcmp(op, "nand") == 0) config.operation = PMU_LOGIC_NAND;
-    else if (strcmp(op, "nor") == 0) config.operation = PMU_LOGIC_NOR;
-    else if (strcmp(op, "in_range") == 0) config.operation = PMU_LOGIC_IN_RANGE;
-    else if (strcmp(op, "changed") == 0) config.operation = PMU_LOGIC_CHANGED;
-    else if (strcmp(op, "hysteresis") == 0) config.operation = PMU_LOGIC_HYSTERESIS;
-    else if (strcmp(op, "set_reset_latch") == 0) config.operation = PMU_LOGIC_SET_RESET_LATCH;
-    else if (strcmp(op, "toggle") == 0) config.operation = PMU_LOGIC_TOGGLE;
-    else if (strcmp(op, "pulse") == 0) config.operation = PMU_LOGIC_PULSE;
-    else if (strcmp(op, "flash") == 0) config.operation = PMU_LOGIC_FLASH;
-    else if (strcmp(op, "rising_edge") == 0 || strcmp(op, "edge_rising") == 0) config.operation = PMU_LOGIC_EDGE_RISING;
-    else if (strcmp(op, "falling_edge") == 0 || strcmp(op, "edge_falling") == 0) config.operation = PMU_LOGIC_EDGE_FALLING;
+    /* Parse operation using enum map */
+    config.operation = JSON_GetEnum(channel_obj, "operation", logic_operation_map, PMU_LOGIC_IS_TRUE);
 
     /* Channel inputs (supports both numeric ID and string name for backward compat) */
     config.channel_id = JSON_GetChannelRef(channel_obj, "channel");
@@ -2719,22 +2783,17 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     config.time_on_s = JSON_GetFloat(channel_obj, "time_on_s", 0.0f);
 
     /* Hysteresis */
-    const char* pol = JSON_GetString(channel_obj, "polarity", "normal");
-    config.polarity = (strcmp(pol, "inverted") == 0) ? PMU_POLARITY_INVERTED : PMU_POLARITY_NORMAL;
+    config.polarity = JSON_GetEnum(channel_obj, "polarity", logic_polarity_map, PMU_POLARITY_NORMAL);
     config.upper_value = JSON_GetFloat(channel_obj, "upper_value", 100.0f);
     config.lower_value = JSON_GetFloat(channel_obj, "lower_value", 0.0f);
 
     /* Set/Reset latch */
     config.set_channel_id = JSON_GetChannelRef(channel_obj, "set_channel");
     config.reset_channel_id = JSON_GetChannelRef(channel_obj, "reset_channel");
-    const char* def = JSON_GetString(channel_obj, "default_state", "off");
-    config.default_state = (strcmp(def, "on") == 0) ? PMU_DEFAULT_STATE_ON : PMU_DEFAULT_STATE_OFF;
+    config.default_state = JSON_GetEnum(channel_obj, "default_state", logic_default_state_map, PMU_DEFAULT_STATE_OFF);
 
     /* Toggle/Pulse */
-    const char* edge = JSON_GetString(channel_obj, "edge", "rising");
-    if (strcmp(edge, "rising") == 0) config.edge = PMU_EDGE_RISING;
-    else if (strcmp(edge, "falling") == 0) config.edge = PMU_EDGE_FALLING;
-    else if (strcmp(edge, "both") == 0) config.edge = PMU_EDGE_BOTH;
+    config.edge = JSON_GetEnum(channel_obj, "edge", logic_edge_map, PMU_EDGE_RISING);
 
     config.toggle_channel_id = JSON_GetChannelRef(channel_obj, "toggle_channel");
     config.pulse_count = (uint8_t)JSON_GetInt(channel_obj, "pulse_count", 1);
@@ -2811,22 +2870,8 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
     /* Get JSON channel_id for mapping */
     uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
-    /* Parse operation */
-    const char* op = JSON_GetString(channel_obj, "operation", "constant");
-    if (strcmp(op, "constant") == 0) config.operation = PMU_MATH_CONSTANT;
-    else if (strcmp(op, "channel") == 0) config.operation = PMU_MATH_CHANNEL;
-    else if (strcmp(op, "add") == 0) config.operation = PMU_MATH_ADD;
-    else if (strcmp(op, "subtract") == 0) config.operation = PMU_MATH_SUBTRACT;
-    else if (strcmp(op, "multiply") == 0) config.operation = PMU_MATH_MULTIPLY;
-    else if (strcmp(op, "divide") == 0) config.operation = PMU_MATH_DIVIDE;
-    else if (strcmp(op, "modulo") == 0) config.operation = PMU_MATH_MODULO;
-    else if (strcmp(op, "min") == 0) config.operation = PMU_MATH_MIN;
-    else if (strcmp(op, "max") == 0) config.operation = PMU_MATH_MAX;
-    else if (strcmp(op, "clamp") == 0) config.operation = PMU_MATH_CLAMP;
-    else if (strcmp(op, "lookup2") == 0) config.operation = PMU_MATH_LOOKUP2;
-    else if (strcmp(op, "lookup3") == 0) config.operation = PMU_MATH_LOOKUP3;
-    else if (strcmp(op, "lookup4") == 0) config.operation = PMU_MATH_LOOKUP4;
-    else if (strcmp(op, "lookup5") == 0) config.operation = PMU_MATH_LOOKUP5;
+    /* Parse operation using enum map */
+    config.operation = JSON_GetEnum(channel_obj, "operation", number_operation_map, PMU_MATH_CONSTANT);
 
     /* Inputs array (supports both numeric IDs and string names) */
     cJSON* inputs = cJSON_GetObjectItem(channel_obj, "inputs");
@@ -2921,23 +2966,12 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
     config.start_channel_id = JSON_GetChannelRef(channel_obj, "start_channel");
-
-    const char* start_edge = JSON_GetString(channel_obj, "start_edge", "rising");
-    if (strcmp(start_edge, "rising") == 0) config.start_edge = PMU_EDGE_RISING;
-    else if (strcmp(start_edge, "falling") == 0) config.start_edge = PMU_EDGE_FALLING;
-    else if (strcmp(start_edge, "both") == 0) config.start_edge = PMU_EDGE_BOTH;
-    else if (strcmp(start_edge, "level") == 0) config.start_edge = PMU_EDGE_LEVEL;
+    config.start_edge = JSON_GetEnum(channel_obj, "start_edge", timer_edge_map, PMU_EDGE_RISING);
 
     config.stop_channel_id = JSON_GetChannelRef(channel_obj, "stop_channel");
+    config.stop_edge = JSON_GetEnum(channel_obj, "stop_edge", timer_edge_map, PMU_EDGE_RISING);
 
-    const char* stop_edge = JSON_GetString(channel_obj, "stop_edge", "rising");
-    if (strcmp(stop_edge, "rising") == 0) config.stop_edge = PMU_EDGE_RISING;
-    else if (strcmp(stop_edge, "falling") == 0) config.stop_edge = PMU_EDGE_FALLING;
-    else if (strcmp(stop_edge, "both") == 0) config.stop_edge = PMU_EDGE_BOTH;
-    else if (strcmp(stop_edge, "level") == 0) config.stop_edge = PMU_EDGE_LEVEL;
-
-    const char* mode = JSON_GetString(channel_obj, "mode", "count_up");
-    config.mode = (strcmp(mode, "count_down") == 0) ? PMU_TIMER_MODE_COUNT_DOWN : PMU_TIMER_MODE_COUNT_UP;
+    config.mode = JSON_GetEnum(channel_obj, "mode", timer_mode_map, PMU_TIMER_MODE_COUNT_UP);
 
     config.limit_hours = (uint16_t)JSON_GetInt(channel_obj, "limit_hours", 0);
     config.limit_minutes = (uint8_t)JSON_GetInt(channel_obj, "limit_minutes", 0);
@@ -3025,12 +3059,7 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
     /* Get JSON channel_id for mapping */
     uint16_t json_channel_id = (uint16_t)JSON_GetInt(channel_obj, "channel_id", 0);
 
-    const char* type = JSON_GetString(channel_obj, "filter_type", "moving_avg");
-    if (strcmp(type, "moving_avg") == 0) config.filter_type = PMU_FILTER_MOVING_AVG;
-    else if (strcmp(type, "low_pass") == 0) config.filter_type = PMU_FILTER_LOW_PASS;
-    else if (strcmp(type, "min_window") == 0) config.filter_type = PMU_FILTER_MIN_WINDOW;
-    else if (strcmp(type, "max_window") == 0) config.filter_type = PMU_FILTER_MAX_WINDOW;
-    else if (strcmp(type, "median") == 0) config.filter_type = PMU_FILTER_MEDIAN;
+    config.filter_type = JSON_GetEnum(channel_obj, "filter_type", filter_type_map, PMU_FILTER_MOVING_AVG);
 
     config.input_channel_id = JSON_GetChannelRef(channel_obj, "input_channel");
 
@@ -3233,18 +3262,10 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
     strncpy(config.switch_type, type, sizeof(config.switch_type) - 1);
 
     config.input_up_channel_id = JSON_GetChannelRef(channel_obj, "input_up_channel");
-
-    const char* up_edge = JSON_GetString(channel_obj, "input_up_edge", "rising");
-    if (strcmp(up_edge, "rising") == 0) config.input_up_edge = PMU_EDGE_RISING;
-    else if (strcmp(up_edge, "falling") == 0) config.input_up_edge = PMU_EDGE_FALLING;
-    else if (strcmp(up_edge, "both") == 0) config.input_up_edge = PMU_EDGE_BOTH;
+    config.input_up_edge = JSON_GetEnum(channel_obj, "input_up_edge", logic_edge_map, PMU_EDGE_RISING);
 
     config.input_down_channel_id = JSON_GetChannelRef(channel_obj, "input_down_channel");
-
-    const char* down_edge = JSON_GetString(channel_obj, "input_down_edge", "rising");
-    if (strcmp(down_edge, "rising") == 0) config.input_down_edge = PMU_EDGE_RISING;
-    else if (strcmp(down_edge, "falling") == 0) config.input_down_edge = PMU_EDGE_FALLING;
-    else if (strcmp(down_edge, "both") == 0) config.input_down_edge = PMU_EDGE_BOTH;
+    config.input_down_edge = JSON_GetEnum(channel_obj, "input_down_edge", logic_edge_map, PMU_EDGE_RISING);
 
     config.state_first = (int16_t)JSON_GetInt(channel_obj, "state_first", 0);
     config.state_last = (int16_t)JSON_GetInt(channel_obj, "state_last", 10);
@@ -3311,17 +3332,8 @@ static bool JSON_ParseCanRx(cJSON* channel_obj)
     config.start_bit = (uint8_t)JSON_GetInt(channel_obj, "start_bit", 0);
     config.bit_length = (uint8_t)JSON_GetInt(channel_obj, "length", 8);
 
-    const char* order = JSON_GetString(channel_obj, "byte_order", "little_endian");
-    config.little_endian = (strcmp(order, "little_endian") == 0);
-
-    const char* vtype = JSON_GetString(channel_obj, "value_type", "unsigned");
-    if (strcmp(vtype, "float") == 0) {
-        config.data_type = PMU_CAN_DATA_TYPE_FLOAT;
-    } else if (strcmp(vtype, "signed") == 0) {
-        config.data_type = PMU_CAN_DATA_TYPE_SIGNED;
-    } else {
-        config.data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
-    }
+    config.little_endian = JSON_GetEnum(channel_obj, "byte_order", can_byte_order_map, 1);
+    config.data_type = JSON_GetEnum(channel_obj, "value_type", can_data_type_map, PMU_CAN_DATA_TYPE_UNSIGNED);
 
     config.multiplier = JSON_GetFloat(channel_obj, "factor", 1.0f);
     config.offset = JSON_GetFloat(channel_obj, "offset", 0.0f);
@@ -3389,33 +3401,13 @@ static bool JSON_ParseCanTx(cJSON* channel_obj)
                 config.signals_v3[i].byte_offset = (uint8_t)JSON_GetInt(sig, "byte_offset", 0);
                 config.signals_v3[i].multiplier = JSON_GetFloat(sig, "multiplier", 1.0f);
 
-                const char* order = JSON_GetString(sig, "byte_order", "little_endian");
-                config.signals_v3[i].little_endian = (strcmp(order, "little_endian") == 0);
+                config.signals_v3[i].little_endian = JSON_GetEnum(sig, "byte_order", can_byte_order_map, 1);
 
-                /* Data type (signed/unsigned) and format (size) */
-                const char* dt = JSON_GetString(sig, "data_type", "int16");
-                if (strcmp(dt, "int8") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_8BIT;
-                } else if (strcmp(dt, "uint8") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_8BIT;
-                } else if (strcmp(dt, "int16") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
-                } else if (strcmp(dt, "uint16") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
-                } else if (strcmp(dt, "int32") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_32BIT;
-                } else if (strcmp(dt, "uint32") == 0) {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_UNSIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_32BIT;
-                } else {
-                    config.signals_v3[i].data_type = PMU_CAN_DATA_TYPE_SIGNED;
-                    config.signals_v3[i].data_format = PMU_CAN_DATA_FORMAT_16BIT;
-                }
+                /* Data type (signed/unsigned) and format (size) - combined lookup */
+                int dtype = JSON_GetEnum(sig, "data_type", can_tx_dtype_map,
+                                         CAN_DTYPE(PMU_CAN_DATA_TYPE_SIGNED, PMU_CAN_DATA_FORMAT_16BIT));
+                config.signals_v3[i].data_type = (dtype >> 4) & 0x0F;
+                config.signals_v3[i].data_format = dtype & 0x0F;
 
             }
         }
