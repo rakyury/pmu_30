@@ -29,17 +29,16 @@ def test_configuration_save_load():
             "serial_number": "TEST001"
         },
         "outputs": [
-            {"channel": 0, "name": "Headlights", "enabled": True, "current_limit": 10.0},
-            {"channel": 1, "name": "Fuel Pump", "enabled": True, "current_limit": 15.0}
+            {"channel": 0, "name": "Headlights", "current_limit": 10.0},
+            {"channel": 1, "name": "Fuel Pump", "current_limit": 15.0}
         ],
         "inputs": [
-            {"channel": 0, "name": "Brake Pedal", "enabled": True, "type": "Switch Active Low"},
-            {"channel": 1, "name": "Throttle Position", "enabled": True, "type": "Linear Analog"}
+            {"channel": 0, "name": "Brake Pedal", "type": "Switch Active Low"},
+            {"channel": 1, "name": "Throttle Position", "type": "Linear Analog"}
         ],
         "hbridge": [
             {
                 "name": "Cooling Fan",
-                "enabled": True,
                 "mode": "Bidirectional",
                 "control": {
                     "mode": "PWM (0-100%)",
@@ -62,7 +61,6 @@ def test_configuration_save_load():
             },
             {
                 "name": "H-Bridge 1",
-                "enabled": False,
                 "mode": "Bidirectional",
                 "control": {
                     "mode": "PWM (0-100%)",
@@ -85,7 +83,6 @@ def test_configuration_save_load():
             },
             {
                 "name": "H-Bridge 2",
-                "enabled": False,
                 "mode": "Bidirectional",
                 "control": {
                     "mode": "PWM (0-100%)",
@@ -108,7 +105,6 @@ def test_configuration_save_load():
             },
             {
                 "name": "H-Bridge 3",
-                "enabled": False,
                 "mode": "Bidirectional",
                 "control": {
                     "mode": "PWM (0-100%)",
@@ -133,7 +129,6 @@ def test_configuration_save_load():
         "logic_functions": [
             {
                 "name": "Headlight Logic",
-                "enabled": True,
                 "operation": "AND",
                 "virtual_channel": 0,
                 "inputs": [
@@ -146,7 +141,6 @@ def test_configuration_save_load():
         "pid_controllers": [
             {
                 "name": "Engine Temp Control",
-                "enabled": True,
                 "input_source": {"type": "Physical Input (0-19)", "channel": 5},
                 "output_target": {"type": "Physical Output (0-29)", "channel": 10},
                 "parameters": {"kp": 1.0, "ki": 0.1, "kd": 0.05},
@@ -163,7 +157,6 @@ def test_configuration_save_load():
         "lua_scripts": [
             {
                 "name": "Custom Logic",
-                "enabled": True,
                 "description": "Test script",
                 "trigger": {
                     "type": "Periodic (Timer)",
