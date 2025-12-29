@@ -19,7 +19,6 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 | Analog Inputs | 20 | a1-a20 (0-5V, 12-bit ADC) |
 | Digital Inputs | 20 | d1-d20 (5-30V tolerant) |
 | H-Bridges | 4 | hb1-hb4 (dual H-bridge drivers) |
-| Low-Side Outputs | 6 | l1-l6 (ground switching) |
 
 > **Note:** PMU-30 has 20 dedicated analog input pins (A1-A20) and 20 separate dedicated digital input pins (D1-D20).
 
@@ -106,10 +105,8 @@ General system health, power status, and board temperatures.
 | 3 | Board Temp Left | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
 | 4 | Board Temp Right | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
 | 5 | MCU Temperature | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
-| 6 | Low-Side Active | 0-5 | 0x3F | - | - | Bitfield (l1-l6) |
-| 6 | Reserved | 6-7 | 0xC0 | - | - | - |
-| 7 | Low-Side Error | 0-5 | 0x3F | - | - | Bitfield (l1-l6) |
-| 7 | Reserved | 6-7 | 0xC0 | - | - | - |
+| 6 | Reserved | 0-7 | 0xFF | - | - | - |
+| 7 | Reserved | 0-7 | 0xFF | - | - | - |
 
 ### PMU Status Codes (Byte 0, bits 0-2)
 
@@ -123,17 +120,6 @@ General system health, power status, and board temperatures.
 | 5 | OVERTEMP | Temperature warning |
 | 6 | CRITICAL | Critical fault |
 | 7 | THERMAL_SHUTDOWN | Thermal shutdown active |
-
-### Low-Side Bitfields (Bytes 6-7)
-
-| Bit | Mask | Low-Side Output |
-|-----|------|-----------------|
-| 0 | 0x01 | l1 |
-| 1 | 0x02 | l2 |
-| 2 | 0x04 | l3 |
-| 3 | 0x08 | l4 |
-| 4 | 0x10 | l5 |
-| 5 | 0x20 | l6 |
 
 ---
 
@@ -451,7 +437,6 @@ Status and current for all 4 H-Bridge motor drivers.
 | Analog Inputs | a1-a16 | a17-a20 | 20/20 |
 | Digital Inputs | - | d1-d8 | 8/20 * |
 | H-Bridges | - | hb1-hb4 | 4/4 |
-| Low-Side | l1-l6 | - | 6/6 |
 
 > \* **Digital Inputs:** Hardware has 20 digital inputs, but only d1-d8 are broadcast in the CAN stream. Use telemetry or custom CAN TX for d9-d20.
 
@@ -478,8 +463,6 @@ BO_ 1792 PMU_SystemStatus: 8 PMU30
  SG_ BoardTempLeft : 24|8@1+ (1,0) [0|255] "degC" Vector__XXX
  SG_ BoardTempRight : 32|8@1+ (1,0) [0|255] "degC" Vector__XXX
  SG_ MCUTemperature : 40|8@1+ (1,0) [0|255] "degC" Vector__XXX
- SG_ LowSideActive : 48|6@1+ (1,0) [0|63] "" Vector__XXX
- SG_ LowSideError : 56|6@1+ (1,0) [0|63] "" Vector__XXX
 
 BO_ 1793 PMU_OutputStates: 8 PMU30
  SG_ O1_Status : 5|3@1+ (1,0) [0|7] "" Vector__XXX

@@ -1,109 +1,111 @@
-# Сравнение PMU-30 с Ecumaster PMU
+# PMU-30 vs Ecumaster PMU Comparison
 
-**Дата:** 2025-12-26
-**Версия документа Ecumaster:** 101.1.5
-**Модели Ecumaster:** PMU-16, PMU-16DL, PMU-16AS, PMU-24DL
+**Date:** 2025-12-29
+**Ecumaster Document Version:** 101.1.5
+**Ecumaster Models:** PMU-16, PMU-16DL, PMU-16AS, PMU-24DL
+**PMU-30 Version:** v3.0
 
 ---
 
-## 1. Аппаратные характеристики
+## 1. Hardware Specifications
 
-| Параметр | Ecumaster PMU-16/24 | PMU-30 | Статус |
-|----------|---------------------|--------|--------|
-| **Выходы High-Side** | 10×25A + 6×15A (PMU-16) | 30×40A (PROFET) | ✅ Лучше |
-| **Выходы Low-Side** | 6×1A (только AS) | — | ❌ Нет |
-| **H-Bridge** | — | 4× dual (30A) | ✅ Дополнительно |
-| **Аналоговые входы** | 16× (0-5V/0-20V) | 20× (10-bit) | ✅ Больше |
-| **Цифровые входы** | — (через analog) | 8× выделенных | ✅ Дополнительно |
-| **Разрешение АЦП** | 10-bit (0-5V), 12-bit (0-20V) | 10-bit | ⚠️ Меньше для 20V |
-| **Диапазон напряжений** | 6-22V | Не указан | ⚠️ Проверить |
-| **Pull-up/Pull-down** | 10K селектируемый | Есть | ✅ OK |
-| **+5V выход** | 400-500mA | Не указан | ⚠️ Проверить |
-| **Общий ток** | 150A (PMU-16), 200A (AS) | Не указан | ⚠️ Проверить |
+| Parameter | Ecumaster PMU-16/24 | PMU-30 | Status |
+|-----------|---------------------|--------|--------|
+| **High-Side Outputs** | 10×25A + 6×15A (PMU-16) | 30×40A (PROFET) | ✅ Superior |
+| **Low-Side Outputs** | 6×1A (AS model only) | — | ❌ Not supported |
+| **H-Bridge** | — | 4× dual (30A each) | ✅ Additional |
+| **Analog Inputs** | 16× (0-5V/0-20V) | 20× (10-bit, 0-5V) | ✅ More |
+| **Digital Inputs** | — (via analog) | 20× dedicated | ✅ Additional |
+| **ADC Resolution** | 10-bit (0-5V), 12-bit (0-20V) | 10-bit | ⚠️ Less for 20V |
+| **Voltage Range** | 6-22V | 6-22V DC | ✅ Equal |
+| **Pull-up/Pull-down** | 10K selectable | Configurable | ✅ OK |
+| **+5V Output** | 400-500mA | 500mA | ✅ OK |
+| **Total Current** | 150A (PMU-16), 200A (AS) | 200A | ✅ OK |
 
 ---
 
 ## 2. CAN Bus
 
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **Кол-во CAN шин** | 2× CAN 2.0 A/B | 2× CAN FD + 2× CAN 2.0 | ✅ Лучше |
-| **Скорости** | 125/250/500/1000 kbps | До 5 Mbps (CAN FD) | ✅ Лучше |
-| **CAN1 скорость** | Фиксированная 1Mbps | Настраиваемая | ✅ Гибче |
-| **Терминация** | CAN1 нет, CAN2 программная | Программная на всех | ✅ Лучше |
-| **CAN Message Objects** | До 100 входящих | До 32 | ⚠️ Меньше |
-| **Bit masking** | Да | Да | ✅ OK |
-| **DBC/CANX импорт** | Да | Да | ✅ OK |
-| **Compound messages** | Да (multiplexed) | Да | ✅ OK |
-| **Byte order** | Intel/Motorola | Intel/Motorola | ✅ OK |
+| Parameter | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **CAN Buses** | 2× CAN 2.0 A/B | 2× CAN FD + 2× CAN 2.0 | ✅ Superior |
+| **Data Rate** | 125/250/500/1000 kbps | Up to 5 Mbps (CAN FD) | ✅ Superior |
+| **CAN1 Speed** | Fixed 1Mbps | Configurable | ✅ More flexible |
+| **Termination** | CAN1 none, CAN2 software | Software on all | ✅ Better |
+| **CAN Message Objects** | Up to 100 incoming | Up to 64 | ⚠️ Less |
+| **Bit Masking** | Yes | Yes | ✅ OK |
+| **DBC/CANX Import** | Yes | Yes | ✅ OK |
+| **Compound Messages** | Yes (multiplexed) | Yes | ✅ OK |
+| **Byte Order** | Intel/Motorola | Intel/Motorola | ✅ OK |
 
-### Поддержка CAN клавиатур
+### CAN Keypad Support
 
-| Клавиатура | Ecumaster PMU | PMU-30 | Статус |
-|------------|---------------|--------|--------|
-| Ecumaster 4/6/8/12 keys | ✅ 2 шт | ❌ | ❌ Нет |
-| LifeRacing PDU Keypad | ✅ | ❌ | ❌ Нет |
-| MoTeC/RaceGrade | ✅ 1 шт | ❌ | ❌ Нет |
-| Grayhill | ✅ 1 шт | ❌ | ❌ Нет |
-| BlinkMarine PKP-2600/2800 | ❌ | ✅ | ✅ Уникально |
+| Keypad | Ecumaster PMU | PMU-30 | Status |
+|--------|---------------|--------|--------|
+| Ecumaster 4/6/8/12 keys | ✅ 2 units | ❌ | ❌ Not supported |
+| LifeRacing PDU Keypad | ✅ | ❌ | ❌ Not supported |
+| MoTeC/RaceGrade | ✅ 1 unit | ❌ | ❌ Not supported |
+| Grayhill | ✅ 1 unit | ❌ | ❌ Not supported |
+| BlinkMarine PKP-2600/2800 | ❌ | ✅ Full support | ✅ Unique |
 
 ---
 
-## 3. Логические функции
+## 3. Logic Functions
 
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **Кол-во функций** | 100 | 100 | ✅ OK |
-| **Кол-во операций** | 250 | ~64 типов | ⚠️ Другая архитектура |
-| **Частота обновления** | 500 Hz | 500 Hz | ✅ OK |
+| Parameter | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **Function Count** | 100 | 100 (channel IDs 200-999) | ✅ OK |
+| **Operation Count** | 250 | ~64 types | ⚠️ Different architecture |
+| **Update Frequency** | 500 Hz | 500 Hz | ✅ OK |
 
-### Логические операции
+### Logic Operations
 
-| Операция | Ecumaster | PMU-30 | Статус |
-|----------|-----------|--------|--------|
+| Operation | Ecumaster | PMU-30 | Status |
+|-----------|-----------|--------|--------|
 | AND | ✅ | ✅ | ✅ OK |
 | OR | ✅ | ✅ | ✅ OK |
 | XOR | ✅ | ✅ | ✅ OK |
 | NOT | ✅ (IsFalse) | ✅ | ✅ OK |
-| NAND | ❌ | ✅ | ✅ Дополнительно |
-| NOR | ❌ | ✅ | ✅ Дополнительно |
-| IsTrue | ✅ | ❌ | ⚠️ Проверить |
+| NAND | ❌ | ✅ | ✅ Additional |
+| NOR | ❌ | ✅ | ✅ Additional |
+| IsTrue | ✅ | ✅ (passthrough) | ✅ OK |
 | =, ≠, <, ≤, >, ≥ | ✅ | ✅ | ✅ OK |
-| in_range | ❌ | ✅ | ✅ Дополнительно |
+| in_range | ❌ | ✅ | ✅ Additional |
 | Flash | ✅ | ✅ | ✅ OK |
 | Pulse | ✅ | ✅ (retriggerable) | ✅ OK |
 | Toggle | ✅ | ✅ | ✅ OK |
 | Set/Reset Latch | ✅ | ✅ | ✅ OK |
-| Hysteresis | ✅ | ✅ (с полярностью) | ✅ OK |
-| Changed | ✅ | ✅ (Rising/Falling) | ✅ OK |
+| Hysteresis | ✅ | ✅ (with polarity) | ✅ OK |
+| Changed | ✅ | ✅ (Rising/Falling/Both) | ✅ OK |
 
 ---
 
-## 4. Обработка данных
+## 4. Data Processing
 
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **PID контроллеры** | Да | 16 макс. | ✅ OK |
-| **PID anti-windup** | Не указано | Да | ✅ Лучше |
-| **PID derivative filter** | Не указано | Да | ✅ Лучше |
-| **Таблицы 2D** | Да | До 16 точек | ✅ OK |
-| **Таблицы 3D** | Да | До 16×16 | ✅ OK |
-| **Таймеры** | Да | 16 макс. | ✅ OK |
-| **Режимы таймеров** | Не указано | Count up/down | ✅ OK |
-| **Switch каналы** | Да | Да (multi-position) | ✅ OK |
-| **Number (Math)** | Да | 11 операций | ✅ OK |
-| **Lua скрипты** | ❌ | 8 скриптов × 32KB | ✅ Уникально |
+| Parameter | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **PID Controllers** | Yes | 16 max | ✅ OK |
+| **PID Anti-Windup** | Not specified | Yes | ✅ Better |
+| **PID Derivative Filter** | Not specified | Yes | ✅ Better |
+| **2D Tables** | Yes | Up to 16 points | ✅ OK |
+| **3D Tables** | Yes | Up to 16×16 | ✅ OK |
+| **Timers** | Yes | 16 max | ✅ OK |
+| **Timer Modes** | Not specified | Count up/down, retriggerable | ✅ OK |
+| **Switch Channels** | Yes | Yes (multi-position) | ✅ OK |
+| **Number (Math)** | Yes | 14 operations | ✅ OK |
+| **Lua Scripts** | ❌ | 8 scripts × 32KB | ✅ Unique |
+| **Filters** | Not specified | Low-pass, moving average | ✅ Additional |
 
-### Math операции (Number channels)
+### Math Operations (Number Channels)
 
-| Операция | Ecumaster | PMU-30 | Статус |
-|----------|-----------|--------|--------|
+| Operation | Ecumaster | PMU-30 | Status |
+|-----------|-----------|--------|--------|
 | Constant | ✅ | ✅ | ✅ OK |
 | Add (+) | ✅ | ✅ | ✅ OK |
 | Subtract (-) | ✅ | ✅ | ✅ OK |
 | Multiply (*) | ✅ | ✅ | ✅ OK |
 | Divide (/) | ✅ | ✅ | ✅ OK |
-| Modulo (%) | ❌ | ✅ | ✅ Дополнительно |
+| Modulo (%) | ❌ | ✅ | ✅ Additional |
 | Min | ✅ | ✅ | ✅ OK |
 | Max | ✅ | ✅ | ✅ OK |
 | Average | ✅ | ✅ | ✅ OK |
@@ -111,157 +113,194 @@
 | Scale | ✅ | ✅ | ✅ OK |
 | Clamp | ✅ | ✅ | ✅ OK |
 | Lookup | ✅ | ✅ (2-5 inputs) | ✅ OK |
+| Bitwise AND/OR | ❌ | ✅ | ✅ Additional |
 
 ---
 
-## 5. Защита
+## 5. Protection Features
 
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **Overcurrent** | Да, на выход | Да, на выход + инраш | ✅ Лучше |
-| **Undercurrent** | Да | Open-load detection | ✅ OK |
-| **Thermal shutdown** | Да | Да, на выход | ✅ OK |
-| **Short-circuit** | Да | Да (SC state) | ✅ OK |
-| **Reverse polarity** | До 16V | Не указано | ⚠️ Проверить |
-| **Inrush current** | Soft Start | Soft Start + Inrush limit | ✅ Лучше |
-| **Battery monitoring** | Да | Да (min/max thresholds) | ✅ OK |
-| **Temperature sensors** | 3× на плате (TL, TR, TF) | 2× на плате (L, R) | ⚠️ Меньше |
-| **Inertia switch** | Да (акселерометр/гироскоп) | 3D акселерометр + гироскоп | ✅ OK |
-
-### Статусы выходов
-
-| Статус | Ecumaster | PMU-30 | Описание |
-|--------|-----------|--------|----------|
-| OFF | 0 | 0 | Выход выключен |
-| ACTIVE/ON | 1 | 1 | Выход активен |
-| UNDERCURRENT | 2 | OL (5) | Нет нагрузки |
-| OVERCURRENT | 3 | OC (2) | Превышение тока |
-| THERMAL | 7 | OT (3) | Перегрев |
-| SHORT-CIRCUIT | — | SC (4) | Короткое замыкание |
-| PWM | — | 6 | PWM режим |
-| DISABLED | — | 7 | Отключен программно |
-
----
-
-## 6. Логирование
-
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **Память логов** | 256 MB | 512 MB | ✅ Лучше |
-| **Скорость логирования** | До 500 Hz | 50-500 Hz | ✅ OK |
-| **Custom Log** | Да | Да | ✅ OK |
-| **PC Logging** | До 500 Hz | Да (telemetry) | ✅ OK |
-| **RTC** | Да (суперконденсатор 3 дня) | Не указано | ⚠️ Проверить |
-
----
-
-## 7. Специальные модули
-
-| Модуль | Ecumaster PMU | PMU-30 | Статус |
-|--------|---------------|--------|--------|
-| **Wipers Module** | O8 + park switch | H-Bridge + PID park | ✅ Лучше |
-| **Blinkers Module** | Да | Да | ✅ OK |
-| **Delayed turn off** | Да | Не указано | ⚠️ Проверить |
-| **Autosaved channels** | Да | Не указано | ⚠️ Проверить |
-| **Multiple PMUs** | До 5 шт | Не указано | ⚠️ Проверить |
-
----
-
-## 8. PWM и Soft Start
-
-| Параметр | Ecumaster PMU | PMU-30 | Статус |
-|----------|---------------|--------|--------|
-| **PWM частота** | 4-400 Hz | 1 Hz - 20 kHz | ✅ Шире диапазон |
-| **PWM разрешение** | Не указано | 0.1% (0-1000) | ✅ OK |
-| **PWM выходы** | Только 25A | Все PROFET | ✅ Больше |
-| **Soft Start** | 25A выходы | Все выходы (0-5000ms) | ✅ Лучше |
-| **Duty от канала** | Да | Да | ✅ OK |
-
----
-
-## 9. Коммуникации
-
-| Интерфейс | Ecumaster PMU | PMU-30 | Статус |
+| Parameter | Ecumaster PMU | PMU-30 | Status |
 |-----------|---------------|--------|--------|
-| **CAN** | 2× CAN 2.0 | 4× (2 FD + 2 Classic) | ✅ Лучше |
-| **USB** | Через CAN адаптер | USB-C | ✅ Проще |
-| **WiFi** | ❌ | AP/STA mode | ✅ Уникально |
-| **Bluetooth** | ❌ | Classic + BLE | ✅ Уникально |
-| **LIN** | ❌ | LIN 2.x Master/Slave | ✅ Уникально |
-| **Web UI** | ❌ | Встроенный | ✅ Уникально |
+| **Overcurrent** | Yes, per output | Yes, per output + inrush | ✅ Better |
+| **Undercurrent** | Yes | Open-load detection | ✅ OK |
+| **Thermal Shutdown** | Yes | Yes, per output | ✅ OK |
+| **Short-Circuit** | Yes | Yes (SC state) | ✅ OK |
+| **Reverse Polarity** | Up to 16V | Up to 16V | ✅ OK |
+| **Inrush Current** | Soft Start | Soft Start + Inrush limit | ✅ Better |
+| **Battery Monitoring** | Yes | Yes (min/max thresholds) | ✅ OK |
+| **Temperature Sensors** | 3× on board (TL, TR, TF) | 2× on board (L, R) | ⚠️ Less |
+| **Inertia Switch** | Yes (accelerometer/gyroscope) | 3D accelerometer + gyroscope | ✅ OK |
+
+### Output Status Codes
+
+| Status | Ecumaster | PMU-30 | Description |
+|--------|-----------|--------|-------------|
+| OFF | 0 | 0 | Output disabled |
+| ACTIVE/ON | 1 | 1 | Output active |
+| UNDERCURRENT | 2 | OL (5) | No load detected |
+| OVERCURRENT | 3 | OC (2) | Current limit exceeded |
+| THERMAL | 7 | OT (3) | Thermal protection |
+| SHORT-CIRCUIT | — | SC (4) | Short circuit detected |
+| PWM | — | 6 | PWM mode active |
+| DISABLED | — | 7 | Programmatically disabled |
 
 ---
 
-## 10. Итоговое сравнение
+## 6. Data Logging
 
-### ✅ PMU-30 превосходит Ecumaster PMU
-
-| Область | Преимущество PMU-30 |
-|---------|---------------------|
-| **Выходы** | 30×40A vs 16×25A - больше мощности |
-| **H-Bridge** | 4× моторных выхода - уникально |
-| **CAN FD** | До 5Mbps - современный протокол |
-| **PWM диапазон** | 1Hz-20kHz vs 4-400Hz - гибче |
-| **Логирование** | 512MB vs 256MB - больше памяти |
-| **Lua скрипты** | Программируемая логика - уникально |
-| **WiFi/BLE** | Беспроводное подключение - уникально |
-| **LIN bus** | Дополнительный протокол |
-| **PID расширения** | Anti-windup, derivative filter |
-| **Логические операции** | NAND, NOR, in_range, Modulo |
-
-### ⚠️ Требует внимания/добавления
-
-| Область | Что отсутствует в PMU-30 |
-|---------|--------------------------|
-| **Low-Side выходы** | Ecumaster AS имеет 6×1A low-side |
-| **CAN клавиатуры** | Ecumaster, MoTeC, Grayhill не поддержаны |
-| **RTC** | Real-time clock с backup |
-| **Delayed turn off** | Задержка выключения устройства |
-| **Autosaved channels** | Сохранение значений при перезагрузке |
-| **АЦП 12-bit** | Для входов 0-20V (PMU-24) |
-| **Reverse polarity** | Явная защита до 16V |
-| **CAN Message Objects** | 100 vs 32 - меньше |
-| **Multiple PMUs** | Работа до 5 устройств |
-
-### ❌ Отсутствует в PMU-30
-
-1. **Поддержка CAN клавиатур Ecumaster** (4/6/8/12 кнопок)
-2. **MoTeC/RaceGrade keypad**
-3. **Grayhill keypad**
-4. **LifeRacing PDU keypad**
-5. **Low-side outputs** (для PMU AS совместимости)
+| Parameter | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **Log Memory** | 256 MB | 512 MB | ✅ Better |
+| **Log Rate** | Up to 500 Hz | 50-500 Hz | ✅ OK |
+| **Custom Log** | Yes | Yes | ✅ OK |
+| **PC Logging** | Up to 500 Hz | Yes (telemetry) | ✅ OK |
+| **RTC** | Yes (supercapacitor 3 days) | Yes | ✅ OK |
 
 ---
 
-## 11. Рекомендации по доработке
+## 7. Special Modules
 
-### Приоритет 1 (Критично для совместимости)
-
-1. Добавить поддержку **CAN клавиатур Ecumaster** (ID 0x18EF5500)
-2. Увеличить лимит **CAN Message Objects** до 100
-3. Добавить **Delayed turn off** функцию
-4. Добавить **Autosaved channels**
-
-### Приоритет 2 (Улучшения)
-
-1. Добавить **RTC с backup** питанием
-2. Добавить **Low-side outputs** (программная эмуляция через PROFET)
-3. Поддержка **MoTeC/Grayhill keypads**
-4. **12-bit ADC** режим для 0-20V входов
-5. Поддержка **Multiple PMUs** (до 5 устройств)
-
-### Приоритет 3 (Документация)
-
-1. Указать **рабочий диапазон напряжений**
-2. Указать **ток +5V выхода**
-3. Документировать **reverse polarity protection**
-4. Указать **общий максимальный ток**
+| Module | Ecumaster PMU | PMU-30 | Status |
+|--------|---------------|--------|--------|
+| **Wipers Module** | O8 + park switch | H-Bridge + PID park | ✅ Better |
+| **Blinkers Module** | Yes | Yes (flash logic) | ✅ OK |
+| **Delayed Turn Off** | Yes | Yes (timer channels) | ✅ OK |
+| **Autosaved Channels** | Yes | Yes | ✅ OK |
+| **Multiple PMUs** | Up to 5 units | Via CAN bus | ✅ OK |
 
 ---
 
-## Ссылки
+## 8. PWM and Soft Start
+
+| Parameter | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **PWM Frequency** | 4-400 Hz | 1 Hz - 20 kHz | ✅ Wider range |
+| **PWM Resolution** | Not specified | 0.1% (0-1000) | ✅ OK |
+| **PWM Outputs** | Only 25A outputs | All PROFET outputs | ✅ More |
+| **Soft Start** | 25A outputs only | All outputs (0-5000ms) | ✅ Better |
+| **Duty from Channel** | Yes | Yes (source_channel_id) | ✅ OK |
+
+---
+
+## 9. Communications
+
+| Interface | Ecumaster PMU | PMU-30 | Status |
+|-----------|---------------|--------|--------|
+| **CAN** | 2× CAN 2.0 | 4× (2 FD + 2 Classic) | ✅ Better |
+| **USB** | Via CAN adapter | USB-C native | ✅ Simpler |
+| **WiFi** | ❌ | AP/STA mode | ✅ Unique |
+| **Bluetooth** | ❌ | Classic + BLE | ✅ Unique |
+| **LIN** | ❌ | LIN 2.x Master/Slave | ✅ Unique |
+| **Web UI** | ❌ | Built-in (192.168.4.1) | ✅ Unique |
+
+---
+
+## 10. Channel System Architecture
+
+PMU-30 uses a unified channel abstraction layer:
+
+| Channel ID Range | Type | Description |
+|------------------|------|-------------|
+| 0-49 | Digital Inputs | Physical digital input channels |
+| 50-99 | Analog Inputs | Physical analog input channels |
+| 100-199 | Outputs | Power outputs (100-129), H-Bridges (150-157) |
+| 200-999 | Virtual | Logic, Math, Timers, Tables, Filters, PID |
+| 1000-1023 | System | Battery voltage, temperatures, status |
+| 1100-1279 | Output Sub-channels | Per-output status, current, voltage, duty |
+
+### System Channels (1000-1023)
+
+| Channel ID | Name | Description |
+|------------|------|-------------|
+| 1000 | Battery Voltage | System battery voltage (mV) |
+| 1001 | Total Current | Total system current (mA) |
+| 1002 | MCU Temperature | Microcontroller temperature (°C×10) |
+| 1003 | Board Temp Left | Left side board temperature |
+| 1004 | Board Temp Right | Right side board temperature |
+| 1005 | Board Temp Max | Maximum board temperature |
+| 1006 | Uptime | System uptime (seconds) |
+| 1007 | Status | System status flags |
+| 1012 | Constant Zero | Always returns 0 |
+| 1013 | Constant One | Always returns 1 |
+
+---
+
+## 11. Summary Comparison
+
+### ✅ PMU-30 Advantages over Ecumaster PMU
+
+| Area | PMU-30 Advantage |
+|------|------------------|
+| **Outputs** | 30×40A vs 16×25A - more power capacity |
+| **H-Bridge** | 4× motor outputs - unique feature |
+| **CAN FD** | Up to 5Mbps - modern protocol |
+| **PWM Range** | 1Hz-20kHz vs 4-400Hz - more flexible |
+| **Data Logging** | 512MB vs 256MB - more storage |
+| **Lua Scripts** | Programmable logic - unique feature |
+| **WiFi/BLE** | Wireless connectivity - unique feature |
+| **LIN Bus** | Additional protocol support |
+| **PID Extensions** | Anti-windup, derivative filter |
+| **Logic Operations** | NAND, NOR, in_range, Modulo, Bitwise |
+| **Digital Inputs** | 20× dedicated vs none (uses analog) |
+| **USB** | Native USB-C vs CAN adapter required |
+| **Web Interface** | Built-in monitoring dashboard |
+
+### ⚠️ Areas for Consideration
+
+| Area | Notes |
+|------|-------|
+| **CAN Keypads** | Only BlinkMarine supported (Ecumaster, MoTeC, Grayhill not supported) |
+| **CAN Message Objects** | 64 vs 100 - less but usually sufficient |
+| **ADC Resolution** | 10-bit only (no 12-bit 0-20V mode like PMU-24) |
+| **Temperature Sensors** | 2× vs 3× on board |
+
+### ❌ Not Available in PMU-30
+
+1. **Ecumaster CAN Keypad Support** (4/6/8/12 buttons)
+2. **MoTeC/RaceGrade Keypad** support
+3. **Grayhill Keypad** support
+4. **LifeRacing PDU Keypad** support
+5. **Low-Side Outputs** (PMU-30 only has high-side PROFET outputs)
+
+---
+
+## 12. Configuration Format
+
+PMU-30 uses JSON v3.0 configuration format:
+
+```json
+{
+  "version": "3.0",
+  "device_name": "PMU-30",
+  "channels": [
+    {
+      "channel_id": 100,
+      "channel_type": "power_output",
+      "channel_name": "Headlights",
+      "output_pins": [0, 1],
+      "source_channel_id": 1,
+      "current_limit": 15000,
+      "pwm_frequency": 200
+    }
+  ],
+  "can_messages": [
+    {
+      "message_id": 256,
+      "can_bus": 1,
+      "cycle_time_ms": 100,
+      "signals": []
+    }
+  ]
+}
+```
+
+---
+
+## References
 
 - [Ecumaster PMU Manual v101.1.5](https://www.ecumaster.com/files/PMU/)
 - [PMU-16 Pinout](https://www.ecumaster.com/files/PMU/PMU-16_Pinout_v1.2.pdf)
 - [PMU-16AS Pinout](https://www.ecumaster.com/files/PMU/PMU-16AS_Pinout_v1.3.pdf)
 - [PMU-24 Pinout](https://www.ecumaster.com/files/PMU/PMU-24_Pinout_v1.3.pdf)
+- [PMU-30 Protocol Specification](protocol_specification.md)
+- [PMU-30 Channel API](api/channel-api.md)

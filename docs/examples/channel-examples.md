@@ -1,9 +1,9 @@
 # Channel Examples
 
-**Version:** 1.0
-**Date:** December 2024
+**Version:** 2.0
+**Date:** December 2025
 
-Practical code examples for common channel operations.
+Practical code examples for common channel operations using the PMU-30 Channel Abstraction Layer.
 
 ---
 
@@ -15,8 +15,22 @@ Practical code examples for common channel operations.
 4. [Output Control](#4-output-control)
 5. [H-Bridge Control](#5-h-bridge-control)
 6. [CAN Integration](#6-can-integration)
-7. [Error Handling](#7-error-handling)
-8. [Concurrent Operations](#8-concurrent-operations)
+7. [Output Sub-Channels](#7-output-sub-channels)
+8. [Error Handling](#8-error-handling)
+9. [Concurrent Operations](#9-concurrent-operations)
+
+---
+
+## Channel ID Ranges
+
+| Range | Type | Description |
+|-------|------|-------------|
+| 0-49 | Digital Inputs | d1-d20 physical digital inputs |
+| 50-99 | Analog Inputs | a1-a20 physical analog inputs |
+| 100-199 | Physical Outputs | o1-o30 power outputs, hb1-hb4 H-bridges |
+| 200-999 | Virtual Channels | Logic, numbers, tables, CAN RX/TX, timers, etc. |
+| 1000-1023 | System Channels | Battery voltage, temperatures, status |
+| 1100-1279 | Output Sub-Channels | Per-output status, current, voltage, duty |
 
 ---
 
@@ -29,12 +43,17 @@ Practical code examples for common channel operations.
 
 void example_read_channel(void) {
     // Read by ID
-    int32_t value = PMU_Channel_GetValue(0);
-    printf("Channel 0 value: %ld\n", value);
+    int32_t value = PMU_Channel_GetValue(50);  // Analog input 1
+    printf("Channel 50 value: %ld\n", value);
 
     // Read system channel
-    int32_t battery = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);
+    int32_t battery = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BATTERY_V);  // 1000
     printf("Battery: %ld mV\n", battery);
+
+    // Read board temperatures
+    int32_t temp_l = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP_L);  // 1003
+    int32_t temp_r = PMU_Channel_GetValue(PMU_CHANNEL_SYSTEM_BOARD_TEMP_R);  // 1004
+    printf("Board temps: L=%ld R=%ld C\n", temp_l, temp_r);
 }
 ```
 
@@ -42,10 +61,10 @@ void example_read_channel(void) {
 
 ```c
 void example_write_channel(void) {
-    // Set output ON
+    // Set output ON (output 1 = channel 100)
     PMU_Channel_SetValue(100, 1);
 
-    // Set PWM duty cycle (50%)
+    // Set PWM duty cycle (50%) on output 2
     PMU_Channel_SetValue(101, 500);
 
     // With status check
@@ -60,13 +79,30 @@ void example_write_channel(void) {
 
 ```c
 void example_read_by_name(void) {
-    const PMU_Channel_t* ch = PMU_Channel_GetByName("Coolant Temp");
+    const PMU_Channel_t* ch = PMU_Channel_GetByName("CoolantTemp");
 
     if (ch != NULL) {
         printf("%s = %ld %s\n", ch->name, ch->value, ch->unit);
     } else {
         printf("Channel not found\n");
     }
+}
+```
+
+### Get Channel ID by String
+
+```c
+void example_get_channel_id(void) {
+    // Parse channel ID from string (supports both numeric and name lookup)
+    uint16_t id = PMU_Channel_GetIndexByID("FuelPump");  // Returns channel_id or 0xFFFF
+
+    if (id != 0xFFFF) {
+        int32_t value = PMU_Channel_GetValue(id);
+        printf("FuelPump channel %d = %ld\n", id, value);
+    }
+
+    // Direct numeric string
+    uint16_t id2 = PMU_Channel_GetIndexByID("105");  // Returns 105
 }
 ```
 
@@ -78,8 +114,8 @@ void example_read_by_name(void) {
 
 ```c
 void example_adc_read(void) {
-    // Raw ADC value (0-4095)
-    int32_t raw = PMU_Channel_GetValue(0);
+    // Analog input 1 (channel 50), raw ADC value (0-4095)
+    int32_t raw = PMU_Channel_GetValue(50);
 
     // Convert to voltage (0-5V)
     float voltage = raw * 5.0f / 4095.0f;
@@ -108,7 +144,7 @@ float ntc_to_celsius(int32_t adc_value) {
 }
 
 void example_temperature_read(void) {
-    int32_t adc = PMU_Channel_GetValue(2);  // NTC on ADC2
+    int32_t adc = PMU_Channel_GetValue(52);  // Analog input 3 (channel 52)
     float temp = ntc_to_celsius(adc);
     printf("Temperature: %.1f C\n", temp);
 }
@@ -125,7 +161,7 @@ float pressure_from_voltage(float voltage) {
 }
 
 void example_pressure_read(void) {
-    int32_t raw = PMU_Channel_GetValue(3);
+    int32_t raw = PMU_Channel_GetValue(53);  // Analog input 4
     float voltage = raw * 5.0f / 4095.0f;
     float pressure = pressure_from_voltage(voltage);
     printf("Oil Pressure: %.1f PSI\n", pressure);
@@ -136,8 +172,8 @@ void example_pressure_read(void) {
 
 ```c
 void example_throttle_read(void) {
-    int32_t tps1 = PMU_Channel_GetValue(4);  // TPS 1 (0.5-4.5V)
-    int32_t tps2 = PMU_Channel_GetValue(5);  // TPS 2 (4.5-0.5V, inverted)
+    int32_t tps1 = PMU_Channel_GetValue(54);  // Analog 5: TPS 1 (0.5-4.5V)
+    int32_t tps2 = PMU_Channel_GetValue(55);  // Analog 6: TPS 2 (4.5-0.5V, inverted)
 
     // Convert to percentage
     float pct1 = (tps1 - 409.0f) / 3277.0f * 100.0f;   // 0.5V-4.5V
@@ -162,7 +198,8 @@ void example_throttle_read(void) {
 
 ```c
 void example_switch_read(void) {
-    int32_t state = PMU_Channel_GetValue(20);
+    // Digital input 1 (channel 0)
+    int32_t state = PMU_Channel_GetValue(0);
 
     if (state) {
         printf("Switch ON\n");
@@ -199,7 +236,7 @@ uint8_t debounce_read(Debounce_t* db, uint8_t raw, uint32_t debounce_ms) {
 static Debounce_t button_db = {0};
 
 void example_debounced_button(void) {
-    uint8_t raw = PMU_Channel_GetValue(21);
+    uint8_t raw = PMU_Channel_GetValue(1);  // Digital input 2
     uint8_t stable = debounce_read(&button_db, raw, 50);
 
     printf("Button: %s\n", stable ? "PRESSED" : "RELEASED");
@@ -212,7 +249,7 @@ void example_debounced_button(void) {
 static uint8_t last_state = 0;
 
 void example_edge_detect(void) {
-    uint8_t current = PMU_Channel_GetValue(22);
+    uint8_t current = PMU_Channel_GetValue(2);  // Digital input 3
 
     if (current && !last_state) {
         printf("Rising edge detected\n");
@@ -232,7 +269,8 @@ void example_edge_detect(void) {
 
 ```c
 void example_rotary_switch(void) {
-    int32_t position = PMU_Channel_GetValue(23);
+    // Virtual switch channel (configured with rotary position)
+    int32_t position = PMU_Channel_GetValue(240);
 
     switch (position) {
         case 0: printf("Mode: OFF\n"); break;
@@ -252,12 +290,11 @@ void example_rotary_switch(void) {
 
 ```c
 void example_output_onoff(void) {
-    // Turn on
-    PMU_Channel_SetValue(100, 1);
+    // Output 1 (channel 100)
+    PMU_Channel_SetValue(100, 1);  // Turn on
     HAL_Delay(1000);
 
-    // Turn off
-    PMU_Channel_SetValue(100, 0);
+    PMU_Channel_SetValue(100, 0);  // Turn off
 }
 ```
 
@@ -265,6 +302,7 @@ void example_output_onoff(void) {
 
 ```c
 void example_pwm_control(void) {
+    // Output 2 (channel 101)
     // Ramp up from 0 to 100%
     for (int duty = 0; duty <= 1000; duty += 10) {
         PMU_Channel_SetValue(101, duty);
@@ -286,7 +324,8 @@ void example_pwm_control(void) {
 
 ```c
 void example_fan_control(void) {
-    int32_t temp = PMU_Channel_GetValue(0);  // Temperature in 0.1 C
+    // Temperature channel (virtual, scaled to 0.1 C)
+    int32_t temp = PMU_Channel_GetValue(200);
 
     int32_t duty = 0;
 
@@ -299,7 +338,8 @@ void example_fan_control(void) {
         duty = (temp - 600) * 1000 / 300;
     }
 
-    PMU_Channel_SetValue(100, duty);
+    // Fan output (channel 105)
+    PMU_Channel_SetValue(105, duty);
 }
 ```
 
@@ -326,20 +366,19 @@ void example_blink(uint16_t channel, uint32_t period_ms) {
 
 ```c
 void example_hbridge_basic(void) {
-    // Forward at 80%
-    PMU_Channel_SetValue(130, 800);
+    // H-Bridge 1 (channel 130)
+    // Positive value = forward, negative = reverse
+
+    PMU_Channel_SetValue(130, 800);   // Forward at 80%
     HAL_Delay(2000);
 
-    // Stop
-    PMU_Channel_SetValue(130, 0);
+    PMU_Channel_SetValue(130, 0);     // Stop
     HAL_Delay(500);
 
-    // Reverse at 80%
-    PMU_Channel_SetValue(130, -800);
+    PMU_Channel_SetValue(130, -800);  // Reverse at 80%
     HAL_Delay(2000);
 
-    // Stop
-    PMU_Channel_SetValue(130, 0);
+    PMU_Channel_SetValue(130, 0);     // Stop
 }
 ```
 
@@ -347,9 +386,10 @@ void example_hbridge_basic(void) {
 
 ```c
 void example_window_control(void) {
-    int32_t up_btn = PMU_Channel_GetValue(24);
-    int32_t down_btn = PMU_Channel_GetValue(25);
+    int32_t up_btn = PMU_Channel_GetValue(4);    // Digital input 5
+    int32_t down_btn = PMU_Channel_GetValue(5);  // Digital input 6
 
+    // H-Bridge 1 (channel 130)
     if (up_btn && !down_btn) {
         PMU_Channel_SetValue(130, 800);   // Up
     } else if (down_btn && !up_btn) {
@@ -396,14 +436,14 @@ void example_soft_motor(void) {
 
 ```c
 void example_can_rpm(void) {
-    // Assuming CAN signal configured as channel 200
-    int32_t rpm = PMU_Channel_GetValue(200);
+    // CAN RX channel configured for RPM signal (virtual channel 300)
+    int32_t rpm = PMU_Channel_GetValue(300);
 
     printf("Engine RPM: %ld\n", rpm);
 
     // Rev limiter
     if (rpm > 7000) {
-        PMU_Channel_SetValue(102, 0);  // Cut ignition
+        PMU_Channel_SetValue(102, 0);  // Cut ignition output
     } else {
         PMU_Channel_SetValue(102, 1);  // Normal
     }
@@ -414,12 +454,12 @@ void example_can_rpm(void) {
 
 ```c
 void example_dashboard_display(void) {
-    // Read all CAN signals
-    int32_t rpm = PMU_Channel_GetValue(200);
-    int32_t speed = PMU_Channel_GetValue(201);
-    int32_t coolant = PMU_Channel_GetValue(202);
-    int32_t oil_press = PMU_Channel_GetValue(203);
-    int32_t fuel = PMU_Channel_GetValue(204);
+    // Read all CAN RX signals (configured in virtual channel range)
+    int32_t rpm = PMU_Channel_GetValue(300);      // CAN RX: RPM
+    int32_t speed = PMU_Channel_GetValue(301);    // CAN RX: Vehicle Speed
+    int32_t coolant = PMU_Channel_GetValue(302);  // CAN RX: Coolant Temp
+    int32_t oil_press = PMU_Channel_GetValue(303); // CAN RX: Oil Pressure
+    int32_t fuel = PMU_Channel_GetValue(304);     // CAN RX: Fuel Level
 
     printf("=== Dashboard ===\n");
     printf("RPM: %ld\n", rpm);
@@ -432,7 +472,97 @@ void example_dashboard_display(void) {
 
 ---
 
-## 7. Error Handling
+## 7. Output Sub-Channels
+
+The PMU-30 provides per-output telemetry via sub-channels:
+
+| Base ID | Range | Description |
+|---------|-------|-------------|
+| 1100 | 1100-1129 | Output status (oY.status) |
+| 1130 | 1130-1159 | Output current mA (oY.current) |
+| 1160 | 1160-1189 | Output voltage mV (oY.voltage) |
+| 1190 | 1190-1219 | Output active state (oY.active) |
+| 1250 | 1250-1279 | Output duty cycle (oY.dutyCycle) |
+
+### Read Output Telemetry
+
+```c
+void example_read_output_telemetry(void) {
+    uint8_t output_idx = 0;  // Output 1
+
+    // Read all sub-channels for output 1
+    int32_t status = PMU_Channel_GetValue(PMU_CHANNEL_OUTPUT_STATUS_BASE + output_idx);   // 1100
+    int32_t current = PMU_Channel_GetValue(PMU_CHANNEL_OUTPUT_CURRENT_BASE + output_idx); // 1130
+    int32_t voltage = PMU_Channel_GetValue(PMU_CHANNEL_OUTPUT_VOLTAGE_BASE + output_idx); // 1160
+    int32_t active = PMU_Channel_GetValue(PMU_CHANNEL_OUTPUT_ACTIVE_BASE + output_idx);   // 1190
+    int32_t duty = PMU_Channel_GetValue(PMU_CHANNEL_OUTPUT_DUTY_BASE + output_idx);       // 1250
+
+    printf("Output %d:\n", output_idx + 1);
+    printf("  Status: %ld\n", status);
+    printf("  Current: %ld mA\n", current);
+    printf("  Voltage: %ld mV\n", voltage);
+    printf("  Active: %s\n", active ? "YES" : "NO");
+    printf("  Duty: %ld.%ld%%\n", duty / 10, duty % 10);
+}
+```
+
+### Monitor All Outputs
+
+```c
+void example_monitor_all_outputs(void) {
+    printf("Output | Status | Current | Voltage | Active | Duty\n");
+    printf("-------|--------|---------|---------|--------|------\n");
+
+    for (int i = 0; i < 30; i++) {
+        int32_t status = PMU_Channel_GetValue(1100 + i);
+        int32_t current = PMU_Channel_GetValue(1130 + i);
+        int32_t voltage = PMU_Channel_GetValue(1160 + i);
+        int32_t active = PMU_Channel_GetValue(1190 + i);
+        int32_t duty = PMU_Channel_GetValue(1250 + i);
+
+        printf("  %2d   |   %ld    |  %4ld   |  %5ld  |   %s   | %3ld.%ld\n",
+               i + 1, status, current, voltage, active ? "Y" : "N",
+               duty / 10, duty % 10);
+    }
+}
+```
+
+### Fault Detection Using Sub-Channels
+
+```c
+typedef enum {
+    OUTPUT_STATUS_OFF = 0,
+    OUTPUT_STATUS_ON = 1,
+    OUTPUT_STATUS_UNDERCURRENT = 2,
+    OUTPUT_STATUS_OVERCURRENT = 3,
+    OUTPUT_STATUS_SHORT_GND = 4,
+    OUTPUT_STATUS_SHORT_VBAT = 5,
+    OUTPUT_STATUS_OPEN_LOAD = 6,
+    OUTPUT_STATUS_THERMAL = 7
+} OutputStatus_t;
+
+void example_fault_detection(void) {
+    for (int i = 0; i < 30; i++) {
+        int32_t status = PMU_Channel_GetValue(1100 + i);
+
+        if (status >= OUTPUT_STATUS_UNDERCURRENT) {
+            printf("Output %d FAULT: ", i + 1);
+            switch (status) {
+                case OUTPUT_STATUS_UNDERCURRENT: printf("Undercurrent\n"); break;
+                case OUTPUT_STATUS_OVERCURRENT: printf("Overcurrent\n"); break;
+                case OUTPUT_STATUS_SHORT_GND: printf("Short to GND\n"); break;
+                case OUTPUT_STATUS_SHORT_VBAT: printf("Short to VBAT\n"); break;
+                case OUTPUT_STATUS_OPEN_LOAD: printf("Open load\n"); break;
+                case OUTPUT_STATUS_THERMAL: printf("Thermal shutdown\n"); break;
+            }
+        }
+    }
+}
+```
+
+---
+
+## 8. Error Handling
 
 ### Safe Channel Access
 
@@ -457,7 +587,7 @@ int32_t safe_channel_read(uint16_t channel_id, int32_t default_value) {
 
 void example_safe_read(void) {
     // Returns 0 if channel missing or faulted
-    int32_t temp = safe_channel_read(0, 0);
+    int32_t temp = safe_channel_read(50, 0);
 }
 ```
 
@@ -482,9 +612,36 @@ void safe_output_set(uint16_t channel_id, int32_t value) {
 }
 ```
 
+### Register Dynamic Channel
+
+```c
+void example_dynamic_channel(void) {
+    // Generate unique ID in virtual range (200-999)
+    uint16_t new_id = PMU_Channel_GenerateID();
+
+    PMU_Channel_t new_channel = {
+        .channel_id = new_id,
+        .hw_class = PMU_CHANNEL_CLASS_OUTPUT_NUMBER,
+        .direction = PMU_CHANNEL_DIR_VIRTUAL,
+        .format = PMU_CHANNEL_FORMAT_SIGNED,
+        .value = 0,
+        .min_value = -1000,
+        .max_value = 1000,
+        .flags = PMU_CHANNEL_FLAG_ENABLED
+    };
+    strncpy(new_channel.name, "DynamicValue", sizeof(new_channel.name));
+    strncpy(new_channel.unit, "", sizeof(new_channel.unit));
+
+    HAL_StatusTypeDef status = PMU_Channel_Register(&new_channel);
+    if (status == HAL_OK) {
+        printf("Registered dynamic channel ID: %d\n", new_id);
+    }
+}
+```
+
 ---
 
-## 8. Concurrent Operations
+## 9. Concurrent Operations
 
 ### Batch Read
 
@@ -492,7 +649,7 @@ void safe_output_set(uint16_t channel_id, int32_t value) {
 void example_batch_read(void) {
     // Read multiple channels efficiently
     int32_t values[10];
-    uint16_t channels[] = {0, 1, 2, 3, 4, 100, 101, 200, 201, 1000};
+    uint16_t channels[] = {50, 51, 52, 53, 54, 100, 101, 300, 301, 1000};
 
     for (int i = 0; i < 10; i++) {
         values[i] = PMU_Channel_GetValue(channels[i]);
@@ -505,7 +662,7 @@ void example_batch_read(void) {
 }
 ```
 
-### Atomic Update
+### Atomic Update (RTOS)
 
 ```c
 void example_atomic_update(void) {
@@ -520,15 +677,28 @@ void example_atomic_update(void) {
 }
 ```
 
+### Update Input Channel (Firmware Internal Use)
+
+```c
+// Used internally by ADC/digital input drivers to sync hardware state
+void example_update_input_value(void) {
+    // PMU_Channel_UpdateValue() allows setting INPUT channel values
+    // Unlike SetValue() which is for outputs only
+    PMU_Channel_UpdateValue(50, adc_raw_value);  // Analog input 1
+    PMU_Channel_UpdateValue(0, digital_state);   // Digital input 1
+}
+```
+
 ---
 
 ## See Also
 
-- [Channel API Reference](../api/channel-api.md)
+- [Channel Abstraction](../../firmware/CHANNEL_ABSTRACTION.md) - Full API reference
 - [Logic Function Examples](logic-function-examples.md)
 - [Real-World Scenarios](real-world-scenarios.md)
+- [JSON Configuration](../../firmware/JSON_CONFIG.md) - Configuration format v3.0
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** December 2024
+**Document Version:** 2.0
+**Last Updated:** December 2025
