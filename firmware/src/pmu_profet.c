@@ -51,14 +51,27 @@
 /* Private macro -------------------------------------------------------------*/
 #define IS_VALID_CHANNEL(ch)    ((ch) < PMU30_NUM_OUTPUTS)
 
+/* Channel validation macros (return early on invalid) */
+#define PROFET_VALIDATE_CHANNEL(ch) \
+    do { if (!IS_VALID_CHANNEL(ch)) return HAL_ERROR; } while(0)
+
+#define PROFET_VALIDATE_CHANNEL_RET(ch, ret) \
+    do { if (!IS_VALID_CHANNEL(ch)) return (ret); } while(0)
+
+#define PROFET_VALIDATE_CHANNEL_PTR(ch) \
+    do { if (!IS_VALID_CHANNEL(ch)) return NULL; } while(0)
+
 /* Private variables ---------------------------------------------------------*/
 static PMU_PROFET_Channel_t channels[PMU30_NUM_OUTPUTS];
 static PMU_OutputConfig_t* channel_configs[PMU30_NUM_OUTPUTS];
+static uint8_t spi_diag_enabled = 0;  /* SPI diagnostics enabled flag */
+static uint8_t manual_override[PMU30_NUM_OUTPUTS];  /* Manual override flags (prevents logic from overwriting) */
+
+#ifndef _WIN32
+/* Hardware handles - only needed for real target */
 static TIM_HandleTypeDef* htim_pwm;
 static ADC_HandleTypeDef* hadc_current;
 static ADC_HandleTypeDef* hadc_status;
-static uint8_t spi_diag_enabled = 0;  /* SPI diagnostics enabled flag */
-static uint8_t manual_override[PMU30_NUM_OUTPUTS];  /* Manual override flags (prevents logic from overwriting) */
 
 /* GPIO pin mapping for PROFET control (example - adjust to actual hardware) */
 typedef struct {
@@ -106,6 +119,15 @@ static const PROFET_GPIO_Map_t profet_gpio[PMU30_NUM_OUTPUTS] = {
     {GPIOF, GPIO_PIN_4,  TIM_CHANNEL_1},
     {GPIOF, GPIO_PIN_5,  TIM_CHANNEL_2},
 };
+#endif /* _WIN32 */
+
+#ifndef UNIT_TEST
+/* Timer handle pointers for channel mapping */
+typedef struct {
+    TIM_HandleTypeDef** htim;
+    uint8_t base_channel;  /* First output channel using this timer */
+} PROFET_TimerMap_t;
+#endif
 
 /* Private function prototypes -----------------------------------------------*/
 static void PROFET_UpdateCurrentSensing(uint8_t channel);
@@ -115,6 +137,27 @@ static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault);
 static uint16_t PROFET_ReadCurrentADC(uint8_t channel);
 static uint16_t PROFET_ReadStatusADC(uint8_t channel);
 static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state);
+
+/* Helper to set GPIO for a channel */
+#ifndef _WIN32
+static inline void PROFET_SetGPIO(uint8_t channel, GPIO_PinState state)
+{
+    HAL_GPIO_WritePin(profet_gpio[channel].port, profet_gpio[channel].pin, state);
+}
+#else
+#define PROFET_SetGPIO(ch, st) ((void)0)
+#endif
+
+/* Helper to map fault flags to state (handles combined flags) */
+static inline PMU_PROFET_State_t PROFET_FaultToState(uint8_t fault_flags)
+{
+    /* Priority order: SC > OT > OC > OL */
+    if (fault_flags & PMU_PROFET_FAULT_SHORT_CIRCUIT) return PMU_PROFET_STATE_SC;
+    if (fault_flags & PMU_PROFET_FAULT_OVERTEMP)      return PMU_PROFET_STATE_OT;
+    if (fault_flags & PMU_PROFET_FAULT_OVERCURRENT)   return PMU_PROFET_STATE_OC;
+    if (fault_flags & PMU_PROFET_FAULT_OPEN_LOAD)     return PMU_PROFET_STATE_OL;
+    return PMU_PROFET_STATE_OC;  /* Default fallback */
+}
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -134,9 +177,7 @@ HAL_StatusTypeDef PMU_PROFET_Init(void)
     for (uint8_t i = 0; i < PMU30_NUM_OUTPUTS; i++) {
         channels[i].state = PMU_PROFET_STATE_OFF;
         channels[i].fault_flags = PMU_PROFET_FAULT_NONE;
-
-        /* Set GPIO to LOW (PROFET off) */
-        HAL_GPIO_WritePin(profet_gpio[i].port, profet_gpio[i].pin, GPIO_PIN_RESET);
+        PROFET_SetGPIO(i, GPIO_PIN_RESET);
     }
 
     /* Initialize timers for PWM (TIM1-4 @ 1kHz)
@@ -287,9 +328,7 @@ void PMU_PROFET_Update(void)
  */
 HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return HAL_ERROR;
-    }
+    PROFET_VALIDATE_CHANNEL(channel);
 
     /* Don't allow state change if in fault lockout */
     if (PROFET_IsInFaultState(channels[channel].state) &&
@@ -303,27 +342,21 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
 
     if (state) {
         /* Turn ON */
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_SET);
+        PROFET_SetGPIO(channel, GPIO_PIN_SET);
         channels[channel].state = PMU_PROFET_STATE_ON;
         channels[channel].pwm_duty = 1000; /* 100% */
         channels[channel].on_time_ms = 0;  /* Reset grace period for fault detection */
 
-        /* Push CHANNEL_ON event if transitioning from off */
         if (!was_on) {
             PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_ON, channel, 1);
         }
     } else {
         /* Turn OFF */
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_RESET);
+        PROFET_SetGPIO(channel, GPIO_PIN_RESET);
         channels[channel].state = PMU_PROFET_STATE_OFF;
         channels[channel].pwm_duty = 0;
         channels[channel].on_time_ms = 0;
 
-        /* Push CHANNEL_OFF event if transitioning from on */
         if (was_on) {
             PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_OFF, channel, 0);
         }
@@ -360,9 +393,7 @@ HAL_StatusTypeDef PMU_PROFET_SetStateManual(uint8_t channel, uint8_t state)
  */
 uint8_t PMU_PROFET_HasManualOverride(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return 0;
-    }
+    PROFET_VALIDATE_CHANNEL_RET(channel, 0);
     return manual_override[channel];
 }
 
@@ -395,9 +426,7 @@ void PMU_PROFET_ClearAllManualOverrides(void)
  */
 HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return HAL_ERROR;
-    }
+    PROFET_VALIDATE_CHANNEL(channel);
 
     /* Clamp duty cycle */
     if (duty > PMU_PROFET_PWM_RESOLUTION) {
@@ -415,15 +444,11 @@ HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
     if (duty == 0) {
         /* Fully OFF */
         channels[channel].state = PMU_PROFET_STATE_OFF;
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_RESET);
+        PROFET_SetGPIO(channel, GPIO_PIN_RESET);
     } else if (duty == PMU_PROFET_PWM_RESOLUTION) {
         /* Fully ON */
         channels[channel].state = PMU_PROFET_STATE_ON;
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_SET);
+        PROFET_SetGPIO(channel, GPIO_PIN_SET);
     } else {
         /* PWM mode */
         channels[channel].state = PMU_PROFET_STATE_PWM;
@@ -481,9 +506,7 @@ HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
  */
 uint16_t PMU_PROFET_GetCurrent(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return 0;
-    }
+    PROFET_VALIDATE_CHANNEL_RET(channel, 0);
     return channels[channel].current_mA;
 }
 
@@ -494,9 +517,7 @@ uint16_t PMU_PROFET_GetCurrent(uint8_t channel)
  */
 int16_t PMU_PROFET_GetTemperature(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return 0;
-    }
+    PROFET_VALIDATE_CHANNEL_RET(channel, 0);
     return channels[channel].temperature_C;
 }
 
@@ -507,9 +528,7 @@ int16_t PMU_PROFET_GetTemperature(uint8_t channel)
  */
 uint8_t PMU_PROFET_GetFaults(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return 0;
-    }
+    PROFET_VALIDATE_CHANNEL_RET(channel, 0);
     return channels[channel].fault_flags;
 }
 
@@ -533,20 +552,15 @@ static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state)
  */
 HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return HAL_ERROR;
-    }
+    PROFET_VALIDATE_CHANNEL(channel);
 
-    /* Track if was in fault state */
     bool was_in_fault = PROFET_IsInFaultState(channels[channel].state);
 
     channels[channel].fault_flags = PMU_PROFET_FAULT_NONE;
     channels[channel].fault_count = 0;
 
-    /* If channel was in any fault state, move to OFF */
     if (was_in_fault) {
         channels[channel].state = PMU_PROFET_STATE_OFF;
-        /* Push CHANNEL_CLEARED event */
         PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_CLEARED, channel, 0);
     }
 
@@ -561,30 +575,14 @@ HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel)
  */
 HAL_StatusTypeDef PMU_PROFET_InjectFault(uint8_t channel, uint8_t fault)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return HAL_ERROR;
-    }
+    PROFET_VALIDATE_CHANNEL(channel);
 
     channels[channel].fault_flags |= fault;
     channels[channel].fault_count++;
 
-    /* Map fault type to specific ECUMaster-compatible state */
-    PMU_PROFET_State_t fault_state;
-    if (fault & PMU_PROFET_FAULT_SHORT_CIRCUIT) {
-        fault_state = PMU_PROFET_STATE_SC;
-    } else if (fault & PMU_PROFET_FAULT_OVERTEMP) {
-        fault_state = PMU_PROFET_STATE_OT;
-    } else if (fault & PMU_PROFET_FAULT_OPEN_LOAD) {
-        fault_state = PMU_PROFET_STATE_OL;
-    } else {
-        fault_state = PMU_PROFET_STATE_OC;  /* Default to OC */
-    }
-
     /* Set channel to fault state and turn off */
-    channels[channel].state = fault_state;
-    HAL_GPIO_WritePin(profet_gpio[channel].port,
-                     profet_gpio[channel].pin,
-                     GPIO_PIN_RESET);
+    channels[channel].state = PROFET_FaultToState(fault);
+    PROFET_SetGPIO(channel, GPIO_PIN_RESET);
 
     return HAL_OK;
 }
@@ -596,9 +594,7 @@ HAL_StatusTypeDef PMU_PROFET_InjectFault(uint8_t channel, uint8_t fault)
  */
 PMU_PROFET_Channel_t* PMU_PROFET_GetChannelData(uint8_t channel)
 {
-    if (!IS_VALID_CHANNEL(channel)) {
-        return NULL;
-    }
+    PROFET_VALIDATE_CHANNEL_PTR(channel);
     return &channels[channel];
 }
 
@@ -704,55 +700,28 @@ static void PROFET_UpdateDiagnostics(uint8_t channel)
  */
 static void PROFET_HandleFault(uint8_t channel, PMU_PROFET_Fault_t fault)
 {
-    /* Track if this is a new fault */
     bool was_in_fault = PROFET_IsInFaultState(channels[channel].state);
 
-    /* Set fault flag */
     channels[channel].fault_flags |= fault;
     channels[channel].fault_count++;
 
-    /* Push CHANNEL_FAULT event if this is a new fault */
     if (!was_in_fault) {
         PMU_Handler_PushEvent(PMU_EVENT_CHANNEL_FAULT, channel, (int32_t)fault);
     }
 
-    /* Map fault type to specific ECUMaster-compatible state */
-    PMU_PROFET_State_t fault_state;
-    switch (fault) {
-        case PMU_PROFET_FAULT_OVERCURRENT:
-            fault_state = PMU_PROFET_STATE_OC;
-            break;
-        case PMU_PROFET_FAULT_OVERTEMP:
-            fault_state = PMU_PROFET_STATE_OT;
-            break;
-        case PMU_PROFET_FAULT_SHORT_CIRCUIT:
-            fault_state = PMU_PROFET_STATE_SC;
-            break;
-        case PMU_PROFET_FAULT_OPEN_LOAD:
-            fault_state = PMU_PROFET_STATE_OL;
-            break;
-        default:
-            fault_state = PMU_PROFET_STATE_OC;  /* Default to OC for unknown faults */
-            break;
-    }
+    PMU_PROFET_State_t fault_state = PROFET_FaultToState(fault);
 
     /* Immediate shutdown for critical faults */
     if (fault == PMU_PROFET_FAULT_SHORT_CIRCUIT ||
         fault == PMU_PROFET_FAULT_OVERTEMP) {
-
-        /* Turn off channel immediately */
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_RESET);
+        PROFET_SetGPIO(channel, GPIO_PIN_RESET);
         channels[channel].state = fault_state;
     }
 
     /* Lockout after too many faults */
     if (channels[channel].fault_count >= PROFET_FAULT_THRESHOLD) {
         channels[channel].state = fault_state;
-        HAL_GPIO_WritePin(profet_gpio[channel].port,
-                         profet_gpio[channel].pin,
-                         GPIO_PIN_RESET);
+        PROFET_SetGPIO(channel, GPIO_PIN_RESET);
     }
 }
 
