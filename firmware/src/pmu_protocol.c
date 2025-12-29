@@ -90,6 +90,116 @@ static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 
+/* Payload pack/unpack helpers -----------------------------------------------*/
+
+/**
+ * @brief Pack 32-bit value into buffer (little-endian)
+ */
+static inline void Protocol_PackU32(uint8_t* buffer, uint16_t* index, uint32_t value)
+{
+    memcpy(&buffer[*index], &value, 4);
+    *index += 4;
+}
+
+/**
+ * @brief Pack 16-bit value into buffer (little-endian)
+ */
+static inline void Protocol_PackU16(uint8_t* buffer, uint16_t* index, uint16_t value)
+{
+    memcpy(&buffer[*index], &value, 2);
+    *index += 2;
+}
+
+/**
+ * @brief Pack 8-bit value into buffer
+ */
+static inline void Protocol_PackU8(uint8_t* buffer, uint16_t* index, uint8_t value)
+{
+    buffer[*index] = value;
+    *index += 1;
+}
+
+/**
+ * @brief Extract 32-bit value from packet data (little-endian)
+ */
+static inline uint32_t Protocol_GetU32(const uint8_t* data, uint16_t offset)
+{
+    uint32_t value;
+    memcpy(&value, &data[offset], 4);
+    return value;
+}
+
+/**
+ * @brief Extract 16-bit value from packet data (little-endian)
+ */
+static inline uint16_t Protocol_GetU16(const uint8_t* data, uint16_t offset)
+{
+    uint16_t value;
+    memcpy(&value, &data[offset], 2);
+    return value;
+}
+
+/**
+ * @brief Extract string from packet into buffer (with length limit)
+ */
+static inline uint8_t Protocol_ExtractString(const uint8_t* data, uint16_t data_len,
+                                              uint16_t offset, char* out_str, uint8_t max_len)
+{
+    if (offset >= data_len) {
+        out_str[0] = '\0';
+        return 0;
+    }
+    uint8_t len = (data_len - offset < max_len) ? (data_len - offset) : max_len;
+    memcpy(out_str, &data[offset], len);
+    out_str[len] = '\0';
+    return len;
+}
+
+/* Command handler dispatch table --------------------------------------------*/
+typedef void (*Protocol_CommandHandler_t)(const PMU_Protocol_Packet_t* packet);
+
+typedef struct {
+    uint8_t command;
+    Protocol_CommandHandler_t handler;
+} Protocol_CommandEntry_t;
+
+static const Protocol_CommandEntry_t command_dispatch_table[] = {
+    /* System commands */
+    {PMU_CMD_PING,              Protocol_HandlePing},
+    {PMU_CMD_GET_VERSION,       Protocol_HandleGetVersion},
+    {PMU_CMD_GET_SERIAL,        Protocol_HandleGetSerial},
+    /* Streaming commands */
+    {PMU_CMD_START_STREAM,      Protocol_HandleStartStream},
+    {PMU_CMD_STOP_STREAM,       Protocol_HandleStopStream},
+    /* Output control commands */
+    {PMU_CMD_SET_OUTPUT,        Protocol_HandleSetOutput},
+    {PMU_CMD_SET_PWM,           Protocol_HandleSetPWM},
+    {PMU_CMD_SET_HBRIDGE,       Protocol_HandleSetHBridge},
+    /* Query commands */
+    {PMU_CMD_GET_OUTPUTS,       Protocol_HandleGetOutputs},
+    {PMU_CMD_GET_INPUTS,        Protocol_HandleGetInputs},
+    /* Configuration commands */
+    {PMU_CMD_LOAD_CONFIG,       Protocol_HandleLoadConfig},
+    /* Logging commands */
+    {PMU_CMD_START_LOGGING,     Protocol_HandleStartLogging},
+    {PMU_CMD_STOP_LOGGING,      Protocol_HandleStopLogging},
+    {PMU_CMD_GET_LOG_INFO,      Protocol_HandleGetLogInfo},
+    {PMU_CMD_DOWNLOAD_LOG,      Protocol_HandleDownloadLog},
+    {PMU_CMD_ERASE_LOGS,        Protocol_HandleEraseLogs},
+    /* Lua scripting commands */
+    {PMU_CMD_LUA_EXECUTE,       Protocol_HandleLuaExecute},
+    {PMU_CMD_LUA_LOAD_SCRIPT,   Protocol_HandleLuaLoadScript},
+    {PMU_CMD_LUA_UNLOAD_SCRIPT, Protocol_HandleLuaUnloadScript},
+    {PMU_CMD_LUA_RUN_SCRIPT,    Protocol_HandleLuaRunScript},
+    {PMU_CMD_LUA_STOP_SCRIPT,   Protocol_HandleLuaStopScript},
+    {PMU_CMD_LUA_GET_SCRIPTS,   Protocol_HandleLuaGetScripts},
+    {PMU_CMD_LUA_GET_STATUS,    Protocol_HandleLuaGetStatus},
+    {PMU_CMD_LUA_GET_OUTPUT,    Protocol_HandleLuaGetOutput},
+    {PMU_CMD_LUA_SET_ENABLED,   Protocol_HandleLuaSetEnabled},
+};
+
+#define COMMAND_DISPATCH_COUNT (sizeof(command_dispatch_table) / sizeof(command_dispatch_table[0]))
+
 /* Exported functions --------------------------------------------------------*/
 
 /**
@@ -464,112 +574,16 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
         return;
     }
 
-    switch (packet->command) {
-        case PMU_CMD_PING:
-            Protocol_HandlePing(packet);
-            break;
-
-        case PMU_CMD_GET_VERSION:
-            Protocol_HandleGetVersion(packet);
-            break;
-
-        case PMU_CMD_GET_SERIAL:
-            Protocol_HandleGetSerial(packet);
-            break;
-
-        case PMU_CMD_START_STREAM:
-            Protocol_HandleStartStream(packet);
-            break;
-
-        case PMU_CMD_STOP_STREAM:
-            Protocol_HandleStopStream(packet);
-            break;
-
-        case PMU_CMD_SET_OUTPUT:
-            Protocol_HandleSetOutput(packet);
-            break;
-
-        case PMU_CMD_SET_PWM:
-            Protocol_HandleSetPWM(packet);
-            break;
-
-        case PMU_CMD_SET_HBRIDGE:
-            Protocol_HandleSetHBridge(packet);
-            break;
-
-        case PMU_CMD_GET_OUTPUTS:
-            Protocol_HandleGetOutputs(packet);
-            break;
-
-        case PMU_CMD_GET_INPUTS:
-            Protocol_HandleGetInputs(packet);
-            break;
-
-        case PMU_CMD_LOAD_CONFIG:
-            Protocol_HandleLoadConfig(packet);
-            break;
-
-        case PMU_CMD_START_LOGGING:
-            Protocol_HandleStartLogging(packet);
-            break;
-
-        case PMU_CMD_STOP_LOGGING:
-            Protocol_HandleStopLogging(packet);
-            break;
-
-        case PMU_CMD_GET_LOG_INFO:
-            Protocol_HandleGetLogInfo(packet);
-            break;
-
-        case PMU_CMD_DOWNLOAD_LOG:
-            Protocol_HandleDownloadLog(packet);
-            break;
-
-        case PMU_CMD_ERASE_LOGS:
-            Protocol_HandleEraseLogs(packet);
-            break;
-
-        /* Lua scripting commands */
-        case PMU_CMD_LUA_EXECUTE:
-            Protocol_HandleLuaExecute(packet);
-            break;
-
-        case PMU_CMD_LUA_LOAD_SCRIPT:
-            Protocol_HandleLuaLoadScript(packet);
-            break;
-
-        case PMU_CMD_LUA_UNLOAD_SCRIPT:
-            Protocol_HandleLuaUnloadScript(packet);
-            break;
-
-        case PMU_CMD_LUA_RUN_SCRIPT:
-            Protocol_HandleLuaRunScript(packet);
-            break;
-
-        case PMU_CMD_LUA_STOP_SCRIPT:
-            Protocol_HandleLuaStopScript(packet);
-            break;
-
-        case PMU_CMD_LUA_GET_SCRIPTS:
-            Protocol_HandleLuaGetScripts(packet);
-            break;
-
-        case PMU_CMD_LUA_GET_STATUS:
-            Protocol_HandleLuaGetStatus(packet);
-            break;
-
-        case PMU_CMD_LUA_GET_OUTPUT:
-            Protocol_HandleLuaGetOutput(packet);
-            break;
-
-        case PMU_CMD_LUA_SET_ENABLED:
-            Protocol_HandleLuaSetEnabled(packet);
-            break;
-
-        default:
-            Protocol_SendNACK(packet->command, "Unknown command");
-            break;
+    /* Look up handler in dispatch table */
+    for (uint16_t i = 0; i < COMMAND_DISPATCH_COUNT; i++) {
+        if (command_dispatch_table[i].command == packet->command) {
+            command_dispatch_table[i].handler(packet);
+            return;
+        }
     }
+
+    /* Command not found in dispatch table */
+    Protocol_SendNACK(packet->command, "Unknown command");
 }
 
 /**
@@ -868,34 +882,16 @@ static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet)
     uint8_t response[256];
     uint16_t index = 0;
 
-    /* Pack session count */
-    response[index++] = session_count & 0xFF;
-    response[index++] = (session_count >> 8) & 0xFF;
+    Protocol_PackU16(response, &index, session_count);
 
-    /* Pack each session */
-    for (uint16_t i = 0; i < session_count && index < sizeof(response) - 20; i++) {
-        /* Session ID (4 bytes) */
-        memcpy(&response[index], &sessions[i].session_id, 4);
-        index += 4;
-
-        /* Start time (4 bytes) */
-        memcpy(&response[index], &sessions[i].start_time, 4);
-        index += 4;
-
-        /* Duration (4 bytes) */
-        memcpy(&response[index], &sessions[i].duration_ms, 4);
-        index += 4;
-
-        /* Bytes used (4 bytes) */
-        memcpy(&response[index], &sessions[i].bytes_used, 4);
-        index += 4;
-
-        /* Sample count (4 bytes) */
-        memcpy(&response[index], &sessions[i].sample_count, 4);
-        index += 4;
-
-        /* Status (1 byte) */
-        response[index++] = sessions[i].status;
+    /* Pack each session using helpers */
+    for (uint16_t i = 0; i < session_count && index < sizeof(response) - 21; i++) {
+        Protocol_PackU32(response, &index, sessions[i].session_id);
+        Protocol_PackU32(response, &index, sessions[i].start_time);
+        Protocol_PackU32(response, &index, sessions[i].duration_ms);
+        Protocol_PackU32(response, &index, sessions[i].bytes_used);
+        Protocol_PackU32(response, &index, sessions[i].sample_count);
+        Protocol_PackU8(response, &index, sessions[i].status);
     }
 
     Protocol_SendData(PMU_CMD_GET_LOG_INFO, response, index);
@@ -911,14 +907,10 @@ static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet)
         return;
     }
 
-    /* Parse request: session_id (4B), offset (4B), length (4B) */
-    uint32_t session_id;
-    uint32_t offset;
-    uint32_t length;
-
-    memcpy(&session_id, &packet->data[0], 4);
-    memcpy(&offset, &packet->data[4], 4);
-    memcpy(&length, &packet->data[8], 4);
+    /* Parse request using helpers: session_id (4B), offset (4B), length (4B) */
+    uint32_t session_id = Protocol_GetU32(packet->data, 0);
+    uint32_t offset = Protocol_GetU32(packet->data, 4);
+    uint32_t length = Protocol_GetU32(packet->data, 8);
 
     /* Limit length to max payload size */
     if (length > PMU_PROTOCOL_MAX_PAYLOAD - 12) {
@@ -1045,9 +1037,7 @@ static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet)
     }
 
     char name[32];
-    uint8_t len = (packet->length < 31) ? packet->length : 31;
-    memcpy(name, packet->data, len);
-    name[len] = '\0';
+    Protocol_ExtractString(packet->data, packet->length, 0, name, 31);
 
     if (PMU_Lua_UnloadScript(name) == HAL_OK) {
         Protocol_SendACK(PMU_CMD_LUA_UNLOAD_SCRIPT);
@@ -1068,9 +1058,7 @@ static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet)
     }
 
     char name[32];
-    uint8_t len = (packet->length < 31) ? packet->length : 31;
-    memcpy(name, packet->data, len);
-    name[len] = '\0';
+    Protocol_ExtractString(packet->data, packet->length, 0, name, 31);
 
     PMU_Lua_Status_t status = PMU_Lua_ExecuteScript(name);
 
@@ -1094,9 +1082,7 @@ static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet)
     }
 
     char name[32];
-    uint8_t len = (packet->length < 31) ? packet->length : 31;
-    memcpy(name, packet->data, len);
-    name[len] = '\0';
+    Protocol_ExtractString(packet->data, packet->length, 0, name, 31);
 
     /* Disable the script to stop it */
     if (PMU_Lua_SetScriptEnabled(name, 0) == HAL_OK) {
