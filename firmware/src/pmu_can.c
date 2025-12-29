@@ -45,7 +45,34 @@ typedef struct {
 
 /* Private define ------------------------------------------------------------*/
 
+/* Byte order constants */
+#define CAN_BYTE_ORDER_INTEL     0   /* Little endian (LSB first) */
+#define CAN_BYTE_ORDER_MOTOROLA  1   /* Big endian (MSB first) */
+
+/* Data format to bit length lookup */
+static const uint8_t can_format_bit_lengths[] = {
+    [PMU_CAN_DATA_FORMAT_8BIT]   = 8,
+    [PMU_CAN_DATA_FORMAT_16BIT]  = 16,
+    [PMU_CAN_DATA_FORMAT_32BIT]  = 32,
+    [PMU_CAN_DATA_FORMAT_CUSTOM] = 0,  /* Use explicit bit_length */
+};
+
 /* Private macro -------------------------------------------------------------*/
+
+/* Bus validation macros */
+#define CAN_VALIDATE_BUS(bus) \
+    do { if ((bus) >= PMU_CAN_BUS_COUNT) return HAL_ERROR; } while(0)
+
+#define CAN_VALIDATE_BUS_PTR(bus) \
+    do { if ((bus) >= PMU_CAN_BUS_COUNT) return NULL; } while(0)
+
+#define CAN_VALIDATE_BUS_INIT(bus) \
+    do { if ((bus) >= PMU_CAN_BUS_COUNT || can_buses[bus].hfdcan == NULL) \
+        return HAL_ERROR; } while(0)
+
+/* Bit manipulation helpers */
+#define CAN_CREATE_MASK(bits) \
+    (((bits) >= 64) ? ~0ULL : ((1ULL << (bits)) - 1))
 
 /* Private variables ---------------------------------------------------------*/
 static PMU_CAN_BusState_t can_buses[PMU_CAN_BUS_COUNT];
@@ -73,7 +100,71 @@ static uint8_t CAN_DLCToBytes(uint8_t dlc);
 static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data);
 static PMU_CAN_MessageObject_t* CAN_FindMessageByCanId(PMU_CAN_Bus_t bus, uint32_t can_id);
 
+/* Shared bit extraction helper */
+static uint64_t CAN_ExtractRawBits(const uint8_t* data, uint8_t start_bit,
+                                    uint8_t bit_length, uint8_t byte_order,
+                                    uint8_t max_bytes);
+
 /* Private user code ---------------------------------------------------------*/
+
+/**
+ * @brief Extract raw bits from CAN data buffer
+ * @param data CAN data bytes
+ * @param start_bit Starting bit position
+ * @param bit_length Number of bits to extract
+ * @param byte_order 0=Intel/LSB, 1=Motorola/MSB
+ * @param max_bytes Maximum bytes in data buffer (8 for CAN, 64 for CAN FD)
+ * @retval Raw extracted value (not scaled)
+ */
+static uint64_t CAN_ExtractRawBits(const uint8_t* data, uint8_t start_bit,
+                                    uint8_t bit_length, uint8_t byte_order,
+                                    uint8_t max_bytes)
+{
+    uint64_t raw_value = 0;
+    uint8_t start_byte = start_bit / 8;
+    uint8_t start_bit_in_byte = start_bit % 8;
+
+    if (byte_order == CAN_BYTE_ORDER_INTEL) {
+        /* Intel/Little endian (LSB first) */
+        uint8_t bytes_needed = (bit_length + start_bit_in_byte + 7) / 8;
+        for (uint8_t i = 0; i < bytes_needed && (start_byte + i) < max_bytes; i++) {
+            raw_value |= ((uint64_t)data[start_byte + i] << (i * 8));
+        }
+        raw_value >>= start_bit_in_byte;
+    } else {
+        /* Motorola/Big endian (MSB first) - DBC format:
+         * start_bit indicates MSB position, signal spans to higher bytes */
+        uint8_t bits_remaining = bit_length;
+        uint8_t current_byte = start_byte;
+        uint8_t bits_from_msb = start_bit_in_byte + 1;
+
+        /* Extract bits from first byte (MSB portion) */
+        uint8_t bits_to_take = (bits_remaining < bits_from_msb) ? bits_remaining : bits_from_msb;
+        uint8_t first_mask = (1 << bits_to_take) - 1;
+        uint8_t shift_first = bits_from_msb - bits_to_take;
+        raw_value = (data[current_byte] >> shift_first) & first_mask;
+        bits_remaining -= bits_to_take;
+        current_byte++;
+
+        /* Extract full bytes in between */
+        while (bits_remaining >= 8 && current_byte < max_bytes) {
+            raw_value = (raw_value << 8) | data[current_byte];
+            bits_remaining -= 8;
+            current_byte++;
+        }
+
+        /* Extract remaining bits from last byte (LSB portion) */
+        if (bits_remaining > 0 && current_byte < max_bytes) {
+            raw_value = (raw_value << bits_remaining) |
+                        (data[current_byte] >> (8 - bits_remaining));
+        }
+    }
+
+    /* Mask to exact bit length */
+    raw_value &= CAN_CREATE_MASK(bit_length);
+
+    return raw_value;
+}
 
 /**
  * @brief Initialize CAN bus driver
@@ -462,55 +553,15 @@ static void CAN_ParseSignals(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
  */
 static float CAN_ExtractSignal(uint8_t* data, PMU_CAN_SignalMap_t* signal)
 {
-    uint64_t raw_value = 0;
-    uint8_t start_byte = signal->start_bit / 8;
-    uint8_t start_bit_in_byte = signal->start_bit % 8;
-
-    /* Extract bits based on byte order */
-    if (signal->byte_order == 0) {  /* Intel (LSB first) */
-        for (uint8_t i = 0; i < ((signal->length_bits + 7) / 8); i++) {
-            raw_value |= ((uint64_t)data[start_byte + i] << (i * 8));
-        }
-        raw_value >>= start_bit_in_byte;
-    } else {  /* Motorola (MSB first) */
-        /* Motorola byte order (DBC format):
-         * - start_bit indicates the MSB position of the signal
-         * - Signal spans towards higher byte indices
-         * - Bit numbering: byte_index * 8 + (7 - bit_within_byte)
-         */
-        uint8_t bits_remaining = signal->length_bits;
-        uint8_t current_byte = start_byte;
-        uint8_t bits_from_msb = start_bit_in_byte + 1;  /* Bits available from MSB position down */
-
-        /* Extract bits from first byte (MSB portion) */
-        uint8_t bits_to_take = (bits_remaining < bits_from_msb) ? bits_remaining : bits_from_msb;
-        uint8_t first_mask = (1 << bits_to_take) - 1;
-        uint8_t shift_first = bits_from_msb - bits_to_take;
-        raw_value = (data[current_byte] >> shift_first) & first_mask;
-        bits_remaining -= bits_to_take;
-        current_byte++;
-
-        /* Extract full bytes in between */
-        while (bits_remaining >= 8 && current_byte < 8) {
-            raw_value = (raw_value << 8) | data[current_byte];
-            bits_remaining -= 8;
-            current_byte++;
-        }
-
-        /* Extract remaining bits from last byte (LSB portion) */
-        if (bits_remaining > 0 && current_byte < 8) {
-            raw_value = (raw_value << bits_remaining) |
-                        (data[current_byte] >> (8 - bits_remaining));
-        }
-    }
-
-    /* Mask to length */
-    uint64_t mask = (1ULL << signal->length_bits) - 1;
-    raw_value &= mask;
+    /* Use shared bit extraction helper */
+    uint64_t raw_value = CAN_ExtractRawBits(data, signal->start_bit,
+                                             signal->length_bits,
+                                             signal->byte_order, 8);
 
     /* Convert to signed if needed */
     float value;
     if (signal->value_type == 1) {  /* Signed */
+        uint64_t mask = CAN_CREATE_MASK(signal->length_bits);
         /* Sign extend if MSB is set */
         if (raw_value & (1ULL << (signal->length_bits - 1))) {
             raw_value |= ~mask;
@@ -554,9 +605,8 @@ static void CAN_CheckTimeouts(PMU_CAN_Bus_t bus)
  */
 HAL_StatusTypeDef PMU_CAN_AddSignalMap(PMU_CAN_Bus_t bus, PMU_CAN_SignalMap_t* signal)
 {
-    if (bus >= PMU_CAN_BUS_COUNT || signal == NULL) {
-        return HAL_ERROR;
-    }
+    CAN_VALIDATE_BUS(bus);
+    if (signal == NULL) return HAL_ERROR;
 
     if (can_buses[bus].signal_count >= PMU_CAN_MAX_SIGNAL_MAPS) {
         return HAL_ERROR;  /* No space */
@@ -585,9 +635,7 @@ HAL_StatusTypeDef PMU_CAN_AddSignalMap(PMU_CAN_Bus_t bus, PMU_CAN_SignalMap_t* s
  */
 HAL_StatusTypeDef PMU_CAN_RemoveSignalMap(PMU_CAN_Bus_t bus, uint32_t can_id, uint16_t virtual_channel)
 {
-    if (bus >= PMU_CAN_BUS_COUNT) {
-        return HAL_ERROR;
-    }
+    CAN_VALIDATE_BUS(bus);
 
     /* Find and remove signal */
     for (uint16_t i = 0; i < can_buses[bus].signal_count; i++) {
@@ -616,10 +664,7 @@ HAL_StatusTypeDef PMU_CAN_RemoveSignalMap(PMU_CAN_Bus_t bus, uint32_t can_id, ui
  */
 HAL_StatusTypeDef PMU_CAN_ClearSignalMaps(PMU_CAN_Bus_t bus)
 {
-    if (bus >= PMU_CAN_BUS_COUNT) {
-        return HAL_ERROR;
-    }
-
+    CAN_VALIDATE_BUS(bus);
     can_buses[bus].signal_count = 0;
     return HAL_OK;
 }
@@ -631,10 +676,7 @@ HAL_StatusTypeDef PMU_CAN_ClearSignalMaps(PMU_CAN_Bus_t bus)
  */
 PMU_CAN_Statistics_t* PMU_CAN_GetStatistics(PMU_CAN_Bus_t bus)
 {
-    if (bus >= PMU_CAN_BUS_COUNT) {
-        return NULL;
-    }
-
+    CAN_VALIDATE_BUS_PTR(bus);
     return &can_buses[bus].stats;
 }
 
@@ -645,10 +687,7 @@ PMU_CAN_Statistics_t* PMU_CAN_GetStatistics(PMU_CAN_Bus_t bus)
  */
 HAL_StatusTypeDef PMU_CAN_ResetStatistics(PMU_CAN_Bus_t bus)
 {
-    if (bus >= PMU_CAN_BUS_COUNT) {
-        return HAL_ERROR;
-    }
-
+    CAN_VALIDATE_BUS(bus);
     memset(&can_buses[bus].stats, 0, sizeof(PMU_CAN_Statistics_t));
     return HAL_OK;
 }
@@ -679,9 +718,7 @@ uint8_t PMU_CAN_IsBusOnline(PMU_CAN_Bus_t bus)
 HAL_StatusTypeDef PMU_CAN_SetFilter(PMU_CAN_Bus_t bus, uint32_t filter_id,
                                      uint32_t filter_mask, PMU_CAN_IDType_t id_type)
 {
-    if (bus >= PMU_CAN_BUS_COUNT || !can_buses[bus].is_initialized) {
-        return HAL_ERROR;
-    }
+    CAN_VALIDATE_BUS_INIT(bus);
 
     /* TODO: Configure FDCAN filter */
     /* This is a placeholder */
@@ -736,82 +773,31 @@ static PMU_CAN_MessageObject_t* CAN_FindMessageByCanId(PMU_CAN_Bus_t bus, uint32
  */
 static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data)
 {
-    uint64_t raw_value = 0;
     float value = 0.0f;
 
-    /* Determine bit position based on format */
-    uint8_t start_bit = 0;
-    uint8_t bit_length = 0;
+    /* Determine bit position and length using lookup table */
+    uint8_t start_bit;
+    uint8_t bit_length;
 
-    switch (input->data_format) {
-        case PMU_CAN_DATA_FORMAT_8BIT:
-            start_bit = input->byte_offset * 8;
-            bit_length = 8;
-            break;
-        case PMU_CAN_DATA_FORMAT_16BIT:
-            start_bit = input->byte_offset * 8;
-            bit_length = 16;
-            break;
-        case PMU_CAN_DATA_FORMAT_32BIT:
-            start_bit = input->byte_offset * 8;
-            bit_length = 32;
-            break;
-        case PMU_CAN_DATA_FORMAT_CUSTOM:
-            start_bit = input->start_bit;
-            bit_length = input->bit_length;
-            break;
-        default:
-            start_bit = input->byte_offset * 8;
-            bit_length = 16;
-            break;
+    if (input->data_format == PMU_CAN_DATA_FORMAT_CUSTOM) {
+        start_bit = input->start_bit;
+        bit_length = input->bit_length;
+    } else if (input->data_format < sizeof(can_format_bit_lengths)) {
+        start_bit = input->byte_offset * 8;
+        bit_length = can_format_bit_lengths[input->data_format];
+        if (bit_length == 0) bit_length = 16;  /* Default fallback */
+    } else {
+        start_bit = input->byte_offset * 8;
+        bit_length = 16;  /* Default */
     }
 
-    /* Extract bits based on byte order */
-    uint8_t start_byte = start_bit / 8;
-    uint8_t start_bit_in_byte = start_bit % 8;
-    uint8_t bytes_needed = (bit_length + start_bit_in_byte + 7) / 8;
-
-    if (input->byte_order == 0) {  /* Little endian (Intel) */
-        for (uint8_t i = 0; i < bytes_needed && (start_byte + i) < 64; i++) {
-            raw_value |= ((uint64_t)data[start_byte + i] << (i * 8));
-        }
-        raw_value >>= start_bit_in_byte;
-    } else {  /* Big endian (Motorola/DBC format) */
-        /* Motorola byte order (DBC format):
-         * - start_bit indicates the MSB position of the signal
-         * - Signal spans towards higher byte indices
-         */
-        uint8_t bits_remaining = bit_length;
-        uint8_t current_byte = start_byte;
-        uint8_t bits_from_msb = start_bit_in_byte + 1;
-
-        /* Extract bits from first byte (MSB portion) */
-        uint8_t bits_to_take = (bits_remaining < bits_from_msb) ? bits_remaining : bits_from_msb;
-        uint8_t first_mask = (1 << bits_to_take) - 1;
-        uint8_t shift_first = bits_from_msb - bits_to_take;
-        raw_value = (data[current_byte] >> shift_first) & first_mask;
-        bits_remaining -= bits_to_take;
-        current_byte++;
-
-        /* Extract full bytes in between */
-        while (bits_remaining >= 8 && current_byte < 64) {
-            raw_value = (raw_value << 8) | data[current_byte];
-            bits_remaining -= 8;
-            current_byte++;
-        }
-
-        /* Extract remaining bits from last byte (LSB portion) */
-        if (bits_remaining > 0 && current_byte < 64) {
-            raw_value = (raw_value << bits_remaining) |
-                        (data[current_byte] >> (8 - bits_remaining));
-        }
-    }
-
-    /* Mask to length */
-    uint64_t mask = (bit_length >= 64) ? ~0ULL : ((1ULL << bit_length) - 1);
-    raw_value &= mask;
+    /* Use shared bit extraction helper (64 bytes for CAN FD) */
+    uint64_t raw_value = CAN_ExtractRawBits(data, start_bit, bit_length,
+                                             input->byte_order, 64);
 
     /* Convert based on data type */
+    uint64_t mask = CAN_CREATE_MASK(bit_length);
+
     switch (input->data_type) {
         case PMU_CAN_DATA_TYPE_UNSIGNED:
             value = (float)raw_value;
@@ -828,10 +814,7 @@ static float CAN_ExtractInputValue(PMU_CAN_Input_t* input, uint8_t* data)
         case PMU_CAN_DATA_TYPE_FLOAT:
             if (bit_length == 32) {
                 /* IEEE 754 float */
-                union {
-                    uint32_t u;
-                    float f;
-                } conv;
+                union { uint32_t u; float f; } conv;
                 conv.u = (uint32_t)raw_value;
                 value = conv.f;
             } else {
