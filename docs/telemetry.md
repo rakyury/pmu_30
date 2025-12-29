@@ -31,20 +31,32 @@ The PMU-30 telemetry system provides real-time streaming of device state, sensor
 
 ## Protocol Messages
 
-### Subscribe to Telemetry (0x30)
+### Start Telemetry Stream (0x20)
 
 Request telemetry streaming at specified rate.
 
-| Field   | Size    | Description                  |
-|---------|---------|------------------------------|
-| rate_hz | 2 bytes | Telemetry rate (1-100 Hz)    |
+| Field   | Size    | Description                   |
+|---------|---------|-------------------------------|
+| flags   | 1 byte  | Data type flags (bitmask)     |
+| rate_hz | 2 bytes | Telemetry rate (1-1000 Hz)    |
+
+**Data Type Flags:**
+
+| Bit | Flag            | Description          |
+|-----|-----------------|----------------------|
+| 0   | outputs_enabled | Include output states|
+| 1   | inputs_enabled  | Include input values |
+| 2   | can_enabled     | Include CAN data     |
+| 3   | temps_enabled   | Include temperatures |
+| 4   | voltages_enabled| Include voltages     |
+| 5   | faults_enabled  | Include faults       |
 
 ```python
-# Example: Subscribe at 10 Hz
+# Example: Start telemetry at 10 Hz
 device_controller.subscribe_telemetry(rate_hz=10)
 ```
 
-### Unsubscribe Telemetry (0x31)
+### Stop Telemetry Stream (0x21)
 
 Stop telemetry streaming.
 
@@ -52,9 +64,9 @@ Stop telemetry streaming.
 device_controller.unsubscribe_telemetry()
 ```
 
-### Telemetry Data Packet (0x32)
+### Telemetry Data Response (0xE3)
 
-The telemetry packet contains 174 bytes of real-time device state:
+Device responds with DATA (0xE3) packets containing 174 bytes of real-time state:
 
 | Offset | Size    | Field              | Description                        |
 |--------|---------|--------------------|------------------------------------|

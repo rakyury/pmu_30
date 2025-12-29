@@ -2,39 +2,41 @@
 
 ## Overview
 
-The PMU-30 uses a binary protocol for communication over USB CDC (virtual serial port). The protocol supports device configuration, real-time telemetry streaming, and control commands.
+The PMU-30 uses a binary protocol for communication over USB CDC (virtual serial port), WiFi (ESP32-C3), or CAN bus. The protocol supports device configuration, real-time telemetry streaming, control commands, Lua scripting, and firmware updates.
 
 ## Physical Layer
 
-- **Interface**: USB CDC (Virtual COM Port)
-- **Baud Rate**: 115200 (configurable up to 921600)
-- **Data Format**: 8N1 (8 data bits, no parity, 1 stop bit)
+| Transport | Details |
+|-----------|---------|
+| **USB CDC** | Virtual COM Port, 115200 baud (configurable up to 921600), 8N1 |
+| **WiFi** | ESP32-C3 module, TCP socket |
+| **CAN** | 1Mbps, base ID 0x600 |
 
 ## Frame Format
 
 All messages use the following frame structure:
 
 ```
-+--------+--------+--------+---------+--------+
-| START  | LENGTH | MSG_ID | PAYLOAD |  CRC   |
-| 1 byte | 2 bytes| 1 byte | N bytes | 2 bytes|
-+--------+--------+--------+---------+--------+
++--------+--------+---------+---------+--------+
+| START  |  CMD   | LENGTH  | PAYLOAD |  CRC   |
+| 1 byte | 1 byte | 2 bytes | N bytes | 2 bytes|
++--------+--------+---------+---------+--------+
 ```
 
 | Field    | Size    | Description                           |
 |----------|---------|---------------------------------------|
 | START    | 1 byte  | Frame start marker (0xAA)             |
+| CMD      | 1 byte  | Command type identifier               |
 | LENGTH   | 2 bytes | Payload length (little-endian)        |
-| MSG_ID   | 1 byte  | Message type identifier               |
-| PAYLOAD  | N bytes | Message-specific data                 |
-| CRC      | 2 bytes | CRC-16-CCITT (little-endian)          |
+| PAYLOAD  | N bytes | Command-specific data (max 256 bytes) |
+| CRC      | 2 bytes | CRC-16 (little-endian)                |
 
 ### CRC Calculation
 
-CRC-16-CCITT with polynomial 0x1021, initial value 0xFFFF. The CRC is calculated over the MSG_ID and PAYLOAD bytes.
+CRC-16 checksum calculated over CMD, LENGTH, and PAYLOAD bytes.
 
 ```python
-def crc16_ccitt(data: bytes, init: int = 0xFFFF) -> int:
+def crc16(data: bytes, init: int = 0xFFFF) -> int:
     crc = init
     for byte in data:
         crc ^= byte << 8
@@ -47,112 +49,268 @@ def crc16_ccitt(data: bytes, init: int = 0xFFFF) -> int:
     return crc
 ```
 
-## Message Types
+## Command Reference
 
-| ID   | Name                | Direction  | Description                    |
-|------|---------------------|------------|--------------------------------|
-| 0x01 | PING                | Host→Device| Connection test                |
-| 0x02 | PONG                | Device→Host| Ping response                  |
-| 0x10 | GET_INFO            | Host→Device| Request device information     |
-| 0x11 | INFO_RESP           | Device→Host| Device information response    |
-| 0x20 | GET_CONFIG          | Host→Device| Request current configuration  |
-| 0x21 | CONFIG_DATA         | Both       | Configuration data chunk       |
-| 0x22 | SET_CONFIG          | Host→Device| Upload configuration chunk     |
-| 0x23 | CONFIG_ACK          | Device→Host| Configuration acknowledgment   |
-| 0x30 | SET_CHANNEL         | Host→Device| Set channel output value       |
-| 0x31 | CHANNEL_ACK         | Device→Host| Channel command acknowledgment |
-| 0x40 | SUBSCRIBE_TELEMETRY | Host→Device| Start telemetry streaming      |
-| 0x41 | UNSUBSCRIBE_TELEMETRY| Host→Device| Stop telemetry streaming      |
-| 0x42 | TELEMETRY_DATA      | Device→Host| Real-time telemetry packet     |
-| 0xF0 | ERROR               | Device→Host| Error response                 |
+### Basic Commands (0x00-0x1F)
+
+| ID   | Name          | Direction   | Description              |
+|------|---------------|-------------|--------------------------|
+| 0x01 | PING          | Host→Device | Connection test          |
+| 0x02 | GET_VERSION   | Host→Device | Get firmware version     |
+| 0x03 | GET_SERIAL    | Host→Device | Get serial number        |
+| 0x04 | RESET         | Host→Device | Reset device             |
+| 0x05 | BOOTLOADER    | Host→Device | Enter bootloader mode    |
+
+### Telemetry Commands (0x20-0x3F)
+
+| ID   | Name          | Direction   | Description              |
+|------|---------------|-------------|--------------------------|
+| 0x20 | START_STREAM  | Host→Device | Start telemetry streaming|
+| 0x21 | STOP_STREAM   | Host→Device | Stop telemetry streaming |
+| 0x22 | GET_OUTPUTS   | Host→Device | Get output states        |
+| 0x23 | GET_INPUTS    | Host→Device | Get input values         |
+| 0x24 | GET_CAN       | Host→Device | Get CAN data             |
+| 0x25 | GET_TEMPS     | Host→Device | Get temperatures         |
+| 0x26 | GET_VOLTAGES  | Host→Device | Get voltages             |
+| 0x27 | GET_FAULTS    | Host→Device | Get fault status         |
+
+### Control Commands (0x40-0x5F)
+
+| ID   | Name          | Direction   | Description              |
+|------|---------------|-------------|--------------------------|
+| 0x40 | SET_OUTPUT    | Host→Device | Set output ON/OFF state  |
+| 0x41 | SET_PWM       | Host→Device | Set PWM duty cycle       |
+| 0x42 | SET_HBRIDGE   | Host→Device | Set H-bridge mode        |
+| 0x43 | CLEAR_FAULTS  | Host→Device | Clear all faults         |
+| 0x44 | SET_VIRTUAL   | Host→Device | Set virtual channel value|
+
+### Configuration Commands (0x60-0x7F)
+
+| ID   | Name            | Direction   | Description                |
+|------|-----------------|-------------|----------------------------|
+| 0x60 | LOAD_CONFIG     | Host→Device | Load configuration from flash |
+| 0x61 | SAVE_CONFIG     | Host→Device | Save configuration to flash |
+| 0x62 | GET_CONFIG      | Host→Device | Get current configuration  |
+| 0x63 | UPLOAD_CONFIG   | Host→Device | Upload configuration (chunked) |
+| 0x64 | DOWNLOAD_CONFIG | Device→Host | Download configuration (chunked) |
+| 0x65 | VALIDATE_CONFIG | Host→Device | Validate configuration     |
+
+### Logging Commands (0x80-0x9F)
+
+| ID   | Name          | Direction   | Description              |
+|------|---------------|-------------|--------------------------|
+| 0x80 | START_LOGGING | Host→Device | Start data logging       |
+| 0x81 | STOP_LOGGING  | Host→Device | Stop data logging        |
+| 0x82 | GET_LOG_INFO  | Host→Device | Get log information      |
+| 0x83 | DOWNLOAD_LOG  | Device→Host | Download log data        |
+| 0x84 | ERASE_LOGS    | Host→Device | Erase all logs           |
+
+### Diagnostic Commands (0xA0-0xAF)
+
+| ID   | Name          | Direction   | Description              |
+|------|---------------|-------------|--------------------------|
+| 0xA0 | GET_STATS     | Host→Device | Get system statistics    |
+| 0xA1 | GET_UPTIME    | Host→Device | Get system uptime        |
+| 0xA2 | GET_CAN_STATS | Host→Device | Get CAN bus statistics   |
+| 0xA3 | SELF_TEST     | Host→Device | Run self-test            |
+
+### Lua Scripting Commands (0xB0-0xBF)
+
+| ID   | Name            | Direction   | Description              |
+|------|-----------------|-------------|--------------------------|
+| 0xB0 | LUA_EXECUTE     | Host→Device | Execute Lua code directly|
+| 0xB1 | LUA_LOAD_SCRIPT | Host→Device | Load/update Lua script   |
+| 0xB2 | LUA_UNLOAD_SCRIPT| Host→Device| Unload Lua script        |
+| 0xB3 | LUA_RUN_SCRIPT  | Host→Device | Run loaded script by name|
+| 0xB4 | LUA_STOP_SCRIPT | Host→Device | Stop running script      |
+| 0xB5 | LUA_GET_SCRIPTS | Host→Device | List loaded scripts      |
+| 0xB6 | LUA_GET_STATUS  | Host→Device | Get Lua engine status    |
+| 0xB7 | LUA_GET_OUTPUT  | Host→Device | Get script output/result |
+| 0xB8 | LUA_SET_ENABLED | Host→Device | Enable/disable script    |
+
+### Firmware Update Commands (0xC0-0xDF)
+
+| ID   | Name             | Direction   | Description              |
+|------|------------------|-------------|--------------------------|
+| 0xC0 | FW_UPDATE_START  | Host→Device | Start firmware update    |
+| 0xC1 | FW_UPDATE_DATA   | Host→Device | Send firmware data chunk |
+| 0xC2 | FW_UPDATE_FINISH | Host→Device | Finish firmware update   |
+| 0xC3 | FW_UPDATE_ABORT  | Host→Device | Abort firmware update    |
+
+### Response Codes (0xE0-0xFF)
+
+| ID   | Name  | Direction   | Description              |
+|------|-------|-------------|--------------------------|
+| 0xE0 | ACK   | Device→Host | Command acknowledged     |
+| 0xE1 | NACK  | Device→Host | Command not acknowledged |
+| 0xE2 | ERROR | Device→Host | Error response           |
+| 0xE3 | DATA  | Device→Host | Data response            |
 
 ## Message Payloads
 
 ### PING (0x01)
-Empty payload. Used to verify connection.
+Empty payload. Used to verify connection. Device responds with ACK (0xE0).
 
-### PONG (0x02)
-Empty payload. Response to PING.
-
-### GET_INFO (0x10)
-Empty payload. Requests device information.
-
-### INFO_RESP (0x11)
+### GET_VERSION (0x02)
+Empty payload. Device responds with DATA (0xE3):
 
 | Offset | Size     | Field            | Description                |
 |--------|----------|------------------|----------------------------|
-| 0      | 3 bytes  | firmware_version | Major.Minor.Patch          |
+| 0      | 1 byte   | major            | Major version              |
+| 1      | 1 byte   | minor            | Minor version              |
+| 2      | 1 byte   | patch            | Patch version              |
 | 3      | 1 byte   | hw_revision      | Hardware revision          |
-| 4      | 16 bytes | serial_number    | Null-terminated string     |
-| 20     | 32 bytes | device_name      | Null-terminated string     |
 
-### GET_CONFIG (0x20)
-Empty payload. Requests full configuration.
+### GET_SERIAL (0x03)
+Empty payload. Device responds with DATA (0xE3):
 
-### CONFIG_DATA (0x21)
-Used for both download (device→host) and upload response.
+| Offset | Size     | Field         | Description                |
+|--------|----------|---------------|----------------------------|
+| 0      | 16 bytes | serial_number | Null-terminated string     |
 
-| Offset | Size     | Field       | Description              |
-|--------|----------|-------------|--------------------------|
-| 0      | 2 bytes  | chunk_index | Current chunk (0-based)  |
-| 2      | 2 bytes  | total_chunks| Total number of chunks   |
-| 4      | N bytes  | data        | JSON configuration chunk |
-
-### SET_CONFIG (0x22)
-Upload configuration chunk to device.
-
-| Offset | Size     | Field       | Description              |
-|--------|----------|-------------|--------------------------|
-| 0      | 2 bytes  | chunk_index | Current chunk (0-based)  |
-| 2      | 2 bytes  | total_chunks| Total number of chunks   |
-| 4      | N bytes  | data        | JSON configuration chunk |
-
-### CONFIG_ACK (0x23)
-
-| Offset | Size    | Field      | Description           |
-|--------|---------|------------|-----------------------|
-| 0      | 1 byte  | success    | 1=success, 0=failure  |
-| 1      | 2 bytes | error_code | Error code if failed  |
-
-### SET_CHANNEL (0x30)
-Set output channel value.
-
-| Offset | Size    | Field     | Description              |
-|--------|---------|-----------|--------------------------|
-| 0      | 2 bytes | channel_id| Channel index (0-29)     |
-| 2      | 4 bytes | value     | Float value (0.0-100.0)  |
-
-### CHANNEL_ACK (0x31)
-
-| Offset | Size    | Field      | Description           |
-|--------|---------|------------|-----------------------|
-| 0      | 1 byte  | success    | 1=success, 0=failure  |
-| 1      | 2 bytes | channel_id | Channel that was set  |
-
-### SUBSCRIBE_TELEMETRY (0x40)
+### START_STREAM (0x20)
 
 | Offset | Size    | Field   | Description              |
 |--------|---------|---------|--------------------------|
-| 0      | 2 bytes | rate_hz | Telemetry rate (1-100 Hz)|
+| 0      | 1 byte  | flags   | Data type flags (bitmask)|
+| 1      | 2 bytes | rate_hz | Stream rate (1-1000 Hz)  |
 
-### UNSUBSCRIBE_TELEMETRY (0x41)
+**Data Type Flags:**
+
+| Bit | Flag            | Description          |
+|-----|-----------------|----------------------|
+| 0   | outputs_enabled | Include output states|
+| 1   | inputs_enabled  | Include input values |
+| 2   | can_enabled     | Include CAN data     |
+| 3   | temps_enabled   | Include temperatures |
+| 4   | voltages_enabled| Include voltages     |
+| 5   | faults_enabled  | Include faults       |
+
+### STOP_STREAM (0x21)
 Empty payload. Stops telemetry streaming.
 
-### TELEMETRY_DATA (0x42)
-119 bytes total, sent at subscribed rate.
+### SET_OUTPUT (0x40)
 
-| Offset | Size     | Field          | Description                    |
-|--------|----------|----------------|--------------------------------|
-| 0      | 4 bytes  | timestamp_ms   | Device uptime in milliseconds  |
-| 4      | 30 bytes | channel_states | 1 byte per channel (enum)      |
-| 34     | 16 bytes | analog_values  | 8 × uint16 ADC values          |
-| 50     | 60 bytes | output_currents| 30 × uint16 current in mA      |
-| 110    | 2 bytes  | input_voltage  | Input voltage in mV            |
-| 112    | 1 byte   | temperature    | Board temperature in °C        |
-| 113    | 4 bytes  | fault_flags    | System fault flags (bitmask)   |
-| 117    | 2 bytes  | crc            | Packet CRC                     |
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 1 byte  | output_id  | Output index (0-29)      |
+| 1      | 1 byte  | state      | 0=OFF, 1=ON              |
 
-#### Channel States (1 byte each)
+### SET_PWM (0x41)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 1 byte  | output_id  | Output index (0-29)      |
+| 1      | 2 bytes | duty       | Duty cycle (0-1000 = 0-100%) |
+
+### SET_HBRIDGE (0x42)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 1 byte  | bridge_id  | H-Bridge index (0-3)     |
+| 1      | 1 byte  | mode       | 0=Coast, 1=Fwd, 2=Rev, 3=Brake |
+| 2      | 1 byte  | pwm        | PWM level (0-255)        |
+
+### SET_VIRTUAL (0x44)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 2 bytes | channel_id | Virtual channel ID       |
+| 1      | 4 bytes | value      | Value (int32)            |
+
+### UPLOAD_CONFIG (0x63)
+Uploads configuration in chunks.
+
+| Offset | Size     | Field        | Description              |
+|--------|----------|--------------|--------------------------|
+| 0      | 2 bytes  | chunk_index  | Current chunk (0-based)  |
+| 2      | 2 bytes  | total_chunks | Total number of chunks   |
+| 4      | N bytes  | data         | JSON configuration chunk |
+
+### LUA_EXECUTE (0xB0)
+
+| Offset | Size    | Field   | Description              |
+|--------|---------|---------|--------------------------|
+| 0      | N bytes | code    | Lua code (null-terminated)|
+
+### LUA_LOAD_SCRIPT (0xB1)
+
+| Offset | Size    | Field   | Description              |
+|--------|---------|---------|--------------------------|
+| 0      | 32 bytes| name    | Script name              |
+| 32     | N bytes | code    | Lua script code          |
+
+### FW_UPDATE_START (0xC0)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 4 bytes | total_size | Total firmware size      |
+| 4      | 4 bytes | crc32      | Expected CRC32           |
+
+### FW_UPDATE_DATA (0xC1)
+
+| Offset | Size     | Field        | Description              |
+|--------|----------|--------------|--------------------------|
+| 0      | 4 bytes  | offset       | Data offset in firmware  |
+| 4      | N bytes  | data         | Firmware data chunk      |
+
+### ACK (0xE0)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 1 byte  | cmd_id     | Command being acknowledged|
+
+### ERROR (0xE2)
+
+| Offset | Size    | Field      | Description              |
+|--------|---------|------------|--------------------------|
+| 0      | 1 byte  | cmd_id     | Failed command           |
+| 1      | 2 bytes | error_code | Error code               |
+| 3      | N bytes | message    | Error message (optional) |
+
+## Error Codes
+
+| Code | Description                    |
+|------|--------------------------------|
+| 0x01 | Invalid frame format           |
+| 0x02 | CRC mismatch                   |
+| 0x03 | Unknown command                |
+| 0x04 | Invalid payload                |
+| 0x10 | Output index out of range      |
+| 0x11 | Invalid output value           |
+| 0x12 | Output disabled/faulted        |
+| 0x20 | Config parse error             |
+| 0x21 | Config validation error        |
+| 0x22 | Config write error (flash)     |
+| 0x30 | Device busy                    |
+| 0x31 | Operation timeout              |
+| 0x40 | Lua script error               |
+| 0x41 | Lua memory limit               |
+| 0x50 | Firmware update error          |
+| 0x51 | Invalid firmware               |
+| 0xFF | Internal error                 |
+
+## Telemetry Packet Structure
+
+When streaming is active, the device sends telemetry at the configured rate:
+
+| Offset | Size     | Field           | Description                    |
+|--------|----------|-----------------|--------------------------------|
+| 0      | 4 bytes  | timestamp_ms    | Device uptime in milliseconds  |
+| 4      | 4 bytes  | status_flags    | System status bitmask          |
+| 8      | 2 bytes  | battery_mv      | Battery voltage in mV          |
+| 10     | 2 bytes  | temp_left       | Left board temp (0.1°C units)  |
+| 12     | 2 bytes  | temp_right      | Right board temp (0.1°C units) |
+| 14     | 60 bytes | output_currents | 30 × uint16 current in mA      |
+| 74     | 40 bytes | analog_values   | 20 × uint16 ADC values         |
+| 114    | 20 bytes | digital_states  | 20 × uint8 digital states      |
+| 134    | 30 bytes | output_states   | 30 × uint8 output states       |
+| 164    | 8 bytes  | hbridge_currents| 4 × uint16 H-bridge currents   |
+| 172    | 2 bytes  | reserved        | Reserved for future use        |
+
+**Total packet size: 174 bytes**
+
+### Output States (1 byte each)
 
 | Value | State              |
 |-------|--------------------|
@@ -165,67 +323,36 @@ Empty payload. Stops telemetry streaming.
 | 6     | PWM_ACTIVE         |
 | 7     | DISABLED           |
 
-#### Fault Flags (32-bit bitmask)
+### Status Flags (32-bit bitmask)
 
 | Bit | Flag               |
 |-----|--------------------|
-| 0   | OVERVOLTAGE        |
-| 1   | UNDERVOLTAGE       |
-| 2   | OVERTEMPERATURE    |
-| 3   | CAN1_ERROR         |
-| 4   | CAN2_ERROR         |
-| 5   | FLASH_ERROR        |
-| 6   | CONFIG_ERROR       |
-| 7   | WATCHDOG_RESET     |
-| 8   | POWER_FAIL         |
-| 9   | GROUND_FAULT       |
-| 10  | REVERSE_POLARITY   |
-| 11  | SENSOR_ERROR       |
+| 0   | CONFIG_LOADED      |
+| 1   | TELEMETRY_ACTIVE   |
+| 2   | LUA_RUNNING        |
+| 3   | LOGGING_ACTIVE     |
+| 4   | OVERVOLTAGE        |
+| 5   | UNDERVOLTAGE       |
+| 6   | OVERTEMPERATURE    |
+| 7   | CAN1_ERROR         |
+| 8   | CAN2_ERROR         |
+| 9   | FLASH_ERROR        |
+| 10  | CONFIG_ERROR       |
+| 11  | WATCHDOG_RESET     |
 | 12  | LUA_ERROR          |
-| 13  | LOGIC_ERROR        |
-| 16  | CHANNEL_FAULT_1-8  |
-| 17  | CHANNEL_FAULT_9-16 |
-| 18  | CHANNEL_FAULT_17-24|
-| 19  | CHANNEL_FAULT_25-30|
 
-### ERROR (0xF0)
-
-| Offset | Size    | Field      | Description              |
-|--------|---------|------------|--------------------------|
-| 0      | 2 bytes | error_code | Error code               |
-| 2      | 1 byte  | msg_length | Error message length     |
-| 3      | N bytes | message    | UTF-8 error message      |
-
-## Error Codes
-
-| Code | Description                    |
-|------|--------------------------------|
-| 0x01 | Invalid frame                  |
-| 0x02 | CRC mismatch                   |
-| 0x03 | Unknown message type           |
-| 0x04 | Invalid payload                |
-| 0x10 | Channel out of range           |
-| 0x11 | Invalid channel value          |
-| 0x12 | Channel disabled               |
-| 0x20 | Config parse error             |
-| 0x21 | Config validation error        |
-| 0x22 | Config write error             |
-| 0x30 | Device busy                    |
-| 0x31 | Operation timeout              |
-| 0xFF | Internal error                 |
-
-## Typical Communication Flow
+## Typical Communication Flows
 
 ### Connection Sequence
 
 ```
 Host                          Device
   |                              |
-  |-------- PING --------------->|
-  |<------- PONG ----------------|
+  |-------- PING (0x01) -------->|
+  |<------- ACK (0xE0) ----------|
   |                              |
-  |-------- GET_INFO ----------->|
-  |<------- INFO_RESP -----------|
+  |---- GET_VERSION (0x02) ----->|
+  |<------- DATA (0xE3) ---------|
   |                              |
 ```
 
@@ -234,12 +361,15 @@ Host                          Device
 ```
 Host                          Device
   |                              |
-  |-- SET_CONFIG (chunk 0/3) --->|
-  |<------- CONFIG_ACK ----------|
-  |-- SET_CONFIG (chunk 1/3) --->|
-  |<------- CONFIG_ACK ----------|
-  |-- SET_CONFIG (chunk 2/3) --->|
-  |<------- CONFIG_ACK ----------|
+  |-- UPLOAD_CONFIG chunk 0/3 -->|
+  |<------- ACK (0xE0) ----------|
+  |-- UPLOAD_CONFIG chunk 1/3 -->|
+  |<------- ACK (0xE0) ----------|
+  |-- UPLOAD_CONFIG chunk 2/3 -->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+  |---- SAVE_CONFIG (0x61) ----->|
+  |<------- ACK (0xE0) ----------|
   |                              |
 ```
 
@@ -248,12 +378,43 @@ Host                          Device
 ```
 Host                          Device
   |                              |
-  |-- SUBSCRIBE_TELEMETRY(50Hz)->|
-  |<------- TELEMETRY_DATA ------|  (every 20ms)
-  |<------- TELEMETRY_DATA ------|
-  |<------- TELEMETRY_DATA ------|
+  |-- START_STREAM (50Hz) ------>|
+  |<------- ACK (0xE0) ----------|
+  |<------- DATA (telemetry) ----|  (every 20ms)
+  |<------- DATA (telemetry) ----|
+  |<------- DATA (telemetry) ----|
   |         ...                  |
-  |-- UNSUBSCRIBE_TELEMETRY ---->|
+  |-- STOP_STREAM (0x21) ------->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+```
+
+### Output Control
+
+```
+Host                          Device
+  |                              |
+  |-- SET_OUTPUT (out=5, on) --->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+  |-- SET_PWM (out=5, 75%) ----->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+```
+
+### Lua Script Execution
+
+```
+Host                          Device
+  |                              |
+  |-- LUA_EXECUTE("pmu.o1=1") -->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+  |-- LUA_LOAD_SCRIPT ---------->|
+  |<------- ACK (0xE0) ----------|
+  |                              |
+  |-- LUA_RUN_SCRIPT ----------->|
+  |<------- ACK (0xE0) ----------|
   |                              |
 ```
 
@@ -269,9 +430,9 @@ manager = CommunicationManager()
 # Connect
 await manager.connect("COM3")
 
-# Get device info
-info = await manager.get_device_info()
-print(f"Firmware: {info.firmware_version}")
+# Get device version
+version = await manager.get_version()
+print(f"Firmware: {version.major}.{version.minor}.{version.patch}")
 
 # Disconnect
 await manager.disconnect()
@@ -281,15 +442,28 @@ await manager.disconnect()
 
 ```python
 def on_telemetry(packet):
-    print(f"Voltage: {packet.input_voltage}V")
-    print(f"Temperature: {packet.temperature_c}°C")
-    print(f"Active channels: {packet.active_channels}")
+    print(f"Voltage: {packet.battery_mv / 1000}V")
+    print(f"Temperature: {packet.temp_left / 10}°C")
+    print(f"Output 1 current: {packet.output_currents[0]}mA")
 
 manager.on_telemetry(on_telemetry)
 await manager.start_telemetry(rate_hz=50)
 
 # ... later
 await manager.stop_telemetry()
+```
+
+### Output Control
+
+```python
+# Turn on output 5
+await manager.set_output(5, True)
+
+# Set output 5 to 75% PWM
+await manager.set_pwm(5, 750)  # 750 = 75.0%
+
+# Control H-bridge
+await manager.set_hbridge(0, mode=1, pwm=200)  # Forward at ~78%
 ```
 
 ### Configuration Upload
@@ -304,22 +478,23 @@ config = {
 }
 
 await manager.upload_config(json.dumps(config).encode())
-```
-
-### Channel Control
-
-```python
-# Set channel 5 to 75% duty cycle
-await manager.set_channel(5, 75.0)
-
-# Turn off channel 10
-await manager.set_channel(10, 0.0)
+await manager.save_config()
 ```
 
 ## Implementation Notes
 
 1. **Timeouts**: All commands should have a 1 second timeout
 2. **Retries**: Failed commands should be retried up to 3 times
-3. **Chunk Size**: Configuration chunks should not exceed 512 bytes
-4. **Flow Control**: Wait for ACK before sending next chunk
-5. **Telemetry Buffer**: Keep last 10 telemetry packets for smoothing
+3. **Chunk Size**: Configuration chunks should not exceed 256 bytes (max payload)
+4. **Flow Control**: Wait for ACK before sending next command/chunk
+5. **Stream Rates**: Supported rates: 1, 10, 50, 100, 500, 1000 Hz
+6. **CRC Validation**: All received packets must be CRC-validated
+
+## Protocol Constants
+
+```c
+#define PMU_PROTOCOL_START_MARKER  0xAA
+#define PMU_PROTOCOL_VERSION       0x01
+#define PMU_PROTOCOL_MAX_PAYLOAD   256
+#define PMU_PROTOCOL_CAN_ID_BASE   0x600
+```

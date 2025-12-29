@@ -80,7 +80,7 @@ Professional configuration software for the PMU-30 Power Management Unit. Provid
 ### Development Mode
 
 ```bash
-cd src
+# From the configurator directory
 python main.py
 ```
 
@@ -90,12 +90,18 @@ python main.py
 # Install PyInstaller
 pip install pyinstaller
 
-# Build executable
+# Build executable (from configurator directory)
+python build_exe.py
+```
+
+Or manually:
+
+```bash
 pyinstaller --name="PMU30-Configurator" \
             --windowed \
             --onefile \
             --icon=resources/icon.ico \
-            src/main.py
+            main.py
 ```
 
 The executable will be in the `dist/` directory.
@@ -104,29 +110,26 @@ The executable will be in the `dist/` directory.
 
 ```
 configurator/
+├── main.py                     # Application entry point
+├── build_exe.py                # PyInstaller build script
 ├── src/
-│   ├── main.py                 # Application entry point
-│   ├── ui/
-│   │   ├── main_window.py      # Main application window
-│   │   ├── tabs/               # Configuration tabs
-│   │   │   ├── outputs_tab.py  # 30 output channels
-│   │   │   ├── inputs_tab.py   # 20 input channels
-│   │   │   ├── can_tab.py      # CAN bus config
-│   │   │   ├── logic_tab.py    # Logic engine
-│   │   │   ├── hbridge_tab.py  # H-Bridge motors
-│   │   │   ├── lua_tab.py      # Lua scripting
-│   │   │   ├── monitoring_tab.py # Real-time monitor
-│   │   │   └── settings_tab.py # System settings
-│   │   ├── widgets/            # Custom widgets
-│   │   └── dialogs/            # Dialog windows
+│   ├── communication/
+│   │   ├── comm_manager.py     # Device connection management
+│   │   ├── protocol.py         # Binary protocol implementation
+│   │   └── telemetry.py        # Telemetry data structures
 │   ├── controllers/
 │   │   └── device_controller.py # Device communication
 │   ├── models/
-│   │   └── configuration.py    # Configuration data models
+│   │   ├── config_manager.py   # Configuration management
+│   │   └── channel/            # Channel type models
+│   ├── ui/
+│   │   ├── main_window_professional.py  # Main application window
+│   │   ├── dialogs/            # Configuration dialogs
+│   │   ├── widgets/            # Custom widgets (monitors, etc.)
+│   │   └── mixins/             # UI helper mixins
 │   └── utils/
 │       ├── logger.py           # Logging setup
-│       ├── dbc_parser.py       # DBC file parser
-│       └── serial_comm.py      # Serial communication
+│       └── theme.py            # Dark theme styling
 ├── resources/                  # Icons, images, styles
 ├── requirements.txt            # Python dependencies
 └── README.md                   # This file
