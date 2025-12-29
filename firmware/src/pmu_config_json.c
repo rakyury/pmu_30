@@ -896,6 +896,48 @@ static const JSON_EnumMap_t can_tx_dtype_map[] = {
     JSON_ENUM_MAP_END
 };
 
+/* WiFi and Bluetooth configuration enum maps */
+static const JSON_EnumMap_t wifi_mode_map[] = {
+    {"ap", PMU_WIFI_MODE_AP}, {"sta", PMU_WIFI_MODE_STA}, {"ap_sta", PMU_WIFI_MODE_AP_STA},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t wifi_security_map[] = {
+    {"open", PMU_WIFI_SEC_OPEN}, {"wpa", PMU_WIFI_SEC_WPA},
+    {"wpa2", PMU_WIFI_SEC_WPA2}, {"wpa3", PMU_WIFI_SEC_WPA3},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t bt_mode_map[] = {
+    {"ble", PMU_BT_MODE_BLE}, {"classic", PMU_BT_MODE_CLASSIC}, {"dual", PMU_BT_MODE_DUAL},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t bt_security_map[] = {
+    {"none", PMU_BT_SEC_NONE}, {"pair", PMU_BT_SEC_PAIR_ONLY},
+    {"auth", PMU_BT_SEC_AUTH}, {"secure", PMU_BT_SEC_SECURE},
+    JSON_ENUM_MAP_END
+};
+
+/* LIN frame type enum maps */
+static const JSON_EnumMap_t lin_frame_type_map[] = {
+    {"unconditional", PMU_LIN_FRAME_TYPE_UNCONDITIONAL},
+    {"event_triggered", PMU_LIN_FRAME_TYPE_EVENT_TRIGGERED},
+    {"sporadic", PMU_LIN_FRAME_TYPE_SPORADIC},
+    {"diagnostic", PMU_LIN_FRAME_TYPE_DIAGNOSTIC},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t lin_direction_map[] = {
+    {"publish", PMU_LIN_DIR_PUBLISH}, {"subscribe", PMU_LIN_DIR_SUBSCRIBE},
+    JSON_ENUM_MAP_END
+};
+
+static const JSON_EnumMap_t lin_checksum_map[] = {
+    {"classic", PMU_LIN_CHECKSUM_CLASSIC}, {"enhanced", PMU_LIN_CHECKSUM_ENHANCED},
+    JSON_ENUM_MAP_END
+};
+
 /**
  * @brief Parse H-bridges array from JSON
  */
@@ -1363,16 +1405,7 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
         PMU_WiFi_SetDefaultAPConfig(&wifi_config);
 
         wifi_config.enabled = JSON_GetBool(wifi, "enabled", false);
-
-        /* Mode: "ap", "sta", "ap_sta" */
-        const char* mode_str = JSON_GetString(wifi, "mode", "ap");
-        if (strcmp(mode_str, "sta") == 0) {
-            wifi_config.mode = PMU_WIFI_MODE_STA;
-        } else if (strcmp(mode_str, "ap_sta") == 0) {
-            wifi_config.mode = PMU_WIFI_MODE_AP_STA;
-        } else {
-            wifi_config.mode = PMU_WIFI_MODE_AP;
-        }
+        wifi_config.mode = JSON_GetEnum(wifi, "mode", wifi_mode_map, PMU_WIFI_MODE_AP);
 
         /* Hostname */
         const char* hostname = JSON_GetString(wifi, "hostname", "pmu30");
@@ -1388,12 +1421,7 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
             wifi_config.ap.channel = (uint8_t)JSON_GetInt(ap, "channel", 6);
             wifi_config.ap.hidden = JSON_GetBool(ap, "hidden", false) ? 1 : 0;
             wifi_config.ap.max_clients = (uint8_t)JSON_GetInt(ap, "max_clients", 4);
-
-            const char* sec = JSON_GetString(ap, "security", "wpa2");
-            if (strcmp(sec, "open") == 0) wifi_config.ap.security = PMU_WIFI_SEC_OPEN;
-            else if (strcmp(sec, "wpa") == 0) wifi_config.ap.security = PMU_WIFI_SEC_WPA;
-            else if (strcmp(sec, "wpa3") == 0) wifi_config.ap.security = PMU_WIFI_SEC_WPA3;
-            else wifi_config.ap.security = PMU_WIFI_SEC_WPA2;
+            wifi_config.ap.security = JSON_GetEnum(ap, "security", wifi_security_map, PMU_WIFI_SEC_WPA2);
         }
 
         /* STA configuration */
@@ -1433,8 +1461,8 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
         }
 
         PMU_WiFi_ApplyConfig(&wifi_config);
-        printf("[JSON] WiFi configured: mode=%s enabled=%d\n",
-               mode_str, wifi_config.enabled);
+        printf("[JSON] WiFi configured: mode=%d enabled=%d\n",
+               wifi_config.mode, wifi_config.enabled);
     }
 
     /* Parse Bluetooth configuration */
@@ -1444,16 +1472,7 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
         PMU_BT_SetDefaultConfig(&bt_config);
 
         bt_config.enabled = JSON_GetBool(bt, "enabled", false);
-
-        /* Mode: "classic", "ble", "dual" */
-        const char* bt_mode_str = JSON_GetString(bt, "mode", "ble");
-        if (strcmp(bt_mode_str, "classic") == 0) {
-            bt_config.mode = PMU_BT_MODE_CLASSIC;
-        } else if (strcmp(bt_mode_str, "dual") == 0) {
-            bt_config.mode = PMU_BT_MODE_DUAL;
-        } else {
-            bt_config.mode = PMU_BT_MODE_BLE;
-        }
+        bt_config.mode = JSON_GetEnum(bt, "mode", bt_mode_map, PMU_BT_MODE_BLE);
 
         /* Classic configuration */
         cJSON* classic = cJSON_GetObjectItem(bt, "classic");
@@ -1465,12 +1484,7 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
             bt_config.classic.discoverable = JSON_GetBool(classic, "discoverable", true) ? 1 : 0;
             bt_config.classic.connectable = JSON_GetBool(classic, "connectable", true) ? 1 : 0;
             bt_config.classic.max_connections = (uint8_t)JSON_GetInt(classic, "max_connections", 1);
-
-            const char* sec = JSON_GetString(classic, "security", "auth");
-            if (strcmp(sec, "none") == 0) bt_config.classic.security = PMU_BT_SEC_NONE;
-            else if (strcmp(sec, "pair") == 0) bt_config.classic.security = PMU_BT_SEC_PAIR_ONLY;
-            else if (strcmp(sec, "secure") == 0) bt_config.classic.security = PMU_BT_SEC_SECURE;
-            else bt_config.classic.security = PMU_BT_SEC_AUTH;
+            bt_config.classic.security = JSON_GetEnum(classic, "security", bt_security_map, PMU_BT_SEC_AUTH);
         }
 
         /* BLE configuration */
@@ -1484,12 +1498,7 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
             bt_config.ble.conn_interval_max = (uint16_t)JSON_GetInt(ble, "conn_interval_max", 40);
             bt_config.ble.supervision_timeout = (uint16_t)JSON_GetInt(ble, "supervision_timeout", 400);
             bt_config.ble.require_bonding = JSON_GetBool(ble, "require_bonding", false) ? 1 : 0;
-
-            const char* sec = JSON_GetString(ble, "security", "pair");
-            if (strcmp(sec, "none") == 0) bt_config.ble.security = PMU_BT_SEC_NONE;
-            else if (strcmp(sec, "auth") == 0) bt_config.ble.security = PMU_BT_SEC_AUTH;
-            else if (strcmp(sec, "secure") == 0) bt_config.ble.security = PMU_BT_SEC_SECURE;
-            else bt_config.ble.security = PMU_BT_SEC_PAIR_ONLY;
+            bt_config.ble.security = JSON_GetEnum(ble, "security", bt_security_map, PMU_BT_SEC_PAIR_ONLY);
         }
 
         /* Telemetry service configuration */
@@ -1501,8 +1510,8 @@ static bool JSON_ParseSettings(cJSON* settings_obj, PMU_JSON_LoadStats_t* stats)
         }
 
         PMU_BT_ApplyConfig(&bt_config);
-        printf("[JSON] Bluetooth configured: mode=%s enabled=%d\n",
-               bt_mode_str, bt_config.enabled);
+        printf("[JSON] Bluetooth configured: mode=%d enabled=%d\n",
+               bt_config.mode, bt_config.enabled);
     }
 
     /* TODO: Parse power settings */
@@ -1639,35 +1648,10 @@ static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t*
         /* Parse frame ID (0-63) */
         config.frame_id = (uint8_t)JSON_GetInt(frame, "frame_id", 0) & 0x3F;
 
-        /* Parse frame type */
-        const char* frame_type = JSON_GetString(frame, "frame_type", "unconditional");
-        if (strcmp(frame_type, "unconditional") == 0) {
-            config.frame_type = PMU_LIN_FRAME_TYPE_UNCONDITIONAL;
-        } else if (strcmp(frame_type, "event_triggered") == 0) {
-            config.frame_type = PMU_LIN_FRAME_TYPE_EVENT_TRIGGERED;
-        } else if (strcmp(frame_type, "sporadic") == 0) {
-            config.frame_type = PMU_LIN_FRAME_TYPE_SPORADIC;
-        } else if (strcmp(frame_type, "diagnostic") == 0) {
-            config.frame_type = PMU_LIN_FRAME_TYPE_DIAGNOSTIC;
-        } else {
-            config.frame_type = PMU_LIN_FRAME_TYPE_UNCONDITIONAL;
-        }
-
-        /* Parse direction */
-        const char* direction = JSON_GetString(frame, "direction", "subscribe");
-        if (strcmp(direction, "publish") == 0) {
-            config.direction = PMU_LIN_DIR_PUBLISH;
-        } else {
-            config.direction = PMU_LIN_DIR_SUBSCRIBE;
-        }
-
-        /* Parse checksum type */
-        const char* checksum = JSON_GetString(frame, "checksum", "enhanced");
-        if (strcmp(checksum, "classic") == 0) {
-            config.checksum = PMU_LIN_CHECKSUM_CLASSIC;
-        } else {
-            config.checksum = PMU_LIN_CHECKSUM_ENHANCED;
-        }
+        /* Parse frame type, direction, and checksum using enum maps */
+        config.frame_type = JSON_GetEnum(frame, "frame_type", lin_frame_type_map, PMU_LIN_FRAME_TYPE_UNCONDITIONAL);
+        config.direction = JSON_GetEnum(frame, "direction", lin_direction_map, PMU_LIN_DIR_SUBSCRIBE);
+        config.checksum = JSON_GetEnum(frame, "checksum", lin_checksum_map, PMU_LIN_CHECKSUM_ENHANCED);
 
         /* Parse other properties */
         config.length = (uint8_t)JSON_GetInt(frame, "length", 8);
@@ -1690,9 +1674,9 @@ static bool JSON_ParseLinFrameObjects(cJSON* frames_array, PMU_JSON_LoadStats_t*
 
         /* Register frame object with LIN subsystem */
         if (PMU_LIN_AddFrameObject(&config) == HAL_OK) {
-            printf("[JSON] LIN frame '%s': bus=%d, id=0x%02X, dir=%s, type=%s\n",
+            printf("[JSON] LIN frame '%s': bus=%d, id=0x%02X, dir=%d, type=%d\n",
                    config.id, config.bus, config.frame_id,
-                   direction, frame_type);
+                   config.direction, config.frame_type);
 
             if (stats) {
                 stats->lin_frame_objects++;
