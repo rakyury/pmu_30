@@ -1,482 +1,570 @@
 {
-  "version": "2.0",
+  "version": "3.0",
   "device": {
     "name": "PMU-30 Racing Controller",
     "serial_number": "PMU30-001",
-    "firmware_version": "2.0.0"
+    "firmware_version": "3.0.0"
   },
 
+  "_comment_can_messages": "CAN message definitions - separate from channel system",
+  "can_messages": [
+    {
+      "name": "msg_ecu_data",
+      "can_bus": 1,
+      "base_id": 256,
+      "is_extended": false,
+      "dlc": 8,
+      "signals": [
+        {"name": "rpm", "start_bit": 0, "length": 16, "byte_order": "little_endian", "value_type": "unsigned", "factor": 1.0, "offset": 0.0},
+        {"name": "tps", "start_bit": 16, "length": 8, "byte_order": "little_endian", "value_type": "unsigned", "factor": 0.5, "offset": 0.0},
+        {"name": "map", "start_bit": 24, "length": 8, "byte_order": "little_endian", "value_type": "unsigned", "factor": 1.0, "offset": 0.0},
+        {"name": "iat", "start_bit": 32, "length": 8, "byte_order": "little_endian", "value_type": "signed", "factor": 1.0, "offset": -40.0}
+      ]
+    },
+    {
+      "name": "msg_ecu_temps",
+      "can_bus": 1,
+      "base_id": 257,
+      "is_extended": false,
+      "dlc": 8,
+      "signals": [
+        {"name": "coolant_temp", "start_bit": 0, "length": 8, "byte_order": "little_endian", "value_type": "signed", "factor": 1.0, "offset": -40.0},
+        {"name": "oil_temp", "start_bit": 8, "length": 8, "byte_order": "little_endian", "value_type": "signed", "factor": 1.0, "offset": -40.0},
+        {"name": "fuel_temp", "start_bit": 16, "length": 8, "byte_order": "little_endian", "value_type": "signed", "factor": 1.0, "offset": -40.0}
+      ]
+    },
+    {
+      "name": "msg_pmu_status",
+      "can_bus": 1,
+      "base_id": 768,
+      "is_extended": false,
+      "dlc": 8
+    }
+  ],
+
+  "_comment_channels": "All channels use numeric channel_id (0-99 inputs, 100-199 outputs, 200-999 virtual)",
   "channels": [
     {
-      "id": "di_ignition",
+      "_comment": "=== DIGITAL INPUTS (0-49) ===",
+      "channel_id": 1,
       "channel_type": "digital_input",
+      "channel_name": "Ignition",
       "subtype": "switch_active_low",
       "input_pin": 0,
       "enable_pullup": true,
-      "threshold_voltage": 2.5,
+      "threshold_voltage": 2500,
       "debounce_ms": 50
     },
     {
-      "id": "di_launch_btn",
+      "channel_id": 2,
       "channel_type": "digital_input",
+      "channel_name": "LaunchButton",
       "subtype": "switch_active_high",
       "input_pin": 1,
       "enable_pullup": false,
-      "threshold_voltage": 2.5,
+      "threshold_voltage": 2500,
       "debounce_ms": 50
     },
     {
-      "id": "di_engine_rpm",
+      "channel_id": 3,
       "channel_type": "digital_input",
+      "channel_name": "EngineRPM",
       "subtype": "rpm",
       "input_pin": 2,
       "enable_pullup": false,
-      "threshold_voltage": 2.5,
+      "threshold_voltage": 2500,
       "trigger_edge": "rising",
       "number_of_teeth": 58,
-      "multiplier": 1.0,
-      "divider": 1.0,
+      "multiplier": 1000,
+      "divider": 1000,
       "timeout_ms": 1000
     },
     {
-      "id": "di_wheel_speed",
+      "channel_id": 4,
       "channel_type": "digital_input",
+      "channel_name": "WheelSpeed",
       "subtype": "frequency",
       "input_pin": 3,
       "enable_pullup": true,
-      "threshold_voltage": 2.5,
+      "threshold_voltage": 2500,
       "trigger_edge": "rising",
-      "multiplier": 0.1,
-      "divider": 1.0,
+      "multiplier": 100,
+      "divider": 1000,
       "timeout_ms": 500
     },
+
     {
-      "id": "ai_throttle",
+      "_comment": "=== ANALOG INPUTS (50-99) ===",
+      "channel_id": 50,
       "channel_type": "analog_input",
+      "channel_name": "Throttle",
       "subtype": "linear",
       "input_pin": 0,
       "pullup_option": "1m_down",
       "decimal_places": 1,
-      "min_voltage": 0.5,
-      "max_voltage": 4.5,
-      "min_value": 0.0,
-      "max_value": 100.0
+      "min_voltage": 500,
+      "max_voltage": 4500,
+      "min_value": 0,
+      "max_value": 1000,
+      "units": "%"
     },
     {
-      "id": "ai_brake_pressure",
+      "channel_id": 51,
       "channel_type": "analog_input",
+      "channel_name": "BrakePressure",
       "subtype": "linear",
       "input_pin": 1,
       "pullup_option": "1m_down",
       "decimal_places": 0,
-      "min_voltage": 0.5,
-      "max_voltage": 4.5,
+      "min_voltage": 500,
+      "max_voltage": 4500,
       "min_value": 0,
-      "max_value": 200
+      "max_value": 200000,
+      "units": "kPa"
     },
     {
-      "id": "ai_coolant_temp",
+      "channel_id": 52,
       "channel_type": "analog_input",
+      "channel_name": "CoolantTemp",
       "subtype": "calibrated",
       "input_pin": 2,
       "pullup_option": "10k_up",
       "decimal_places": 1,
       "calibration_points": [
-        {"voltage": 0.5, "value": -40},
-        {"voltage": 1.0, "value": 0},
-        {"voltage": 2.0, "value": 40},
-        {"voltage": 3.0, "value": 80},
-        {"voltage": 4.0, "value": 100},
-        {"voltage": 4.5, "value": 120}
-      ]
+        {"voltage": 500, "value": -40000},
+        {"voltage": 1000, "value": 0},
+        {"voltage": 2000, "value": 40000},
+        {"voltage": 3000, "value": 80000},
+        {"voltage": 4000, "value": 100000},
+        {"voltage": 4500, "value": 120000}
+      ],
+      "units": "C"
     },
     {
-      "id": "ai_oil_temp",
+      "channel_id": 53,
       "channel_type": "analog_input",
+      "channel_name": "OilTemp",
       "subtype": "calibrated",
       "input_pin": 3,
       "pullup_option": "10k_up",
       "decimal_places": 1,
       "calibration_points": [
-        {"voltage": 0.5, "value": -40},
-        {"voltage": 1.0, "value": 0},
-        {"voltage": 2.0, "value": 50},
-        {"voltage": 3.0, "value": 100},
-        {"voltage": 4.5, "value": 150}
-      ]
+        {"voltage": 500, "value": -40000},
+        {"voltage": 1000, "value": 0},
+        {"voltage": 2000, "value": 50000},
+        {"voltage": 3000, "value": 100000},
+        {"voltage": 4500, "value": 150000}
+      ],
+      "units": "C"
     },
     {
-      "id": "ai_oil_pressure",
+      "channel_id": 54,
       "channel_type": "analog_input",
+      "channel_name": "OilPressure",
       "subtype": "linear",
       "input_pin": 4,
       "pullup_option": "1m_down",
       "decimal_places": 1,
-      "min_voltage": 0.5,
-      "max_voltage": 4.5,
+      "min_voltage": 500,
+      "max_voltage": 4500,
       "min_value": 0,
-      "max_value": 10
+      "max_value": 10000,
+      "units": "bar"
     },
     {
-      "id": "ai_map_selector",
+      "channel_id": 55,
       "channel_type": "analog_input",
+      "channel_name": "MapSelector",
       "subtype": "rotary_switch",
       "input_pin": 5,
       "pullup_option": "10k_down",
       "positions": 6,
       "debounce_ms": 100
     },
-    {
-      "id": "ai_rain_sensor",
-      "channel_type": "analog_input",
-      "subtype": "switch_active_high",
-      "input_pin": 6,
-      "pullup_option": "1m_down",
-      "threshold_high": 3.0,
-      "threshold_high_time_ms": 100,
-      "threshold_low": 1.5,
-      "threshold_low_time_ms": 200
-    },
 
     {
-      "id": "l_engine_running",
-      "channel_type": "logic",
-      "operation": "greater",
-      "channel": "di_engine_rpm",
-      "constant": 500,
-      "true_delay_s": 0.5,
-      "false_delay_s": 2.0
-    },
-    {
-      "id": "l_launch_armed",
-      "channel_type": "logic",
-      "operation": "and",
-      "channel": "di_ignition",
-      "channel_2": "di_launch_btn",
-      "true_delay_s": 0.0,
-      "false_delay_s": 0.0
-    },
-    {
-      "id": "l_rpm_limit_active",
-      "channel_type": "logic",
-      "operation": "greater",
-      "channel": "di_engine_rpm",
-      "constant": 7500,
-      "true_delay_s": 0.0,
-      "false_delay_s": 0.0
-    },
-    {
-      "id": "l_overheat_warning",
-      "channel_type": "logic",
-      "operation": "hysteresis",
-      "channel": "ai_coolant_temp",
-      "polarity": "normal",
-      "upper_value": 105,
-      "lower_value": 95
-    },
-    {
-      "id": "l_low_oil_pressure",
-      "channel_type": "logic",
-      "operation": "hysteresis",
-      "channel": "ai_oil_pressure",
-      "polarity": "inverted",
-      "upper_value": 2.0,
-      "lower_value": 1.0
-    },
-    {
-      "id": "l_fan_control",
-      "channel_type": "logic",
-      "operation": "hysteresis",
-      "channel": "ai_coolant_temp",
-      "polarity": "normal",
-      "upper_value": 90,
-      "lower_value": 80
-    },
-    {
-      "id": "l_any_warning",
-      "channel_type": "logic",
-      "operation": "or",
-      "channel": "l_overheat_warning",
-      "channel_2": "l_low_oil_pressure"
-    },
-    {
-      "id": "l_warning_flash",
-      "channel_type": "logic",
-      "operation": "flash",
-      "channel": "l_any_warning",
-      "time_on_s": 0.3,
-      "time_off_s": 0.3
-    },
-    {
-      "id": "l_fuel_pump_latch",
-      "channel_type": "logic",
-      "operation": "set_reset_latch",
-      "set_channel": "di_ignition",
-      "reset_channel": "l_engine_running",
-      "default_state": "off"
-    },
-
-    {
-      "id": "n_max_temp",
-      "channel_type": "number",
-      "operation": "max",
-      "inputs": ["ai_coolant_temp", "ai_oil_temp"],
-      "input_multipliers": ["*1", "*1"],
-      "decimal_places": 1
-    },
-    {
-      "id": "n_throttle_clamped",
-      "channel_type": "number",
-      "operation": "clamp",
-      "inputs": ["ai_throttle"],
-      "input_multipliers": ["*1"],
-      "clamp_min": 0,
-      "clamp_max": 90,
-      "decimal_places": 1
-    },
-    {
-      "id": "n_boost_target",
-      "channel_type": "number",
-      "operation": "lookup3",
-      "inputs": ["ai_map_selector"],
-      "input_multipliers": ["*1"],
-      "lookup_values": [100, 120, 140],
-      "decimal_places": 0
-    },
-
-    {
-      "id": "flt_throttle_smooth",
-      "channel_type": "filter",
-      "filter_type": "moving_avg",
-      "input_channel": "ai_throttle",
-      "window_size": 10
-    },
-    {
-      "id": "flt_brake_filtered",
-      "channel_type": "filter",
-      "filter_type": "low_pass",
-      "input_channel": "ai_brake_pressure",
-      "time_constant": 0.05
-    },
-
-    {
-      "id": "tm_engine_run_time",
-      "channel_type": "timer",
-      "start_channel": "l_engine_running",
-      "start_edge": "rising",
-      "stop_channel": "",
-      "stop_edge": "rising",
-      "mode": "count_up",
-      "limit_hours": 999,
-      "limit_minutes": 59,
-      "limit_seconds": 59
-    },
-
-    {
-      "id": "t2d_fan_pwm",
-      "channel_type": "table_2d",
-      "x_axis_channel": "ai_coolant_temp",
-      "x_min": 70,
-      "x_max": 110,
-      "x_step": 10,
-      "x_values": [70, 80, 90, 100, 110],
-      "output_values": [0, 0, 50, 80, 100],
-      "decimal_places": 0
-    },
-    {
-      "id": "t2d_fuel_pressure_target",
-      "channel_type": "table_2d",
-      "x_axis_channel": "ai_throttle",
-      "x_min": 0,
-      "x_max": 100,
-      "x_step": 25,
-      "x_values": [0, 25, 50, 75, 100],
-      "output_values": [30, 35, 40, 42, 45],
-      "decimal_places": 1
-    },
-
-    {
-      "id": "sw_driving_mode",
-      "channel_type": "switch",
-      "switch_type": "latching",
-      "input_up_channel": "di_launch_btn",
-      "input_up_edge": "rising",
-      "input_down_channel": "",
-      "input_down_edge": "rising",
-      "state_first": 0,
-      "state_last": 3,
-      "state_default": 0
-    },
-
-    {
-      "id": "e_gear",
-      "channel_type": "enum",
-      "is_bitfield": false,
-      "items": [
-        {"value": 0, "text": "N", "color": "#FFFFFF"},
-        {"value": 1, "text": "1", "color": "#00FF00"},
-        {"value": 2, "text": "2", "color": "#00FF00"},
-        {"value": 3, "text": "3", "color": "#00FF00"},
-        {"value": 4, "text": "4", "color": "#00FF00"},
-        {"value": 5, "text": "5", "color": "#00FF00"},
-        {"value": 6, "text": "6", "color": "#00FF00"},
-        {"value": -1, "text": "R", "color": "#FF0000"}
-      ]
-    },
-    {
-      "id": "e_driving_mode",
-      "channel_type": "enum",
-      "is_bitfield": false,
-      "items": [
-        {"value": 0, "text": "Normal", "color": "#00FF00"},
-        {"value": 1, "text": "Sport", "color": "#FFFF00"},
-        {"value": 2, "text": "Track", "color": "#FF8000"},
-        {"value": 3, "text": "Wet", "color": "#0080FF"}
-      ]
-    },
-
-    {
-      "id": "crx_ecu_rpm",
-      "channel_type": "can_rx",
-      "can_bus": 1,
-      "message_id": 256,
-      "is_extended": false,
-      "start_bit": 0,
-      "length": 16,
-      "byte_order": "little_endian",
-      "value_type": "unsigned",
-      "factor": 1.0,
-      "offset": 0.0,
-      "timeout_ms": 500
-    },
-    {
-      "id": "crx_ecu_tps",
-      "channel_type": "can_rx",
-      "can_bus": 1,
-      "message_id": 256,
-      "is_extended": false,
-      "start_bit": 16,
-      "length": 8,
-      "byte_order": "little_endian",
-      "value_type": "unsigned",
-      "factor": 0.5,
-      "offset": 0.0,
-      "timeout_ms": 500
-    },
-
-    {
-      "id": "ctx_pmu_status",
-      "channel_type": "can_tx",
-      "can_bus": 1,
-      "message_id": 768,
-      "is_extended": false,
-      "cycle_time_ms": 100,
-      "signals": [
-        {
-          "source_channel": "ai_throttle",
-          "start_bit": 0,
-          "length": 8,
-          "byte_order": "little_endian",
-          "factor": 1.0,
-          "offset": 0.0
-        },
-        {
-          "source_channel": "ai_brake_pressure",
-          "start_bit": 8,
-          "length": 8,
-          "byte_order": "little_endian",
-          "factor": 1.0,
-          "offset": 0.0
-        },
-        {
-          "source_channel": "ai_coolant_temp",
-          "start_bit": 16,
-          "length": 8,
-          "byte_order": "little_endian",
-          "factor": 1.0,
-          "offset": 40.0
-        },
-        {
-          "source_channel": "l_any_warning",
-          "start_bit": 24,
-          "length": 1,
-          "byte_order": "little_endian",
-          "factor": 1.0,
-          "offset": 0.0
-        }
-      ]
-    },
-
-    {
-      "id": "out_fuel_pump",
+      "_comment": "=== POWER OUTPUTS (100-129) ===",
+      "channel_id": 100,
       "channel_type": "power_output",
-      "output_pins": [0],
-      "source_channel": "l_fuel_pump_latch",
+      "channel_name": "FuelPump",
+      "pins": [0],
+      "source_channel_id": 200,
       "pwm_enabled": false,
-      "current_limit_a": 15.0,
-      "inrush_current_a": 30.0,
+      "current_limit_ma": 15000,
+      "inrush_current_ma": 30000,
       "inrush_time_ms": 200,
       "retry_count": 3,
       "retry_forever": false
     },
     {
-      "id": "out_ignition_cut",
+      "channel_id": 101,
       "channel_type": "power_output",
-      "output_pins": [1],
-      "source_channel": "l_rpm_limit_active",
+      "channel_name": "IgnitionCut",
+      "pins": [1],
+      "source_channel_id": 202,
       "pwm_enabled": false,
-      "current_limit_a": 5.0
+      "current_limit_ma": 5000,
+      "invert": true
     },
     {
-      "id": "out_fan",
+      "channel_id": 102,
       "channel_type": "power_output",
-      "output_pins": [2],
-      "source_channel": "l_fan_control",
+      "channel_name": "CoolingFan",
+      "pins": [2],
+      "source_channel_id": 203,
       "pwm_enabled": true,
-      "pwm_frequency_hz": 100,
-      "duty_channel": "t2d_fan_pwm",
+      "pwm_frequency": 100,
+      "duty_channel_id": 250,
       "soft_start_ms": 500,
-      "current_limit_a": 20.0
+      "current_limit_ma": 20000
     },
     {
-      "id": "out_warning_light",
+      "channel_id": 103,
       "channel_type": "power_output",
-      "output_pins": [3],
-      "source_channel": "l_warning_flash",
+      "channel_name": "WarningLight",
+      "pins": [3],
+      "source_channel_id": 207,
       "pwm_enabled": false,
-      "current_limit_a": 2.0
+      "current_limit_ma": 2000
     },
     {
-      "id": "out_headlights",
+      "channel_id": 104,
       "channel_type": "power_output",
-      "output_pins": [4, 5],
-      "source_channel": "di_ignition",
+      "channel_name": "Headlights",
+      "pins": [4, 5],
+      "source_channel_id": 1,
       "pwm_enabled": true,
-      "pwm_frequency_hz": 1000,
-      "duty_fixed": 100.0,
+      "pwm_frequency": 1000,
+      "default_duty": 1000,
       "soft_start_ms": 100,
-      "current_limit_a": 10.0
+      "current_limit_ma": 10000
+    },
+
+    {
+      "_comment": "=== H-BRIDGES (150-159) ===",
+      "channel_id": 150,
+      "channel_type": "hbridge",
+      "channel_name": "WindowMotor",
+      "bridge_number": 0,
+      "source_channel_id": 210,
+      "mode": "direction",
+      "pwm_frequency": 200,
+      "soft_start_ms": 100
+    },
+
+    {
+      "_comment": "=== LOGIC CHANNELS (200-229) ===",
+      "channel_id": 200,
+      "channel_type": "logic",
+      "channel_name": "EngineRunning",
+      "operator": "greater_than",
+      "input_a_channel_id": 3,
+      "threshold": 500000,
+      "true_delay_ms": 500,
+      "false_delay_ms": 2000
+    },
+    {
+      "channel_id": 201,
+      "channel_type": "logic",
+      "channel_name": "LaunchArmed",
+      "operator": "and",
+      "input_a_channel_id": 1,
+      "input_b_channel_id": 2
+    },
+    {
+      "channel_id": 202,
+      "channel_type": "logic",
+      "channel_name": "RPMLimitActive",
+      "operator": "greater_than",
+      "input_a_channel_id": 3,
+      "threshold": 7500000
+    },
+    {
+      "channel_id": 203,
+      "channel_type": "logic",
+      "channel_name": "FanControl",
+      "operator": "hysteresis",
+      "input_a_channel_id": 52,
+      "upper_value": 90000,
+      "lower_value": 80000,
+      "polarity": "normal"
+    },
+    {
+      "channel_id": 204,
+      "channel_type": "logic",
+      "channel_name": "OverheatWarning",
+      "operator": "hysteresis",
+      "input_a_channel_id": 52,
+      "upper_value": 105000,
+      "lower_value": 95000,
+      "polarity": "normal"
+    },
+    {
+      "channel_id": 205,
+      "channel_type": "logic",
+      "channel_name": "LowOilPressure",
+      "operator": "hysteresis",
+      "input_a_channel_id": 54,
+      "upper_value": 2000,
+      "lower_value": 1000,
+      "polarity": "inverted"
+    },
+    {
+      "channel_id": 206,
+      "channel_type": "logic",
+      "channel_name": "AnyWarning",
+      "operator": "or",
+      "input_a_channel_id": 204,
+      "input_b_channel_id": 205
+    },
+    {
+      "channel_id": 207,
+      "channel_type": "logic",
+      "channel_name": "WarningFlash",
+      "operator": "flash",
+      "input_a_channel_id": 206,
+      "time_on_ms": 300,
+      "time_off_ms": 300
+    },
+    {
+      "channel_id": 208,
+      "channel_type": "logic",
+      "channel_name": "FuelPumpLatch",
+      "operator": "set_reset",
+      "set_channel_id": 1,
+      "reset_channel_id": 200,
+      "default_state": false
+    },
+
+    {
+      "_comment": "=== NUMBER CHANNELS (230-249) ===",
+      "channel_id": 230,
+      "channel_type": "number",
+      "channel_name": "MaxTemperature",
+      "operation": "max",
+      "input_channel_ids": [52, 53],
+      "decimal_places": 1
+    },
+    {
+      "channel_id": 231,
+      "channel_type": "number",
+      "channel_name": "ThrottleClamped",
+      "operation": "clamp",
+      "input_channel_ids": [50],
+      "clamp_min": 0,
+      "clamp_max": 900,
+      "decimal_places": 1
+    },
+    {
+      "channel_id": 232,
+      "channel_type": "number",
+      "channel_name": "IdleTargetRPM",
+      "operation": "constant",
+      "value": 850000
+    },
+
+    {
+      "_comment": "=== TABLE 2D CHANNELS (250-269) ===",
+      "channel_id": 250,
+      "channel_type": "table_2d",
+      "channel_name": "FanPWMCurve",
+      "x_axis_channel_id": 52,
+      "x_axis_min": 70000,
+      "x_axis_max": 110000,
+      "x_axis_values": [70000, 80000, 90000, 100000, 110000],
+      "output_values": [0, 0, 500, 800, 1000],
+      "decimal_places": 0
+    },
+    {
+      "channel_id": 251,
+      "channel_type": "table_2d",
+      "channel_name": "FuelPressureTarget",
+      "x_axis_channel_id": 50,
+      "x_axis_min": 0,
+      "x_axis_max": 1000,
+      "x_axis_values": [0, 250, 500, 750, 1000],
+      "output_values": [30000, 35000, 40000, 42000, 45000],
+      "decimal_places": 1
+    },
+
+    {
+      "_comment": "=== FILTER CHANNELS (270-279) ===",
+      "channel_id": 270,
+      "channel_type": "filter",
+      "channel_name": "ThrottleSmooth",
+      "filter_type": "moving_avg",
+      "input_channel_id": 50,
+      "window_size": 10
+    },
+    {
+      "channel_id": 271,
+      "channel_type": "filter",
+      "channel_name": "BrakeFiltered",
+      "filter_type": "low_pass",
+      "input_channel_id": 51,
+      "time_constant_ms": 50
+    },
+
+    {
+      "_comment": "=== TIMER CHANNELS (280-289) ===",
+      "channel_id": 280,
+      "channel_type": "timer",
+      "channel_name": "EngineRunTime",
+      "start_channel_id": 200,
+      "start_edge": "rising",
+      "mode": "count_up",
+      "max_seconds": 359999
+    },
+
+    {
+      "_comment": "=== SWITCH CHANNELS (290-299) ===",
+      "channel_id": 290,
+      "channel_type": "switch",
+      "channel_name": "DrivingMode",
+      "switch_type": "latching",
+      "input_up_channel_id": 2,
+      "input_up_edge": "rising",
+      "state_min": 0,
+      "state_max": 3,
+      "state_default": 0
+    },
+
+    {
+      "_comment": "=== CAN RX CHANNELS (300-349) ===",
+      "channel_id": 300,
+      "channel_type": "can_rx",
+      "channel_name": "ECU_RPM",
+      "message_ref": "msg_ecu_data",
+      "signal_name": "rpm",
+      "timeout_ms": 500
+    },
+    {
+      "channel_id": 301,
+      "channel_type": "can_rx",
+      "channel_name": "ECU_TPS",
+      "message_ref": "msg_ecu_data",
+      "signal_name": "tps",
+      "timeout_ms": 500
+    },
+    {
+      "channel_id": 302,
+      "channel_type": "can_rx",
+      "channel_name": "ECU_MAP",
+      "message_ref": "msg_ecu_data",
+      "signal_name": "map",
+      "timeout_ms": 500
+    },
+    {
+      "channel_id": 303,
+      "channel_type": "can_rx",
+      "channel_name": "ECU_CoolantTemp",
+      "message_ref": "msg_ecu_temps",
+      "signal_name": "coolant_temp",
+      "timeout_ms": 1000
+    },
+
+    {
+      "_comment": "=== CAN TX CHANNELS (350-399) ===",
+      "channel_id": 350,
+      "channel_type": "can_tx",
+      "channel_name": "PMU_Status",
+      "message_ref": "msg_pmu_status",
+      "cycle_time_ms": 100,
+      "signals": [
+        {"source_channel_id": 50, "start_bit": 0, "length": 8, "factor": 100, "offset": 0},
+        {"source_channel_id": 51, "start_bit": 8, "length": 8, "factor": 1000, "offset": 0},
+        {"source_channel_id": 52, "start_bit": 16, "length": 8, "factor": 1000, "offset": 40000},
+        {"source_channel_id": 206, "start_bit": 24, "length": 1, "factor": 1, "offset": 0}
+      ]
+    },
+
+    {
+      "_comment": "=== PID CONTROLLER (400-409) ===",
+      "channel_id": 400,
+      "channel_type": "pid",
+      "channel_name": "IdleControl",
+      "input_channel_id": 3,
+      "setpoint_channel_id": 232,
+      "output_channel_id": 102,
+      "kp": 1500,
+      "ki": 200,
+      "kd": 50,
+      "output_min": 0,
+      "output_max": 1000,
+      "sample_time_ms": 20,
+      "enabled_channel_id": 200
+    },
+
+    {
+      "_comment": "=== LUA SCRIPT (500-509) ===",
+      "channel_id": 500,
+      "channel_type": "lua_script",
+      "channel_name": "CustomLogic",
+      "script": "function update()\n  local rpm = channel.get(3)\n  local tps = channel.get(50)\n  if rpm > 6000 and tps > 900 then\n    return 1\n  end\n  return 0\nend",
+      "trigger": "periodic",
+      "interval_ms": 10,
+      "enabled": true
+    },
+
+    {
+      "_comment": "=== HANDLER (600-609) ===",
+      "channel_id": 600,
+      "channel_type": "handler",
+      "channel_name": "OverheatHandler",
+      "trigger_channel_id": 204,
+      "trigger_edge": "rising",
+      "actions": [
+        {"type": "set_output", "channel_id": 102, "value": 1000},
+        {"type": "set_output", "channel_id": 103, "value": 1}
+      ]
+    },
+
+    {
+      "_comment": "=== BLINKMARINE KEYPAD (700-709) ===",
+      "channel_id": 700,
+      "channel_type": "blinkmarine_keypad",
+      "channel_name": "SteeringKeypad",
+      "keypad_type": 0,
+      "can_bus": 2,
+      "base_address": 16,
+      "buttons": [
+        {"index": 0, "name": "Mode", "press_action": "Toggle", "led_source_channel_id": 290},
+        {"index": 1, "name": "Launch", "press_action": "Set High", "led_source_channel_id": 201},
+        {"index": 2, "name": "Lights", "press_action": "Toggle", "led_source_channel_id": 104},
+        {"index": 3, "name": "Fan", "press_action": "Set High", "led_source_channel_id": 203}
+      ]
     }
   ],
 
-  "can_buses": [
-    {
-      "bus": 1,
+  "_comment_settings": "Device and bus settings",
+  "settings": {
+    "can_a": {
       "enabled": true,
       "bitrate": 500000,
-      "fd_enabled": false
+      "fd_enabled": false,
+      "termination": true
     },
-    {
-      "bus": 2,
+    "can_b": {
       "enabled": true,
       "bitrate": 1000000,
-      "fd_enabled": true
+      "fd_enabled": true,
+      "termination": true
+    },
+    "standard_can_stream": {
+      "enabled": true,
+      "can_bus": 1,
+      "base_id": 1792,
+      "rate_hz": 50
+    },
+    "power": {
+      "shutdown_delay_ms": 5000,
+      "low_voltage_threshold_mv": 10500,
+      "high_voltage_threshold_mv": 16000
+    },
+    "system": {
+      "update_rate_hz": 1000,
+      "watchdog_timeout_ms": 100,
+      "debug_enabled": true
     }
-  ],
-
-  "system": {
-    "update_rate_hz": 1000,
-    "watchdog_timeout_ms": 100,
-    "debug_enabled": true
   }
 }
