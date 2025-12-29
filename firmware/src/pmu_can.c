@@ -1120,8 +1120,8 @@ void PMU_CAN_ProcessInputs(void)
  */
 void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc, uint8_t is_extended)
 {
-    /* Check BlinkMarine keypads first - they use J1939 extended IDs */
-    if (PMU_BlinkMarine_HandleRxMessage(bus, can_id, is_extended, data, dlc)) {
+    /* Check BlinkMarine keypads first - they use CANopen standard IDs */
+    if (PMU_BlinkMarine_HandleRxMessage(bus, can_id, data, dlc)) {
         return;  /* Message was handled by BlinkMarine keypad */
     }
 

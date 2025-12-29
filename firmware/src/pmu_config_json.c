@@ -3469,7 +3469,7 @@ static bool JSON_ParsePID(cJSON* channel_obj)
 }
 
 /**
- * @brief Parse BlinkMarine keypad channel (J1939 protocol)
+ * @brief Parse BlinkMarine keypad channel (CANopen protocol)
  * Supports PKP-2600-SI (12 buttons) and PKP-2800-SI (16 buttons)
  */
 static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
@@ -3488,19 +3488,14 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
     /* Keypad type (integer: 0=PKP2600SI, 1=PKP2800SI) */
     keypad.type = (PMU_BlinkMarine_Type_t)JSON_GetInt(channel_obj, "type", PMU_BLINKMARINE_PKP2600SI);
 
-    /* J1939 CAN configuration */
+    /* CANopen configuration */
     keypad.can_bus = (PMU_CAN_Bus_t)JSON_GetInt(channel_obj, "can_bus", 1);
-    keypad.source_address = (uint8_t)JSON_GetInt(channel_obj, "source_address", PMU_BM_DEFAULT_SRC_ADDR);
-    keypad.keypad_identifier = (uint8_t)JSON_GetInt(channel_obj, "keypad_identifier", PMU_BM_DEFAULT_KEYPAD_ID);
-    keypad.destination_address = (uint8_t)JSON_GetInt(channel_obj, "destination_address", PMU_BM_DEFAULT_DEST_ADDR);
-    keypad.use_extended_id = JSON_GetBool(channel_obj, "use_extended_id", true);
+    keypad.node_id = (uint8_t)JSON_GetInt(channel_obj, "node_id", 1);
     keypad.timeout_ms = (uint16_t)JSON_GetInt(channel_obj, "timeout_ms", PMU_BM_DEFAULT_TIMEOUT_MS);
-    keypad.enabled = true;  /* Keypads always enabled */
+    keypad.enabled = true;
 
-    /* Brightness settings (0-63) */
-    keypad.led_brightness = (uint8_t)JSON_GetInt(channel_obj, "led_brightness", 0x3F);
-    keypad.backlight_brightness = (uint8_t)JSON_GetInt(channel_obj, "backlight_brightness", 0x20);
-    keypad.backlight_color = (PMU_BM_LedColor_t)JSON_GetInt(channel_obj, "backlight_color", PMU_BM_LED_WHITE);
+    /* LED brightness (0-100%) */
+    keypad.led_brightness = (uint8_t)JSON_GetInt(channel_obj, "led_brightness", 100);
 
     /* Parse buttons configuration */
     cJSON* buttons_array = cJSON_GetObjectItem(channel_obj, "buttons");
@@ -3513,14 +3508,11 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
             if (!button || !cJSON_IsObject(button)) continue;
 
             PMU_BM_ButtonConfig_t* btn = &keypad.buttons[i];
+            btn->enabled = true;
 
-            /* Button enabled */
-            btn->enabled = true;  /* Buttons always enabled */
-
-            /* LED colors (indexes into PMU_BM_LedColor_t enum) */
+            /* LED colors */
             btn->led_on_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_on_color", PMU_BM_LED_GREEN);
             btn->led_off_color = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_off_color", PMU_BM_LED_OFF);
-            btn->led_secondary = (PMU_BM_LedColor_t)JSON_GetInt(button, "led_secondary", PMU_BM_LED_RED);
 
             /* LED control mode */
             btn->led_ctrl_mode = (PMU_BM_LedCtrlMode_t)JSON_GetInt(button, "led_ctrl_mode", PMU_BM_LED_CTRL_FOLLOW);
@@ -3539,9 +3531,8 @@ static bool JSON_ParseBlinkMarineKeypad(cJSON* channel_obj)
     }
 
     const char* type_names[] = { "PKP2600SI", "PKP2800SI" };
-    printf("[JSON] Parsed BlinkMarine keypad: %s type=%s CAN%d SA:0x%02X KID:0x%02X\n",
-           name, type_names[keypad.type], keypad.can_bus,
-           keypad.source_address, keypad.keypad_identifier);
+    printf("[JSON] Parsed BlinkMarine keypad: %s type=%s CAN%d NodeID:%d\n",
+           name, type_names[keypad.type], keypad.can_bus, keypad.node_id);
 #else
     (void)channel_obj;
 #endif

@@ -60,7 +60,7 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - **PID Controllers**: Closed-loop control systems
 - **Wiper Control**: Dedicated wiper output with park/brake function
 - **Blinker Logic**: Built-in turn signal control
-- **CAN Keyboard Support**: Blinkmarine compatible
+- **CAN Keyboard Support**: BlinkMarine PKP keypads via CANopen
 - **Data Logging**: 500Hz high-speed logging to 512MB internal memory
 - **OTA Updates**: Over-the-air firmware updates
 - **Web Interface**: Full monitoring and configuration via WiFi

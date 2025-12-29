@@ -460,7 +460,9 @@ void EMU_WebUI_SendTelemetry(void)
         for (uint8_t b = 0; b < btn_count; b++) {
             if (kp->buttons[b].state) button_states |= (1 << b);
             if (b < 16) {
-                led_states_low |= ((uint32_t)kp->buttons[b].current_led_state << (b * 2));
+                /* current_led is the color (0=off, 1-7=colors) */
+                uint8_t led_on = (kp->buttons[b].current_led != PMU_BM_LED_OFF) ? 1 : 0;
+                led_states_low |= ((uint32_t)led_on << b);
             }
         }
 
