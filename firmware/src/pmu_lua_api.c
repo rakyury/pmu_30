@@ -31,9 +31,66 @@
 
 /* Private macro -------------------------------------------------------------*/
 
+/* Argument extraction helpers */
+#define LUA_GET_UINT16(L, idx) ((uint16_t)lua_tointeger(L, idx))
+#define LUA_GET_UINT8(L, idx)  ((uint8_t)lua_tointeger(L, idx))
+#define LUA_GET_INT32(L, idx)  ((int32_t)lua_tointeger(L, idx))
+#define LUA_GET_FLOAT(L, idx)  ((float)lua_tonumber(L, idx))
+
+/* Argument count validation */
+#define LUA_CHECK_ARGS(L, min_args, func_name) \
+    do { \
+        if (lua_gettop(L) < (min_args)) { \
+            lua_pushfstring(L, "%s expects at least %d argument(s)", func_name, min_args); \
+            lua_error(L); \
+            return 0; \
+        } \
+    } while(0)
+
+/* Table building helpers */
+#define LUA_TABLE_SET_INT(L, key, val) \
+    do { lua_pushstring(L, key); lua_pushinteger(L, val); lua_settable(L, -3); } while(0)
+
+#define LUA_TABLE_SET_STRING(L, key, val) \
+    do { lua_pushstring(L, key); lua_pushstring(L, val); lua_settable(L, -3); } while(0)
+
+#define LUA_TABLE_SET_NUMBER(L, key, val) \
+    do { lua_pushstring(L, key); lua_pushnumber(L, (lua_Number)(val)); lua_settable(L, -3); } while(0)
+
+#define LUA_TABLE_SET_BOOL(L, key, val) \
+    do { lua_pushstring(L, key); lua_pushboolean(L, val); lua_settable(L, -3); } while(0)
+
+/* Private typedef -----------------------------------------------------------*/
+
+/**
+ * @brief Library function entry for registration helper
+ */
+typedef struct {
+    const char* name;
+    lua_CFunction func;
+} PMU_Lua_LibFunc_t;
+
 /* Private variables ---------------------------------------------------------*/
 
 /* Private function prototypes -----------------------------------------------*/
+
+/**
+ * @brief Register a library of functions under a global table name
+ */
+static void PMU_Lua_RegisterLib(lua_State* L, const char* lib_name,
+                                 const PMU_Lua_LibFunc_t* funcs, size_t count)
+{
+    lua_newtable(L);
+    for (size_t i = 0; i < count; i++) {
+        lua_pushstring(L, funcs[i].name);
+        lua_pushcfunction(L, funcs[i].func);
+        lua_settable(L, -3);
+    }
+    lua_setglobal(L, lib_name);
+}
+
+#define REGISTER_LIB(L, name, funcs) \
+    PMU_Lua_RegisterLib(L, name, funcs, sizeof(funcs)/sizeof(funcs[0]))
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -56,36 +113,14 @@ void PMU_Lua_RegisterAPI(lua_State* L)
  */
 void PMU_Lua_RegisterChannelAPI(lua_State* L)
 {
-    /* Create 'channel' table */
-    lua_newtable(L);
-
-    /* channel.get */
-    lua_pushstring(L, "get");
-    lua_pushcfunction(L, lua_channel_get);
-    lua_settable(L, -3);
-
-    /* channel.set */
-    lua_pushstring(L, "set");
-    lua_pushcfunction(L, lua_channel_set);
-    lua_settable(L, -3);
-
-    /* channel.info */
-    lua_pushstring(L, "info");
-    lua_pushcfunction(L, lua_channel_info);
-    lua_settable(L, -3);
-
-    /* channel.find */
-    lua_pushstring(L, "find");
-    lua_pushcfunction(L, lua_channel_find);
-    lua_settable(L, -3);
-
-    /* channel.list */
-    lua_pushstring(L, "list");
-    lua_pushcfunction(L, lua_channel_list);
-    lua_settable(L, -3);
-
-    /* Set global 'channel' */
-    lua_setglobal(L, "channel");
+    static const PMU_Lua_LibFunc_t channel_funcs[] = {
+        {"get",  lua_channel_get},
+        {"set",  lua_channel_set},
+        {"info", lua_channel_info},
+        {"find", lua_channel_find},
+        {"list", lua_channel_list},
+    };
+    REGISTER_LIB(L, "channel", channel_funcs);
 }
 
 /**
@@ -93,54 +128,20 @@ void PMU_Lua_RegisterChannelAPI(lua_State* L)
  */
 void PMU_Lua_RegisterLogicAPI(lua_State* L)
 {
-    /* Create 'logic' table */
-    lua_newtable(L);
-
-    lua_pushstring(L, "add");
-    lua_pushcfunction(L, lua_logic_add);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "subtract");
-    lua_pushcfunction(L, lua_logic_subtract);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "multiply");
-    lua_pushcfunction(L, lua_logic_multiply);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "divide");
-    lua_pushcfunction(L, lua_logic_divide);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "compare");
-    lua_pushcfunction(L, lua_logic_compare);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "and");
-    lua_pushcfunction(L, lua_logic_and);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "or");
-    lua_pushcfunction(L, lua_logic_or);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "not");
-    lua_pushcfunction(L, lua_logic_not);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "pid");
-    lua_pushcfunction(L, lua_logic_pid);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "hysteresis");
-    lua_pushcfunction(L, lua_logic_hysteresis);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "enable");
-    lua_pushcfunction(L, lua_logic_enable);
-    lua_settable(L, -3);
-
-    lua_setglobal(L, "logic");
+    static const PMU_Lua_LibFunc_t logic_funcs[] = {
+        {"add",        lua_logic_add},
+        {"subtract",   lua_logic_subtract},
+        {"multiply",   lua_logic_multiply},
+        {"divide",     lua_logic_divide},
+        {"compare",    lua_logic_compare},
+        {"and",        lua_logic_and},
+        {"or",         lua_logic_or},
+        {"not",        lua_logic_not},
+        {"pid",        lua_logic_pid},
+        {"hysteresis", lua_logic_hysteresis},
+        {"enable",     lua_logic_enable},
+    };
+    REGISTER_LIB(L, "logic", logic_funcs);
 }
 
 /**
@@ -148,25 +149,13 @@ void PMU_Lua_RegisterLogicAPI(lua_State* L)
  */
 void PMU_Lua_RegisterSystemAPI(lua_State* L)
 {
-    lua_newtable(L);
-
-    lua_pushstring(L, "voltage");
-    lua_pushcfunction(L, lua_system_voltage);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "current");
-    lua_pushcfunction(L, lua_system_current);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "temperature");
-    lua_pushcfunction(L, lua_system_temperature);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "uptime");
-    lua_pushcfunction(L, lua_system_uptime);
-    lua_settable(L, -3);
-
-    lua_setglobal(L, "system");
+    static const PMU_Lua_LibFunc_t system_funcs[] = {
+        {"voltage",     lua_system_voltage},
+        {"current",     lua_system_current},
+        {"temperature", lua_system_temperature},
+        {"uptime",      lua_system_uptime},
+    };
+    REGISTER_LIB(L, "system", system_funcs);
 }
 
 /**
@@ -266,37 +255,15 @@ int lua_channel_info(lua_State* L)
         return 1;
     }
 
-    /* Create info table */
+    /* Create info table using helper macros */
     lua_newtable(L);
-
-    lua_pushstring(L, "id");
-    lua_pushinteger(L, info->channel_id);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "name");
-    lua_pushstring(L, info->name);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "type");
-    lua_pushinteger(L, info->hw_class);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "value");
-    lua_pushinteger(L, info->value);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "min");
-    lua_pushinteger(L, info->min_value);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "max");
-    lua_pushinteger(L, info->max_value);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "unit");
-    lua_pushstring(L, info->unit);
-    lua_settable(L, -3);
-
+    LUA_TABLE_SET_INT(L, "id", info->channel_id);
+    LUA_TABLE_SET_STRING(L, "name", info->name);
+    LUA_TABLE_SET_INT(L, "type", info->hw_class);
+    LUA_TABLE_SET_INT(L, "value", info->value);
+    LUA_TABLE_SET_INT(L, "min", info->min_value);
+    LUA_TABLE_SET_INT(L, "max", info->max_value);
+    LUA_TABLE_SET_STRING(L, "unit", info->unit);
     return 1;
 }
 
@@ -341,18 +308,9 @@ int lua_channel_list(lua_State* L)
 
         /* Create channel info table */
         lua_newtable(L);
-
-        lua_pushstring(L, "id");
-        lua_pushinteger(L, channels[i].channel_id);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "name");
-        lua_pushstring(L, channels[i].name);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "value");
-        lua_pushinteger(L, channels[i].value);
-        lua_settable(L, -3);
+        LUA_TABLE_SET_INT(L, "id", channels[i].channel_id);
+        LUA_TABLE_SET_STRING(L, "name", channels[i].name);
+        LUA_TABLE_SET_INT(L, "value", channels[i].value);
 
         lua_settable(L, -3);
     }
@@ -363,25 +321,29 @@ int lua_channel_list(lua_State* L)
 /* Logic API -----------------------------------------------------------------*/
 
 /**
+ * @brief Helper for creating math logic functions
+ */
+static int lua_logic_math_helper(lua_State* L, PMU_FunctionType_t func_type, const char* func_name)
+{
+    LUA_CHECK_ARGS(L, 3, func_name);
+
+    uint16_t output_ch = LUA_GET_UINT16(L, 1);
+    uint16_t input_a = LUA_GET_UINT16(L, 2);
+    uint16_t input_b = LUA_GET_UINT16(L, 3);
+
+    uint16_t func_id = PMU_LogicFunctions_CreateMath(func_type, output_ch, input_a, input_b);
+
+    lua_pushinteger(L, func_id);
+    return 1;
+}
+
+/**
  * @brief Create ADD logic function
  * Usage: func_id = logic.add(output_ch, input_a, input_b)
  */
 int lua_logic_add(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "logic.add expects (output_ch, input_a, input_b)");
-        lua_error(L);
-        return 0;
-    }
-
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_a = (uint16_t)lua_tointeger(L, 2);
-    uint16_t input_b = (uint16_t)lua_tointeger(L, 3);
-
-    uint16_t func_id = PMU_LogicFunctions_CreateMath(PMU_FUNC_ADD, output_ch, input_a, input_b);
-
-    lua_pushinteger(L, func_id);
-    return 1;
+    return lua_logic_math_helper(L, PMU_FUNC_ADD, "logic.add");
 }
 
 /**
@@ -389,20 +351,7 @@ int lua_logic_add(lua_State* L)
  */
 int lua_logic_subtract(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "logic.subtract expects (output_ch, input_a, input_b)");
-        lua_error(L);
-        return 0;
-    }
-
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_a = (uint16_t)lua_tointeger(L, 2);
-    uint16_t input_b = (uint16_t)lua_tointeger(L, 3);
-
-    uint16_t func_id = PMU_LogicFunctions_CreateMath(PMU_FUNC_SUBTRACT, output_ch, input_a, input_b);
-
-    lua_pushinteger(L, func_id);
-    return 1;
+    return lua_logic_math_helper(L, PMU_FUNC_SUBTRACT, "logic.subtract");
 }
 
 /**
@@ -410,20 +359,7 @@ int lua_logic_subtract(lua_State* L)
  */
 int lua_logic_multiply(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "logic.multiply expects (output_ch, input_a, input_b)");
-        lua_error(L);
-        return 0;
-    }
-
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_a = (uint16_t)lua_tointeger(L, 2);
-    uint16_t input_b = (uint16_t)lua_tointeger(L, 3);
-
-    uint16_t func_id = PMU_LogicFunctions_CreateMath(PMU_FUNC_MULTIPLY, output_ch, input_a, input_b);
-
-    lua_pushinteger(L, func_id);
-    return 1;
+    return lua_logic_math_helper(L, PMU_FUNC_MULTIPLY, "logic.multiply");
 }
 
 /**
@@ -431,20 +367,7 @@ int lua_logic_multiply(lua_State* L)
  */
 int lua_logic_divide(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "logic.divide expects (output_ch, input_a, input_b)");
-        lua_error(L);
-        return 0;
-    }
-
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_a = (uint16_t)lua_tointeger(L, 2);
-    uint16_t input_b = (uint16_t)lua_tointeger(L, 3);
-
-    uint16_t func_id = PMU_LogicFunctions_CreateMath(PMU_FUNC_DIVIDE, output_ch, input_a, input_b);
-
-    lua_pushinteger(L, func_id);
-    return 1;
+    return lua_logic_math_helper(L, PMU_FUNC_DIVIDE, "logic.divide");
 }
 
 /**
@@ -453,25 +376,36 @@ int lua_logic_divide(lua_State* L)
  */
 int lua_logic_compare(lua_State* L)
 {
-    if (lua_gettop(L) < 4 || !lua_isstring(L, 4)) {
-        lua_pushstring(L, "logic.compare expects (output_ch, input_a, input_b, operator)");
+    LUA_CHECK_ARGS(L, 4, "logic.compare");
+
+    if (!lua_isstring(L, 4)) {
+        lua_pushstring(L, "logic.compare: operator must be a string");
         lua_error(L);
         return 0;
     }
 
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_a = (uint16_t)lua_tointeger(L, 2);
-    uint16_t input_b = (uint16_t)lua_tointeger(L, 3);
+    uint16_t output_ch = LUA_GET_UINT16(L, 1);
+    uint16_t input_a = LUA_GET_UINT16(L, 2);
+    uint16_t input_b = LUA_GET_UINT16(L, 3);
     const char* op = lua_tostring(L, 4);
 
-    PMU_FunctionType_t type = PMU_FUNC_GREATER;
+    /* Operator lookup table */
+    static const struct { const char* op; PMU_FunctionType_t type; } op_map[] = {
+        {">",  PMU_FUNC_GREATER},
+        {"<",  PMU_FUNC_LESS},
+        {"==", PMU_FUNC_EQUAL},
+        {"!=", PMU_FUNC_NOT_EQUAL},
+        {">=", PMU_FUNC_GREATER_EQUAL},
+        {"<=", PMU_FUNC_LESS_EQUAL},
+    };
 
-    if (strcmp(op, ">") == 0) type = PMU_FUNC_GREATER;
-    else if (strcmp(op, "<") == 0) type = PMU_FUNC_LESS;
-    else if (strcmp(op, "==") == 0) type = PMU_FUNC_EQUAL;
-    else if (strcmp(op, "!=") == 0) type = PMU_FUNC_NOT_EQUAL;
-    else if (strcmp(op, ">=") == 0) type = PMU_FUNC_GREATER_EQUAL;
-    else if (strcmp(op, "<=") == 0) type = PMU_FUNC_LESS_EQUAL;
+    PMU_FunctionType_t type = PMU_FUNC_GREATER;
+    for (size_t i = 0; i < sizeof(op_map)/sizeof(op_map[0]); i++) {
+        if (strcmp(op, op_map[i].op) == 0) {
+            type = op_map[i].type;
+            break;
+        }
+    }
 
     uint16_t func_id = PMU_LogicFunctions_CreateComparison(type, output_ch, input_a, input_b);
 
@@ -515,18 +449,14 @@ int lua_logic_not(lua_State* L)
  */
 int lua_logic_pid(lua_State* L)
 {
-    if (lua_gettop(L) < 6) {
-        lua_pushstring(L, "logic.pid expects (output_ch, input_ch, setpoint, kp, ki, kd)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 6, "logic.pid");
 
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_ch = (uint16_t)lua_tointeger(L, 2);
-    float setpoint = (float)lua_tonumber(L, 3);
-    float kp = (float)lua_tonumber(L, 4);
-    float ki = (float)lua_tonumber(L, 5);
-    float kd = (float)lua_tonumber(L, 6);
+    uint16_t output_ch = LUA_GET_UINT16(L, 1);
+    uint16_t input_ch = LUA_GET_UINT16(L, 2);
+    float setpoint = LUA_GET_FLOAT(L, 3);
+    float kp = LUA_GET_FLOAT(L, 4);
+    float ki = LUA_GET_FLOAT(L, 5);
+    float kd = LUA_GET_FLOAT(L, 6);
 
     uint16_t func_id = PMU_LogicFunctions_CreatePID(output_ch, input_ch, setpoint, kp, ki, kd);
 
@@ -540,16 +470,12 @@ int lua_logic_pid(lua_State* L)
  */
 int lua_logic_hysteresis(lua_State* L)
 {
-    if (lua_gettop(L) < 4) {
-        lua_pushstring(L, "logic.hysteresis expects (output_ch, input_ch, on_threshold, off_threshold)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 4, "logic.hysteresis");
 
-    uint16_t output_ch = (uint16_t)lua_tointeger(L, 1);
-    uint16_t input_ch = (uint16_t)lua_tointeger(L, 2);
-    int32_t threshold_on = (int32_t)lua_tointeger(L, 3);
-    int32_t threshold_off = (int32_t)lua_tointeger(L, 4);
+    uint16_t output_ch = LUA_GET_UINT16(L, 1);
+    uint16_t input_ch = LUA_GET_UINT16(L, 2);
+    int32_t threshold_on = LUA_GET_INT32(L, 3);
+    int32_t threshold_off = LUA_GET_INT32(L, 4);
 
     uint16_t func_id = PMU_LogicFunctions_CreateHysteresis(output_ch, input_ch, threshold_on, threshold_off);
 
@@ -563,13 +489,9 @@ int lua_logic_hysteresis(lua_State* L)
  */
 int lua_logic_enable(lua_State* L)
 {
-    if (lua_gettop(L) < 2) {
-        lua_pushstring(L, "logic.enable expects (func_id, enabled)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 2, "logic.enable");
 
-    uint16_t func_id = (uint16_t)lua_tointeger(L, 1);
+    uint16_t func_id = LUA_GET_UINT16(L, 1);
     bool enabled = lua_toboolean(L, 2);
 
     HAL_StatusTypeDef status = PMU_LogicFunctions_SetEnabled(func_id, enabled);
@@ -676,29 +598,14 @@ int lua_util_sleep(lua_State* L)
  */
 void PMU_Lua_RegisterCanAPI(lua_State* L)
 {
-    lua_newtable(L);
-
-    lua_pushstring(L, "send");
-    lua_pushcfunction(L, lua_can_send);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "get");
-    lua_pushcfunction(L, lua_can_get);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "set");
-    lua_pushcfunction(L, lua_can_set);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "on_receive");
-    lua_pushcfunction(L, lua_can_on_receive);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "status");
-    lua_pushcfunction(L, lua_can_status);
-    lua_settable(L, -3);
-
-    lua_setglobal(L, "can");
+    static const PMU_Lua_LibFunc_t can_funcs[] = {
+        {"send",       lua_can_send},
+        {"get",        lua_can_get},
+        {"set",        lua_can_set},
+        {"on_receive", lua_can_on_receive},
+        {"status",     lua_can_status},
+    };
+    REGISTER_LIB(L, "can", can_funcs);
 }
 
 /**
@@ -711,13 +618,9 @@ void PMU_Lua_RegisterCanAPI(lua_State* L)
  */
 int lua_can_send(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "can.send expects (bus, id, data_table)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 3, "can.send");
 
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t bus = LUA_GET_UINT8(L, 1);
     uint32_t id = (uint32_t)lua_tointeger(L, 2);
 
     uint8_t data[8] = {0};
@@ -815,32 +718,17 @@ int lua_can_on_receive(lua_State* L)
  */
 int lua_can_status(lua_State* L)
 {
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t bus = LUA_GET_UINT8(L, 1);
 
     lua_newtable(L);
 
-    /* Get CAN statistics */
     PMU_CAN_Stats_t stats;
     if (PMU_CAN_GetStats(bus, &stats) == HAL_OK) {
-        lua_pushstring(L, "state");
-        lua_pushinteger(L, stats.state);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "tx_count");
-        lua_pushinteger(L, stats.tx_count);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "rx_count");
-        lua_pushinteger(L, stats.rx_count);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "error_count");
-        lua_pushinteger(L, stats.error_count);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "bus_off");
-        lua_pushboolean(L, stats.bus_off);
-        lua_settable(L, -3);
+        LUA_TABLE_SET_INT(L, "state", stats.state);
+        LUA_TABLE_SET_INT(L, "tx_count", stats.tx_count);
+        LUA_TABLE_SET_INT(L, "rx_count", stats.rx_count);
+        LUA_TABLE_SET_INT(L, "error_count", stats.error_count);
+        LUA_TABLE_SET_BOOL(L, "bus_off", stats.bus_off);
     }
 
     return 1;
@@ -853,37 +741,16 @@ int lua_can_status(lua_State* L)
  */
 void PMU_Lua_RegisterLinAPI(lua_State* L)
 {
-    lua_newtable(L);
-
-    lua_pushstring(L, "send");
-    lua_pushcfunction(L, lua_lin_send);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "get");
-    lua_pushcfunction(L, lua_lin_get);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "set");
-    lua_pushcfunction(L, lua_lin_set);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "request");
-    lua_pushcfunction(L, lua_lin_request);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "wakeup");
-    lua_pushcfunction(L, lua_lin_wakeup);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "sleep");
-    lua_pushcfunction(L, lua_lin_sleep);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "status");
-    lua_pushcfunction(L, lua_lin_status);
-    lua_settable(L, -3);
-
-    lua_setglobal(L, "lin");
+    static const PMU_Lua_LibFunc_t lin_funcs[] = {
+        {"send",    lua_lin_send},
+        {"get",     lua_lin_get},
+        {"set",     lua_lin_set},
+        {"request", lua_lin_request},
+        {"wakeup",  lua_lin_wakeup},
+        {"sleep",   lua_lin_sleep},
+        {"status",  lua_lin_status},
+    };
+    REGISTER_LIB(L, "lin", lin_funcs);
 }
 
 /**
@@ -892,14 +759,10 @@ void PMU_Lua_RegisterLinAPI(lua_State* L)
  */
 int lua_lin_send(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "lin.send expects (bus, frame_id, data_table)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 3, "lin.send");
 
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
-    uint8_t frame_id = (uint8_t)lua_tointeger(L, 2) & 0x3F;
+    uint8_t bus = LUA_GET_UINT8(L, 1);
+    uint8_t frame_id = LUA_GET_UINT8(L, 2) & 0x3F;
 
     uint8_t data[8] = {0};
     uint8_t length = 0;
@@ -982,7 +845,7 @@ int lua_lin_set(lua_State* L)
  */
 int lua_lin_request(lua_State* L)
 {
-    uint8_t frame_id = (uint8_t)lua_tointeger(L, 1) & 0x3F;
+    uint8_t frame_id = LUA_GET_UINT8(L, 1) & 0x3F;
 
     HAL_StatusTypeDef status = PMU_LIN_RequestFrame(PMU_LIN_BUS_1, frame_id);
 
@@ -996,7 +859,7 @@ int lua_lin_request(lua_State* L)
  */
 int lua_lin_wakeup(lua_State* L)
 {
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t bus = LUA_GET_UINT8(L, 1);
 
     HAL_StatusTypeDef status = PMU_LIN_SendWakeup(bus);
 
@@ -1010,7 +873,7 @@ int lua_lin_wakeup(lua_State* L)
  */
 int lua_lin_sleep(lua_State* L)
 {
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t bus = LUA_GET_UINT8(L, 1);
 
     HAL_StatusTypeDef status = PMU_LIN_GoToSleep(bus);
 
@@ -1025,31 +888,17 @@ int lua_lin_sleep(lua_State* L)
  */
 int lua_lin_status(lua_State* L)
 {
-    uint8_t bus = (uint8_t)lua_tointeger(L, 1);
+    uint8_t bus = LUA_GET_UINT8(L, 1);
 
     lua_newtable(L);
 
     PMU_LIN_Stats_t stats;
     if (PMU_LIN_GetStats(bus, &stats) == HAL_OK) {
-        lua_pushstring(L, "state");
-        lua_pushinteger(L, stats.state);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "is_master");
-        lua_pushboolean(L, stats.is_master);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "tx_count");
-        lua_pushinteger(L, stats.frames_tx);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "rx_count");
-        lua_pushinteger(L, stats.frames_rx);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "error_count");
-        lua_pushinteger(L, stats.errors);
-        lua_settable(L, -3);
+        LUA_TABLE_SET_INT(L, "state", stats.state);
+        LUA_TABLE_SET_BOOL(L, "is_master", stats.is_master);
+        LUA_TABLE_SET_INT(L, "tx_count", stats.frames_tx);
+        LUA_TABLE_SET_INT(L, "rx_count", stats.frames_rx);
+        LUA_TABLE_SET_INT(L, "error_count", stats.errors);
     }
 
     return 1;
@@ -1062,41 +911,17 @@ int lua_lin_status(lua_State* L)
  */
 void PMU_Lua_RegisterPidAPI(lua_State* L)
 {
-    lua_newtable(L);
-
-    lua_pushstring(L, "create");
-    lua_pushcfunction(L, lua_pid_create);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "setpoint");
-    lua_pushcfunction(L, lua_pid_setpoint);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "configure");
-    lua_pushcfunction(L, lua_pid_configure);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "limits");
-    lua_pushcfunction(L, lua_pid_limits);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "compute");
-    lua_pushcfunction(L, lua_pid_compute);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "reset");
-    lua_pushcfunction(L, lua_pid_reset);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "get");
-    lua_pushcfunction(L, lua_pid_get);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "enable");
-    lua_pushcfunction(L, lua_pid_enable);
-    lua_settable(L, -3);
-
-    lua_setglobal(L, "pid");
+    static const PMU_Lua_LibFunc_t pid_funcs[] = {
+        {"create",    lua_pid_create},
+        {"setpoint",  lua_pid_setpoint},
+        {"configure", lua_pid_configure},
+        {"limits",    lua_pid_limits},
+        {"compute",   lua_pid_compute},
+        {"reset",     lua_pid_reset},
+        {"get",       lua_pid_get},
+        {"enable",    lua_pid_enable},
+    };
+    REGISTER_LIB(L, "pid", pid_funcs);
 }
 
 /**
@@ -1105,16 +930,12 @@ void PMU_Lua_RegisterPidAPI(lua_State* L)
  */
 int lua_pid_create(lua_State* L)
 {
-    if (lua_gettop(L) < 4) {
-        lua_pushstring(L, "pid.create expects (name, kp, ki, kd)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 4, "pid.create");
 
     const char* name = lua_tostring(L, 1);
-    float kp = (float)lua_tonumber(L, 2);
-    float ki = (float)lua_tonumber(L, 3);
-    float kd = (float)lua_tonumber(L, 4);
+    float kp = LUA_GET_FLOAT(L, 2);
+    float ki = LUA_GET_FLOAT(L, 3);
+    float kd = LUA_GET_FLOAT(L, 4);
 
     PMU_PID_Config_t config = {
         .kp = kp,
@@ -1144,14 +965,10 @@ int lua_pid_create(lua_State* L)
  */
 int lua_pid_setpoint(lua_State* L)
 {
-    if (lua_gettop(L) < 2) {
-        lua_pushstring(L, "pid.setpoint expects (id, value)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 2, "pid.setpoint");
 
-    int id = (int)lua_tointeger(L, 1);
-    float setpoint = (float)lua_tonumber(L, 2);
+    int id = LUA_GET_INT32(L, 1);
+    float setpoint = LUA_GET_FLOAT(L, 2);
 
     HAL_StatusTypeDef status = PMU_PID_SetSetpoint(id, setpoint);
 
@@ -1165,16 +982,12 @@ int lua_pid_setpoint(lua_State* L)
  */
 int lua_pid_configure(lua_State* L)
 {
-    if (lua_gettop(L) < 4) {
-        lua_pushstring(L, "pid.configure expects (id, kp, ki, kd)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 4, "pid.configure");
 
-    int id = (int)lua_tointeger(L, 1);
-    float kp = (float)lua_tonumber(L, 2);
-    float ki = (float)lua_tonumber(L, 3);
-    float kd = (float)lua_tonumber(L, 4);
+    int id = LUA_GET_INT32(L, 1);
+    float kp = LUA_GET_FLOAT(L, 2);
+    float ki = LUA_GET_FLOAT(L, 3);
+    float kd = LUA_GET_FLOAT(L, 4);
 
     HAL_StatusTypeDef status = PMU_PID_SetGains(id, kp, ki, kd);
 
@@ -1188,15 +1001,11 @@ int lua_pid_configure(lua_State* L)
  */
 int lua_pid_limits(lua_State* L)
 {
-    if (lua_gettop(L) < 3) {
-        lua_pushstring(L, "pid.limits expects (id, min, max)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 3, "pid.limits");
 
-    int id = (int)lua_tointeger(L, 1);
-    float min_val = (float)lua_tonumber(L, 2);
-    float max_val = (float)lua_tonumber(L, 3);
+    int id = LUA_GET_INT32(L, 1);
+    float min_val = LUA_GET_FLOAT(L, 2);
+    float max_val = LUA_GET_FLOAT(L, 3);
 
     HAL_StatusTypeDef status = PMU_PID_SetLimits(id, min_val, max_val);
 
@@ -1210,14 +1019,10 @@ int lua_pid_limits(lua_State* L)
  */
 int lua_pid_compute(lua_State* L)
 {
-    if (lua_gettop(L) < 2) {
-        lua_pushstring(L, "pid.compute expects (id, input)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 2, "pid.compute");
 
-    int id = (int)lua_tointeger(L, 1);
-    float input = (float)lua_tonumber(L, 2);
+    int id = LUA_GET_INT32(L, 1);
+    float input = LUA_GET_FLOAT(L, 2);
 
     float output = PMU_PID_Compute(id, input);
 
@@ -1231,7 +1036,7 @@ int lua_pid_compute(lua_State* L)
  */
 int lua_pid_reset(lua_State* L)
 {
-    int id = (int)lua_tointeger(L, 1);
+    int id = LUA_GET_INT32(L, 1);
 
     HAL_StatusTypeDef status = PMU_PID_Reset(id);
 
@@ -1246,35 +1051,18 @@ int lua_pid_reset(lua_State* L)
  */
 int lua_pid_get(lua_State* L)
 {
-    int id = (int)lua_tointeger(L, 1);
+    int id = LUA_GET_INT32(L, 1);
 
     lua_newtable(L);
 
     PMU_PID_State_t state;
     if (PMU_PID_GetState(id, &state) == HAL_OK) {
-        lua_pushstring(L, "output");
-        lua_pushnumber(L, (lua_Number)state.output);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "error");
-        lua_pushnumber(L, (lua_Number)state.error);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "integral");
-        lua_pushnumber(L, (lua_Number)state.integral);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "derivative");
-        lua_pushnumber(L, (lua_Number)state.derivative);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "setpoint");
-        lua_pushnumber(L, (lua_Number)state.setpoint);
-        lua_settable(L, -3);
-
-        lua_pushstring(L, "enabled");
-        lua_pushboolean(L, state.enabled);
-        lua_settable(L, -3);
+        LUA_TABLE_SET_NUMBER(L, "output", state.output);
+        LUA_TABLE_SET_NUMBER(L, "error", state.error);
+        LUA_TABLE_SET_NUMBER(L, "integral", state.integral);
+        LUA_TABLE_SET_NUMBER(L, "derivative", state.derivative);
+        LUA_TABLE_SET_NUMBER(L, "setpoint", state.setpoint);
+        LUA_TABLE_SET_BOOL(L, "enabled", state.enabled);
     }
 
     return 1;
@@ -1286,13 +1074,9 @@ int lua_pid_get(lua_State* L)
  */
 int lua_pid_enable(lua_State* L)
 {
-    if (lua_gettop(L) < 2) {
-        lua_pushstring(L, "pid.enable expects (id, enabled)");
-        lua_error(L);
-        return 0;
-    }
+    LUA_CHECK_ARGS(L, 2, "pid.enable");
 
-    int id = (int)lua_tointeger(L, 1);
+    int id = LUA_GET_INT32(L, 1);
     bool enabled = lua_toboolean(L, 2);
 
     HAL_StatusTypeDef status = PMU_PID_SetEnabled(id, enabled);
