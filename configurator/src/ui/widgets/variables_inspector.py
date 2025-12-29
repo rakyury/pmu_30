@@ -20,13 +20,20 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSizePolicy
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush
 from typing import Dict, List, Any, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class VariablesInspector(QWidget):
     """Variables inspector widget with real-time telemetry display."""
+
+    # Signal emitted when user double-clicks a channel to edit it
+    # (channel_type, channel_id) - main_window will look up full config
+    channel_edit_requested = pyqtSignal(str, str)
 
     # Colors for different states (dark theme)
     COLOR_BG = QColor(0, 0, 0)                 # Black background
@@ -168,6 +175,9 @@ class VariablesInspector(QWidget):
                 background: none;
             }
         """)
+
+        # Double-click to edit channel
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
         layout.addWidget(self.table)
 
@@ -596,6 +606,43 @@ class VariablesInspector(QWidget):
                 visible_count += 1
 
         self.count_label.setText(f"{visible_count} of {self.table.rowCount()} channels")
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        """Handle double-click on table cell - emit signal to edit the channel."""
+        if row < 0 or row >= self.table.rowCount():
+            return
+
+        # Get channel ID from the row
+        name_item = self.table.item(row, self.COL_NAME)
+        if not name_item:
+            return
+
+        # Find the channel by row in our index
+        ch_id = None
+        for stored_id, stored_row in self._row_index_map.items():
+            if stored_row == row:
+                ch_id = stored_id
+                break
+
+        if not ch_id or ch_id not in self._channels:
+            logger.debug(f"Double-click: channel not found for row {row}")
+            return
+
+        ch_data = self._channels[ch_id]
+        ch_type = ch_data.get('channel_type', ch_data.get('type', ''))
+
+        # Only emit for editable channel types
+        EDITABLE_TYPES = {
+            'logic', 'number', 'timer', 'filter', 'switch', 'table_2d', 'table_3d',
+            'analog_input', 'digital_input', 'power_output', 'hbridge',
+            'can_rx', 'can_tx', 'pid'
+        }
+
+        if ch_type in EDITABLE_TYPES:
+            logger.info(f"Double-click edit: {ch_type} - {ch_id}")
+            self.channel_edit_requested.emit(ch_type, ch_id)
+        else:
+            logger.debug(f"Double-click: channel type '{ch_type}' not editable")
 
     def get_channel_count(self) -> int:
         """Get number of configured channels."""

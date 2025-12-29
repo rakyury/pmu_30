@@ -70,7 +70,7 @@ class InputEmulatorWidget(QWidget):
         # Table for digital inputs
         self.digital_table = QTableWidget()
         self.digital_table.setColumnCount(3)
-        self.digital_table.setHorizontalHeaderLabels(["Pin", "State", "Toggle"])
+        self.digital_table.setHorizontalHeaderLabels(["Pin", "Level", "Toggle"])
 
         header = self.digital_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -83,7 +83,9 @@ class InputEmulatorWidget(QWidget):
 
         # Populate with 20 digital inputs
         self.digital_table.setRowCount(20)
-        self._digital_states = [False] * 20
+        # Initialize to HIGH to match emulator default state
+        # (emulator starts with all digital inputs at HIGH voltage level)
+        self._digital_states = [True] * 20
 
         for i in range(20):
             # Pin number
@@ -92,11 +94,11 @@ class InputEmulatorWidget(QWidget):
             pin_item.setFlags(pin_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.digital_table.setItem(i, 0, pin_item)
 
-            # State
-            state_item = QTableWidgetItem("OFF")
+            # State - shows PHYSICAL voltage level (HIGH/LOW), not logical state
+            state_item = QTableWidgetItem("HIGH")
             state_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             state_item.setFlags(state_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            state_item.setBackground(QBrush(self.COLOR_OFF))
+            state_item.setBackground(QBrush(self.COLOR_ON))
             self.digital_table.setItem(i, 1, state_item)
 
             # Toggle button
@@ -125,16 +127,16 @@ class InputEmulatorWidget(QWidget):
 
         layout.addWidget(self.digital_table)
 
-        # Bulk controls
+        # Bulk controls for physical voltage levels
         bulk_layout = QHBoxLayout()
 
-        all_on_btn = QPushButton("All ON")
-        all_on_btn.clicked.connect(lambda: self._set_all_digital(True))
-        bulk_layout.addWidget(all_on_btn)
+        all_high_btn = QPushButton("All HIGH")
+        all_high_btn.clicked.connect(lambda: self._set_all_digital(True))
+        bulk_layout.addWidget(all_high_btn)
 
-        all_off_btn = QPushButton("All OFF")
-        all_off_btn.clicked.connect(lambda: self._set_all_digital(False))
-        bulk_layout.addWidget(all_off_btn)
+        all_low_btn = QPushButton("All LOW")
+        all_low_btn.clicked.connect(lambda: self._set_all_digital(False))
+        bulk_layout.addWidget(all_low_btn)
 
         bulk_layout.addStretch()
         layout.addLayout(bulk_layout)
@@ -294,24 +296,24 @@ class InputEmulatorWidget(QWidget):
         btn = self.sender()
         pin = btn.property("pin")
 
-        # Toggle state
+        # Toggle physical state (HIGH/LOW voltage level)
         self._digital_states[pin] = not self._digital_states[pin]
         new_state = self._digital_states[pin]
 
-        # Update display
+        # Update display - shows physical voltage level
         state_item = self.digital_table.item(pin, 1)
-        state_item.setText("ON" if new_state else "OFF")
+        state_item.setText("HIGH" if new_state else "LOW")
         state_item.setBackground(QBrush(self.COLOR_ON if new_state else self.COLOR_OFF))
 
         # Emit signal
         self.digital_input_changed.emit(pin, new_state)
 
     def _set_all_digital(self, state: bool):
-        """Set all digital inputs to a state."""
+        """Set all digital inputs to a physical state (HIGH/LOW)."""
         for i in range(20):
             self._digital_states[i] = state
             state_item = self.digital_table.item(i, 1)
-            state_item.setText("ON" if state else "OFF")
+            state_item.setText("HIGH" if state else "LOW")
             state_item.setBackground(QBrush(self.COLOR_ON if state else self.COLOR_OFF))
             self.digital_input_changed.emit(i, state)
 

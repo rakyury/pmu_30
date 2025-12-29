@@ -66,6 +66,7 @@ class MessageType(IntEnum):
     # Device control
     RESTART_DEVICE = 0x70
     RESTART_ACK = 0x71
+    BOOT_COMPLETE = 0x72      # Sent by device after successful boot/restart
 
     # Emulator control (0x80+)
     EMU_INJECT_FAULT = 0x80

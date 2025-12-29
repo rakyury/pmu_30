@@ -345,30 +345,42 @@ class MainWindowDeviceMixin:
                 QMessageBox.critical(self, "Error", f"Failed to save to flash:\n{str(e)}")
 
     def restart_device(self):
-        """Restart the device."""
+        """Restart the device. Configuration will be reloaded when BOOT_COMPLETE is received."""
         if not self.device_controller.is_connected():
             QMessageBox.warning(self, "Not Connected", "Please connect to device first.")
             return
 
         reply = QMessageBox.question(
             self, "Restart Device",
-            "Restart the device?\n\nThe connection will be lost temporarily.",
+            "Restart the device?\n\nThe configuration will be reloaded automatically after restart.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Send RESTART command (0x25)
-                frame = struct.pack('<BHB', 0xAA, 0, 0x25)
+                # Send RESTART command (0x70)
+                frame = struct.pack('<BHB', 0xAA, 0, 0x70)
                 crc = self._calculate_crc(frame[1:])
                 frame += struct.pack('<H', crc)
                 self.device_controller.send_command(frame)
 
-                self.status_message.setText("Device restarting...")
+                self.status_message.setText("Device restarting... waiting for BOOT_COMPLETE")
+                logger.info("Device restart command sent, waiting for BOOT_COMPLETE signal...")
+
+                # Config will be reloaded when BOOT_COMPLETE signal is received
+                # See _on_boot_complete() handler
 
             except Exception as e:
                 logger.error(f"Failed to restart device: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to restart device:\n{str(e)}")
+
+    def _on_boot_complete(self):
+        """Handle BOOT_COMPLETE signal from device - reload configuration."""
+        self.status_message.setText("Boot complete - reading configuration...")
+        logger.info("BOOT_COMPLETE received - reloading configuration from device")
+
+        # Read configuration from device (this triggers the full reload)
+        self.read_from_device()
 
     def _calculate_crc(self, data: bytes) -> int:
         """Calculate CRC16-CCITT."""

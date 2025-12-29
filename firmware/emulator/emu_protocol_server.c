@@ -334,6 +334,19 @@ int EMU_Server_Broadcast(uint8_t msg_type, const uint8_t* payload, uint16_t len)
     return count;
 }
 
+int EMU_Server_SendBootComplete(void)
+{
+    /* Send BOOT_COMPLETE message to all connected clients
+     * This signals the configurator that the device has finished
+     * initialization/restart and it should re-read the configuration.
+     * Payload is empty - just the message type is enough. */
+    int count = EMU_Server_Broadcast(EMU_MSG_BOOT_COMPLETE, NULL, 0);
+    if (count > 0) {
+        printf("[SERVER] Sent BOOT_COMPLETE to %d client(s)\n", count);
+    }
+    return count;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 static int Server_SetNonBlocking(int sock)
@@ -820,8 +833,12 @@ static void Server_HandleMessage(int client_idx, uint8_t msg_type, uint8_t* payl
             resp[0] = 1;  /* Success */
             Server_SendResponse(client_idx, EMU_MSG_RESTART_ACK, resp, 1);
 
-            /* Simulate restart by resetting emulator state */
-            /* In real firmware this would trigger a system reset */
+            /* Simulate restart by reloading configuration */
+            printf("[RESTART] Reloading configuration...\n");
+            EMU_Server_LoadConfig(NULL);  /* Reload from last_config.json */
+
+            /* Signal boot complete to all connected clients */
+            EMU_Server_SendBootComplete();
             break;
         }
 

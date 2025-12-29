@@ -40,6 +40,7 @@ class DeviceController(QObject):
     telemetry_received = pyqtSignal(object)  # TelemetryPacket
     log_received = pyqtSignal(int, str, str)  # level, source, message
     config_received = pyqtSignal(dict)  # Configuration dictionary
+    boot_complete = pyqtSignal()  # Device finished boot/restart - config should be re-read
 
     # Auto-reconnect signals
     reconnecting = pyqtSignal(int, int)  # attempt, max_attempts
@@ -528,6 +529,10 @@ class DeviceController(QObject):
     def _handle_message(self, msg_type: int, payload: bytes):
         """Handle incoming message."""
         try:
+            # Debug: log all non-telemetry messages
+            if msg_type != MessageType.TELEMETRY_DATA:
+                logger.debug(f"RX msg_type=0x{msg_type:02X}, payload={len(payload)} bytes")
+
             if msg_type == MessageType.TELEMETRY_DATA:
                 telemetry = parse_telemetry(payload)
                 self.telemetry_received.emit(telemetry)
@@ -560,6 +565,11 @@ class DeviceController(QObject):
 
             elif msg_type == MessageType.RESTART_ACK:
                 logger.info("Restart ACK received")
+
+            elif msg_type == MessageType.BOOT_COMPLETE:
+                # Device finished boot/restart - emit signal to reload config
+                logger.info("BOOT_COMPLETE received - device finished initialization")
+                self.boot_complete.emit()
 
             elif msg_type == MessageType.CHANNEL_ACK:
                 logger.debug("Channel ACK received")

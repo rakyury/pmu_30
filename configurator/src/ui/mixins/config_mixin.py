@@ -116,7 +116,6 @@ class MainWindowConfigMixin:
             self._sync_keypad_button_channels(keypad_config)
 
         self._update_monitors_from_config(config, channels)
-        self._update_channel_graph(channels)
 
         # Clear undo history after loading config
         self.undo_manager.clear()
@@ -164,21 +163,6 @@ class MainWindowConfigMixin:
         self.variables_inspector.populate_from_config(self.config_manager)
         self.data_logger.populate_from_config(self.config_manager)
         self._send_config_to_device_silent()
-
-    def _update_channel_graph(self, channels: list):
-        """Update channel dependency graph."""
-        graph_data = []
-        for ch in channels:
-            ch_data = {
-                'id': ch.get('id', ''),
-                'name': ch.get('name', ch.get('id', '')),
-                'type': ch.get('channel_type', 'logic'),
-                'channel_id': ch.get('channel_id'),
-                'input_channels': self._extract_input_channels(ch)
-            }
-            graph_data.append(ch_data)
-
-        self.channel_graph.set_channels(graph_data)
 
     def _extract_input_channels(self, ch: dict) -> list:
         """Extract input channel references from a channel config."""

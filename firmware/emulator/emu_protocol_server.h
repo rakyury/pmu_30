@@ -85,6 +85,7 @@ typedef struct {
 #define EMU_MSG_LOG                 0x55
 #define EMU_MSG_RESTART             0x70
 #define EMU_MSG_RESTART_ACK         0x71
+#define EMU_MSG_BOOT_COMPLETE       0x72  /* Sent after successful boot/restart */
 
 /* Emulator control messages (0x80+) */
 #define EMU_MSG_INJECT_FAULT        0x80
@@ -163,6 +164,14 @@ void EMU_Server_SendLog(uint8_t level, const char* source, const char* message);
  * @retval Number of clients message was sent to
  */
 int EMU_Server_Broadcast(uint8_t msg_type, const uint8_t* payload, uint16_t len);
+
+/**
+ * @brief Send BOOT_COMPLETE message to all connected clients
+ * @note Called after successful initialization/restart to signal configurator
+ *       to re-read configuration
+ * @retval Number of clients message was sent to
+ */
+int EMU_Server_SendBootComplete(void);
 
 /**
  * @brief Load last configuration from file

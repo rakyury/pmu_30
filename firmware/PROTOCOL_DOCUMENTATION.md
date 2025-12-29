@@ -673,7 +673,56 @@ Common error messages:
 
 ---
 
+## Device Control Commands (0x70-0x7F)
+
+### 0x70 - RESTART_DEVICE
+**Request**:
+```
+[0xAA][0x70][0x00][0x00][CRC]
+```
+
+**Response**:
+```
+[0xAA][0x71][0x00][0x00][CRC]  // RESTART_ACK
+```
+
+Restart the device. The device will:
+1. Send RESTART_ACK immediately
+2. Perform soft reset
+3. Reinitialize all subsystems
+4. Load configuration from flash
+5. Send BOOT_COMPLETE to all connected clients
+
+---
+
+### 0x71 - RESTART_ACK
+**Direction**: Device → Host (response to RESTART_DEVICE)
+
+Acknowledges that restart command was received and restart is beginning.
+
+---
+
+### 0x72 - BOOT_COMPLETE
+**Direction**: Device → Host (unsolicited)
+```
+[0xAA][0x72][0x00][0x00][CRC]
+```
+
+Sent by the device after successful initialization/restart to signal that:
+1. All subsystems are initialized
+2. Configuration is loaded
+3. Device is ready to accept commands
+
+**Use Case**: When the configurator receives BOOT_COMPLETE, it should re-read the configuration from the device to synchronize state. This is important after restart, as the device reloads config from flash which may differ from the configurator's current state.
+
+---
+
 ## Changelog
+
+### Version 1.1 (2025-12-28)
+- Added Device Control Commands (0x70-0x72)
+- RESTART_DEVICE (0x70) for soft device reset
+- BOOT_COMPLETE (0x72) for boot notification
 
 ### Version 1.0 (2025-12-21)
 - Initial protocol implementation

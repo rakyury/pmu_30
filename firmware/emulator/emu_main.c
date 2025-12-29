@@ -251,6 +251,9 @@ int main(int argc, char* argv[])
     /* Try to load last saved configuration */
     EMU_Server_LoadConfig(NULL);  /* Uses default "last_config.json" */
 
+    /* Signal boot complete to any connected clients */
+    EMU_Server_SendBootComplete();
+
     /* Initialize and start Web UI server */
     EMU_WebUI_Config_t webui_cfg = {
         .http_port = 8080,

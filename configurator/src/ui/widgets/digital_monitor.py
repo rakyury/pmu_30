@@ -230,21 +230,29 @@ class DigitalMonitor(QWidget):
             # Support both 'input_pin' and 'channel' field names
             pin = inp.get('input_pin') if inp.get('input_pin') is not None else inp.get('channel', row)
 
-            # Get logical state from telemetry
-            # Note: firmware should apply subtype logic and return logical state
+            # Get physical state from telemetry
             if pin < len(self._digital_inputs):
-                state = self._digital_inputs[pin]
+                physical_state = self._digital_inputs[pin]
             else:
-                state = 0
+                physical_state = 0
+
+            # Apply subtype logic to get logical state
+            # - switch_active_high: HIGH=ON, LOW=OFF (no inversion)
+            # - switch_active_low: HIGH=OFF, LOW=ON (inverted)
+            subtype = inp.get('subtype') or inp.get('input_type', '')
+            if subtype == 'switch_active_low':
+                logical_state = not physical_state
+            else:
+                logical_state = physical_state
 
             # Update state column
             state_item = self.table.item(row, self.COL_STATE)
             if state_item:
-                state_item.setText("ON" if state else "OFF")
+                state_item.setText("ON" if logical_state else "OFF")
 
-            # Set row color based on state (only for configured inputs)
+            # Set row color based on logical state (only for configured inputs)
             if not is_default:
-                if state:
+                if logical_state:
                     self._set_row_color(row, self.COLOR_ACTIVE)
                 else:
                     self._set_row_color(row, self.COLOR_NORMAL)

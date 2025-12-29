@@ -653,15 +653,23 @@ static void Emu_UpdateDigitalInputs(uint32_t delta_ms)
                 di->debounced_state = new_state;
             }
         }
-    }
 
-    /* ARCHITECTURE NOTE:
-     * Analog inputs (A1-A20) and Digital inputs (D1-D20) are SEPARATE physical pins!
-     * - ADC channels (emulator.adc[]) store analog voltage readings
-     * - Digital inputs (emulator.digital_inputs[]) store GPIO states
-     * They should NOT be synced - each has independent hardware on the real board.
-     * Analog pins go through ADC, digital pins are pure GPIO.
-     */
+        /* Sync digital input state to ADC for firmware processing.
+         * Digital inputs are configured via JSON as "digital_input" channels,
+         * which sets up the ADC system to process them as switch inputs.
+         * The firmware's PMU_ADC_Update() reads from adc_dma_buffer which
+         * gets filled from emulator.adc[].raw_value by Emu_UpdateADC().
+         *
+         * Only sync if ADC channel is not manually overridden (enabled=false).
+         * Physical voltage mapping:
+         * - di->state = true (HIGH voltage, ~5V) -> raw_value = 1023 (10-bit max)
+         * - di->state = false (LOW voltage, ~0V) -> raw_value = 0
+         */
+        if (i < PMU_EMU_ADC_CHANNELS && !emulator.adc[i].enabled) {
+            emulator.adc[i].raw_value = di->state ? 1023 : 0;
+            emulator.adc[i].voltage_v = di->state ? 5.0f : 0.0f;
+        }
+    }
 }
 
 /* ============================================================================

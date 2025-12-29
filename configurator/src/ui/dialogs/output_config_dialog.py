@@ -327,9 +327,10 @@ class OutputConfigDialog(BaseChannelDialog):
             combo.addItem("None", -1)
 
         # Get currently used pins if editing (allow these pins for this output)
+        # Support both "pins" and "output_pins" field names
         current_pins = []
         if self.config:
-            current_pins = self.config.get("pins", [])
+            current_pins = self.config.get("output_pins") or self.config.get("pins") or []
 
         # Combine used channels with pins to exclude from form
         exclude_set = set(self.used_pins)
@@ -452,8 +453,8 @@ class OutputConfigDialog(BaseChannelDialog):
 
         Supports both nested format (pwm.duty_value) and flat format (duty_fixed).
         """
-        # Load pins (up to 3)
-        pins = config.get("pins", [])
+        # Load pins (up to 3) - support both "output_pins" and "pins" field names
+        pins = config.get("output_pins") or config.get("pins") or []
         if len(pins) > 0:
             index = self.pin1_combo.findData(pins[0])
             if index >= 0:
@@ -557,7 +558,8 @@ class OutputConfigDialog(BaseChannelDialog):
 
         # Add output-specific fields
         config.update({
-            "pins": pins,
+            "output_pins": pins,  # Primary field name (used by defaults and firmware)
+            "pins": pins,  # Also include for backwards compatibility
             "id": name,  # String name for display
             "source_channel": self._source_channel_id,  # Channel ID (int or str) for firmware
             # Flat format fields for model compatibility
