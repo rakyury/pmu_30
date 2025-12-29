@@ -318,7 +318,93 @@ Minimal Proof of Concept board for PMU-30 development and testing. Scaled-down v
 
 ---
 
-## 12. NOT Included in POC
+## 12. Cost Estimation
+
+### 12.1 Component Costs (Per Unit)
+
+| Category | Part Number | Qty | Unit Cost | Extended |
+|----------|-------------|-----|-----------|----------|
+| **MCU** | STM32H743VIT6 | 1 | $12.50 | $12.50 |
+| **External Flash** | W25Q512JVEIQ | 1 | $3.80 | $3.80 |
+| **PROFET ICs** | BTS7008-2EPA | 5 | $4.50 | $22.50 |
+| **H-Bridge ICs** | BTN8982TA | 4 | $3.20 | $12.80 |
+| **CAN Transceiver** | TJA1051T/3 | 2 | $1.20 | $2.40 |
+| **LIN Transceiver** | TJA1021 | 1 | $1.80 | $1.80 |
+| **WiFi/BT Module** | ESP32-C3-MINI-1 | 1 | $2.50 | $2.50 |
+| **IMU** | LSM6DSO32X | 1 | $4.20 | $4.20 |
+| **USB-C Connector** | USB4110-GF-A | 1 | $0.80 | $0.80 |
+| **Superseal Connectors** | TE 1.0 series | 2 | $8.00 | $16.00 |
+| **Power Studs** | M6/M8 | 2 | $2.50 | $5.00 |
+| **Crystal/Oscillator** | 25MHz + 32.768kHz | 2 | $0.50 | $1.00 |
+| **Voltage Regulators** | Buck + LDO | 3 | $2.00 | $6.00 |
+| **TVS/ESD Protection** | Various | 20 | $0.30 | $6.00 |
+| **LEDs** | Various colors | 15 | $0.15 | $2.25 |
+| **Passives** | R, C, L, ferrites | ~200 | $0.02 | $4.00 |
+| **Power MOSFETs** | Reverse polarity, etc. | 5 | $1.50 | $7.50 |
+| | | | **Component Total** | **$111.05** |
+
+### 12.2 PCB Fabrication Costs
+
+| Quantity | Layers | Size | Lead Time | Cost/Board | Total |
+|----------|--------|------|-----------|------------|-------|
+| 5 pcs | 4L 2oz | 100×80mm | 2 weeks | $25.00 | $125 |
+| 10 pcs | 4L 2oz | 100×80mm | 2 weeks | $15.00 | $150 |
+| 25 pcs | 4L 2oz | 100×80mm | 2 weeks | $8.00 | $200 |
+| 50 pcs | 4L 2oz | 100×80mm | 2 weeks | $5.00 | $250 |
+
+*Prices from typical PCB manufacturers (JLCPCB, PCBWay)*
+
+### 12.3 Assembly Costs
+
+| Quantity | Setup Fee | Per Board | Total Assembly |
+|----------|-----------|-----------|----------------|
+| 5 pcs | $50 | $35 | $225 |
+| 10 pcs | $50 | $30 | $350 |
+| 25 pcs | $50 | $25 | $675 |
+| 50 pcs | $50 | $20 | $1,050 |
+
+*Includes SMT placement, reflow, and basic inspection*
+
+### 12.4 Total Cost Summary
+
+| Quantity | Components | PCB | Assembly | **Per Unit** | **Total** |
+|----------|------------|-----|----------|--------------|-----------|
+| 5 pcs | $555 | $125 | $225 | **$181** | $905 |
+| 10 pcs | $1,110 | $150 | $350 | **$161** | $1,610 |
+| 25 pcs | $2,776 | $200 | $675 | **$146** | $3,651 |
+| 50 pcs | $5,553 | $250 | $1,050 | **$137** | $6,853 |
+
+### 12.5 Additional Costs (Not Included Above)
+
+| Item | Estimated Cost | Notes |
+|------|----------------|-------|
+| Stencil | $15-30 | Required for assembly |
+| Enclosure/Housing | $20-50/unit | If required |
+| Conformal Coating | $5-10/unit | Optional protection |
+| Shipping | Variable | Depends on location |
+| Import Duties | 0-15% | Depends on country |
+
+### 12.6 Cost Reduction Opportunities
+
+1. **Volume Pricing**: Component costs drop 15-25% at 100+ units
+2. **Alternative MCU**: STM32H723 (~$8) if 1MB flash sufficient
+3. **Integrated Modules**: Combined CAN/LIN transceiver options
+4. **Panel Assembly**: Multiple boards per panel reduces handling
+5. **Local Assembly**: Reduces shipping and lead times
+
+### 12.7 Budget Recommendations
+
+| Phase | Quantity | Purpose | Budget |
+|-------|----------|---------|--------|
+| Prototype | 5 | Initial testing | $1,000 |
+| Validation | 10 | Field testing | $1,800 |
+| Pre-production | 25 | Final validation | $4,000 |
+
+**Recommended Initial Budget: $1,500-2,000** for 5-10 prototype units including contingency for rework and component spares.
+
+---
+
+## 13. NOT Included in POC
 
 - GPS/GNSS module
 - CAN FD support (CAN 2.0B only)
@@ -328,7 +414,7 @@ Minimal Proof of Concept board for PMU-30 development and testing. Scaled-down v
 
 ---
 
-## 13. Development Priority
+## 14. Development Priority
 
 ### Phase 1: Core Functionality
 1. Power outputs (10x 30A)
@@ -359,6 +445,7 @@ Minimal Proof of Concept board for PMU-30 development and testing. Scaled-down v
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-12-29 | Initial POC requirements |
+| 1.1 | 2025-12-29 | Added cost estimation section |
 
 ---
 
