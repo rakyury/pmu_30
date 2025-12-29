@@ -567,55 +567,9 @@ When using CAN FD interfaces (CAN1, CAN2):
 
 ---
 
-## 5.6 BlinkMarine CAN Keypad Integration
+## 5.6 LIN Bus
 
-### 5.6.1 Supported Keypads
-- **PKP-2200-SI**: 6 buttons, no encoder
-- **PKP-2400-SI**: 8 buttons, no encoder
-- **PKP-2600-SI**: 6 buttons + rotary encoder
-
-### 5.6.2 CAN Interface
-- **Protocol**: CAN 2.0B
-- **Baud Rate**: 250 kbps or 500 kbps (configurable)
-- **Bus**: Any of CAN 1-4
-- **Max Keypads**: 4 per CAN bus
-- **Node ID**: 0x01-0x7F (configurable)
-
-### 5.6.3 Button Features
-- **Press Detection**: Short press, long press (>500ms), double press
-- **LED Feedback**: RGB LED per button
-- **Colors**: Red, Green, Blue, Amber, White, Off
-- **LED Modes**: Solid, Blink (1Hz, 2Hz), Flash on press
-- **IP Rating**: IP67 (silicone buttons)
-
-### 5.6.4 Encoder Features (PKP-2600-SI)
-- **Resolution**: 24 pulses per revolution
-- **Press Detection**: Encoder push button
-- **Acceleration**: Configurable speed multiplier
-- **Detents**: Tactile click feedback
-
-### 5.6.5 CAN Message Format
-| Message | CAN ID | Direction | Description |
-|---------|--------|-----------|-------------|
-| Button Status | 0x18FF00xx | RX | Button press/release events |
-| LED Control | 0x18FF01xx | TX | Set LED colors and states |
-| Encoder Data | 0x18FF02xx | RX | Position and delta values |
-| Configuration | 0x18FF03xx | TX/RX | Setup and query commands |
-
-*Note: xx = Node ID (01-7F)*
-
-### 5.6.6 Configurator Integration
-- Visual button mapping interface
-- Drag-and-drop output assignment
-- LED color preview
-- Real-time button state monitoring
-- Encoder value display
-
----
-
-## 5.7 LIN Bus
-
-#### 5.7.1 Interface
+### 5.6.1 Interface
 - **Standard**: LIN 2.2A
 - **Speed**: Up to 20kbps
 - **Mode**: Master or Slave (configurable)
@@ -625,19 +579,19 @@ When using CAN FD interfaces (CAN1, CAN2):
   - Window/mirror control
   - Diagnostic communication
 
-#### 5.7.2 Transceiver
+### 5.6.2 Transceiver
 - **Type**: TJA1021 or similar
 - **Protection**: Short circuit, overvoltage
 - **Wake-up**: LIN wake-up capable
 
 ---
 
-## 5.8 Lua Scripting Engine
+## 5.7 Lua Scripting Engine
 
-### 5.8.1 Overview
+### 5.7.1 Overview
 PMU-30 includes an embedded Lua 5.4 scripting engine for advanced custom logic that cannot be achieved with built-in logic operations. This feature is inspired by RaceCapture's successful Lua implementation.
 
-### 5.8.2 Lua Engine Specifications
+### 5.7.2 Lua Engine Specifications
 - **Version**: Lua 5.4 (lightweight embedded version)
 - **Memory**: 256KB dedicated RAM for scripts
 - **Flash Storage**: Up to 128KB for script storage
@@ -645,7 +599,7 @@ PMU-30 includes an embedded Lua 5.4 scripting engine for advanced custom logic t
 - **Update Rate**: Configurable (10Hz - 500Hz)
 - **Script Slots**: Up to 10 independent scripts
 
-### 5.8.3 Available Lua APIs
+### 5.7.3 Available Lua APIs
 
 #### System Functions
 ```lua
@@ -745,7 +699,7 @@ constrain(value, min, max)
 movingAvg(channel, value, samples)
 ```
 
-### 5.8.4 Script Lifecycle
+### 5.7.4 Script Lifecycle
 
 #### Initialization
 ```lua
@@ -778,7 +732,7 @@ function onFault(channel, faultType)
 end
 ```
 
-### 5.8.5 Example Scripts
+### 5.7.5 Example Scripts
 
 #### Example 1: Custom Launch Control
 ```lua
@@ -874,7 +828,7 @@ function onTick()
 end
 ```
 
-### 5.8.6 Script Management
+### 5.7.6 Script Management
 - **Upload**: Via USB, WiFi, or configurator software
 - **Storage**: Scripts stored in external flash
 - **Editor**: Built-in editor in configurator with syntax highlighting
@@ -882,7 +836,7 @@ end
 - **Validation**: Syntax check before upload
 - **Runtime Protection**: Watchdog timer, memory limits, execution time limits
 
-### 5.8.7 Safety and Limitations
+### 5.7.7 Safety and Limitations
 - **Sandboxed**: Scripts cannot access system-critical functions
 - **Execution Time**: Max 10ms per tick (enforced)
 - **Memory Limits**: 256KB RAM limit
@@ -891,18 +845,18 @@ end
 
 ---
 
-## 5.9 CAN Database (DBC/CANX) Support
+## 5.8 CAN Database (DBC/CANX) Support
 
-### 5.9.1 Overview
+### 5.8.1 Overview
 PMU-30 supports industry-standard CAN database formats for seamless integration with existing vehicle systems and data acquisition equipment.
 
-### 5.9.2 Supported Formats
+### 5.8.2 Supported Formats
 - **DBC**: Vector CANdb++ database format
 - **KCD**: Kayak CAN definition (XML-based)
 - **SYM**: PEAK PCAN symbol file format
 - **Future**: CANX (extended format)
 
-### 5.9.3 DBC Import Capabilities
+### 5.8.3 DBC Import Capabilities
 
 #### Automatic Signal Mapping
 - Import complete CAN database files
@@ -1087,7 +1041,7 @@ Once mapped, CAN signals become virtual channels accessible throughout the syste
 - **Data Logging**: Automatically logged at 500 Hz
 - **Web Interface**: Real-time display and monitoring
 
-### 5.9.4 DBC Export Capabilities
+### 5.8.4 DBC Export Capabilities
 
 #### PMU Data Broadcasting
 Automatically generate DBC file for PMU signals:
@@ -1113,7 +1067,7 @@ BO_ 1537 PMU_Status: 8 PMU30
  SG_ System_State : 24|8@1+ (1,0) [0|255] "" ECU
 ```
 
-### 5.9.5 Integration Workflows
+### 5.8.5 Integration Workflows
 
 #### Workflow 1: ECU Integration
 1. Import ECU's DBC file
@@ -1133,7 +1087,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 3. Test PMU logic with simulated signals
 4. Validate before vehicle integration
 
-### 5.9.6 Configurator DBC Tools
+### 5.8.6 Configurator DBC Tools
 
 #### DBC Editor Features
 - Visual signal browser
@@ -1158,7 +1112,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 4. Generate DBC file
 5. Export for external tools
 
-### 5.9.7 Technical Implementation
+### 5.8.7 Technical Implementation
 
 #### DBC Parser
 - **Library**: Custom lightweight parser (C)
@@ -1172,7 +1126,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 - **Endianness**: Support both little/big endian
 - **Error Handling**: Out-of-range clamping, stale data timeout
 
-### 5.9.8 Limitations
+### 5.8.8 Limitations
 - **Max Signals**: 500 signals per DBC file
 - **Max Messages**: 200 messages per bus
 - **Update Rate**: Configurable (1Hz - 1kHz per message)
@@ -1506,7 +1460,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 |---------|------|--------|---------|
 | 1.0 | 2025-12-21 | PMU-30 Team | Initial specification |
 | 1.1 | 2025-12-29 | PMU-30 Team | Updated to Implementation Phase, verified against firmware |
-| 1.2 | 2025-12-29 | PMU-30 Team | Updated PCB specs (150×120mm, 8-layer), added GPS/GNSS module (5.5), BlinkMarine keypad integration (5.6) |
+| 1.2 | 2025-12-29 | PMU-30 Team | Updated PCB specs (150×120mm, 8-layer), added GPS/GNSS module (5.5), LIN bus (5.6), Superseal connectors |
 
 ---
 
