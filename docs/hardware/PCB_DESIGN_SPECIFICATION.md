@@ -776,3 +776,95 @@ Rth = (125-85)/262 = 0.15 C/W
 **END OF DOCUMENT**
 
 *R2 m-sport - Proprietary Information*
+
+---
+
+## Appendix C: Detailed Routing Guide
+
+### C.1 Power Routing Strategy
+
+**Track Width Calculator (105μm/3oz outer copper, 20°C rise):**
+
+| Current | Track Width |
+|---------|------------|
+| 10A | 2.0mm |
+| 15A | 3.0mm |
+| 20A | 4.0mm |
+| 30A | 8.0mm |
+| 40A | 12.0mm |
+
+**Track Width Calculator (70μm/2oz inner planes, 20°C rise):**
+
+| Current | Track Width |
+|---------|------------|
+| 5A | 1.5mm |
+| 10A | 3.0mm |
+| 20A | 6.0mm |
+
+**Power Routing Rules:**
+1. Use polygon pours for main power distribution
+2. Multiple vias to inner +12V plane (minimum 10× 0.8mm vias per 10A)
+3. Thermal relief for power connections
+4. Keep power traces on outer layers where possible
+
+### C.2 PROFET Power Distribution
+
+Each PROFET BTS7012-2EPA handles 2 channels at 40A each.
+
+**PROFET Routing Rules:**
+1. VBB pin: 5mm track minimum, star connection from main bus
+2. GND pins: Multiple vias directly to GND plane
+3. Output pins: 3mm tracks to output connectors
+4. IS (current sense): Keep short, away from power traces
+5. DEN/DSEL: 0.2mm tracks, can route on B.Cu
+
+### C.3 MCU Signal Routing (STM32H743)
+
+**Critical Signals:**
+- USB: 90Ω differential, length matched ±0.5mm
+- CAN FD: 120Ω differential, 0.3mm tracks
+- QSPI Flash: Length matched, max 30mm
+- Crystal: Keep traces short (<5mm), ground guard
+
+### C.4 CAN Bus Routing
+
+**Routing Rules:**
+1. CANH/CANL as differential pair, 120Ω impedance
+2. Keep CAN traces away from power switching
+3. ESD protection at connector: PESD2CAN
+4. Stub length to transceiver: <25mm
+
+### C.5 Copper Pours (8-Layer Design)
+
+1. **L1 (Top)**: +12V pour around power section, signal routing
+2. **L2**: Solid GND plane (max 10% voids for vias)
+3. **L3**: Signal routing, minimal pour (QSPI, USB area)
+4. **L4**: +12V plane (main power distribution)
+5. **L5**: Split plane (5V and 3.3V regions)
+6. **L6**: Signal routing, minimal pour (CAN, I2C area)
+7. **L7**: Solid GND plane (return path)
+8. **L8 (Bottom)**: GND pour in MCU area, +12V pour in power area
+
+### C.6 Routing Checklist
+
+#### Phase 1: Power (L1, L4, L8)
+- [ ] Main +12V input polygon (L1)
+- [ ] PROFET VBB connections (star topology)
+- [ ] H-Bridge VS connections
+- [ ] GND via stitching (L2, L7)
+
+#### Phase 2: Critical Signals (L3, L6)
+- [ ] USB differential pair (90Ω)
+- [ ] CAN FD pairs (120Ω, 4 buses)
+- [ ] QSPI to Flash (length matched)
+
+#### Phase 3: Control & Analog
+- [ ] PROFET DEN/DSEL signals
+- [ ] Analog inputs with filtering
+- [ ] Analog ground island
+
+#### Phase 4: Cleanup
+- [ ] Copper pour fill (all layers)
+- [ ] Via stitching (GND every 5mm)
+- [ ] DRC clean
+
