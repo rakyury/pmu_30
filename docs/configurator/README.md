@@ -9,6 +9,8 @@ The PMU-30 Configurator is a professional desktop application for configuring an
 |----------|-------------|
 | [Analog Inputs](analog-inputs.md) | Analog input configuration (sensors, switches, calibration) |
 | [Digital Inputs](digital-inputs.md) | Digital input configuration |
+| [Power Outputs](power-outputs.md) | Power output configuration (PWM, soft start, current limits) |
+| [Power Output Merging](power-output-merging.md) | Merge multiple pins for higher current (40A-120A) |
 | [Project Tree](project-tree.md) | Configuration tree view and channel management |
 
 ### User Interface
