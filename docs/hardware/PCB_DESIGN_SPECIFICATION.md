@@ -526,18 +526,43 @@ This document provides comprehensive specifications for the PCB design and manuf
 
 ## 10. Connector Specifications
 
-### 10.1 Connector Selection: Deutsch DTM Series
+### 10.1 Connector Selection: TE Superseal 1.0 Series
 
-| Connector | Positions | Current | Application |
-|-----------|-----------|---------|-------------|
-| DTM06-12SA | 12 | 7.5A/pin | Outputs 1-12 |
-| DTM06-12SA | 12 | 7.5A/pin | Outputs 13-24 |
-| DTM06-8SA | 8 | 7.5A/pin | Outputs 25-30 |
-| DTM06-12SA | 12 | 7.5A/pin | H-Bridge outputs |
-| DTM06-12SA | 12 | 7.5A/pin | Inputs 1-12 |
-| DTM06-8SA | 8 | 7.5A/pin | Inputs 13-20 |
-| DTM06-6SA | 6 | 7.5A/pin | CAN + Aux |
-| DTM04-4P | 4 | 13A/pin | Main power |
+The PMU-30 uses TE Connectivity Superseal 1.0 series connectors for robust automotive-grade connections with IP67 sealing.
+
+| Connector | Part Number | Positions | Current | Application |
+|-----------|-------------|-----------|---------|-------------|
+| Main A | 1-1564514-1 | 34 | 13A/pin | Outputs 1-30, H-Bridge |
+| Main B | 1-1564512-1 | 26 | 13A/pin | Inputs, CAN, LIN, Aux |
+| Power Stud | M8 brass | 1 | 150A | Main power input |
+| Ground Stud | M8 brass | 1 | 150A | Chassis ground |
+
+**Main Connector A (34-pin) - Outputs:**
+
+| Pin | Function | Pin | Function |
+|-----|----------|-----|----------|
+| 1-10 | Outputs 1-10 | 18-27 | Outputs 11-20 |
+| 11-15 | Outputs 21-25 | 28-32 | Outputs 26-30 |
+| 16-17 | H-Bridge 1 (A/B) | 33-34 | H-Bridge 2 (A/B) |
+
+**Main Connector B (26-pin) - Inputs/Comms:**
+
+| Pin | Function | Pin | Function |
+|-----|----------|-----|----------|
+| 1-10 | Digital Inputs 1-10 | 14-18 | Analog Inputs 1-5 |
+| 11-13 | Digital Inputs 11-13 | 19-23 | Analog Inputs 6-10 |
+| 24 | CAN1 H | 25 | CAN1 L |
+| 26 | LIN | - | - |
+
+**Power Stud Terminal:**
+
+| Parameter | Specification |
+|-----------|---------------|
+| Thread | M8 x 1.25 |
+| Material | Brass, nickel plated |
+| Torque | 8-10 Nm |
+| Current Rating | 150A continuous |
+| Wire | 4 AWG (25mm²) ring terminal |
 
 ### 10.2 Wire Gauge Recommendations
 

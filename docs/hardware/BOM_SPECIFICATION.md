@@ -23,9 +23,9 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 | Power Supply ICs | 4 | - |
 | Communication ICs | 8 | - |
 | Sensors & Modules | 3 | - |
-| Connectors | 12 | - |
+| Connectors | 5 | - |
 | Passives | ~500 | - |
-| **Total Unique Parts** | ~550 | - |
+| **Total Unique Parts** | ~545 | - |
 
 ---
 
@@ -342,56 +342,48 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 
 ## 9. Connectors
 
-### 9.1 Main Power Connector
+### 9.1 Main Connector A (34-pin) - Outputs
 
 | Parameter | Specification |
 |-----------|---------------|
-| **Part Number** | 1-1123723-2 |
+| **Part Number** | 1-1564514-1 |
 | **Manufacturer** | TE Connectivity |
-| **Type** | MCP 9.5mm |
-| **Current Rating** | 40A |
-| **Contacts** | 2 (Power + Ground) |
-| **Qty** | 1 |
-
-### 9.2 Output Connectors
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Part Number** | Superseal 1.0 series |
-| **Manufacturer** | TE Connectivity |
-| **Positions** | Various (4, 6, 8 way) |
+| **Series** | Superseal 1.0 |
+| **Positions** | 34 |
 | **Current Rating** | 13A per contact |
 | **Sealing** | IP67 |
-| **Qty** | 8 |
-
-### 9.3 Signal Connectors
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Part Number** | Superseal 1.0 series |
-| **Manufacturer** | TE Connectivity |
-| **Positions** | Various |
-| **Current Rating** | 3A per contact |
-| **Sealing** | IP67 |
-| **Qty** | 4 |
-
-### 9.4 CAN Bus Connectors
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Type** | Deutsch DTM04-4P |
-| **Positions** | 4 (CANH, CANL, GND, Shield) |
-| **Qty** | 4 (one per bus) |
-
-### 9.5 LIN Bus Connector
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Type** | Deutsch DTM04-2P |
-| **Positions** | 2 (LIN, GND) |
 | **Qty** | 1 |
 
-### 9.6 USB Connector
+**Function:** Power outputs 1-30, H-Bridge outputs
+
+### 9.2 Main Connector B (26-pin) - Inputs/Comms
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Part Number** | 1-1564512-1 |
+| **Manufacturer** | TE Connectivity |
+| **Series** | Superseal 1.0 |
+| **Positions** | 26 |
+| **Current Rating** | 13A per contact |
+| **Sealing** | IP67 |
+| **Qty** | 1 |
+
+**Function:** Digital/analog inputs, CAN bus, LIN bus, auxiliary
+
+### 9.3 Power Stud Terminal
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Type** | M8 stud terminal |
+| **Material** | Brass, nickel plated |
+| **Thread** | M8 x 1.25 |
+| **Current Rating** | 150A continuous |
+| **Mounting** | Through-hole, isolated |
+| **Qty** | 2 (Power + Ground) |
+
+**Note:** Power input via ring terminal (4 AWG / 25mm²), 8-10 Nm torque
+
+### 9.4 USB Connector
 
 | Parameter | Specification |
 |-----------|---------------|
@@ -446,25 +438,7 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 
 ---
 
-## 11. BlinkMarine Keypad Compatibility
-
-The PMU-30 is compatible with BlinkMarine CAN keypads:
-
-| Model | Buttons | Encoder | CAN Protocol |
-|-------|---------|---------|--------------|
-| PKP-2200-SI | 6 | No | CAN 2.0B |
-| PKP-2400-SI | 8 | No | CAN 2.0B |
-| PKP-2600-SI | 6 | Yes | CAN 2.0B |
-
-**CAN Requirements:**
-- Connect to any CAN bus (1-4)
-- Baud rate: 250 or 500 kbps
-- Max 4 keypads per bus
-- Node ID range: 0x01-0x7F
-
----
-
-## 12. Recommended Suppliers
+## 11. Recommended Suppliers
 
 | Manufacturer | Distributor | Notes |
 |--------------|-------------|-------|
@@ -480,9 +454,9 @@ The PMU-30 is compatible with BlinkMarine CAN keypads:
 
 ---
 
-## 13. Quality Requirements
+## 12. Quality Requirements
 
-### 13.1 Component Grades
+### 12.1 Component Grades
 
 | Category | Requirement |
 |----------|-------------|
@@ -490,7 +464,7 @@ The PMU-30 is compatible with BlinkMarine CAN keypads:
 | Passive Components | AEC-Q200 |
 | Connectors | IP67, automotive rated |
 
-### 13.2 Lead-Free Compliance
+### 12.2 Lead-Free Compliance
 
 All components must be:
 - RoHS compliant
@@ -499,11 +473,11 @@ All components must be:
 
 ---
 
-## 14. Revision History
+## 13. Revision History
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | 2025-12-29 | Initial release with GPS/GNSS, BlinkMarine, LIN support |
+| 1.0 | 2025-12-29 | Initial release with GPS/GNSS, LIN support |
 
 ---
 
