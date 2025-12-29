@@ -4252,4 +4252,121 @@ uint8_t PMU_TimerChannel_GetCount(void)
     return timer_count;
 }
 
+/* ============================================================================
+ * Atomic Channel Configuration Update
+ * ============================================================================ */
+
+/**
+ * @brief Update a single channel configuration (atomic update)
+ * @param channel_type Channel type discriminator (PMU_AtomicChannelType_t)
+ * @param channel_id Channel ID to update (for locating existing config)
+ * @param json_str JSON configuration string (null-terminated)
+ * @retval true if successful, false on error (call PMU_JSON_GetLastError())
+ */
+bool PMU_JSON_UpdateChannel(uint8_t channel_type, uint16_t channel_id, const char* json_str)
+{
+#ifdef JSON_PARSING_ENABLED
+    if (!json_str) {
+        JSON_SetError("NULL JSON string");
+        return false;
+    }
+
+    /* Parse JSON */
+    cJSON* root = cJSON_Parse(json_str);
+    if (!root) {
+        const char* error_ptr = cJSON_GetErrorPtr();
+        JSON_SetError("JSON parse error: %.100s", error_ptr ? error_ptr : "unknown");
+        return false;
+    }
+
+    bool success = false;
+
+    switch (channel_type) {
+        case PMU_ATOMIC_TYPE_POWER_OUTPUT:
+            success = JSON_ParsePowerOutput(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_HBRIDGE:
+            /* H-Bridge uses legacy parser for now */
+            JSON_SetError("H-Bridge atomic update not yet implemented");
+            break;
+
+        case PMU_ATOMIC_TYPE_DIGITAL_INPUT:
+            success = JSON_ParseDigitalInput(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_ANALOG_INPUT:
+            success = JSON_ParseAnalogInput(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_LOGIC:
+            success = JSON_ParseLogic(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_NUMBER:
+            success = JSON_ParseNumber(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_TIMER:
+            success = JSON_ParseTimer(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_FILTER:
+            success = JSON_ParseFilter(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_SWITCH:
+            success = JSON_ParseSwitch(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_TABLE_2D:
+            success = JSON_ParseTable2D(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_TABLE_3D:
+            success = JSON_ParseTable3D(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_CAN_RX:
+            success = JSON_ParseCanRx(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_CAN_TX:
+            success = JSON_ParseCanTx(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_PID:
+            success = JSON_ParsePID(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_BLINKMARINE:
+            success = JSON_ParseBlinkMarineKeypad(root);
+            break;
+
+        case PMU_ATOMIC_TYPE_HANDLER:
+            success = JSON_ParseHandler(root);
+            break;
+
+        default:
+            JSON_SetError("Unknown channel type: 0x%02X", channel_type);
+            break;
+    }
+
+    cJSON_Delete(root);
+
+    if (success) {
+        printf("[ATOMIC] Updated channel type=0x%02X id=%u\n", channel_type, channel_id);
+        fflush(stdout);
+    }
+
+    return success;
+#else
+    (void)channel_type;
+    (void)channel_id;
+    (void)json_str;
+    JSON_SetError("JSON parsing disabled");
+    return false;
+#endif
+}
+
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

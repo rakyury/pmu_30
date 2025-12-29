@@ -151,6 +151,9 @@ class MainWindowChannelsMixin:
         elif channel_type == ChannelType.BLINKMARINE_KEYPAD:
             self._sync_keypad_button_channels(config)
 
+        # Push atomic config update to device if connected
+        self._push_channel_config_to_device(channel_type, config)
+
     def _on_item_deleted(self, channel_type_str: str, data: dict):
         """Handle item deletion - cleanup related channels."""
         try:
@@ -330,3 +333,47 @@ class MainWindowChannelsMixin:
             if ch.get("id") == channel_id or ch.get("name") == channel_id:
                 return ch
         return None
+
+    def _push_channel_config_to_device(self, channel_type: ChannelType, config: dict):
+        """
+        Push single channel configuration to device atomically.
+
+        This sends the channel config to the firmware immediately after add/edit,
+        allowing changes to take effect without a full configuration reload.
+
+        Args:
+            channel_type: The type of channel being configured
+            config: The channel configuration dictionary
+        """
+        import threading
+
+        # Check if device controller exists and is connected
+        if not hasattr(self, 'device_controller') or not self.device_controller.is_connected():
+            logger.debug("Skipping atomic update: not connected")
+            return
+
+        # Get channel_id from config
+        channel_id = config.get("channel_id", 0)
+        if not channel_id:
+            logger.debug(f"Skipping atomic update: no channel_id in config")
+            return
+
+        # Map ChannelType to type string for device controller
+        type_str = channel_type.value  # e.g., "power_output", "logic", etc.
+
+        def update_thread():
+            """Background thread for atomic update."""
+            try:
+                success = self.device_controller.update_channel_config(
+                    type_str, channel_id, config, timeout=3.0
+                )
+                if success:
+                    logger.info(f"Atomic update: channel {channel_id} ({type_str}) pushed to device")
+                else:
+                    logger.debug(f"Atomic update: channel {channel_id} not applied (device may not support)")
+            except Exception as e:
+                logger.warning(f"Atomic update failed: {e}")
+
+        # Run in background thread to not block UI
+        thread = threading.Thread(target=update_thread, daemon=True)
+        thread.start()

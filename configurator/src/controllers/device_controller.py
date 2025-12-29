@@ -72,6 +72,11 @@ class DeviceController(QObject):
         self._flash_ack_event = threading.Event()
         self._flash_ack_success = False
 
+        # Atomic channel config update state
+        self._channel_config_ack_event = threading.Event()
+        self._channel_config_ack_success = False
+        self._channel_config_ack_error_msg = ""
+
         # Auto-reconnect state
         self._auto_reconnect_enabled = True
         self._reconnect_interval = 3.0  # seconds between attempts
@@ -574,6 +579,20 @@ class DeviceController(QObject):
             elif msg_type == MessageType.CHANNEL_ACK:
                 logger.debug("Channel ACK received")
 
+            elif msg_type == MessageType.CHANNEL_CONFIG_ACK:
+                # Parse atomic channel config ACK
+                from communication.protocol import FrameParser
+                try:
+                    channel_id, success, error_code, error_msg = FrameParser.parse_channel_config_ack(payload)
+                    self._channel_config_ack_success = success
+                    self._channel_config_ack_error_msg = error_msg
+                    logger.info(f"Channel config ACK: channel={channel_id}, success={success}, error={error_msg}")
+                except Exception as e:
+                    logger.error(f"Failed to parse channel config ACK: {e}")
+                    self._channel_config_ack_success = False
+                    self._channel_config_ack_error_msg = str(e)
+                self._channel_config_ack_event.set()
+
             elif msg_type == MessageType.CONFIG_DATA:
                 # Use protocol handler to parse config chunk
                 chunk_idx, total_chunks, chunk_data = ProtocolHandler.parse_config_chunk(payload)
@@ -720,3 +739,86 @@ class DeviceController(QObject):
             logger.debug(f"Injected CAN message bus={bus_id} id=0x{can_id:X}")
             return True
         return False
+
+    # ========== Atomic Channel Configuration Update ==========
+
+    # Channel type mapping for protocol
+    CHANNEL_TYPE_MAP = {
+        "power_output": 0x01,
+        "hbridge": 0x02,
+        "digital_input": 0x03,
+        "analog_input": 0x04,
+        "logic": 0x05,
+        "number": 0x06,
+        "timer": 0x07,
+        "filter": 0x08,
+        "switch": 0x09,
+        "table_2d": 0x0A,
+        "table_3d": 0x0B,
+        "can_rx": 0x0C,
+        "can_tx": 0x0D,
+        "pid": 0x0E,
+        "lua_script": 0x0F,
+        "handler": 0x10,
+        "blinkmarine_keypad": 0x11,
+    }
+
+    def update_channel_config(self, channel_type: str, channel_id: int, config: dict, timeout: float = 3.0) -> bool:
+        """
+        Update a single channel's configuration on the device atomically.
+
+        This pushes individual channel changes without requiring a full configuration reload.
+
+        Args:
+            channel_type: Channel type string (e.g., "power_output", "logic")
+            channel_id: Numeric channel ID
+            config: Configuration dictionary for the channel
+            timeout: Response timeout in seconds
+
+        Returns:
+            True if update successful
+        """
+        import json
+        from communication.protocol import FrameBuilder, encode_frame
+
+        if not self._is_connected:
+            logger.debug("Cannot update channel config: not connected")
+            return False
+
+        # Map channel type string to protocol value
+        type_code = self.CHANNEL_TYPE_MAP.get(channel_type.lower())
+        if type_code is None:
+            logger.error(f"Unknown channel type for atomic update: {channel_type}")
+            return False
+
+        # Serialize config to compact JSON
+        try:
+            config_json = json.dumps(config, separators=(',', ':')).encode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to serialize channel config: {e}")
+            return False
+
+        # Build and send frame
+        frame = FrameBuilder.set_channel_config(type_code, channel_id, config_json)
+        frame_bytes = encode_frame(frame)
+
+        # Reset ACK state
+        self._channel_config_ack_event.clear()
+        self._channel_config_ack_success = False
+        self._channel_config_ack_error_msg = ""
+
+        if not self._send_frame(frame_bytes):
+            logger.error("Failed to send channel config update")
+            return False
+
+        # Wait for ACK
+        if not self._channel_config_ack_event.wait(timeout):
+            logger.warning(f"Timeout waiting for channel config ACK ({timeout}s)")
+            return False
+
+        if self._channel_config_ack_success:
+            logger.info(f"Channel {channel_id} ({channel_type}) config updated successfully")
+            return True
+        else:
+            logger.warning(f"Channel config update failed: {self._channel_config_ack_error_msg}")
+            return False

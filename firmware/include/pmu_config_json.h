@@ -288,6 +288,38 @@ int32_t PMU_FilterChannel_GetValue(uint8_t index);
  */
 uint16_t PMU_FilterChannel_GetChannelID(uint8_t index);
 
+/**
+ * @brief Atomic channel type discriminators for SET_CHANNEL_CONFIG command
+ */
+typedef enum {
+    PMU_ATOMIC_TYPE_POWER_OUTPUT  = 0x01,
+    PMU_ATOMIC_TYPE_HBRIDGE       = 0x02,
+    PMU_ATOMIC_TYPE_DIGITAL_INPUT = 0x03,
+    PMU_ATOMIC_TYPE_ANALOG_INPUT  = 0x04,
+    PMU_ATOMIC_TYPE_LOGIC         = 0x05,
+    PMU_ATOMIC_TYPE_NUMBER        = 0x06,
+    PMU_ATOMIC_TYPE_TIMER         = 0x07,
+    PMU_ATOMIC_TYPE_FILTER        = 0x08,
+    PMU_ATOMIC_TYPE_SWITCH        = 0x09,
+    PMU_ATOMIC_TYPE_TABLE_2D      = 0x0A,
+    PMU_ATOMIC_TYPE_TABLE_3D      = 0x0B,
+    PMU_ATOMIC_TYPE_CAN_RX        = 0x0C,
+    PMU_ATOMIC_TYPE_CAN_TX        = 0x0D,
+    PMU_ATOMIC_TYPE_PID           = 0x0E,
+    PMU_ATOMIC_TYPE_LUA_SCRIPT    = 0x0F,
+    PMU_ATOMIC_TYPE_HANDLER       = 0x10,
+    PMU_ATOMIC_TYPE_BLINKMARINE   = 0x11,
+} PMU_AtomicChannelType_t;
+
+/**
+ * @brief Update a single channel configuration (atomic update)
+ * @param channel_type Channel type discriminator (PMU_AtomicChannelType_t)
+ * @param channel_id Channel ID to update (for locating existing config)
+ * @param json_str JSON configuration string (null-terminated)
+ * @retval true if successful, false on error (call PMU_JSON_GetLastError())
+ */
+bool PMU_JSON_UpdateChannel(uint8_t channel_type, uint16_t channel_id, const char* json_str);
+
 #ifdef __cplusplus
 }
 #endif

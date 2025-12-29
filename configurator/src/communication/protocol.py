@@ -51,6 +51,10 @@ class MessageType(IntEnum):
     GET_CHANNEL = 0x43       # Shifted from 0x42
     CHANNEL_DATA = 0x44      # Shifted from 0x43
 
+    # Atomic channel configuration update
+    SET_CHANNEL_CONFIG = 0x66    # Update single channel config
+    CHANNEL_CONFIG_ACK = 0x67    # Channel config update response
+
     # Error handling
     ERROR = 0x50
 
@@ -300,6 +304,27 @@ class FrameBuilder:
         return ProtocolFrame(msg_type=MessageType.SET_HBRIDGE, payload=payload)
 
     @staticmethod
+    def set_channel_config(channel_type: int, channel_id: int, config_json: bytes) -> ProtocolFrame:
+        """
+        Create a SET_CHANNEL_CONFIG frame for atomic channel updates.
+
+        Args:
+            channel_type: Channel type discriminator:
+                0x01=power_output, 0x02=hbridge, 0x03=digital_input, 0x04=analog_input,
+                0x05=logic, 0x06=number, 0x07=timer, 0x08=filter, 0x09=switch,
+                0x0A=table_2d, 0x0B=table_3d, 0x0C=can_rx, 0x0D=can_tx, 0x0E=pid
+            channel_id: Numeric channel ID
+            config_json: JSON configuration as bytes (UTF-8)
+
+        Returns:
+            ProtocolFrame ready to send
+        """
+        # Pack: channel_type(1) + channel_id(2) + json_len(2) + json_data
+        json_len = len(config_json)
+        payload = struct.pack("<BHH", channel_type, channel_id, json_len) + config_json
+        return ProtocolFrame(msg_type=MessageType.SET_CHANNEL_CONFIG, payload=payload)
+
+    @staticmethod
     def get_channel(channel_id: int) -> ProtocolFrame:
         """
         Create a GET_CHANNEL frame.
@@ -523,3 +548,23 @@ class FrameParser:
         message = payload[3:3 + msg_len].decode("utf-8", errors="replace")
 
         return error_code, message
+
+    @staticmethod
+    def parse_channel_config_ack(payload: bytes) -> tuple[int, bool, int, str]:
+        """
+        Parse CHANNEL_CONFIG_ACK payload.
+
+        Returns:
+            Tuple of (channel_id, success, error_code, error_message)
+        """
+        if len(payload) < 5:
+            raise ProtocolError("CHANNEL_CONFIG_ACK payload too short")
+
+        channel_id = struct.unpack("<H", payload[0:2])[0]
+        success = payload[2] != 0
+        error_code = struct.unpack("<H", payload[3:5])[0]
+        error_message = ""
+        if len(payload) > 5:
+            error_message = payload[5:].decode("utf-8", errors="replace")
+
+        return channel_id, success, error_code, error_message

@@ -289,6 +289,62 @@ Upload large configuration in chunks (256 bytes per chunk).
 
 ---
 
+#### 0x66 - SET_CHANNEL_CONFIG (Atomic Update)
+**Request**:
+```
+[0xAA][0x66][N][TYPE][CHANNEL_ID_L][CHANNEL_ID_H][JSON_LEN_L][JSON_LEN_H][...JSON config...][CRC]
+
+  TYPE: Channel type discriminator (1 byte):
+    0x01 = Power Output
+    0x02 = H-Bridge
+    0x03 = Digital Input
+    0x04 = Analog Input
+    0x05 = Logic
+    0x06 = Number
+    0x07 = Timer
+    0x08 = Filter
+    0x09 = Switch
+    0x0A = Table 2D
+    0x0B = Table 3D
+    0x0C = CAN RX
+    0x0D = CAN TX
+    0x0E = PID Controller
+    0x0F = Lua Script
+    0x10 = Handler
+    0x11 = BlinkMarine Keypad
+  CHANNEL_ID: Numeric channel ID (2 bytes, little-endian)
+  JSON_LEN: Length of JSON config string (2 bytes, little-endian)
+  JSON config: UTF-8 JSON configuration string
+```
+
+**Response**:
+```
+[0xAA][0x67][N][CHANNEL_ID_L][CHANNEL_ID_H][SUCCESS][ERROR_CODE_L][ERROR_CODE_H][...error message...][CRC]
+
+  CHANNEL_ID: Echo of requested channel ID (2 bytes, little-endian)
+  SUCCESS: 0x01 = success, 0x00 = failure
+  ERROR_CODE: Error code if failed (2 bytes, little-endian)
+    0x0000 = No error
+    0x0001 = Invalid channel type
+    0x0002 = Channel not found
+    0x0003 = JSON parse error
+    0x0004 = Validation error
+  Error message: Human-readable error string (variable length)
+```
+
+Push a single channel configuration to the device without full configuration reload. This enables real-time parameter changes from the UI.
+
+**Use Case**: When the user modifies a power output's PWM frequency or changes a logic channel's condition in the configurator, this command pushes just that channel's config to the firmware instantly, without disrupting other running channels.
+
+---
+
+#### 0x67 - CHANNEL_CONFIG_ACK
+**Direction**: Device → Host (response to SET_CHANNEL_CONFIG)
+
+See 0x66 response format above.
+
+---
+
 ### Logging Commands (0x80-0x9F)
 
 #### 0x80 - START_LOGGING
@@ -718,6 +774,12 @@ Sent by the device after successful initialization/restart to signal that:
 ---
 
 ## Changelog
+
+### Version 1.2 (2025-12-29)
+- Added Atomic Channel Configuration Commands (0x66-0x67)
+- SET_CHANNEL_CONFIG (0x66) for real-time single channel updates
+- CHANNEL_CONFIG_ACK (0x67) response with error handling
+- Enables UI changes to be pushed to firmware without full config reload
 
 ### Version 1.1 (2025-12-28)
 - Added Device Control Commands (0x70-0x72)

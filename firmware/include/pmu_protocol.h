@@ -75,6 +75,8 @@ typedef enum {
     PMU_CMD_UPLOAD_CONFIG       = 0x63,  /**< Upload configuration (chunked) */
     PMU_CMD_DOWNLOAD_CONFIG     = 0x64,  /**< Download configuration (chunked) */
     PMU_CMD_VALIDATE_CONFIG     = 0x65,  /**< Validate configuration */
+    PMU_CMD_SET_CHANNEL_CONFIG  = 0x66,  /**< Set single channel config (atomic update) */
+    PMU_CMD_CHANNEL_CONFIG_ACK  = 0x67,  /**< Channel config update response */
 
     /* Logging commands (0x80-0x9F) */
     PMU_CMD_START_LOGGING       = 0x80,  /**< Start data logging */

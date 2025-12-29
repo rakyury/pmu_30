@@ -89,6 +89,8 @@ static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg);
 
 /* Payload pack/unpack helpers -----------------------------------------------*/
 
@@ -196,6 +198,8 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_LUA_GET_STATUS,    Protocol_HandleLuaGetStatus},
     {PMU_CMD_LUA_GET_OUTPUT,    Protocol_HandleLuaGetOutput},
     {PMU_CMD_LUA_SET_ENABLED,   Protocol_HandleLuaSetEnabled},
+    /* Atomic channel config update */
+    {PMU_CMD_SET_CHANNEL_CONFIG, Protocol_HandleSetChannelConfig},
 };
 
 #define COMMAND_DISPATCH_COUNT (sizeof(command_dispatch_table) / sizeof(command_dispatch_table[0]))
@@ -1188,6 +1192,79 @@ static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet)
         Protocol_SendACK(PMU_CMD_LUA_SET_ENABLED);
     } else {
         Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Script not found");
+    }
+}
+
+/* ============================================================================
+ * Atomic Channel Configuration Update Handler
+ * ============================================================================ */
+
+/**
+ * @brief Send channel config update acknowledgment
+ * Response format: [channel_id:2B][success:1B][error_code:2B][error_msg:NB]
+ */
+static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg)
+{
+    uint8_t response[64];
+    uint16_t index = 0;
+
+    Protocol_PackU16(response, &index, channel_id);
+    Protocol_PackU8(response, &index, success ? 1 : 0);
+    Protocol_PackU16(response, &index, error_code);
+
+    if (error_msg && !success) {
+        uint8_t msg_len = strlen(error_msg);
+        if (msg_len > sizeof(response) - index) {
+            msg_len = sizeof(response) - index;
+        }
+        memcpy(&response[index], error_msg, msg_len);
+        index += msg_len;
+    }
+
+    PMU_Protocol_SendResponse(PMU_CMD_CHANNEL_CONFIG_ACK, response, index);
+}
+
+/**
+ * @brief Handle SET_CHANNEL_CONFIG command - atomic update of single channel
+ * Payload format: [channel_type:1B][channel_id:2B LE][json_len:2B LE][json_config:NB]
+ *
+ * Channel type values:
+ *   0x01 = power_output, 0x02 = hbridge, 0x03 = digital_input, 0x04 = analog_input,
+ *   0x05 = logic, 0x06 = number, 0x07 = timer, 0x08 = filter, 0x09 = switch,
+ *   0x0A = table_2d, 0x0B = table_3d, 0x0C = can_rx, 0x0D = can_tx, 0x0E = pid
+ */
+static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet)
+{
+    /* Minimum payload: type(1) + channel_id(2) + json_len(2) = 5 bytes */
+    if (packet->length < 5) {
+        Protocol_SendChannelConfigACK(0, false, 1, "Payload too short");
+        return;
+    }
+
+    /* Parse header */
+    uint8_t channel_type = packet->data[0];
+    uint16_t channel_id = Protocol_GetU16(packet->data, 1);
+    uint16_t json_len = Protocol_GetU16(packet->data, 3);
+
+    /* Validate JSON length */
+    if (5 + json_len > packet->length) {
+        Protocol_SendChannelConfigACK(channel_id, false, 2, "JSON truncated");
+        return;
+    }
+
+    /* Copy JSON to null-terminated buffer */
+    char json_buf[PMU_PROTOCOL_MAX_PAYLOAD + 1];
+    uint16_t copy_len = (json_len < PMU_PROTOCOL_MAX_PAYLOAD) ? json_len : PMU_PROTOCOL_MAX_PAYLOAD;
+    memcpy(json_buf, &packet->data[5], copy_len);
+    json_buf[copy_len] = '\0';
+
+    /* Call JSON update function */
+    bool success = PMU_JSON_UpdateChannel(channel_type, channel_id, json_buf);
+
+    if (success) {
+        Protocol_SendChannelConfigACK(channel_id, true, 0, NULL);
+    } else {
+        Protocol_SendChannelConfigACK(channel_id, false, 3, PMU_JSON_GetLastError());
     }
 }
 
