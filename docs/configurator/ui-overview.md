@@ -103,10 +103,10 @@ Dynamic text showing current operation status:
 - Error messages in red
 
 ### 2. Output LED Bar (center-left)
-Visual indicator showing state of all 40 power outputs:
+Visual indicator showing state of all 34 output channels (30 PROFET + 4 H-Bridge):
 
 ```
-[O1][O2][O3]...[O40]
+[O1][O2][O3]...[O30] [HB1][HB2][HB3][HB4]
 ```
 
 | Color | State |

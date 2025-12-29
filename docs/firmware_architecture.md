@@ -246,16 +246,20 @@ The channel system provides a unified interface for all inputs and outputs:
 #### System Channel IDs
 
 ```c
-#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000  /* pmuX.battery */
-#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001  /* pmuX.totalCurrent */
-#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002  /* MCU temperature */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003  /* pmuX.boardTemperatureL */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004  /* pmuX.boardTemperatureR */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005  /* pmuX.boardTemperatureMax */
-#define PMU_CHANNEL_SYSTEM_UPTIME           1006  /* System uptime (s) */
-#define PMU_CHANNEL_SYSTEM_STATUS           1007  /* pmuX.status */
-#define PMU_CHANNEL_CONST_ZERO              1012  /* Constant 0 */
-#define PMU_CHANNEL_CONST_ONE               1013  /* Constant 1 */
+#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000  /* pmu.batteryVoltage */
+#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001  /* pmu.totalCurrent */
+#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002  /* pmu.mcuTemperature */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003  /* pmu.boardTemperatureL */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004  /* pmu.boardTemperatureR */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005  /* pmu.boardTemperatureMax */
+#define PMU_CHANNEL_SYSTEM_UPTIME           1006  /* pmu.uptime (seconds) */
+#define PMU_CHANNEL_SYSTEM_STATUS           1007  /* pmu.status (bitmask) */
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008  /* pmu.userError (error code) */
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009  /* pmu.5VOutput (mV) */
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010  /* pmu.3V3Output (mV) */
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011  /* pmu.isTurningOff (0/1) */
+#define PMU_CHANNEL_CONST_ZERO              1012  /* zero - Constant 0 */
+#define PMU_CHANNEL_CONST_ONE               1013  /* one - Constant 1 */
 ```
 
 #### Output Sub-Channels

@@ -8,8 +8,7 @@ This document tracks the accuracy of documentation compared to the actual implem
 
 | Status | Count | Description |
 |--------|-------|-------------|
-| ✅ Fixed | 6 | Issues resolved in this update |
-| 🟡 Medium | 2 | Minor issues remaining |
+| ✅ Fixed | 8 | All issues resolved |
 | ✅ OK | 7 | Documentation matches implementation |
 
 ---
@@ -96,32 +95,29 @@ This document tracks the accuracy of documentation compared to the actual implem
 
 ---
 
-## Medium Priority Issues 🟡
-
-### 7. Undocumented System Channels
+### 7. Undocumented System Channels — FIXED ✅
 
 **File:** [docs/firmware_architecture.md](firmware_architecture.md)
 
-These system channels exist in firmware but are NOT in documentation:
+**What was missing:** System channels 1008-1011 were not documented.
 
+**Fix Applied:** Added missing system channel definitions:
 ```c
-#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008
-#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009
-#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010
-#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008  /* pmu.userError */
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009  /* pmu.5VOutput */
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010  /* pmu.3V3Output */
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011  /* pmu.isTurningOff */
 ```
-
-**Note:** These are documented in [channels.md](channels.md) (lines 688-695), just missing from firmware_architecture.md.
 
 ---
 
-### 8. Output Count Mismatch
+### 8. Output Count Mismatch — FIXED ✅
 
 **File:** [docs/configurator/ui-overview.md](configurator/ui-overview.md)
 
-| Documented | Actual |
-|------------|--------|
-| "40 power outputs" in LED bar | 30 PROFET + 4 H-Bridge = 34 channels |
+**What was wrong:** Documented "40 power outputs" but actual is 34 (30 PROFET + 4 H-Bridge).
+
+**Fix Applied:** Updated to "34 output channels (30 PROFET + 4 H-Bridge)".
 
 ---
 
@@ -141,6 +137,8 @@ These system channels exist in firmware but are NOT in documentation:
 | **Packet Size** | protocol_specification.md, telemetry.md | Consistent | ✅ FIXED |
 | **Lua/FW/Logging Protocols** | protocol_specification.md | pmu_protocol.h | ✅ ADDED |
 | **Configurator Launch** | configurator/README.md | main.py | ✅ FIXED |
+| **System Channels 1008-1011** | firmware_architecture.md | pmu_channel.h | ✅ FIXED |
+| **Output Count (34)** | ui-overview.md | 30 PROFET + 4 H-Bridge | ✅ FIXED |
 
 ---
 
@@ -148,5 +146,6 @@ These system channels exist in firmware but are NOT in documentation:
 
 | Date | Author | Changes |
 |------|--------|---------|
+| 2025-12-29 | Claude Code | Fixed medium priority issues (system channels, output count) |
 | 2025-12-29 | Claude Code | Fixed critical and high priority issues |
 | 2025-12-29 | Claude Code | Initial analysis report |
