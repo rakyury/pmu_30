@@ -299,21 +299,43 @@ See [Logic Functions Reference](logic-functions.md) for all operations.
 
 ### 3.11 PID Channel
 
+PID controllers for closed-loop control. See [Logic Functions Reference](logic-functions.md#9-pid-controller) for comprehensive documentation, tuning guide, and examples.
+
 ```json
 {
   "channel_id": 250,
   "channel_type": "pid",
-  "channel_name": "Control",
+  "channel_name": "Fan Control",
   "input_channel_id": 50,
   "setpoint_channel_id": 251,
+  "setpoint_value": 85.0,
   "kp": 2.0,
   "ki": 0.1,
   "kd": 0.5,
   "output_min": 0,
   "output_max": 1000,
-  "anti_windup": true
+  "sample_time_ms": 100,
+  "anti_windup": true,
+  "derivative_filter": true,
+  "derivative_filter_coeff": 0.1,
+  "reversed": false,
+  "enabled": true
 }
 ```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `input_channel_id` | int | Required | Process variable source |
+| `setpoint_channel_id` | int | Optional | Dynamic setpoint source |
+| `setpoint_value` | float | 0 | Fixed setpoint (if no channel) |
+| `kp`, `ki`, `kd` | float | 1, 0, 0 | PID gains |
+| `output_min`, `output_max` | float | 0, 1000 | Output limits |
+| `sample_time_ms` | int | 100 | Loop period (ms) |
+| `anti_windup` | bool | true | Prevent integral windup |
+| `derivative_filter` | bool | false | Filter derivative term |
+| `derivative_filter_coeff` | float | 0.1 | Filter coefficient (0-1) |
+| `reversed` | bool | false | Reverse-acting (for cooling) |
+| `enabled` | bool | true | Controller enabled |
 
 ### 3.12 CAN RX Channel
 

@@ -464,15 +464,39 @@ Bilinear interpolation with up to 16×16 grid:
 
 ## 9. PID Controller
 
+PMU-30 supports up to **16 independent PID controllers** for closed-loop control applications such as temperature regulation, motor speed control, idle valve management, and boost pressure control.
+
 ### 9.1 Features
 
-- Proportional, Integral, Derivative control
-- Anti-windup clamping
-- Derivative filter for noise reduction
-- Configurable output limits
+- **Proportional, Integral, Derivative** control with configurable gains
+- **Anti-windup** with automatic integral clamping during saturation
+- **Derivative filter** (low-pass) for noise reduction
+- **Configurable output limits** with saturation detection
+- **Reverse-acting mode** for cooling applications (higher output = lower process value)
+- **Variable sample rate** (default 100ms, configurable per controller)
+- **Dynamic setpoint** from channel or fixed value
+- **Runtime monitoring** of integral accumulator and saturation state
 
 ### 9.2 JSON Configuration
 
+#### Basic Example
+```json
+{
+  "channel_id": 270,
+  "channel_type": "pid",
+  "channel_name": "Cooling Fan",
+  "input_channel_id": 50,
+  "setpoint_channel_id": 271,
+  "kp": 2.0,
+  "ki": 0.1,
+  "kd": 0.5,
+  "output_min": 0,
+  "output_max": 1000,
+  "anti_windup": true
+}
+```
+
+#### Full Configuration (All Parameters)
 ```json
 {
   "channel_id": 270,
@@ -480,28 +504,278 @@ Bilinear interpolation with up to 16×16 grid:
   "channel_name": "Idle Control",
   "input_channel_id": 300,
   "setpoint_channel_id": 271,
-  "output_min": 0,
-  "output_max": 1000,
+  "setpoint_value": 850,
   "kp": 2.0,
   "ki": 0.1,
   "kd": 0.5,
+  "output_min": 0,
+  "output_max": 1000,
+  "sample_time_ms": 100,
   "anti_windup": true,
-  "derivative_filter": 0.1
+  "derivative_filter": true,
+  "derivative_filter_coeff": 0.1,
+  "reversed": false,
+  "enabled": true
 }
 ```
 
-### 9.3 Tuning Guide
+### 9.3 Parameters Reference
 
-| Parameter | Effect of Increase |
-|-----------|-------------------|
-| **Kp** | Faster response, may cause overshoot |
-| **Ki** | Eliminates steady-state error, may cause oscillation |
-| **Kd** | Reduces overshoot, sensitive to noise |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `channel_id` | int | Required | Channel ID (200-999) |
+| `channel_type` | string | Required | Must be `"pid"` |
+| `channel_name` | string | Required | Display name (max 31 chars) |
+| `input_channel_id` | int | Required | Process variable source channel |
+| `setpoint_channel_id` | int | Optional | Dynamic setpoint source channel |
+| `setpoint_value` | float | 0 | Fixed setpoint (used if no setpoint_channel_id) |
+| `kp` | float | 1.0 | Proportional gain |
+| `ki` | float | 0.0 | Integral gain |
+| `kd` | float | 0.0 | Derivative gain |
+| `output_min` | float | 0 | Minimum output value |
+| `output_max` | float | 1000 | Maximum output value |
+| `sample_time_ms` | int | 100 | PID loop execution period (ms) |
+| `anti_windup` | bool | true | Prevent integral windup when saturated |
+| `derivative_filter` | bool | false | Apply low-pass filter to derivative |
+| `derivative_filter_coeff` | float | 0.1 | Filter coefficient (0-1, lower = more filtering) |
+| `reversed` | bool | false | Reverse-acting controller (for cooling) |
+| `enabled` | bool | true | Controller enabled |
 
-**Typical Starting Values:**
-- Temperature control: Kp=2.0, Ki=0.1, Kd=0.5
-- Motor speed: Kp=1.0, Ki=0.5, Kd=0.1
-- Position control: Kp=5.0, Ki=0.0, Kd=2.0
+### 9.4 How It Works
+
+The PID algorithm calculates output based on the error between setpoint and process variable:
+
+```
+error = setpoint - process_value  (or negative if reversed)
+
+P_term = Kp × error
+I_term = Ki × ∫error dt           (with anti-windup)
+D_term = Kd × d(error)/dt         (with optional filtering)
+
+output = clamp(P_term + I_term + D_term, output_min, output_max)
+```
+
+**Anti-Windup Behavior:**
+When output is saturated (clamped), the integral term stops accumulating in the direction that would increase saturation. This prevents integral windup during large setpoint changes or startup.
+
+**Derivative Filter:**
+The derivative term can be noisy with real sensors. Enable `derivative_filter` and set `derivative_filter_coeff` (0.1 = heavy filtering, 0.9 = light filtering) to smooth the derivative response.
+
+### 9.5 Tuning Guide
+
+| Parameter | Effect of Increase | Typical Range |
+|-----------|-------------------|---------------|
+| **Kp** | Faster response, may cause overshoot | 0.5 - 10.0 |
+| **Ki** | Eliminates steady-state error, may cause oscillation | 0.01 - 1.0 |
+| **Kd** | Reduces overshoot, sensitive to noise | 0.0 - 2.0 |
+
+**Recommended Starting Values by Application:**
+
+| Application | Kp | Ki | Kd | Sample (ms) | Notes |
+|-------------|----|----|----|----|------|
+| Temperature control | 2.0 | 0.1 | 0.5 | 500-1000 | Slow process, use derivative filter |
+| Fan speed | 1.5 | 0.3 | 0.1 | 100-200 | Medium response |
+| Idle valve | 3.0 | 0.5 | 0.2 | 50-100 | Fast response needed |
+| Boost control | 2.0 | 0.2 | 0.3 | 20-50 | Fast process, tune carefully |
+| Motor position | 5.0 | 0.0 | 2.0 | 10-20 | Often PD only (no integral) |
+
+**Tuning Procedure:**
+1. Set Ki=0, Kd=0, start with low Kp
+2. Increase Kp until response is fast but stable
+3. Add Ki to eliminate steady-state error
+4. Add Kd if overshoot is a problem
+5. Enable derivative filter if output is noisy
+
+### 9.6 Practical Examples
+
+#### Example 1: Radiator Fan Control
+Control fan PWM based on coolant temperature with hysteresis-like behavior.
+
+```json
+{
+  "channel_id": 270,
+  "channel_type": "pid",
+  "channel_name": "Radiator Fan",
+  "input_channel_id": 50,
+  "setpoint_value": 85.0,
+  "kp": 20.0,
+  "ki": 0.5,
+  "kd": 1.0,
+  "output_min": 0,
+  "output_max": 1000,
+  "sample_time_ms": 500,
+  "anti_windup": true,
+  "reversed": true
+}
+```
+*Note: `reversed: true` because higher fan speed should reduce temperature.*
+
+#### Example 2: Idle Speed Control
+Maintain target RPM using idle air control valve.
+
+```json
+{
+  "channel_id": 271,
+  "channel_type": "pid",
+  "channel_name": "Idle Control",
+  "input_channel_id": 300,
+  "setpoint_channel_id": 272,
+  "kp": 0.5,
+  "ki": 0.1,
+  "kd": 0.05,
+  "output_min": 100,
+  "output_max": 800,
+  "sample_time_ms": 50,
+  "anti_windup": true,
+  "derivative_filter": true,
+  "derivative_filter_coeff": 0.2
+}
+```
+
+#### Example 3: Boost Pressure Control
+Control wastegate duty cycle to maintain target boost.
+
+```json
+{
+  "channel_id": 273,
+  "channel_type": "pid",
+  "channel_name": "Boost Control",
+  "input_channel_id": 51,
+  "setpoint_channel_id": 274,
+  "kp": 3.0,
+  "ki": 0.3,
+  "kd": 0.5,
+  "output_min": 0,
+  "output_max": 1000,
+  "sample_time_ms": 20,
+  "anti_windup": true
+}
+```
+
+### 9.7 C API Reference
+
+```c
+#include "pmu_pid.h"
+
+/* Constants */
+#define PMU_PID_MAX_CONTROLLERS   16   /* Maximum PID controllers */
+#define PMU_PID_DEFAULT_SAMPLE_MS 100  /* Default sample time */
+```
+
+#### Initialization
+```c
+HAL_StatusTypeDef PMU_PID_Init(void);
+```
+
+#### Controller Management
+```c
+/* Add or update a PID controller */
+HAL_StatusTypeDef PMU_PID_AddController(const PMU_PIDConfig_t* config);
+
+/* Remove a PID controller by ID */
+HAL_StatusTypeDef PMU_PID_RemoveController(const char* id);
+
+/* Clear all PID controllers */
+HAL_StatusTypeDef PMU_PID_ClearAll(void);
+
+/* Enable or disable a controller */
+HAL_StatusTypeDef PMU_PID_SetEnabled(const char* id, bool enabled);
+
+/* Reset controller state (clears integral, previous error) */
+HAL_StatusTypeDef PMU_PID_Reset(const char* id);
+```
+
+#### Runtime Control
+```c
+/* Update all PID controllers (call from main loop) */
+void PMU_PID_Update(void);
+
+/* Get controller output value */
+float PMU_PID_GetOutput(const char* id);
+
+/* Set controller setpoint programmatically */
+HAL_StatusTypeDef PMU_PID_SetSetpoint(const char* id, float setpoint);
+```
+
+#### Status and Monitoring
+```c
+/* Get controller state (integral, saturation, etc.) */
+const PMU_PIDState_t* PMU_PID_GetState(const char* id);
+
+/* Get system statistics */
+const PMU_PIDStats_t* PMU_PID_GetStats(void);
+
+/* List all configured controllers */
+uint8_t PMU_PID_ListControllers(PMU_PIDConfig_t* configs, uint8_t max_count);
+```
+
+### 9.8 Data Structures
+
+```c
+typedef struct {
+    char id[PMU_CHANNEL_ID_LEN];       /* Channel ID */
+
+    /* Input/Output channel references */
+    char setpoint_channel[PMU_CHANNEL_ID_LEN];  /* Setpoint source (optional) */
+    char process_channel[PMU_CHANNEL_ID_LEN];   /* Process variable source */
+    char output_channel[PMU_CHANNEL_ID_LEN];    /* Output destination (optional) */
+
+    /* PID gains */
+    float kp;                          /* Proportional gain */
+    float ki;                          /* Integral gain */
+    float kd;                          /* Derivative gain */
+
+    /* Setpoint */
+    float setpoint_value;              /* Fixed setpoint (if no channel) */
+
+    /* Output limits */
+    float output_min;                  /* Minimum output value */
+    float output_max;                  /* Maximum output value */
+
+    /* Advanced settings */
+    uint16_t sample_time_ms;           /* PID loop execution period */
+    bool anti_windup;                  /* Prevent integral windup */
+    bool derivative_filter;            /* Apply low-pass filter to derivative */
+    float derivative_filter_coeff;     /* Filter coefficient (0-1) */
+
+    /* Control options */
+    bool enabled;                      /* Controller enabled */
+    bool reversed;                     /* Reverse acting controller */
+} PMU_PIDConfig_t;
+
+typedef struct {
+    PMU_PIDConfig_t config;            /* Configuration */
+
+    /* Runtime state */
+    float integral;                    /* Integral accumulator */
+    float prev_error;                  /* Previous error */
+    float prev_derivative;             /* Previous derivative (for filter) */
+    float output;                      /* Current output value */
+
+    /* Status */
+    bool active;                       /* Controller slot is active */
+    bool saturated;                    /* Output is saturated (clamped) */
+    uint32_t last_update_ms;           /* Last update timestamp */
+} PMU_PIDState_t;
+
+typedef struct {
+    uint8_t total_controllers;         /* Total configured */
+    uint8_t active_controllers;        /* Currently enabled */
+    uint32_t total_updates;            /* Total update cycles */
+} PMU_PIDStats_t;
+```
+
+### 9.9 Troubleshooting
+
+| Symptom | Possible Cause | Solution |
+|---------|---------------|----------|
+| Output oscillates | Ki too high or Kd too low | Reduce Ki, increase Kd |
+| Slow to reach setpoint | Kp too low or Ki=0 | Increase Kp or add Ki |
+| Large overshoot | Kp too high, Ki too high, or Kd=0 | Reduce Kp/Ki, add Kd |
+| Output jumps erratically | Noisy input signal | Enable derivative_filter |
+| Never reaches setpoint | Wrong sign (cooling vs heating) | Set `reversed: true` |
+| Output stuck at min/max | Integral windup | Ensure `anti_windup: true` |
+| No output change | Controller disabled | Check `enabled: true` |
 
 ---
 

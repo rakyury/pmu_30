@@ -17,6 +17,7 @@ The PMU-30 Configurator is a professional desktop application for configuring an
 | Document | Description |
 |----------|-------------|
 | [Control Elements](control-elements.md) | PID controllers, Timers, and 2D/3D Tables |
+| [PID Tuner](pid-tuner.md) | Real-time PID tuning with live graph visualization |
 
 ### User Interface
 | Document | Description |
