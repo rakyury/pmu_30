@@ -23,9 +23,21 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 | Power Supply ICs | 4 | - |
 | Communication ICs | 8 | - |
 | Sensors & Modules | 3 | - |
-| Connectors | 5 | - |
+| Connectors | 6 | - |
 | Passives | ~500 | - |
 | **Total Unique Parts** | ~545 | - |
+
+### 2.1 I/O Summary
+
+| I/O Type | Count | Notes |
+|----------|-------|-------|
+| Power Outputs | 30 | 40A continuous each |
+| H-Bridge Outputs | 4 | 30A continuous each |
+| Analog Inputs | 20 | 0-5V, 12-bit ADC |
+| Digital Inputs | 20 | Switch, frequency modes |
+| CAN Bus | 4 | 2x CAN FD, 2x CAN 2.0 |
+| LIN Bus | 1 | - |
+| USB | 1 | USB-C |
 
 ---
 
@@ -92,39 +104,29 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 
 ### 4.1 High-Side Switches (PROFET)
 
-#### 4.1.1 40A Channels (Outputs 1-20)
+#### 4.1.1 40A Power Outputs (Outputs 1-30)
 
 | Parameter | Specification |
 |-----------|---------------|
-| **Part Number** | BTS7008-2EPA |
+| **Part Number** | BTS7012-2EPA |
 | **Manufacturer** | Infineon |
 | **Package** | PG-TSDSO-24 |
 | **Channels** | 2 per IC |
-| **Current per Channel** | 11A continuous, 40A peak |
-| **Rds(on)** | 4 mΩ typical |
+| **Current per Channel** | 40A continuous |
+| **Peak Current** | 160A for 1ms (inrush) |
+| **Rds(on)** | 3.5 mΩ typical |
 | **Current Sense** | Analog output (kILIS = 14500) |
 | **Protection** | Over-temp, overcurrent, short circuit |
-| **Qty** | 10 |
+| **Qty** | 15 (for 30 channels) |
 
-#### 4.1.2 25A Channels (Outputs 21-30)
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Part Number** | BTS7006-2EPA |
-| **Manufacturer** | Infineon |
-| **Package** | PG-TSDSO-24 |
-| **Channels** | 2 per IC |
-| **Current per Channel** | 8A continuous, 25A peak |
-| **Rds(on)** | 6 mΩ typical |
-| **Qty** | 5 |
+**Note:** All 30 output channels rated for 40A continuous (1200A total capacity)
 
 **Alternatives:**
 | Part Number | Current | Notes |
 |-------------|---------|-------|
-| BTS50015-1TAD | 15A | Single channel |
-| BTS50010-1TAD | 10A | Single channel |
-| VNQ7050AJ | 50A | ST Micro |
-| VNQ7040AJ | 40A | ST Micro |
+| VNQ7050AJ | 50A | ST Micro, higher headroom |
+| VNQ7040AJ | 40A | ST Micro alternative |
+| BTS7008-2EPA | 40A peak | Lower duty cycle applications |
 
 ### 4.2 H-Bridge Motor Drivers
 
@@ -265,21 +267,32 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 
 ### 7.1 IMU (Inertial Measurement Unit)
 
+6-axis MEMS IMU for motion sensing, crash detection, and vehicle dynamics analysis.
+
 | Parameter | Specification |
 |-----------|---------------|
-| **Part Number** | BMI088 |
-| **Manufacturer** | Bosch Sensortec |
-| **Package** | LGA-16 (3x4.5mm) |
-| **Accelerometer** | +/-24g, 16-bit |
-| **Gyroscope** | +/-2000 dps, 16-bit |
-| **Interface** | SPI |
+| **Part Number** | LSM6DSO32X |
+| **Manufacturer** | STMicroelectronics |
+| **Package** | LGA-14 (2.5x3.0mm) |
+| **Accelerometer** | ±4/8/16/32g selectable, 16-bit |
+| **Gyroscope** | ±125/250/500/1000/2000 °/s, 16-bit |
+| **Sample Rate** | Up to 6.6 kHz |
+| **Interface** | I2C (1MHz) / SPI (10MHz) |
 | **Qty** | 1 |
+
+**Applications:**
+- G-force data logging (lateral, longitudinal, vertical)
+- Crash/impact detection and alert
+- Roll/pitch/yaw calculation
+- Wheel spin detection for traction control
+- Combined with GPS for lap analysis
 
 **Alternatives:**
 | Part Number | Notes |
 |-------------|-------|
-| LSM6DSO32 | ST Micro, +/-32g |
-| ICM-42688-P | TDK InvenSense |
+| ICM-42688-P | TDK InvenSense, high performance |
+| BMI088 | Bosch Sensortec, ±24g accel |
+| LSM6DS3TR-C | Lower cost option |
 
 ### 7.2 GPS/GNSS Module
 
@@ -356,7 +369,7 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 
 **Function:** Power outputs 1-30, H-Bridge outputs
 
-### 9.2 Main Connector B (26-pin) - Inputs/Comms
+### 9.2 Main Connector B (26-pin) - Analog Inputs
 
 | Parameter | Specification |
 |-----------|---------------|
@@ -368,9 +381,35 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 | **Sealing** | IP67 |
 | **Qty** | 1 |
 
-**Function:** Digital/analog inputs, CAN bus, LIN bus, auxiliary
+**Function:** 20x Analog inputs, CAN bus, 5V sensor supply
 
-### 9.3 Power Stud Terminal
+### 9.3 Main Connector C (26-pin) - Digital Inputs
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Part Number** | 1-1564512-1 |
+| **Manufacturer** | TE Connectivity |
+| **Series** | Superseal 1.0 |
+| **Positions** | 26 |
+| **Current Rating** | 13A per contact |
+| **Sealing** | IP67 |
+| **Qty** | 1 |
+
+**Function:** 20x Digital inputs, LIN bus, USB
+
+### 9.4 Power Terminal (Positive)
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Type** | Radlock 200A |
+| **Manufacturer** | TE Connectivity |
+| **Rating** | 200A continuous |
+| **Features** | Tool-less connection, vibration resistant |
+| **Qty** | 1 |
+
+**Note:** 200A ANL fuse required, 2/0 AWG (70mm²) wire recommended
+
+### 9.5 Ground Terminal
 
 | Parameter | Specification |
 |-----------|---------------|
@@ -379,11 +418,11 @@ This document provides the complete Bill of Materials for the PMU-30 Power Manag
 | **Thread** | M8 x 1.25 |
 | **Current Rating** | 150A continuous |
 | **Mounting** | Through-hole, isolated |
-| **Qty** | 2 (Power + Ground) |
+| **Qty** | 1 |
 
-**Note:** Power input via ring terminal (4 AWG / 25mm²), 8-10 Nm torque
+**Note:** Ring terminal 4 AWG (25mm²), 8-10 Nm torque
 
-### 9.4 USB Connector
+### 9.6 USB Connector
 
 | Parameter | Specification |
 |-----------|---------------|
@@ -478,6 +517,7 @@ All components must be:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-12-29 | Initial release with GPS/GNSS, LIN support |
+| 1.1 | 2025-12-29 | Updated to 30x40A outputs (BTS7012-2EPA), added 20 analog + 20 digital inputs, Radlock 200A power terminal, 3 main connectors (A/B/C), enhanced IMU specs (LSM6DSO32X) |
 
 ---
 

@@ -127,14 +127,18 @@ Design and development of a 30-channel intelligent power distribution module for
 ### 2.4 Power Supply Architecture
 
 #### 2.4.1 Main Power Input
-- **Connector**: DTM 4-pin or equivalent
-- **Fuse**: External 150A+ recommended
+- **Positive Terminal**: Radlock 200A connector
+  - **Type**: TE Connectivity Radlock (or equivalent)
+  - **Rating**: 200A continuous
+  - **Features**: Tool-less connection, vibration resistant
+- **Ground Terminal**: M8 stud terminal (150A rated)
+- **Fuse**: External 200A ANL fuse recommended
 - **Filtering**:
   - TVS diode array (SMAJ series)
   - LC filter for noise suppression
   - Bulk capacitance: 1000µF minimum
 
-#### 2.2.2 Internal Power Rails
+#### 2.4.2 Internal Power Rails
 - **12V Rail**: Direct from battery (filtered)
 - **5V Rail**: 5A minimum, buck converter
   - For MCU, sensors, logic
@@ -188,12 +192,12 @@ Design and development of a 30-channel intelligent power distribution module for
 
 ## 4. Input/Output System
 
-### 4.1 Universal Input Channels (20x)
+### 4.1 Digital Input Channels (20x)
 
-PMU-30 features 20 universal input channels that can be individually configured as either analog or digital inputs with various modes.
+PMU-30 features 20 dedicated digital input channels optimized for switch, button, and frequency inputs.
 
-#### 4.1.1 Input Specifications
-- **Type**: Universal analog/digital inputs
+#### 4.1.1 Digital Input Specifications
+- **Type**: Dedicated digital inputs
 - **Voltage Range**: 0-5V nominal
 - **Resolution**: 10-bit ADC (oversampling to 12-bit effective)
 - **Sample Rate**: 500Hz per channel (logic update frequency)
@@ -205,9 +209,9 @@ PMU-30 features 20 universal input channels that can be individually configured 
   - TVS diode clamp + series resistor
   - Resettable fuse (optional)
 
-#### 4.1.2 Input Types and Modes
+#### 4.1.2 Digital Input Types and Modes
 
-Each analog input can be configured as one of the following types:
+Each digital input can be configured as one of the following types:
 
 ##### 1. Switch - Active Low
 - **Description**: Digital switch input, active when grounded
@@ -235,7 +239,55 @@ Each analog input can be configured as one of the following types:
 - **Debounce**: Position change filtering
 - **Applications**: Multi-position selector switches, mode selectors
 
-##### 4. Linear Analog Sensor
+##### 4. Frequency Input
+- **Description**: Frequency measurement input
+- **Range**: 0-10kHz
+- **Resolution**: 1Hz
+- **Timeout**: Signal loss detection (configurable)
+- **Applications**:
+  - Speed sensors
+  - RPM sensors (via divider)
+  - Pulse-width encoders
+
+#### 4.1.3 Digital Input Configuration Parameters
+
+| Parameter | Description | Range |
+|-----------|-------------|-------|
+| **Name** | User-defined input name | Up to 32 characters |
+| **Pin** | Physical pin assignment | 1-20 |
+| **Type** | Input type selection | switch-low, switch-high, rotary, frequency |
+| **Pull-up/Pull-down** | Internal resistor | Pull-up 10kΩ, Pull-down 10kΩ, Floating |
+| **Threshold High** | Upper voltage threshold | 0-5V, 0.1V steps |
+| **Threshold Low** | Lower voltage threshold | 0-5V, 0.1V steps |
+| **Debounce Time** | Switch debounce delay | 0.001-1.0 seconds |
+
+#### 4.1.4 Digital Input Example
+
+##### Ignition Switch (Active Low)
+```
+Type: Switch - Active Low
+Pull-up: 10kΩ
+Threshold: 2.5V
+Debounce: 50ms
+```
+
+---
+
+### 4.2 Analog Input Channels (20x)
+
+PMU-30 features 20 dedicated analog input channels optimized for sensor measurements.
+
+#### 4.2.1 Analog Input Specifications
+- **Type**: Dedicated analog inputs
+- **Voltage Range**: 0-5V nominal
+- **Resolution**: 12-bit ADC (4096 steps)
+- **Sample Rate**: 1kHz per channel
+- **Input Impedance**: >100kΩ
+- **Protection**: Same as digital inputs (40V overvoltage, -18V reverse)
+
+#### 4.2.2 Analog Input Types
+
+##### 1. Linear Analog Sensor
 - **Description**: Direct voltage-to-value mapping with linear scaling
 - **Input Range**: 0-5V
 - **Scaling**: User-defined slope and offset
@@ -249,7 +301,7 @@ Each analog input can be configured as one of the following types:
   - 0-5V pressure sensors
   - Linear temperature sensors
 
-##### 5. Calibrated Analog Sensor
+##### 2. Calibrated Analog Sensor
 - **Description**: Multi-point calibration table for non-linear sensors
 - **Calibration**: Up to 20 calibration points (voltage → value)
 - **Interpolation**: Linear interpolation between points
@@ -262,29 +314,14 @@ Each analog input can be configured as one of the following types:
   - Fuel level sensors
   - Custom sensor curves
 
-##### 6. Frequency Input
-- **Description**: Frequency measurement input
-- **Range**: 0-10kHz
-- **Resolution**: 1Hz
-- **Timeout**: Signal loss detection (configurable)
-- **Applications**:
-  - Speed sensors
-  - RPM sensors (via divider)
-  - Pulse-width encoders
-
-#### 4.1.3 Input Configuration Parameters
-
-Each input supports the following configurable parameters:
+#### 4.2.3 Analog Input Configuration Parameters
 
 | Parameter | Description | Range |
 |-----------|-------------|-------|
 | **Name** | User-defined input name | Up to 32 characters |
 | **Pin** | Physical pin assignment | 1-20 |
-| **Type** | Input type selection | switch-low, switch-high, rotary, linear, calibrated, frequency |
-| **Pull-up/Pull-down** | Internal resistor | Pull-up 10kΩ, Pull-down 10kΩ, Floating |
-| **Threshold High** | Upper voltage threshold | 0-5V, 0.1V steps |
-| **Threshold Low** | Lower voltage threshold | 0-5V, 0.1V steps |
-| **Debounce Time** | Switch debounce delay | 0.001-1.0 seconds |
+| **Type** | Input type selection | linear, calibrated |
+| **Pull-up/Pull-down** | Internal resistor | 10kΩ up/down, 100kΩ up/down, Floating |
 | **Unit** | Measurement unit | Text string (V, bar, psi, °C, °F, %, etc.) |
 | **Decimal Places** | Display precision | 0-3 |
 | **Multiplier** | Linear scaling factor | -1000.0 to +1000.0 |
@@ -292,7 +329,7 @@ Each input supports the following configurable parameters:
 | **Filter Samples** | Moving average samples | 1-20 |
 | **Calibration Table** | Voltage-value pairs | Up to 20 points |
 
-#### 4.1.4 Example Input Configurations
+#### 4.2.4 Analog Input Examples
 
 ##### Example 1: Oil Pressure Sensor (Linear)
 ```
@@ -318,38 +355,16 @@ Unit: °C
 Decimal Places: 0
 ```
 
-##### Example 3: Brake Switch (Active Low)
-```
-Type: Switch - Active Low
-Pull-up: 10kΩ to 5V
-Threshold High: 3.5V (switch open)
-Threshold Low: 1.5V (switch closed)
-Debounce: 0.01s
-```
-
-##### Example 4: Rotary Position Switch (6-position)
-```
-Type: Rotary Switch
-Positions:
-  Position 1: 0.0-0.7V
-  Position 2: 0.8-1.3V
-  Position 3: 1.4-2.0V
-  Position 4: 2.1-2.7V
-  Position 5: 2.8-3.5V
-  Position 6: 3.6-5.0V
-Debounce: 0.05s
-```
-
-#### 4.1.5 Signal Conditioning
+#### 4.2.5 Signal Conditioning (Analog Inputs)
 - **Filtering**: RC filter, 1kHz cutoff (hardware)
 - **Digital Filtering**: Moving average filter (software, configurable)
 - **Protection**: TVS + series resistor + resettable fuse
 - **Calibration**: Per-channel offset and gain (factory + user)
-- **Sampling**: 500Hz base rate, oversampled for 12-bit effective resolution
+- **Sampling**: 1kHz base rate, 12-bit effective resolution
 
-### 4.2 DAC Outputs (10x)
+### 4.3 DAC Outputs (10x)
 
-#### 4.2.1 Output Specifications
+#### 4.3.1 Output Specifications
 - **Type**: Voltage output DAC
 - **Voltage Range**: 0-5V
 - **Resolution**: 12-bit
@@ -357,13 +372,13 @@ Debounce: 0.05s
 - **Output Current**: 10mA per channel
 - **Protection**: Short-circuit protected
 
-#### 4.2.2 Applications
+#### 4.3.2 Applications
 - Gauge outputs
 - External device control
 - Analog signal generation
 - Voltage reference outputs
 
-### 4.3 Digital I/O
+### 4.4 Digital I/O
 - **GPIO Reserve**: 10x additional GPIO for expansion
 - **Voltage Level**: 3.3V logic, 5V tolerant
 - **Drive Capability**: 25mA per pin
@@ -1136,21 +1151,59 @@ BO_ 1537 PMU_Status: 8 PMU30
 
 ## 6. Sensors and Monitoring
 
-### 6.1 Accelerometer
+### 6.1 IMU (Inertial Measurement Unit)
 
-#### 6.1.1 Sensor Selection
-- **Type**: 3-axis MEMS accelerometer
-- **Recommended**: LIS3DH, ADXL345, or LSM6DS3
-- **Range**: ±16g minimum
-- **Resolution**: 12-bit minimum
-- **Sample Rate**: 1kHz minimum
-- **Interface**: I2C or SPI
+The PMU-30 includes an integrated 6-axis IMU combining 3-axis accelerometer and 3-axis gyroscope for comprehensive motion sensing.
 
-#### 6.1.2 Applications
-- G-force data logging
-- Impact detection
-- Orientation sensing
-- Trigger for data capture
+#### 6.1.1 IMU Selection
+- **Type**: 6-axis MEMS IMU (accelerometer + gyroscope)
+- **Recommended Part**: LSM6DSO32X or ICM-42688-P
+- **Interface**: I2C (up to 1MHz) or SPI (up to 10MHz)
+- **Package**: LGA-14 (2.5 × 3.0 × 0.83 mm)
+
+#### 6.1.2 Accelerometer Specifications
+| Parameter | Value |
+|-----------|-------|
+| **Axes** | 3 (X, Y, Z) |
+| **Range** | ±4g, ±8g, ±16g, ±32g (selectable) |
+| **Resolution** | 16-bit |
+| **Sample Rate** | Up to 6.6 kHz |
+| **Noise Density** | 70 µg/√Hz |
+| **Zero-g Offset** | ±20 mg |
+
+#### 6.1.3 Gyroscope Specifications
+| Parameter | Value |
+|-----------|-------|
+| **Axes** | 3 (X, Y, Z) |
+| **Range** | ±125, ±250, ±500, ±1000, ±2000 °/s (selectable) |
+| **Resolution** | 16-bit |
+| **Sample Rate** | Up to 6.6 kHz |
+| **Noise Density** | 4 mdps/√Hz |
+| **Zero-rate Offset** | ±1 °/s |
+
+#### 6.1.4 IMU Applications
+- **G-force data logging**: Record lateral, longitudinal, and vertical acceleration
+- **Impact detection**: Trigger alerts and data capture on crash/collision
+- **Roll/pitch/yaw**: Calculate vehicle orientation angles
+- **Wheel spin detection**: Use gyro data to detect and react to wheelspin
+- **Launch control**: G-force based traction control during acceleration
+- **Data analysis**: Correlate vehicle dynamics with output states
+- **Lap analysis**: Combined with GPS for comprehensive track telemetry
+
+#### 6.1.5 Lua API for IMU
+```lua
+-- Get accelerometer data (in g-force)
+local ax, ay, az = getAccelX(), getAccelY(), getAccelZ()
+
+-- Get gyroscope data (in degrees/second)
+local gx, gy, gz = getGyroX(), getGyroY(), getGyroZ()
+
+-- Example: Crash detection
+if math.abs(ax) > 3.0 or math.abs(ay) > 3.0 then
+    setOutput(30, 1)  -- Activate hazard relay
+    logEvent("IMPACT", ax, ay, az)
+end
+```
 
 ### 6.2 Temperature Sensors
 

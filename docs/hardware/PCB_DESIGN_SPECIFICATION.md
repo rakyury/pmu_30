@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Document Title** | PCB Design Specification for PMU-30 Power Management Unit |
-| **Version** | 1.1 |
+| **Version** | 1.2 |
 | **Date** | 2025-12-29 |
 | **Project** | PMU-30 (30-Channel Power Management Unit) |
 | **Company** | R2 m-sport |
@@ -20,12 +20,15 @@ This document provides comprehensive specifications for the PCB design and manuf
 |-----------|-------|
 | Power Output Channels | 30x PROFET 2 (40A continuous each) |
 | H-Bridge Outputs | 4x Dual (30A continuous each) |
+| Analog Inputs | 20x dedicated (0-5V, 12-bit ADC) |
+| Digital Inputs | 20x dedicated (switch, frequency) |
 | Total Current Capacity | 1,200A maximum |
 | Total Power Capacity | 14.4 kW @ 12V |
 | Input Voltage Range | 6-22V DC |
 | Operating Temperature | -40C to +125C |
 | Protection Class | IP67 |
 | Microcontroller | STM32H743VIT6 (480 MHz Cortex-M7) |
+| Power Terminal | Radlock 200A (positive) |
 
 ---
 
@@ -98,24 +101,19 @@ This document provides comprehensive specifications for the PCB design and manuf
 
 ### 3.2 Power Output Channels (PROFET 2)
 
-**High-Current Outputs (Channels 1-20)**
+**All 30 Output Channels (Channels 1-30)**
 
 | Parameter | Min | Typical | Max | Unit |
 |-----------|-----|---------|-----|------|
 | Continuous Current | - | - | 40 | A |
 | Inrush Current (1ms) | - | - | 160 | A |
-| On-Resistance | - | 4.0 | 5.5 | mohm |
+| On-Resistance | - | 3.5 | 5.0 | mohm |
 | PWM Frequency | 10 | 500 | 30,000 | Hz |
 | PWM Resolution | - | 12 | - | bits |
 | Soft-start Time | 0 | - | 5,000 | ms |
+| Total System Capacity | - | - | 1,200 | A |
 
-**Standard Outputs (Channels 21-30)**
-
-| Parameter | Min | Typical | Max | Unit |
-|-----------|-----|---------|-----|------|
-| Continuous Current | - | - | 25 | A |
-| Inrush Current (1ms) | - | - | 100 | A |
-| On-Resistance | - | 6.0 | 8.0 | mohm |
+**Note:** All 30 outputs use identical 40A-rated BTS7012-2EPA high-side switches.
 
 ### 3.3 H-Bridge Outputs
 
@@ -127,17 +125,34 @@ This document provides comprehensive specifications for the PCB design and manuf
 | PWM Frequency | 10 | 1,000 | 20,000 | Hz |
 | Dead-time | 1 | 2 | - | us |
 
-### 3.4 Analog/Digital Inputs
+### 3.4 Analog Inputs (20x)
 
 | Parameter | Min | Typical | Max | Unit |
 |-----------|-----|---------|-----|------|
+| Channels | - | 20 | - | - |
 | Input Voltage Range | 0 | - | 5.0 | V |
 | Absolute Max Voltage | -2.0 | - | 36.0 | V |
 | ADC Resolution | - | 12 | - | bits |
 | Input Impedance | 100 | - | - | kohm |
-| Sample Rate | - | 500 | 1,000 | Hz/ch |
+| Sample Rate | - | 1,000 | - | Hz/ch |
 
-### 3.5 CAN Bus Interfaces
+**Function:** Sensor inputs (temperature, pressure, position, level, etc.)
+
+### 3.5 Digital Inputs (20x)
+
+| Parameter | Min | Typical | Max | Unit |
+|-----------|-----|---------|-----|------|
+| Channels | - | 20 | - | - |
+| Input Voltage Range | 0 | - | 5.0 | V |
+| Absolute Max Voltage | -2.0 | - | 36.0 | V |
+| Logic Threshold | - | 2.5 | - | V |
+| Input Impedance | 100 | - | - | kohm |
+| Sample Rate | - | 500 | - | Hz/ch |
+| Debounce | 1 | - | 1000 | ms |
+
+**Function:** Switch inputs, frequency inputs, rotary switches
+
+### 3.6 CAN Bus Interfaces
 
 **CAN FD Interfaces (Bus 1, 2)**
 
@@ -305,12 +320,24 @@ This document provides comprehensive specifications for the PCB design and manuf
 
 ### 5.8 IMU (Accelerometer/Gyroscope)
 
+6-axis MEMS IMU for motion sensing and vehicle dynamics analysis.
+
 | Parameter | Specification |
 |-----------|---------------|
-| **Part Number** | BMI088 or LSM6DSO32 |
-| **Accelerometer** | +/-24g |
-| **Gyroscope** | +/-2000 dps |
-| **Interface** | SPI |
+| **Part Number** | LSM6DSO32X (recommended) |
+| **Manufacturer** | STMicroelectronics |
+| **Package** | LGA-14 (2.5 × 3.0 mm) |
+| **Accelerometer** | ±4/8/16/32g selectable |
+| **Gyroscope** | ±125 to ±2000 °/s selectable |
+| **Resolution** | 16-bit |
+| **Sample Rate** | Up to 6.6 kHz |
+| **Interface** | SPI (10MHz) / I2C (1MHz) |
+
+**Applications:**
+- G-force data logging (lateral, longitudinal, vertical)
+- Crash/impact detection
+- Roll/pitch/yaw calculation
+- Traction control inputs
 
 ### 5.9 GPS/GNSS Module
 
@@ -334,36 +361,7 @@ This document provides comprehensive specifications for the PCB design and manuf
 - Lap timing (when used with geofencing)
 - Distance and heading calculation
 
-### 5.10 BlinkMarine CAN Keypad Interface
-
-| Parameter | Specification |
-|-----------|---------------|
-| **Supported Models** | PKP-2200-SI, PKP-2400-SI, PKP-2600-SI |
-| **CAN Interface** | CAN 2.0B, 250/500 kbps |
-| **Protocol** | BlinkMarine proprietary (CAN-based) |
-| **Button States** | Press, Release, Long Press, Double Press |
-| **LED Control** | Per-button RGB LED control |
-| **Max Keypads** | 4 per CAN bus |
-| **Addressing** | Configurable node ID (0x01-0x7F) |
-
-**Features:**
-- Backlit silicone buttons (IP67 rated)
-- Customizable button legends
-- Multi-press detection (short, long, double)
-- LED feedback (green, red, amber, blue)
-- Rotary encoder support (PKP-2600-SI)
-- CAN message filtering for minimal bus load
-
-**CAN Message Format:**
-
-| Message | ID Range | Direction | Description |
-|---------|----------|-----------|-------------|
-| Button Status | 0x18FF0000 + NodeID | Keypad → PMU | Button press/release events |
-| LED Command | 0x18FF0100 + NodeID | PMU → Keypad | LED color and state control |
-| Rotary Data | 0x18FF0200 + NodeID | Keypad → PMU | Encoder position and delta |
-| Config | 0x18FF0300 + NodeID | Bidirectional | Configuration and setup |
-
-### 5.11 Protection Components
+### 5.10 Protection Components
 
 **TVS Diodes (Power Input)**
 
@@ -533,9 +531,10 @@ The PMU-30 uses TE Connectivity Superseal 1.0 series connectors for robust autom
 | Connector | Part Number | Positions | Current | Application |
 |-----------|-------------|-----------|---------|-------------|
 | Main A | 1-1564514-1 | 34 | 13A/pin | Outputs 1-30, H-Bridge |
-| Main B | 1-1564512-1 | 26 | 13A/pin | Inputs, CAN, LIN, Aux |
-| Power Stud | M8 brass | 1 | 150A | Main power input |
-| Ground Stud | M8 brass | 1 | 150A | Chassis ground |
+| Main B | 1-1564512-1 | 26 | 13A/pin | Analog Inputs, CAN, LIN, Aux |
+| Main C | 1-1564512-1 | 26 | 13A/pin | Digital Inputs |
+| Power (+) | Radlock 200A | 1 | 200A | Main battery positive |
+| Ground (-) | M8 stud | 1 | 150A | Chassis ground |
 
 **Main Connector A (34-pin) - Outputs:**
 
@@ -545,16 +544,36 @@ The PMU-30 uses TE Connectivity Superseal 1.0 series connectors for robust autom
 | 11-15 | Outputs 21-25 | 28-32 | Outputs 26-30 |
 | 16-17 | H-Bridge 1 (A/B) | 33-34 | H-Bridge 2 (A/B) |
 
-**Main Connector B (26-pin) - Inputs/Comms:**
+**Main Connector B (26-pin) - Analog Inputs/Comms:**
 
 | Pin | Function | Pin | Function |
 |-----|----------|-----|----------|
-| 1-10 | Digital Inputs 1-10 | 14-18 | Analog Inputs 1-5 |
-| 11-13 | Digital Inputs 11-13 | 19-23 | Analog Inputs 6-10 |
-| 24 | CAN1 H | 25 | CAN1 L |
-| 26 | LIN | - | - |
+| 1-10 | Analog Inputs 1-10 | 14-20 | Analog Inputs 11-17 |
+| 11-13 | Analog Inputs 18-20 | 21 | 5V Sensor Supply |
+| 22 | Sensor Ground | 23 | CAN1 H |
+| 24 | CAN1 L | 25 | CAN2 H |
+| 26 | CAN2 L | - | - |
 
-**Power Stud Terminal:**
+**Main Connector C (26-pin) - Digital Inputs:**
+
+| Pin | Function | Pin | Function |
+|-----|----------|-----|----------|
+| 1-10 | Digital Inputs 1-10 | 14-20 | Digital Inputs 11-17 |
+| 11-13 | Digital Inputs 18-20 | 21 | LIN |
+| 22 | USB D+ | 23 | USB D- |
+| 24 | USB GND | 25-26 | Reserved |
+
+**Power Terminal (Positive):**
+
+| Parameter | Specification |
+|-----------|---------------|
+| Type | Radlock 200A (TE Connectivity) |
+| Rating | 200A continuous |
+| Features | Tool-less, vibration resistant |
+| Wire | 2/0 AWG (70mm²) recommended |
+| Fuse | 200A ANL external |
+
+**Ground Terminal:**
 
 | Parameter | Specification |
 |-----------|---------------|
@@ -718,14 +737,13 @@ The PMU-30 uses TE Connectivity Superseal 1.0 series connectors for robust autom
 | Function | Primary | Alternative 1 | Alternative 2 |
 |----------|---------|---------------|---------------|
 | MCU | STM32H743VIT6 | STM32H753VIT6 | STM32H745ZIT6 |
-| PROFET 40A | BTS7008-2EPA | BTS50015-1TAD | VNQ7050AJ |
-| PROFET 25A | BTS7006-2EPA | BTS50010-1TAD | VNQ7040AJ |
+| PROFET 40A (x30) | BTS7012-2EPA | VNQ7050AJ | VNQ7040AJ |
 | H-Bridge | BTN8982TA | VNH5019A-E | BTS7960B |
 | CAN FD | TJA1463 | MCP2562FD | TCAN1042V |
 | CAN 2.0B | TJA1051T/3 | MCP2561 | SN65HVD230 |
 | Buck 5V | LM5146 | LMR36015 | TPS54560 |
 | Flash | W25Q512JVEIQ | IS25LP512MG | MX25L51245G |
-| IMU | BMI088 | LSM6DSO32 | ICM-42688-P |
+| IMU | LSM6DSO32X | ICM-42688-P | BMI088 |
 | GPS/GNSS | MAX-M10S | NEO-M9N | SAM-M10Q |
 | WiFi/BT | ESP32-C3-MINI-1 | ESP32-C6 | ESP32-S3 |
 
@@ -734,14 +752,13 @@ The PMU-30 uses TE Connectivity Superseal 1.0 series connectors for robust autom
 ## Appendix B: Thermal Calculations
 
 ```
-PROFET Power (single @ 40A): P = 40^2 x 0.004 = 6.4W
-Total PROFET (20 x 40A): 20 x 6.4W = 128W
-PROFET (10 x 25A): 10 x 3.75W = 37.5W
+PROFET Power (single @ 40A): P = 40^2 x 0.0035 = 5.6W
+Total PROFET (30 x 40A): 30 x 5.6W = 168W
 H-Bridge (8 x 30A): 8 x 11.7W = 93.6W
-Total Max: ~265W
+Total Max: ~262W
 
 Required Rth (85C ambient, 125C max):
-Rth = (125-85)/265 = 0.15 C/W
+Rth = (125-85)/262 = 0.15 C/W
 ```
 
 ---
@@ -751,7 +768,8 @@ Rth = (125-85)/265 = 0.15 C/W
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2025-12-21 | Initial release |
-| 1.1 | 2025-12-29 | Updated PCB dimensions (150mm × 120mm), 8-layer stack-up, added GPS/GNSS module, BlinkMarine CAN keypad, LIN transceiver, expanded CAN FD specifications |
+| 1.1 | 2025-12-29 | Updated PCB dimensions (150mm × 120mm), 8-layer stack-up, added GPS/GNSS module, LIN transceiver, expanded CAN FD specifications |
+| 1.2 | 2025-12-29 | Updated all 30 outputs to 40A, added 20 analog + 20 digital input architecture, Radlock 200A power terminal, Main C connector for digital inputs, enhanced IMU specs |
 
 ---
 
