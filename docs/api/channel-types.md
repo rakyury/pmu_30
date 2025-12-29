@@ -302,10 +302,10 @@ value = (raw_value * factor) + offset
 {
   "channel_type": "power_output",
   "output_pins": [0],
-  "source_channel": "logic_fan_control",
+  "source_channel_id": 100,
   "pwm_enabled": true,
   "pwm_frequency_hz": 100,
-  "duty_channel": "table_fan_duty",
+  "duty_channel_id": 150,
   "soft_start_ms": 500,
   "current_limit_a": 20.0,
   "inrush_current_a": 80.0,
@@ -357,8 +357,8 @@ value = (raw_value * factor) + offset
 {
   "channel_type": "hbridge_output",
   "hbridge_index": 0,
-  "source_channel": "logic_wiper_control",
-  "duty_channel": "num_wiper_speed",
+  "source_channel_id": 110,
+  "duty_channel_id": 120,
   "pwm_frequency_hz": 1000,
   "dead_time_us": 2,
   "current_limit_a": 25.0,
@@ -412,7 +412,7 @@ value = (raw_value * factor) + offset
 ```json
 {
   "channel_type": "table_2d",
-  "x_axis_channel": "crx_rpm",
+  "x_axis_channel_id": 100,
   "x_values": [0, 1000, 2000, 3000, 4000],
   "output_values": [0, 250, 500, 750, 1000]
 }
@@ -482,7 +482,7 @@ value = (raw_value * factor) + offset
   "cycle_time_ms": 100,
   "signals": [
     {
-      "source_channel": "ai_throttle",
+      "source_channel_id": 5,
       "start_bit": 0,
       "length": 8,
       "byte_order": "little_endian",
@@ -506,8 +506,8 @@ value = (raw_value * factor) + offset
 ```json
 {
   "channel_type": "pid",
-  "input_channel": "ai_temperature",
-  "setpoint_channel": "num_target_temp",
+  "input_channel_id": 10,
+  "setpoint_channel_id": 200,
   "output_min": 0,
   "output_max": 1000,
   "kp": 2.0,

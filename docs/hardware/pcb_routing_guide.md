@@ -2,20 +2,32 @@
 
 ## Board Overview
 
-- **Size**: 160mm × 120mm
-- **Layers**: 4 (F.Cu / GND / +12V / B.Cu)
-- **Copper Weight**: 70μm (2oz) outer layers, 35μm inner
-- **Min Track/Space**: 0.2mm / 0.2mm
-- **Via**: 0.3mm drill, 0.6mm pad
+- **Size**: 150mm × 120mm
+- **Layers**: 8 (see stack-up below)
+- **Copper Weight**: 105μm (3oz) outer layers, 70μm (2oz) planes, 35μm (1oz) signal
+- **Min Track/Space**: 0.15mm / 0.15mm (signal), 0.3mm / 0.3mm (power)
+- **Via**: 0.3mm drill, 0.6mm pad (signal), 0.5mm drill for power
 
-## Layer Stack-Up
+## Layer Stack-Up (8-Layer)
 
-| Layer  | Function       | Copper | Notes                        |
-|--------|----------------|--------|------------------------------|
-| F.Cu   | Signal + Power | 70μm   | High-current power traces    |
-| In1.Cu | GND Plane      | 35μm   | Solid ground reference       |
-| In2.Cu | +12V Plane     | 35μm   | Power distribution plane     |
-| B.Cu   | Signal + Power | 70μm   | MCU routing, connectors      |
+| Layer  | Function           | Copper | Thickness | Notes                           |
+|--------|--------------------|---------|-----------|---------------------------------|
+| L1     | Signal + Power     | 105μm   | 105μm     | High-current power, components  |
+| PP1    | Prepreg 1080×2     | -       | 200μm     | Dielectric                      |
+| L2     | GND Plane          | 70μm    | 70μm      | Solid ground reference          |
+| Core1  | FR4                | -       | 200μm     | Core material                   |
+| L3     | Signal             | 35μm    | 35μm      | High-speed signals (USB, QSPI)  |
+| PP2    | Prepreg 2116       | -       | 120μm     | Dielectric                      |
+| L4     | Power (12V)        | 70μm    | 70μm      | Main 12V distribution           |
+| Core2  | FR4                | -       | 400μm     | Core material                   |
+| L5     | Power (5V/3.3V)    | 70μm    | 70μm      | Logic power planes              |
+| PP3    | Prepreg 2116       | -       | 120μm     | Dielectric                      |
+| L6     | Signal             | 35μm    | 35μm      | CAN, I2C, SPI routing           |
+| Core3  | FR4                | -       | 200μm     | Core material                   |
+| L7     | GND Plane          | 70μm    | 70μm      | Return path for signals         |
+| PP4    | Prepreg 1080×2     | -       | 200μm     | Dielectric                      |
+| L8     | Signal + Power     | 105μm   | 105μm     | Bottom components, power        |
+| **Total** |                 |         | **~2.4mm**| Finished board thickness        |
 
 ## Power Routing Strategy
 
@@ -23,12 +35,17 @@
 
 The main +12V input must handle 40A continuous current.
 
-**Track Width Calculator (70μm copper, 10°C rise):**
+**Track Width Calculator (105μm/3oz outer copper, 20°C rise):**
+- 10A: 2.0mm
+- 15A: 3.0mm
+- 20A: 4.0mm
+- 30A: 8.0mm
+- 40A: 12.0mm
+
+**Track Width Calculator (70μm/2oz inner planes, 20°C rise):**
+- 5A: 1.5mm
 - 10A: 3.0mm
-- 15A: 5.0mm
-- 20A: 7.0mm
-- 30A: 12.0mm
-- 40A: 18.0mm
+- 20A: 6.0mm
 
 **Routing Rules:**
 1. Use polygon pours for main power distribution
@@ -207,78 +224,103 @@ PROFET and H-Bridge ICs need thermal vias:
 - 0.3mm drill, 0.6mm pad
 - No thermal relief on thermal pad vias
 
-### Copper Pours
+### Copper Pours (8-Layer Design)
 
-1. Top layer: +12V pour around power section
-2. Bottom layer: GND pour, MCU area
-3. Keep pours connected with via stitching (every 5mm)
+1. **L1 (Top)**: +12V pour around power section, signal routing
+2. **L2**: Solid GND plane (max 10% voids for vias)
+3. **L3**: Signal routing, minimal pour (QSPI, USB area)
+4. **L4**: +12V plane (main power distribution)
+5. **L5**: Split plane (5V and 3.3V regions)
+6. **L6**: Signal routing, minimal pour (CAN, I2C area)
+7. **L7**: Solid GND plane (return path)
+8. **L8 (Bottom)**: GND pour in MCU area, +12V pour in power area
+9. Keep pours connected with via stitching (every 5mm on GND, every 10mm on power)
 
 ## Design Rules Summary
 
-| Parameter            | Value     | Notes                    |
-|----------------------|-----------|--------------------------|
-| Min Track Width      | 0.2mm     | Signal traces            |
-| Power Track Width    | 3-18mm    | Based on current         |
-| Min Clearance        | 0.2mm     | Signal-signal            |
-| Power Clearance      | 0.5mm     | Power-signal             |
-| Via Drill            | 0.3mm     | Standard via             |
-| Via Pad              | 0.6mm     | Standard via             |
-| Thermal Via Drill    | 0.3mm     | Under ICs                |
-| USB Impedance        | 90Ω       | Differential             |
-| CAN Impedance        | 120Ω      | Differential             |
+| Parameter            | Value        | Notes                      |
+|----------------------|--------------|----------------------------|
+| Board Size           | 150×120mm    | 8-layer, 2.4mm thick       |
+| Min Track Width      | 0.15mm       | Signal traces (L3, L6)     |
+| Power Track Width    | 2-12mm       | Based on current (L1, L8)  |
+| Min Clearance        | 0.15mm       | Signal-signal              |
+| Power Clearance      | 0.3mm        | Power-signal               |
+| Via Drill (Signal)   | 0.3mm        | Pad 0.6mm                  |
+| Via Drill (Power)    | 0.5mm        | Pad 0.9mm                  |
+| Via Drill (Thermal)  | 0.4mm        | Plugged, under ICs         |
+| Via-to-Via           | 0.3mm        | Minimum spacing            |
+| Via-to-Trace         | 0.2mm        | Minimum spacing            |
+| USB Impedance        | 90Ω ±10%     | Differential pair          |
+| CAN Impedance        | 120Ω ±10%    | Differential pair          |
+| QSPI Impedance       | 50Ω ±10%     | Single-ended               |
 
 ## Routing Checklist
 
-### Phase 1: Power
-- [ ] Main +12V input polygon
-- [ ] Via arrays to +12V plane
-- [ ] PROFET VBB connections (star topology)
+### Phase 1: Power (L1, L4, L8)
+- [ ] Main +12V input polygon (L1)
+- [ ] Via arrays to L4 (+12V plane)
+- [ ] PROFET VBB connections (star topology from L4)
 - [ ] H-Bridge VS connections
-- [ ] Output connector traces
-- [ ] GND via stitching
+- [ ] Output connector traces (L1, L8)
+- [ ] 5V/3.3V distribution on L5
+- [ ] GND via stitching (L2, L7)
 
-### Phase 2: Critical Signals
-- [ ] USB differential pair
-- [ ] CAN FD pairs (4 buses)
-- [ ] QSPI to Flash
-- [ ] Crystal circuit
+### Phase 2: Critical Signals (L3, L6)
+- [ ] USB differential pair (L3, 90Ω)
+- [ ] CAN FD pairs (L6, 120Ω, 4 buses)
+- [ ] QSPI to Flash (L3, length matched)
+- [ ] Crystal circuit (L1, short traces)
 - [ ] Reset/Boot circuits
+- [ ] GPS UART (L6)
 
-### Phase 3: Control Signals
+### Phase 3: Control Signals (L3, L6, L8)
 - [ ] PROFET DEN/DSEL signals
 - [ ] H-Bridge control (INH, IS)
 - [ ] SPI to ADCs
 - [ ] GPIO to LEDs
+- [ ] BlinkMarine keypad CAN messages
 
-### Phase 4: Analog
+### Phase 4: Analog (L1, L8)
 - [ ] Current sense (IS) signals
 - [ ] Analog inputs with filtering
 - [ ] Reference voltage distribution
 - [ ] Analog ground island
+- [ ] GPS antenna feed (50Ω)
 
 ### Phase 5: Cleanup
-- [ ] Copper pour fill
-- [ ] Via stitching
+- [ ] Copper pour fill (all layers)
+- [ ] Via stitching (GND every 5mm)
 - [ ] Silkscreen labels
-- [ ] DRC clean
+- [ ] DRC clean (8-layer rules)
+- [ ] Impedance verification
 
 ## KiCad Commands
 
 ```
-# Set track widths
+# Set track widths (8-layer design)
 Edit → Track & Via Properties:
-  - Signal: 0.2mm
-  - Power: 3.0mm
-  - High Power: 10.0mm
+  - Signal (L3, L6): 0.15mm
+  - Power (L1, L8): 3.0mm
+  - High Power: 8.0mm
+  - Via (Signal): 0.3mm/0.6mm
+  - Via (Power): 0.5mm/0.9mm
 
 # Create differential pairs
 Route → Differential Pairs
-  - USB_DP/USB_DM: 90Ω
-  - CAN_H/CAN_L: 120Ω
+  - USB_DP/USB_DM: 90Ω (0.15mm trace, 0.15mm gap)
+  - CAN_H/CAN_L: 120Ω (0.2mm trace, 0.2mm gap)
 
 # Via stitching
 Place → Via → Set Net: GND
   - Spacing: 5mm grid
+  - Around power stages: 2mm grid
+
+# Layer assignment
+L1/L8: Power, components
+L3/L6: High-speed signals
+L2/L7: GND planes (solid)
+L4: +12V plane
+L5: 5V/3.3V split plane
 ```
 
 ## References

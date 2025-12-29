@@ -56,10 +56,9 @@ All channels share a common base structure:
 
 ```json
 {
-  "id": "unique_channel_id",
+  "channel_id": 42,
   "channel_type": "logic",
   "channel_name": "Brake Light Logic",
-  "channel_id": 42,
   "enabled": true,
   "description": "Controls brake lights based on brake pedal input"
 }
@@ -67,20 +66,17 @@ All channels share a common base structure:
 
 | Field        | Required | Type    | Description                            |
 |--------------|----------|---------|----------------------------------------|
-| id           | Yes      | string  | Unique identifier (letters, numbers, _)|
+| channel_id   | Yes      | integer | Unique numeric identifier (0-999)      |
 | channel_type | Yes      | string  | Channel type (see below)               |
 | channel_name | No       | string  | Human-readable display name            |
-| channel_id   | No       | integer | Numeric ID for protocol (0-999)        |
 | enabled      | No       | boolean | Whether channel is active (default: true)|
 | description  | No       | string  | User notes about this channel          |
 
-### ID Naming Rules
+### Channel ID Rules
 
-- Must start with a letter (a-z, A-Z)
-- Can contain letters, numbers, and underscores
-- Maximum 32 characters
-- Must be unique within the configuration
-- Examples: `ignition_sw`, `Brake_Light_1`, `RPM_CAN_in`
+- Must be a unique integer within the configuration (0-999)
+- Auto-assigned by the Configurator when creating new channels
+- Used for all inter-channel references (e.g., `source_channel_id`, `input_channel_id`)
 
 ## Channel Types
 
@@ -92,8 +88,9 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "ignition_switch",
+  "channel_id": 1,
   "channel_type": "digital_input",
+  "channel_name": "Ignition Switch",
   "input_pin": 0,
   "subtype": "switch_active_low",
   "enable_pullup": true,
@@ -125,8 +122,9 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "oil_pressure",
+  "channel_id": 2,
   "channel_type": "analog_input",
+  "channel_name": "Oil Pressure",
   "input_pin": 4,
   "subtype": "linear",
   "pullup_option": "none",
@@ -164,13 +162,14 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "headlights",
+  "channel_id": 100,
   "channel_type": "power_output",
+  "channel_name": "Headlights",
   "output_pins": [0, 1],
-  "source_channel": "lights_logic",
+  "source_channel_id": 200,
   "pwm_enabled": false,
   "pwm_frequency_hz": 200,
-  "duty_channel": null,
+  "duty_channel_id": 0,
   "duty_fixed": 100,
   "soft_start_ms": 200,
   "current_limit_a": 15.0,
@@ -184,10 +183,10 @@ These channel types are bound to physical hardware pins.
 | Field            | Type    | Description                              |
 |------------------|---------|------------------------------------------|
 | output_pins      | array   | Physical output pin(s) (max 3)           |
-| source_channel   | string  | Channel that controls ON/OFF state       |
+| source_channel_id| integer | Channel ID that controls ON/OFF state (0=none) |
 | pwm_enabled      | boolean | Enable PWM output                        |
 | pwm_frequency_hz | integer | PWM frequency (1-20000 Hz)               |
-| duty_channel     | string  | Channel for variable duty cycle          |
+| duty_channel_id  | integer | Channel ID for variable duty cycle (0=none) |
 | duty_fixed       | number  | Fixed duty cycle (0-100%)                |
 | soft_start_ms    | integer | Soft start ramp time in ms               |
 | current_limit_a  | number  | Overcurrent protection threshold (A)     |
@@ -200,14 +199,15 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "window_motor",
+  "channel_id": 101,
   "channel_type": "hbridge",
+  "channel_name": "Window Motor",
   "bridge_number": 0,
-  "source_channel": "window_up",
-  "direction_channel": "window_direction",
-  "duty_channel": "window_speed",
+  "source_channel_id": 200,
+  "direction_source_channel_id": 201,
+  "pwm_source_channel_id": 202,
   "mode": "direct",
-  "pwm_frequency_hz": 20000,
+  "pwm_frequency": 20000,
   "current_limit_a": 25.0
 }
 ```
@@ -218,11 +218,12 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "brake_active",
+  "channel_id": 200,
   "channel_type": "logic",
+  "channel_name": "Brake Active",
   "operation": "or",
-  "channel": "brake_pedal",
-  "channel_2": "ebrake_switch",
+  "input_channel_id": 10,
+  "input_channel_2_id": 11,
   "true_delay_s": 0,
   "false_delay_s": 0.5
 }
@@ -239,10 +240,11 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "average_temp",
+  "channel_id": 201,
   "channel_type": "number",
+  "channel_name": "Average Temp",
   "operation": "average",
-  "inputs": ["temp_1", "temp_2", "temp_3"],
+  "input_channel_ids": [3, 4, 5],
   "multiplier": 1.0,
   "offset": 0,
   "clamp_min": 0,
@@ -256,11 +258,12 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "engine_runtime",
+  "channel_id": 202,
   "channel_type": "timer",
-  "start_channel": "engine_running",
+  "channel_name": "Engine Runtime",
+  "start_channel_id": 10,
   "start_edge": "rising",
-  "stop_channel": null,
+  "stop_channel_id": 0,
   "stop_edge": "rising",
   "mode": "count_up",
   "limit_hours": 99,
@@ -273,10 +276,11 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "oil_pressure_filtered",
+  "channel_id": 203,
   "channel_type": "filter",
+  "channel_name": "Oil Pressure Filtered",
   "filter_type": "moving_avg",
-  "input_channel": "oil_pressure_raw",
+  "input_channel_id": 5,
   "window_size": 10
 }
 ```
@@ -287,12 +291,13 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "wiper_speed",
+  "channel_id": 204,
   "channel_type": "switch",
+  "channel_name": "Wiper Speed",
   "switch_type": "latching",
-  "input_up_channel": "wiper_up_btn",
+  "input_up_channel_id": 20,
   "input_up_edge": "rising",
-  "input_down_channel": "wiper_down_btn",
+  "input_down_channel_id": 21,
   "input_down_edge": "rising",
   "state_first": 0,
   "state_last": 3,
@@ -304,9 +309,10 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "oil_temp_warning",
+  "channel_id": 205,
   "channel_type": "table_2d",
-  "x_axis_channel": "oil_temp",
+  "channel_name": "Oil Temp Warning",
+  "x_axis_channel_id": 8,
   "interpolation": "linear",
   "clamp_output": true,
   "data": [
@@ -321,10 +327,11 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "boost_target",
+  "channel_id": 206,
   "channel_type": "table_3d",
-  "x_axis_channel": "rpm",
-  "y_axis_channel": "tps",
+  "channel_name": "Boost Target",
+  "x_axis_channel_id": 300,
+  "y_axis_channel_id": 301,
   "interpolation": "linear",
   "x_values": [1000, 2000, 3000, 4000, 5000],
   "y_values": [0, 25, 50, 75, 100],
@@ -344,8 +351,9 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "vehicle_speed",
+  "channel_id": 300,
   "channel_type": "can_rx",
+  "channel_name": "Vehicle Speed",
   "message_ref": "ECU_Data_1",
   "frame_offset": 0,
   "data_type": "unsigned",
@@ -381,8 +389,9 @@ These channel types are bound to physical hardware pins.
 
 ```json
 {
-  "id": "pmu_status",
+  "channel_id": 400,
   "channel_type": "can_tx",
+  "channel_name": "PMU Status",
   "can_bus": 1,
   "message_id": 768,
   "is_extended": false,
@@ -390,7 +399,7 @@ These channel types are bound to physical hardware pins.
   "signals": [
     {
       "name": "battery_voltage",
-      "source_channel": "system_voltage",
+      "source_channel_id": 900,
       "start_bit": 0,
       "bit_length": 16,
       "multiplier": 100,
@@ -469,10 +478,9 @@ The configuration is validated on load and before upload to device.
 
 1. **Required Fields**: `version`, `device`, `device.name`, `channels`
 2. **Channel IDs**:
-   - Must be unique
-   - Must match pattern `^[a-zA-Z][a-zA-Z0-9_]*$`
-   - Maximum 32 characters
-3. **Channel References**: Must point to existing channel IDs
+   - Must be unique integers (0-999)
+   - Auto-assigned by the Configurator
+3. **Channel References**: All `*_channel_id` fields must point to existing channel IDs (or 0 for none)
 4. **Pin Assignments**: Physical pins can only be used once
 5. **CAN Message References**: `message_ref` must exist in `can_messages`
 6. **Divider Values**: Cannot be zero
@@ -503,9 +511,9 @@ Common validation errors and solutions:
 | Error | Cause | Solution |
 |-------|-------|----------|
 | `Missing required field: 'version'` | No version in config | Add `"version": "3.0"` |
-| `channel ID must start with a letter` | ID like `1_input` | Rename to `input_1` |
-| `references undefined channel 'xyz'` | Invalid channel reference | Fix the reference or create the channel |
-| `Duplicate channel ID: 'abc'` | Same ID used twice | Make IDs unique |
+| `channel_id must be integer` | Non-integer channel_id | Use integer (0-999) |
+| `references undefined channel_id: 42` | Invalid channel reference | Fix the reference or create the channel |
+| `Duplicate channel_id: 5` | Same ID used twice | Make IDs unique |
 | `divider cannot be zero` | CAN RX divider = 0 | Set divider to non-zero |
 
 ## Migration
@@ -514,8 +522,9 @@ Common validation errors and solutions:
 
 The system automatically migrates v2.0 configurations:
 - Separate arrays merged into unified `channels` array
-- `name` field copied to `id` if missing
-- `channel_id` auto-generated if missing
+- String `id` fields converted to integer `channel_id`
+- `name` field moved to `channel_name`
+- `channel_id` auto-assigned if missing
 
 ### From v1.x
 
@@ -540,15 +549,17 @@ Migration from v1.x is not supported. Create a new configuration.
   ],
   "channels": [
     {
-      "id": "ignition",
+      "channel_id": 1,
       "channel_type": "digital_input",
+      "channel_name": "Ignition",
       "input_pin": 0,
       "subtype": "switch_active_low",
       "debounce_ms": 50
     },
     {
-      "id": "rpm",
+      "channel_id": 2,
       "channel_type": "can_rx",
+      "channel_name": "RPM",
       "message_ref": "ECU_Status",
       "data_format": "16bit",
       "byte_offset": 0,
@@ -556,18 +567,20 @@ Migration from v1.x is not supported. Create a new configuration.
       "divider": 1
     },
     {
-      "id": "engine_running",
+      "channel_id": 3,
       "channel_type": "logic",
-      "operation": "and",
-      "channel": "ignition",
-      "channel_2": "rpm",
+      "channel_name": "Engine Running",
+      "operation": "greater",
+      "input_channel_id": 2,
+      "input_channel_2_id": 0,
       "constant": 500
     },
     {
-      "id": "fuel_pump",
+      "channel_id": 100,
       "channel_type": "power_output",
+      "channel_name": "Fuel Pump",
       "output_pins": [0],
-      "source_channel": "engine_running",
+      "source_channel_id": 3,
       "current_limit_a": 10.0
     }
   ],

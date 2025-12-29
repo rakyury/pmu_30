@@ -114,8 +114,9 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "di_ignition",
+  "channel_id": 1,
   "channel_type": "digital_input",
+  "channel_name": "Ignition",
   "enabled": true,
   "subtype": "switch_active_high",
   "input_pin": 0,
@@ -142,8 +143,9 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "ai_coolant_temp",
+  "channel_id": 21,
   "channel_type": "analog_input",
+  "channel_name": "Coolant Temp",
   "enabled": true,
   "subtype": "calibrated",
   "input_pin": 0,
@@ -182,14 +184,15 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "out_fuel_pump",
+  "channel_id": 100,
   "channel_type": "power_output",
+  "channel_name": "Fuel Pump",
   "enabled": true,
   "output_pins": [0, 1],
-  "source_channel": "logic_fuel_pump",
+  "source_channel_id": 200,
   "pwm_enabled": false,
   "pwm_frequency_hz": 1000,
-  "duty_channel": "",
+  "duty_channel_id": 0,
   "duty_fixed": 100.0,
   "soft_start_ms": 100,
   "current_limit_a": 15.0,
@@ -203,10 +206,10 @@ Channels are stored in a unified array with `channel_type` discriminator.
 | Parameter | Type | Range | Description |
 |-----------|------|-------|-------------|
 | output_pins | array | 0-29 | Output pin numbers (max 3) |
-| source_channel | string | - | Boolean control channel |
+| source_channel_id | integer | 0+ | Channel ID for ON/OFF control (0=none) |
 | pwm_enabled | boolean | - | Enable PWM mode |
 | pwm_frequency_hz | integer | 1-20000 | PWM frequency |
-| duty_channel | string | - | Duty cycle source channel |
+| duty_channel_id | integer | 0+ | Channel ID for duty cycle (0=none) |
 | duty_fixed | number | 0-100 | Fixed duty cycle % |
 | soft_start_ms | integer | 0-5000 | Soft start duration |
 | current_limit_a | number | 0.1-40.0 | Current limit |
@@ -219,8 +222,9 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "crx_rpm",
+  "channel_id": 300,
   "channel_type": "can_rx",
+  "channel_name": "RPM",
   "enabled": true,
   "message_ref": "msg_ecu_base",
   "frame_offset": 0,
@@ -260,17 +264,17 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "ctx_pmu_status",
+  "channel_id": 500,
   "channel_type": "can_tx",
+  "channel_name": "PMU Status",
   "enabled": true,
-  "name": "PMU Status",
   "can_bus": 1,
   "message_id": 1536,
   "is_extended": false,
   "dlc": 8,
   "transmit_mode": "cycle",
   "cycle_frequency_hz": 20,
-  "trigger_channel": "",
+  "trigger_channel_id": 0,
   "trigger_edge": "rising",
   "signals": [
     {
@@ -278,7 +282,7 @@ Channels are stored in a unified array with `channel_type` discriminator.
       "data_type": "unsigned",
       "data_format": "16bit",
       "byte_order": "little_endian",
-      "source_channel": "ai_battery_voltage",
+      "source_channel_id": 50,
       "multiplier": 100.0
     }
   ]
@@ -293,7 +297,7 @@ Channels are stored in a unified array with `channel_type` discriminator.
 | dlc | integer | 0-8 | Data length |
 | transmit_mode | string | cycle, triggered | Transmission mode |
 | cycle_frequency_hz | integer | 1-1000 | Cycle frequency |
-| trigger_channel | string | - | Trigger source channel |
+| trigger_channel_id | integer | 0+ | Channel ID for trigger (0=none) |
 | trigger_edge | string | rising, falling, both | Trigger edge |
 | signals | array | - | Signal mappings (max 8) |
 
@@ -301,11 +305,12 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "logic_fan_control",
+  "channel_id": 200,
   "channel_type": "logic",
+  "channel_name": "Fan Control",
   "enabled": true,
   "operation": "greater",
-  "channel": "ai_coolant_temp",
+  "input_channel_id": 21,
   "constant": 95.0,
   "true_delay_s": 0.0,
   "false_delay_s": 5.0
@@ -316,39 +321,40 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 | Operation | Description | Parameters |
 |-----------|-------------|------------|
-| is_true | Input is true | channel |
-| is_false | Input is false | channel |
-| equal | A == constant | channel, constant |
-| not_equal | A != constant | channel, constant |
-| less | A < constant | channel, constant |
-| greater | A > constant | channel, constant |
-| less_equal | A <= constant | channel, constant |
-| greater_equal | A >= constant | channel, constant |
-| in_range | lower <= A <= upper | channel, lower_value, upper_value |
-| and | A AND B | channel, channel_2 |
-| or | A OR B | channel, channel_2 |
-| xor | A XOR B | channel, channel_2 |
-| not | NOT A | channel |
-| nand | NOT(A AND B) | channel, channel_2 |
-| nor | NOT(A OR B) | channel, channel_2 |
-| edge_rising | Rising edge detect | channel |
-| edge_falling | Falling edge detect | channel |
-| changed | Value changed | channel, threshold, time_on_s |
-| hysteresis | Hysteresis comparator | channel, upper_value, lower_value, polarity |
-| set_reset_latch | SR latch | set_channel, reset_channel, default_state |
-| toggle | Toggle on edge | toggle_channel, edge |
-| pulse | Pulse generator | channel, pulse_count, time_on_s, retrigger |
-| flash | Oscillator | channel, time_on_s, time_off_s |
+| is_true | Input is true | channel_id |
+| is_false | Input is false | channel_id |
+| equal | A == constant | channel_id, constant |
+| not_equal | A != constant | channel_id, constant |
+| less | A < constant | channel_id, constant |
+| greater | A > constant | channel_id, constant |
+| less_equal | A <= constant | channel_id, constant |
+| greater_equal | A >= constant | channel_id, constant |
+| in_range | lower <= A <= upper | channel_id, lower_value, upper_value |
+| and | A AND B | channel_id, channel_2_id |
+| or | A OR B | channel_id, channel_2_id |
+| xor | A XOR B | channel_id, channel_2_id |
+| not | NOT A | channel_id |
+| nand | NOT(A AND B) | channel_id, channel_2_id |
+| nor | NOT(A OR B) | channel_id, channel_2_id |
+| edge_rising | Rising edge detect | channel_id |
+| edge_falling | Falling edge detect | channel_id |
+| changed | Value changed | channel_id, threshold, time_on_s |
+| hysteresis | Hysteresis comparator | channel_id, upper_value, lower_value, polarity |
+| set_reset_latch | SR latch | set_channel_id, reset_channel_id, default_state |
+| toggle | Toggle on edge | toggle_channel_id, edge |
+| pulse | Pulse generator | channel_id, pulse_count, time_on_s, retrigger |
+| flash | Oscillator | channel_id, time_on_s, time_off_s |
 
 ### 4.7 Number Channel
 
 ```json
 {
-  "id": "num_total_current",
+  "channel_id": 400,
   "channel_type": "number",
+  "channel_name": "Total Current",
   "enabled": true,
   "operation": "add",
-  "inputs": ["out_current_1", "out_current_2", "out_current_3"],
+  "input_channel_ids": [100, 101, 102],
   "constant_value": 0.0,
   "clamp_min": 0.0,
   "clamp_max": 200.0
@@ -374,12 +380,13 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "timer_engine_runtime",
+  "channel_id": 410,
   "channel_type": "timer",
+  "channel_name": "Engine Runtime",
   "enabled": true,
-  "start_channel": "di_ignition",
+  "start_channel_id": 1,
   "start_edge": "rising",
-  "stop_channel": "",
+  "stop_channel_id": 0,
   "stop_edge": "falling",
   "mode": "count_up",
   "limit_hours": 999,
@@ -392,11 +399,12 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "filter_oil_pressure",
+  "channel_id": 420,
   "channel_type": "filter",
+  "channel_name": "Oil Pressure Filtered",
   "enabled": true,
   "filter_type": "moving_avg",
-  "input_channel": "ai_oil_pressure",
+  "input_channel_id": 28,
   "window_size": 10,
   "time_constant": 0.1
 }
@@ -414,10 +422,11 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "table_fan_speed",
+  "channel_id": 430,
   "channel_type": "table_2d",
+  "channel_name": "Fan Speed",
   "enabled": true,
-  "x_axis_channel": "ai_coolant_temp",
+  "x_axis_channel_id": 21,
   "x_axis_type": "channel",
   "interpolation": "linear",
   "clamp_output": true,
@@ -434,11 +443,12 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "table_boost_target",
+  "channel_id": 440,
   "channel_type": "table_3d",
+  "channel_name": "Boost Target",
   "enabled": true,
-  "x_axis_channel": "crx_rpm",
-  "y_axis_channel": "crx_tps",
+  "x_axis_channel_id": 300,
+  "y_axis_channel_id": 301,
   "interpolation": "linear",
   "x_values": [1000, 2000, 3000, 4000, 5000],
   "y_values": [0, 25, 50, 75, 100],
@@ -456,13 +466,14 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "switch_lights_mode",
+  "channel_id": 450,
   "channel_type": "switch",
+  "channel_name": "Lights Mode",
   "enabled": true,
   "switch_type": "latching",
-  "input_up_channel": "di_button_up",
+  "input_up_channel_id": 10,
   "input_up_edge": "rising",
-  "input_down_channel": "di_button_down",
+  "input_down_channel_id": 11,
   "input_down_edge": "rising",
   "state_first": 0,
   "state_last": 3,
@@ -474,8 +485,9 @@ Channels are stored in a unified array with `channel_type` discriminator.
 
 ```json
 {
-  "id": "enum_gear",
+  "channel_id": 600,
   "channel_type": "enum",
+  "channel_name": "Gear",
   "enabled": true,
   "is_bitfield": false,
   "items": [

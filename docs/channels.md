@@ -78,7 +78,8 @@ Reads digital HIGH/LOW states from switch inputs, buttons, or digital sensors.
 **Example - Ignition Switch:**
 ```json
 {
-  "id": "ignition",
+  "channel_id": 1,
+  "channel_name": "Ignition",
   "channel_type": "digital_input",
   "input_pin": 0,
   "subtype": "switch_active_low",
@@ -91,7 +92,8 @@ Reads digital HIGH/LOW states from switch inputs, buttons, or digital sensors.
 **Example - RPM Input:**
 ```json
 {
-  "id": "engine_rpm",
+  "channel_id": 2,
+  "channel_name": "Engine RPM",
   "channel_type": "digital_input",
   "input_pin": 3,
   "subtype": "rpm",
@@ -146,7 +148,8 @@ Converts analog voltage to a digital on/off signal using configurable thresholds
 **Example - Button on Analog Pin:**
 ```json
 {
-  "id": "start_button",
+  "channel_id": 21,
+  "channel_name": "Start Button",
   "channel_type": "analog_input",
   "subtype": "switch_active_high",
   "input_pin": 0,
@@ -178,7 +181,8 @@ Detects multi-position rotary switches using voltage divider networks.
 **Example - 6-Position Mode Selector:**
 ```json
 {
-  "id": "drive_mode",
+  "channel_id": 22,
+  "channel_name": "Drive Mode",
   "channel_type": "analog_input",
   "subtype": "rotary_switch",
   "input_pin": 3,
@@ -223,7 +227,8 @@ output = min_value + ───────────────────�
 **Example - Oil Pressure Sensor (0.5-4.5V = 0-10 bar):**
 ```json
 {
-  "id": "oil_pressure",
+  "channel_id": 23,
+  "channel_name": "Oil Pressure",
   "channel_type": "analog_input",
   "subtype": "linear",
   "input_pin": 4,
@@ -241,7 +246,8 @@ output = min_value + ───────────────────�
 **Example - Fuel Level Sender (240Ω empty, 33Ω full with 10K pullup):**
 ```json
 {
-  "id": "fuel_level",
+  "channel_id": 24,
+  "channel_name": "Fuel Level",
   "channel_type": "analog_input",
   "subtype": "linear",
   "input_pin": 5,
@@ -276,7 +282,8 @@ Uses a multi-point lookup table for non-linear sensors like thermistors.
 **Example - NTC Thermistor (Coolant Temperature):**
 ```json
 {
-  "id": "coolant_temp",
+  "channel_id": 25,
+  "channel_name": "Coolant Temp",
   "channel_type": "analog_input",
   "subtype": "calibrated",
   "input_pin": 6,
@@ -357,7 +364,8 @@ The PMU-30 uses a comprehensive quantity/unit system for display purposes. Value
 **Example with Quantity/Unit:**
 ```json
 {
-  "id": "boost_pressure",
+  "channel_id": 26,
+  "channel_name": "Boost Pressure",
   "channel_type": "analog_input",
   "subtype": "linear",
   "input_pin": 7,
@@ -394,7 +402,8 @@ Controls high-side PROFET switches with protection features.
 **Example - Headlights with Soft Start (PWM ramp-up):**
 ```json
 {
-  "id": "headlights",
+  "channel_id": 100,
+  "channel_name": "Headlights",
   "channel_type": "power_output",
   "output_pins": [0, 1],
   "source_channel_id": 200,
@@ -413,7 +422,8 @@ Controls high-side PROFET switches with protection features.
 **Example - LED Bar with PWM Dimming:**
 ```json
 {
-  "id": "led_bar",
+  "channel_id": 101,
+  "channel_name": "LED Bar",
   "channel_type": "power_output",
   "output_pins": [5],
   "source_channel_id": 200,
@@ -445,7 +455,8 @@ Controls DC motors with bidirectional operation.
 **Example - Power Window Motor:**
 ```json
 {
-  "id": "window_motor",
+  "channel_id": 130,
+  "channel_name": "Window Motor",
   "channel_type": "hbridge",
   "bridge_number": 0,
   "source_channel_id": 200,
@@ -492,11 +503,12 @@ Boolean operations on input channels.
 **Example - Brake Light Logic:**
 ```json
 {
-  "id": "brake_active",
+  "channel_id": 200,
+  "channel_name": "Brake Active",
   "channel_type": "logic",
   "operation": "or",
-  "channel_id": 10,
-  "channel_2_id": 11,
+  "input_channel_id": 10,
+  "input_channel_2_id": 11,
   "false_delay_s": 0.5
 }
 ```
@@ -529,10 +541,11 @@ Mathematical operations on numeric values.
 **Example - Average Temperature:**
 ```json
 {
-  "id": "avg_temp",
+  "channel_id": 400,
+  "channel_name": "Avg Temp",
   "channel_type": "number",
   "operation": "average",
-  "inputs": ["temp_1", "temp_2", "temp_3"],
+  "input_ids": [25, 27, 28],
   "decimal_places": 1
 }
 ```
@@ -550,9 +563,10 @@ Time measurement and countdown functions.
 **Example - Engine Runtime:**
 ```json
 {
-  "id": "engine_runtime",
+  "channel_id": 401,
+  "channel_name": "Engine Runtime",
   "channel_type": "timer",
-  "start_channel": "engine_running",
+  "start_channel_id": 201,
   "start_edge": "rising",
   "mode": "count_up"
 }
@@ -572,10 +586,11 @@ Signal smoothing and noise reduction.
 **Example - Smoothed Oil Pressure:**
 ```json
 {
-  "id": "oil_pressure_smooth",
+  "channel_id": 402,
+  "channel_name": "Oil Pressure Smooth",
   "channel_type": "filter",
   "filter_type": "moving_avg",
-  "input_channel_id": 205,
+  "input_channel_id": 23,
   "window_size": 10
 }
 ```
@@ -587,7 +602,8 @@ Multi-state selector controlled by up/down inputs.
 **Example - Wiper Speed Selector:**
 ```json
 {
-  "id": "wiper_mode",
+  "channel_id": 403,
+  "channel_name": "Wiper Mode",
   "channel_type": "switch",
   "switch_type": "latching",
   "input_up_channel_id": 15,
@@ -605,7 +621,8 @@ Lookup tables for non-linear mappings.
 **Example - Boost Target Map:**
 ```json
 {
-  "id": "boost_target",
+  "channel_id": 404,
+  "channel_name": "Boost Target",
   "channel_type": "table_3d",
   "x_axis_channel_id": 300,
   "y_axis_channel_id": 301,
@@ -629,7 +646,8 @@ Interface with CAN bus for data exchange.
 **CAN RX** - Receive values from CAN messages:
 ```json
 {
-  "id": "vehicle_speed",
+  "channel_id": 300,
+  "channel_name": "Vehicle Speed",
   "channel_type": "can_rx",
   "message_ref": "ECU_Data",
   "data_format": "16bit",
@@ -642,7 +660,8 @@ Interface with CAN bus for data exchange.
 **CAN TX** - Transmit values on CAN bus:
 ```json
 {
-  "id": "pmu_status",
+  "channel_id": 500,
+  "channel_name": "PMU Status",
   "channel_type": "can_tx",
   "can_bus": 1,
   "message_id": 768,
@@ -729,10 +748,11 @@ System channels can be referenced like any other channel:
 
 ```json
 {
-  "id": "low_voltage_warning",
+  "channel_id": 201,
+  "channel_name": "Low Voltage Warning",
   "channel_type": "logic",
   "operation": "less",
-  "channel_id": 1000,
+  "input_channel_id": 1000,
   "constant": 11500
 }
 ```
@@ -741,7 +761,8 @@ System channels can be referenced like any other channel:
 
 ```json
 {
-  "id": "output_current_table",
+  "channel_id": 405,
+  "channel_name": "Output Current Table",
   "channel_type": "table_2d",
   "x_axis_channel_id": 1130,
   "data": [
@@ -765,9 +786,9 @@ The firmware processes channels in a specific order each control cycle:
 
 ## Channel ID Assignment
 
-Every channel has two identifiers:
-- **`id`** (string) - Human-readable identifier used in configuration files
-- **`channel_id`** (integer) - Numeric ID used by firmware for fast lookups
+Every channel has the following identifiers:
+- **`channel_id`** (integer, required) - Numeric ID used by firmware for fast lookups
+- **`channel_name`** (string, optional) - Human-readable name for display in UI
 
 ### Channel ID Ranges
 
@@ -831,43 +852,43 @@ You can specify `channel_id` manually in the JSON:
 
 ```json
 {
-  "id": "ignition",
+  "channel_id": 3,
+  "channel_name": "Ignition",
   "channel_type": "digital_input",
-  "channel_id": 250,
   "input_pin": 0
 }
 ```
 
 **Note:** Manual IDs must be:
-- In user range (200-999)
+- In the appropriate range for the channel type
 - Not already in use
 - Unique within the configuration
 
-### String ID vs Numeric ID
+### Channel ID and Name
 
-| Aspect | `id` (string) | `channel_id` (integer) |
-|--------|---------------|------------------------|
-| Used in | Config files, UI | Firmware runtime |
-| Format | `ignition_switch` | `250` |
-| Lookup speed | O(n) hash lookup | O(1) array index |
-| References | `source_channel: "ignition"` | Internal only |
-| Persistence | JSON config | JSON config |
+| Aspect | `channel_id` (integer) | `channel_name` (string) |
+|--------|------------------------|-------------------------|
+| Required | Yes | No (optional) |
+| Used in | Firmware runtime, JSON config | UI display |
+| Format | `250` | `"Ignition Switch"` |
+| Lookup speed | O(1) array index | N/A |
+| References | All channel references | Display only |
 
 ### ID Resolution at Startup
 
 When configuration is loaded, the firmware:
 
 1. Parses all channel definitions
-2. Maps string `id` to numeric `channel_id`
-3. Resolves string references (e.g., `source_channel: "ignition"`)
+2. Uses numeric `channel_id` directly for lookups
+3. Resolves all channel references (e.g., `source_channel_id: 200`)
 4. Builds channel lookup table indexed by `channel_id`
 
 ```
 Config:                              Runtime:
 ┌─────────────────────────┐         ┌─────────────────────────┐
-│ "source_channel":       │  ──►    │ source_channel_id: 250  │
-│   "ignition"            │         │                         │
-│ "channel_id": 250       │         │ channels[250] = {...}   │
+│ "source_channel_id":    │  ──►    │ source_channel_id: 200  │
+│   200                   │         │                         │
+│ "channel_id": 100       │         │ channels[100] = {...}   │
 └─────────────────────────┘         └─────────────────────────┘
 ```
 
@@ -884,7 +905,7 @@ Channels reference each other by numeric `channel_id`:
 ```
 
 **Important:** All channel references in JSON configuration use integer IDs:
-- `channel_id`, `channel_2_id` - Logic inputs
+- `input_channel_id`, `input_channel_2_id` - Logic inputs
 - `source_channel_id` - Output activation source
 - `duty_channel_id` - PWM duty source
 - `input_ids` - Array of input channel IDs
@@ -924,7 +945,8 @@ Channels can specify a **quantity** (physical measurement type) and **unit** for
 
 ```json
 {
-  "id": "oil_pressure",
+  "channel_id": 27,
+  "channel_name": "Oil Pressure",
   "channel_type": "analog_input",
   "input_pin": 5,
   "quantity": "Pressure",
@@ -1024,10 +1046,11 @@ For CAN transmission, values are scaled using `multiplier`:
 
 ```json
 {
-  "id": "ecu_pressure_out",
+  "channel_id": 501,
+  "channel_name": "ECU Pressure Out",
   "channel_type": "can_tx",
   "signals": [{
-    "source_channel": "oil_pressure",
+    "source_channel_id": 5,
     "start_bit": 0,
     "bit_length": 16,
     "multiplier": 10
@@ -1050,8 +1073,8 @@ CAN value = channel_value × multiplier
 
 ## Best Practices
 
-1. **Use descriptive IDs**: `fuel_pump_relay` not `output_1`
-2. **Group related channels**: Use naming conventions like `wiper_*`, `lights_*`
+1. **Use descriptive names**: `Fuel Pump Relay` not `Output 1`
+2. **Group related channels**: Use naming conventions like `Wiper *`, `Lights *`
 3. **Document with descriptions**: Add `description` field for complex logic
 4. **Use filters for noisy signals**: Apply moving average to analog sensors
 5. **Protect outputs**: Set appropriate current limits and retry counts

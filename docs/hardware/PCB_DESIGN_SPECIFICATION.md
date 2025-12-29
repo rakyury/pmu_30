@@ -31,21 +31,21 @@ This document provides comprehensive specifications for the PCB design and manuf
 
 ## 2. Mechanical Specifications
 
-### 2.1 Enclosure Dimensions (Based on ECUMaster PMU +15% height)
+### 2.1 Enclosure Dimensions
 
 | Dimension | Value | Tolerance |
 |-----------|-------|-----------|
-| **Length** | 131.0 mm | +/-0.5 mm |
-| **Width** | 129.0 mm | +/-0.5 mm |
-| **Height** | 37.4 mm | +/-0.3 mm |
+| **Length** | 156.0 mm | +/-0.5 mm |
+| **Width** | 126.0 mm | +/-0.5 mm |
+| **Height** | 40.0 mm | +/-0.3 mm |
 | **Corner Radius** | 6.0 mm | +/-0.2 mm |
 
 ### 2.2 PCB Dimensions
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| **PCB Length** | 125.0 mm | 3mm clearance each side |
-| **PCB Width** | 123.0 mm | 3mm clearance each side |
+| **PCB Length** | 150.0 mm | 3mm clearance each side |
+| **PCB Width** | 120.0 mm | 3mm clearance each side |
 | **PCB Thickness** | 2.4 mm | Heavy copper requirement |
 | **Max Component Height (Top)** | 12.0 mm | For connectors |
 | **Max Component Height (Bottom)** | 8.0 mm | Thermal interface |
@@ -55,9 +55,9 @@ This document provides comprehensive specifications for the PCB design and manuf
 | Hole | X Position | Y Position | Diameter | Type |
 |------|------------|------------|----------|------|
 | M1 | 6.0 mm | 6.0 mm | 3.2 mm (M3) | Plated, isolated |
-| M2 | 119.0 mm | 6.0 mm | 3.2 mm (M3) | Plated, isolated |
-| M3 | 6.0 mm | 117.0 mm | 3.2 mm (M3) | Plated, isolated |
-| M4 | 119.0 mm | 117.0 mm | 3.2 mm (M3) | Plated, isolated |
+| M2 | 144.0 mm | 6.0 mm | 3.2 mm (M3) | Plated, isolated |
+| M3 | 6.0 mm | 114.0 mm | 3.2 mm (M3) | Plated, isolated |
+| M4 | 144.0 mm | 114.0 mm | 3.2 mm (M3) | Plated, isolated |
 
 ### 2.4 Enclosure Specifications
 
@@ -139,13 +139,43 @@ This document provides comprehensive specifications for the PCB design and manuf
 
 ### 3.5 CAN Bus Interfaces
 
+**CAN FD Interfaces (Bus 1, 2)**
+
 | Parameter | Specification |
 |-----------|---------------|
-| **CAN FD (Bus 1, 2)** | ISO 11898-1:2015, up to 5 Mbps |
-| **CAN 2.0 (Bus 3, 4)** | ISO 11898-1:2003, up to 1 Mbps |
-| **Termination** | 120 ohm switchable (software) |
-| **ESD Protection** | +/-15 kV HBM |
+| **Standard** | ISO 11898-1:2015 CAN FD |
+| **Arbitration Rate** | 125 kbps to 1 Mbps |
+| **Data Rate (BRS)** | Up to 5 Mbps |
+| **Payload** | 8, 12, 16, 20, 24, 32, 48, 64 bytes |
+| **Transceiver** | TJA1463 (CAN FD with SIC) |
+| **Termination** | 120Ω switchable (software controlled) |
+| **ESD Protection** | +/-15 kV HBM, +/-8 kV IEC 61000-4-2 |
+| **Bus Fault Tolerance** | -58V to +58V |
+| **Common Mode Range** | -12V to +12V |
+| **Loop Delay** | <150 ns |
+
+**CAN 2.0B Interfaces (Bus 3, 4)**
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Standard** | ISO 11898-1:2003 CAN 2.0B |
+| **Baud Rate** | 125, 250, 500, 1000 kbps |
+| **Payload** | 0-8 bytes |
+| **Transceiver** | TJA1051T/3 or MCP2562FD |
+| **Termination** | 120Ω switchable (software controlled) |
+| **ESD Protection** | +/-8 kV HBM |
 | **Bus Fault Tolerance** | -27V to +40V |
+
+**CAN Bus Common Features**
+
+| Feature | Specification |
+|---------|---------------|
+| **Message Filters** | 28 filter banks per interface |
+| **TX Mailboxes** | 3 per interface |
+| **RX FIFOs** | 2 per interface (64 messages each) |
+| **Error Handling** | Automatic retransmission, bus-off recovery |
+| **Wake-up** | CAN wake-up from low-power mode |
+| **BlinkMarine Support** | PKP-2200/2400/2600-SI keypads on any bus |
 
 ---
 
@@ -282,7 +312,58 @@ This document provides comprehensive specifications for the PCB design and manuf
 | **Gyroscope** | +/-2000 dps |
 | **Interface** | SPI |
 
-### 5.9 Protection Components
+### 5.9 GPS/GNSS Module
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Part Number** | u-blox MAX-M10S or NEO-M9N |
+| **Constellation** | GPS, GLONASS, Galileo, BeiDou |
+| **Position Accuracy** | 1.5m CEP |
+| **Update Rate** | Up to 25 Hz |
+| **Time to First Fix** | <1s hot, <26s cold |
+| **Interface** | UART (115200 baud) |
+| **Antenna** | External active antenna via U.FL |
+| **Protocol** | NMEA 0183, UBX binary |
+| **Power** | 3.3V, 25mA typical |
+| **Operating Temp** | -40°C to +85°C |
+
+**Applications:**
+- High-precision speed measurement
+- Position logging for track analysis
+- Time synchronization for data logging
+- Lap timing (when used with geofencing)
+- Distance and heading calculation
+
+### 5.10 BlinkMarine CAN Keypad Interface
+
+| Parameter | Specification |
+|-----------|---------------|
+| **Supported Models** | PKP-2200-SI, PKP-2400-SI, PKP-2600-SI |
+| **CAN Interface** | CAN 2.0B, 250/500 kbps |
+| **Protocol** | BlinkMarine proprietary (CAN-based) |
+| **Button States** | Press, Release, Long Press, Double Press |
+| **LED Control** | Per-button RGB LED control |
+| **Max Keypads** | 4 per CAN bus |
+| **Addressing** | Configurable node ID (0x01-0x7F) |
+
+**Features:**
+- Backlit silicone buttons (IP67 rated)
+- Customizable button legends
+- Multi-press detection (short, long, double)
+- LED feedback (green, red, amber, blue)
+- Rotary encoder support (PKP-2600-SI)
+- CAN message filtering for minimal bus load
+
+**CAN Message Format:**
+
+| Message | ID Range | Direction | Description |
+|---------|----------|-----------|-------------|
+| Button Status | 0x18FF0000 + NodeID | Keypad → PMU | Button press/release events |
+| LED Command | 0x18FF0100 + NodeID | PMU → Keypad | LED color and state control |
+| Rotary Data | 0x18FF0200 + NodeID | Keypad → PMU | Encoder position and delta |
+| Config | 0x18FF0300 + NodeID | Bidirectional | Configuration and setup |
+
+### 5.11 Protection Components
 
 **TVS Diodes (Power Input)**
 
@@ -616,9 +697,12 @@ This document provides comprehensive specifications for the PCB design and manuf
 | PROFET 25A | BTS7006-2EPA | BTS50010-1TAD | VNQ7040AJ |
 | H-Bridge | BTN8982TA | VNH5019A-E | BTS7960B |
 | CAN FD | TJA1463 | MCP2562FD | TCAN1042V |
+| CAN 2.0B | TJA1051T/3 | MCP2561 | SN65HVD230 |
 | Buck 5V | LM5146 | LMR36015 | TPS54560 |
 | Flash | W25Q512JVEIQ | IS25LP512MG | MX25L51245G |
 | IMU | BMI088 | LSM6DSO32 | ICM-42688-P |
+| GPS/GNSS | MAX-M10S | NEO-M9N | SAM-M10Q |
+| WiFi/BT | ESP32-C3-MINI-1 | ESP32-C6 | ESP32-S3 |
 
 ---
 
@@ -642,6 +726,7 @@ Rth = (125-85)/265 = 0.15 C/W
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | December 2024 | Initial release |
+| 1.1 | December 2025 | Updated PCB dimensions (150mm × 120mm), added GPS/GNSS module, BlinkMarine CAN keypad, expanded CAN specifications |
 
 ---
 

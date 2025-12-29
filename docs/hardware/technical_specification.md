@@ -1,6 +1,6 @@
 # PMU-30 Technical Specification (Hardware Design)
 
-**Document Version:** 1.1
+**Document Version:** 1.2
 **Date:** 2025-12-29
 **Status:** Implementation Phase
 **Owner:** R2 m-sport
@@ -528,9 +528,94 @@ When using CAN FD interfaces (CAN1, CAN2):
 
 ---
 
-## 5.5 LIN Bus
+## 5.5 GPS/GNSS Module
 
-#### 5.5.1 Interface
+### 5.5.1 Module Selection
+- **Recommended**: u-blox MAX-M10S or NEO-M9N
+- **Constellation**: GPS, GLONASS, Galileo, BeiDou (concurrent)
+- **Position Accuracy**: 1.5m CEP (open sky)
+- **Velocity Accuracy**: 0.05 m/s
+- **Update Rate**: Configurable 1-25 Hz
+- **Time to First Fix**: <1s hot start, <26s cold start
+- **Interface**: UART (115200 baud default)
+- **Protocol**: NMEA 0183, UBX binary
+
+### 5.5.2 Antenna
+- **Type**: External active antenna via U.FL connector
+- **Gain**: 15-30 dB LNA
+- **Voltage**: 3.3V bias (provided by module)
+- **Placement**: Keep-out zone 15mm radius on PCB
+
+### 5.5.3 Applications
+- High-precision vehicle speed measurement
+- Position logging for track analysis
+- Lap timing (geofence-based)
+- Time synchronization for data logging
+- Distance and heading calculation
+- Acceleration/deceleration analysis
+
+### 5.5.4 Data Available
+| Parameter | Update Rate | Resolution | Notes |
+|-----------|-------------|------------|-------|
+| Latitude/Longitude | 1-25 Hz | 0.0000001° | ~1cm resolution |
+| Altitude | 1-25 Hz | 0.1m | MSL or WGS84 |
+| Speed | 1-25 Hz | 0.01 m/s | Ground speed |
+| Heading | 1-25 Hz | 0.01° | Course over ground |
+| UTC Time | 1 Hz | 1ms | GPS time sync |
+| Satellites | 1 Hz | Count | Visible/used |
+| HDOP/PDOP | 1 Hz | 0.1 | Position accuracy |
+
+---
+
+## 5.6 BlinkMarine CAN Keypad Integration
+
+### 5.6.1 Supported Keypads
+- **PKP-2200-SI**: 6 buttons, no encoder
+- **PKP-2400-SI**: 8 buttons, no encoder
+- **PKP-2600-SI**: 6 buttons + rotary encoder
+
+### 5.6.2 CAN Interface
+- **Protocol**: CAN 2.0B
+- **Baud Rate**: 250 kbps or 500 kbps (configurable)
+- **Bus**: Any of CAN 1-4
+- **Max Keypads**: 4 per CAN bus
+- **Node ID**: 0x01-0x7F (configurable)
+
+### 5.6.3 Button Features
+- **Press Detection**: Short press, long press (>500ms), double press
+- **LED Feedback**: RGB LED per button
+- **Colors**: Red, Green, Blue, Amber, White, Off
+- **LED Modes**: Solid, Blink (1Hz, 2Hz), Flash on press
+- **IP Rating**: IP67 (silicone buttons)
+
+### 5.6.4 Encoder Features (PKP-2600-SI)
+- **Resolution**: 24 pulses per revolution
+- **Press Detection**: Encoder push button
+- **Acceleration**: Configurable speed multiplier
+- **Detents**: Tactile click feedback
+
+### 5.6.5 CAN Message Format
+| Message | CAN ID | Direction | Description |
+|---------|--------|-----------|-------------|
+| Button Status | 0x18FF00xx | RX | Button press/release events |
+| LED Control | 0x18FF01xx | TX | Set LED colors and states |
+| Encoder Data | 0x18FF02xx | RX | Position and delta values |
+| Configuration | 0x18FF03xx | TX/RX | Setup and query commands |
+
+*Note: xx = Node ID (01-7F)*
+
+### 5.6.6 Configurator Integration
+- Visual button mapping interface
+- Drag-and-drop output assignment
+- LED color preview
+- Real-time button state monitoring
+- Encoder value display
+
+---
+
+## 5.7 LIN Bus
+
+#### 5.7.1 Interface
 - **Standard**: LIN 2.2A
 - **Speed**: Up to 20kbps
 - **Mode**: Master or Slave (configurable)
@@ -540,19 +625,19 @@ When using CAN FD interfaces (CAN1, CAN2):
   - Window/mirror control
   - Diagnostic communication
 
-#### 5.5.2 Transceiver
+#### 5.7.2 Transceiver
 - **Type**: TJA1021 or similar
 - **Protection**: Short circuit, overvoltage
 - **Wake-up**: LIN wake-up capable
 
 ---
 
-## 5.6 Lua Scripting Engine
+## 5.8 Lua Scripting Engine
 
-### 5.6.1 Overview
+### 5.8.1 Overview
 PMU-30 includes an embedded Lua 5.4 scripting engine for advanced custom logic that cannot be achieved with built-in logic operations. This feature is inspired by RaceCapture's successful Lua implementation.
 
-### 5.6.2 Lua Engine Specifications
+### 5.8.2 Lua Engine Specifications
 - **Version**: Lua 5.4 (lightweight embedded version)
 - **Memory**: 256KB dedicated RAM for scripts
 - **Flash Storage**: Up to 128KB for script storage
@@ -560,7 +645,7 @@ PMU-30 includes an embedded Lua 5.4 scripting engine for advanced custom logic t
 - **Update Rate**: Configurable (10Hz - 500Hz)
 - **Script Slots**: Up to 10 independent scripts
 
-### 5.6.3 Available Lua APIs
+### 5.8.3 Available Lua APIs
 
 #### System Functions
 ```lua
@@ -660,7 +745,7 @@ constrain(value, min, max)
 movingAvg(channel, value, samples)
 ```
 
-### 5.6.4 Script Lifecycle
+### 5.8.4 Script Lifecycle
 
 #### Initialization
 ```lua
@@ -693,7 +778,7 @@ function onFault(channel, faultType)
 end
 ```
 
-### 5.6.5 Example Scripts
+### 5.8.5 Example Scripts
 
 #### Example 1: Custom Launch Control
 ```lua
@@ -789,7 +874,7 @@ function onTick()
 end
 ```
 
-### 5.6.6 Script Management
+### 5.8.6 Script Management
 - **Upload**: Via USB, WiFi, or configurator software
 - **Storage**: Scripts stored in external flash
 - **Editor**: Built-in editor in configurator with syntax highlighting
@@ -797,7 +882,7 @@ end
 - **Validation**: Syntax check before upload
 - **Runtime Protection**: Watchdog timer, memory limits, execution time limits
 
-### 5.6.7 Safety and Limitations
+### 5.8.7 Safety and Limitations
 - **Sandboxed**: Scripts cannot access system-critical functions
 - **Execution Time**: Max 10ms per tick (enforced)
 - **Memory Limits**: 256KB RAM limit
@@ -806,18 +891,18 @@ end
 
 ---
 
-## 5.7 CAN Database (DBC/CANX) Support
+## 5.9 CAN Database (DBC/CANX) Support
 
-### 5.7.1 Overview
+### 5.9.1 Overview
 PMU-30 supports industry-standard CAN database formats for seamless integration with existing vehicle systems and data acquisition equipment.
 
-### 5.7.2 Supported Formats
+### 5.9.2 Supported Formats
 - **DBC**: Vector CANdb++ database format
 - **KCD**: Kayak CAN definition (XML-based)
 - **SYM**: PEAK PCAN symbol file format
 - **Future**: CANX (extended format)
 
-### 5.7.3 DBC Import Capabilities
+### 5.9.3 DBC Import Capabilities
 
 #### Automatic Signal Mapping
 - Import complete CAN database files
@@ -1002,7 +1087,7 @@ Once mapped, CAN signals become virtual channels accessible throughout the syste
 - **Data Logging**: Automatically logged at 500 Hz
 - **Web Interface**: Real-time display and monitoring
 
-### 5.7.4 DBC Export Capabilities
+### 5.9.4 DBC Export Capabilities
 
 #### PMU Data Broadcasting
 Automatically generate DBC file for PMU signals:
@@ -1028,7 +1113,7 @@ BO_ 1537 PMU_Status: 8 PMU30
  SG_ System_State : 24|8@1+ (1,0) [0|255] "" ECU
 ```
 
-### 5.7.5 Integration Workflows
+### 5.9.5 Integration Workflows
 
 #### Workflow 1: ECU Integration
 1. Import ECU's DBC file
@@ -1048,7 +1133,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 3. Test PMU logic with simulated signals
 4. Validate before vehicle integration
 
-### 5.7.6 Configurator DBC Tools
+### 5.9.6 Configurator DBC Tools
 
 #### DBC Editor Features
 - Visual signal browser
@@ -1073,7 +1158,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 4. Generate DBC file
 5. Export for external tools
 
-### 5.7.7 Technical Implementation
+### 5.9.7 Technical Implementation
 
 #### DBC Parser
 - **Library**: Custom lightweight parser (C)
@@ -1087,7 +1172,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 - **Endianness**: Support both little/big endian
 - **Error Handling**: Out-of-range clamping, stale data timeout
 
-### 5.7.8 Limitations
+### 5.9.8 Limitations
 - **Max Signals**: 500 signals per DBC file
 - **Max Messages**: 200 messages per bus
 - **Update Rate**: Configurable (1Hz - 1kHz per message)
@@ -1223,22 +1308,28 @@ BO_ 1537 PMU_Status: 8 PMU30
 ### 9.1 Board Specifications
 
 #### 9.1.1 Dimensions
-- **Size**: Approximately 150mm × 120mm × 25mm
-- **Layers**: 6-layer minimum (8-layer preferred)
-- **Material**: FR-4, Tg 170°C minimum
+- **PCB Size**: 150mm × 120mm
+- **Board Thickness**: 2.4mm
+- **Enclosure Size**: 156mm × 126mm × 40mm
+- **Layers**: 8-layer
+- **Material**: FR-4, High-Tg (Tg ≥ 170°C)
 - **Copper Weight**:
-  - Power layers: 2oz (70µm)
-  - Signal layers: 1oz (35µm)
+  - Outer layers (L1, L8): 3oz (105µm)
+  - Power planes (L4, L5): 2oz (70µm)
+  - Signal layers (L3, L6): 1oz (35µm)
+  - Ground planes (L2, L7): 2oz (70µm)
 
-#### 9.1.2 Layer Stack-up (8-layer example)
-1. **Top**: Components, signals
-2. **GND**: Ground plane
-3. **Signal**: High-speed signals (USB, QSPI)
-4. **Power**: +5V, +3.3V planes
-5. **Power**: +12V plane (thick copper)
-6. **Signal**: CAN, I2C, SPI
-7. **GND**: Ground plane
-8. **Bottom**: Power outputs, components
+#### 9.1.2 Layer Stack-up (8-layer)
+| Layer | Function | Copper | Notes |
+|-------|----------|--------|-------|
+| L1 | Signal + Power | 105µm | Components, high-current |
+| L2 | GND Plane | 70µm | Solid ground reference |
+| L3 | Signal | 35µm | USB, QSPI (high-speed) |
+| L4 | Power (+12V) | 70µm | Main power distribution |
+| L5 | Power (+5V/3.3V) | 70µm | Logic power planes |
+| L6 | Signal | 35µm | CAN, I2C, SPI |
+| L7 | GND Plane | 70µm | Signal return path |
+| L8 | Signal + Power | 105µm | Bottom components |
 
 ### 9.2 Thermal Management
 
@@ -1415,6 +1506,7 @@ BO_ 1537 PMU_Status: 8 PMU30
 |---------|------|--------|---------|
 | 1.0 | 2025-12-21 | PMU-30 Team | Initial specification |
 | 1.1 | 2025-12-29 | PMU-30 Team | Updated to Implementation Phase, verified against firmware |
+| 1.2 | 2025-12-29 | PMU-30 Team | Updated PCB specs (150×120mm, 8-layer), added GPS/GNSS module (5.5), BlinkMarine keypad integration (5.6) |
 
 ---
 

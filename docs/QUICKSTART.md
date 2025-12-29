@@ -48,28 +48,34 @@ PMU30_Configurator_Setup.exe
 3. Select COM port or WiFi connection
 4. Click "Connect"
 
-### Create Your First Output
+### Create Input First
+
+Digital input on pin D1:
 
 ```json
 {
-  "id": "out_headlights",
-  "channel_type": "power_output",
-  "output_pins": [0],
-  "source_channel": "di_headlight_switch"
-}
-```
-
-### Create Input
-
-```json
-{
-  "id": "di_headlight_switch",
+  "channel_id": 1,
   "channel_type": "digital_input",
+  "channel_name": "Headlight Switch",
   "input_pin": 0,
   "subtype": "switch_active_low",
   "debounce_ms": 50
 }
 ```
+
+### Create Output Referencing the Input
+
+```json
+{
+  "channel_id": 100,
+  "channel_type": "power_output",
+  "channel_name": "Headlights",
+  "output_pins": [0],
+  "source_channel_id": 1
+}
+```
+
+> **Note:** Use `source_channel_id: 1` to reference the digital input with `channel_id: 1`.
 
 ### Upload Configuration
 
@@ -110,8 +116,9 @@ PMU_Channel_SetValue(101, 500);  // 50%
 {
   "channels": [
     {
-      "id": "ai_temp",
+      "channel_id": 21,
       "channel_type": "analog_input",
+      "channel_name": "Temperature Sensor",
       "input_pin": 0,
       "subtype": "calibrated",
       "calibration_points": [
@@ -120,22 +127,26 @@ PMU_Channel_SetValue(101, 500);  // 50%
       ]
     },
     {
-      "id": "l_fan_enable",
+      "channel_id": 200,
       "channel_type": "logic",
+      "channel_name": "Fan Enable",
       "operation": "hysteresis",
-      "channel": "ai_temp",
+      "source_channel_id": 21,
       "upper_value": 85,
       "lower_value": 75
     },
     {
-      "id": "out_fan",
+      "channel_id": 100,
       "channel_type": "power_output",
+      "channel_name": "Cooling Fan",
       "output_pins": [0],
-      "source_channel": "l_fan_enable"
+      "source_channel_id": 200
     }
   ]
 }
 ```
+
+> **Note:** The logic channel references the analog input via `source_channel_id: 21`, and the power output references the logic channel via `source_channel_id: 200`.
 
 ---
 
@@ -145,8 +156,9 @@ PMU_Channel_SetValue(101, 500);  // 50%
 
 ```json
 {
-  "id": "crx_rpm",
+  "channel_id": 300,
   "channel_type": "can_rx",
+  "channel_name": "Engine RPM",
   "can_bus": 1,
   "message_id": 256,
   "start_bit": 0,
@@ -160,13 +172,14 @@ PMU_Channel_SetValue(101, 500);  // 50%
 
 ```json
 {
-  "id": "ctx_status",
+  "channel_id": 500,
   "channel_type": "can_tx",
+  "channel_name": "PMU Status",
   "can_bus": 1,
   "message_id": 768,
   "cycle_time_ms": 100,
   "signals": [
-    {"source_channel": "ai_temp", "start_bit": 0, "length": 8}
+    {"source_channel_id": 5, "start_bit": 0, "length": 8}
   ]
 }
 ```
