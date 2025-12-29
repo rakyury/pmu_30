@@ -48,9 +48,12 @@ docs/
 │   ├── logic-examples.md
 │   └── scenarios.md
 │
-└── development/           ← DEVELOPER DOCS
-    ├── firmware-architecture.md
-    └── testing.md
+├── hardware/              ← HARDWARE SPECS
+│   ├── README.md
+│   ├── technical_specification.md
+│   └── PCB_DESIGN_SPECIFICATION.md
+│
+└── firmware_architecture.md ← FIRMWARE ARCHITECTURE
 ```
 
 ---
@@ -131,6 +134,7 @@ PMU-30 uses JSON configuration:
 | [logic-functions.md](reference/logic-functions.md) | Math, logic, timers, filters, PID |
 | [configuration.md](reference/configuration.md) | Complete JSON schema |
 | [protocol.md](reference/protocol.md) | Serial/WiFi protocol |
+| [firmware_architecture.md](firmware_architecture.md) | Firmware architecture, HAL, RTOS, boot sequence |
 
 ### Configurator UI
 
