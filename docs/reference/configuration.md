@@ -142,7 +142,8 @@ Complete JSON configuration schema and parameters reference.
   "current_limit": 20000,
   "inrush_current": 80000,
   "retry_count": 3,
-  "retry_delay_ms": 1000
+  "retry_delay_ms": 1000,
+  "shed_priority": 2
 }
 ```
 
@@ -160,6 +161,20 @@ Complete JSON configuration schema and parameters reference.
 | `inrush_current` | int | No | Inrush current limit in mA |
 | `retry_count` | int | No | Fault retry attempts (0-10) |
 | `retry_delay_ms` | int | No | Delay between retries |
+| `shed_priority` | int | No | Load shedding priority (0-10, see below) |
+
+**Load Shedding Priority:**
+
+The `shed_priority` field controls which outputs are disabled first during fault conditions (overcurrent, overtemperature, low voltage):
+
+| Priority | Behavior | Example Use Case |
+|----------|----------|------------------|
+| **0** | Never shed (critical) | ECU power, fuel pump, ignition |
+| **1-3** | Shed last (important) | Headlights, brake lights |
+| **4-6** | Shed middle (normal) | Interior lights, accessories |
+| **7-10** | Shed first (low priority) | Heated seats, auxiliary loads |
+
+When load shedding activates, outputs with the highest `shed_priority` number are disabled first until the fault condition clears.
 
 ### 3.4 H-Bridge Output
 

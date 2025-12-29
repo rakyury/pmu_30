@@ -134,6 +134,8 @@ typedef struct {
     uint8_t mac_address[6];        /* Local MAC address */
     int8_t tx_power;               /* Current TX power in dBm */
     uint32_t uptime_seconds;       /* Time since BT enabled */
+    uint32_t bytes_sent;           /* Total bytes sent */
+    uint32_t bytes_received;       /* Total bytes received */
 } PMU_BT_Status_t;
 
 /* Exported constants --------------------------------------------------------*/

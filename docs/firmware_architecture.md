@@ -1,7 +1,7 @@
 # PMU-30 Firmware Architecture
 
-**Document Version:** 3.0
-**Date:** 2025-12-29
+**Document Version:** 3.1
+**Date:** 2025-12-30
 **Target Platform:** STM32H743/H753
 **Owner:** R2 m-sport
 **Confidentiality:** Proprietary - Internal Use Only
@@ -110,6 +110,22 @@ This document provides comprehensive firmware architecture documentation for the
 |  |  Driver  | |  Flash   | |   RTC    | |    VM    | | Stream   |       |
 |  +----------+ +----------+ +----------+ +----------+ +----------+       |
 +=========================================================================+
+|                       ESP32 BRIDGE LAYER                                 |
++-------------------------------------------------------------------------+
+|  +-------------------------------------------------------------------+  |
+|  |                    ESP32-C3 Communication Bridge                   |  |
+|  |  - UART3 @ 115200 baud with 512-byte ring buffer                  |  |
+|  |  - AT command protocol (send/receive with timeout)                |  |
+|  |  - Async callbacks for notifications (WiFi, BLE events)           |  |
+|  |  - Hardware reset via GPIO (PD0=EN, PD1=IO0)                      |  |
+|  +-------------------------------------------------------------------+  |
+|  +------------------------+ +------------------------+                   |
+|  |      WiFi Driver       | |    Bluetooth Driver    |                   |
+|  |  - AP+STA mode         | |  - BLE GATT server     |                   |
+|  |  - AT+CWSAP/CWJAP      | |  - AT+BLEINIT/BLEADV   |                   |
+|  |  - TCP server          | |  - Characteristic TX   |                   |
+|  +------------------------+ +------------------------+                   |
++=========================================================================+
 |                       PROTECTION LAYER                                   |
 +-------------------------------------------------------------------------+
 |  +-------------------------------------------------------------------+  |
@@ -163,6 +179,9 @@ firmware/
 │   ├── pmu_bootloader.h             # Bootloader interface
 │   ├── pmu_flash.h                  # External flash API
 │   ├── pmu_pid.h                    # PID controller API
+│   ├── pmu_esp32.h                  # ESP32-C3 bridge API (220 lines)
+│   ├── pmu_wifi.h                   # WiFi driver API
+│   ├── pmu_bluetooth.h              # Bluetooth/BLE driver API
 │   └── ...
 │
 ├── src/                             # Source files (32 files)
@@ -183,6 +202,9 @@ firmware/
 │   ├── pmu_can_stream.c (930 lines) # CAN stream broadcast
 │   ├── pmu_bootloader.c (955 lines) # Bootloader interface
 │   ├── pmu_pid.c                    # PID controllers
+│   ├── pmu_esp32.c (450 lines)      # ESP32 bridge (AT commands)
+│   ├── pmu_wifi.c                   # WiFi via ESP32 AT commands
+│   ├── pmu_bluetooth.c              # Bluetooth via ESP32 AT commands
 │   └── ...
 │
 ├── lib/FreeRTOS/                    # FreeRTOS v10.5.1 kernel
@@ -329,9 +351,9 @@ static void CPU_CACHE_Enable(void)
 | **FDCAN2** | CAN bus 2 (CAN FD) | 1 Mbps / 5 Mbps |
 | **CAN3** | CAN bus 3 (CAN 2.0) | 1 Mbps |
 | **CAN4** | CAN bus 4 (CAN 2.0) | 1 Mbps |
-| **USART1** | ESP32-C3 WiFi module | 115200 baud |
-| **USART2** | USB Debug / Console | 115200 baud |
-| **USART3** | LIN bus (via TJA1020) | 19200 baud |
+| **USART1** | USB Debug / Console | 115200 baud |
+| **USART2** | LIN bus (via TJA1020) | 19200 baud |
+| **USART3** | ESP32-C3 WiFi/BT module | 115200 baud (AT commands) |
 | **SPI1** | External flash (W25Q512JV) | 50 MHz |
 | **I2C1** | IMU (LSM6DSO32X) | 400 kHz |
 | **IWDG1** | Independent Watchdog | 1 second timeout |
@@ -343,7 +365,8 @@ static void CPU_CACHE_Enable(void)
 | **GPIOA** | PA0-PA7 | ADC inputs 1-8 |
 | **GPIOB** | PB0-PB7 | Digital inputs 1-8 |
 | **GPIOC** | PC0-PC5 | ADC inputs 9-14 |
-| **GPIOD** | PD0-PD7 | PROFET control (DEN, IN, IS) |
+| **GPIOD** | PD0-PD1 | ESP32 control (PD0=EN, PD1=IO0) |
+| **GPIOD** | PD2-PD7 | PROFET control (DEN, IN, IS) |
 | **GPIOE** | PE0-PE15 | PROFET PWM outputs |
 | **GPIOF** | PF0-PF7 | H-Bridge control |
 | **GPIOG** | PG0-PG7 | CAN transceivers, LEDs |
@@ -1161,7 +1184,7 @@ Manages 4 CAN bus interfaces (2 CAN FD + 2 CAN 2.0).
 │                                  v                               │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                   FAULT RESPONSE                          │   │
-│  │  - Load shedding (priority-based)                         │   │
+│  │  - Load shedding (priority-based, see 10.5)               │   │
 │  │  - Channel disable                                        │   │
 │  │  - System shutdown (critical)                             │   │
 │  │  - Auto-recovery (after cooldown)                         │   │
@@ -1247,6 +1270,68 @@ static void IWDG_Init(void)
 - System reset if not refreshed (software hang protection)
 - Disabled during unit testing (`UNIT_TEST` flag)
 
+### 10.5 Load Shedding Priority System
+
+Load shedding is a critical protection mechanism that intelligently disables outputs during fault conditions (overcurrent, overtemperature) to reduce system load.
+
+**Priority Configuration:**
+
+Each power output has a `shed_priority` field (0-10):
+
+```c
+typedef struct {
+    /* ... other fields ... */
+    uint8_t shed_priority;  /* 0=critical (never shed), 1-10=shed order */
+} PMU_OutputConfig_t;
+```
+
+| Priority | Behavior | Example Use Case |
+|----------|----------|------------------|
+| **0** | Never shed (critical) | ECU power, fuel pump, ignition |
+| **1-3** | Shed last (important) | Headlights, brake lights |
+| **4-6** | Shed middle (normal) | Interior lights, accessories |
+| **7-10** | Shed first (low priority) | Heated seats, auxiliary loads |
+
+**Load Shedding Algorithm:**
+
+```c
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA)
+{
+    /* 1. Sort active outputs by shed_priority (highest first) */
+    /* 2. Starting from highest priority number, disable outputs */
+    /* 3. Track current reduction until target_reduction_mA reached */
+    /* 4. Return number of outputs shed */
+
+    for (each output sorted by priority descending) {
+        if (output.shed_priority == 0) continue;  /* Never shed critical */
+        disable_output(output);
+        shed_output_list[shed_count++] = output_index;
+        current_reduction += output.current_mA;
+        if (current_reduction >= target_reduction_mA) break;
+    }
+    return shed_count;
+}
+```
+
+**Load Shedding API:**
+
+```c
+/* Activate load shedding with target current reduction */
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA);
+
+/* Deactivate load shedding and re-enable shed outputs */
+uint8_t PMU_Protection_DeactivateLoadShedding(void);
+
+/* Query load shedding status */
+uint8_t PMU_Protection_IsLoadSheddingActive(void);
+uint8_t PMU_Protection_GetShedOutputCount(void);
+```
+
+**Automatic Triggers:**
+- Total current exceeds 1200A → Shed to reduce by 20%
+- Temperature exceeds 100°C → Shed high-priority outputs progressively
+- Battery voltage drops below 10.5V → Shed non-critical outputs
+
 ---
 
 ## 11. Communication Stack
@@ -1284,7 +1369,181 @@ static void IWDG_Init(void)
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 11.2 Packet Format
+### 11.2 ESP32-C3 Bridge Layer
+
+The ESP32-C3 module provides WiFi and Bluetooth connectivity via AT commands over UART3.
+
+**Bridge Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      STM32H743 (Main MCU)                        │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    PMU_ESP32 Bridge                          │ │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │ │
+│  │  │ Ring Buffer  │  │ AT Command   │  │ Async Callback   │  │ │
+│  │  │ (512 bytes)  │  │ Parser       │  │ System           │  │ │
+│  │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │ │
+│  │         │                 │                   │             │ │
+│  └─────────┼─────────────────┼───────────────────┼─────────────┘ │
+│            │                 │                   │               │
+│     ┌──────▼─────────────────▼───────────────────▼────────┐     │
+│     │                    UART3 @ 115200                    │     │
+│     └──────────────────────────┬──────────────────────────┘     │
+│                                │                                 │
+└────────────────────────────────┼─────────────────────────────────┘
+                                 │
+                       ┌─────────▼─────────┐
+                       │   ESP32-C3-MINI-1  │
+                       │   WiFi + BLE       │
+                       └───────────────────┘
+```
+
+**ESP32 Bridge API:**
+
+```c
+/* Initialization and control */
+HAL_StatusTypeDef PMU_ESP32_Init(void);
+HAL_StatusTypeDef PMU_ESP32_Reset(void);
+HAL_StatusTypeDef PMU_ESP32_DeInit(void);
+bool PMU_ESP32_IsReady(void);
+
+/* AT Command interface */
+HAL_StatusTypeDef PMU_ESP32_SendCommand(
+    const char* cmd,
+    char* response,
+    uint16_t response_size,
+    uint32_t timeout_ms
+);
+
+/* Async notification callbacks */
+typedef void (*PMU_ESP32_Callback_t)(const char* notification, void* user_data);
+void PMU_ESP32_SetCallback(PMU_ESP32_Callback_t callback, void* user_data);
+```
+
+**Ring Buffer Implementation:**
+
+```c
+/* 512-byte circular buffer for async UART RX */
+typedef struct {
+    uint8_t buffer[512];
+    volatile uint16_t head;  /* Write position */
+    volatile uint16_t tail;  /* Read position */
+} RingBuffer_t;
+
+/* Called from UART IRQ - adds bytes to buffer */
+void PMU_ESP32_UART_IRQHandler(uint8_t byte);
+
+/* Called from main loop - processes responses */
+void PMU_ESP32_Process(void);
+```
+
+### 11.3 WiFi Implementation (AT Commands)
+
+WiFi connectivity is implemented via ESP32 AT commands:
+
+| Function | AT Command | Description |
+|----------|------------|-------------|
+| `PMU_WiFi_Init()` | `AT+CWMODE=3` | Set AP+STA mode |
+| `PMU_WiFi_StartAP()` | `AT+CWSAP="PMU30_XXXX","password",1,3` | Start soft AP |
+| `PMU_WiFi_Connect()` | `AT+CWJAP="ssid","password"` | Connect to router |
+| `PMU_WiFi_Disconnect()` | `AT+CWQAP` | Disconnect from router |
+| `PMU_WiFi_StartServer()` | `AT+CIPSERVER=1,8080` | Start TCP server |
+| `PMU_WiFi_GetStatus()` | `AT+CWSTATE?` | Query connection state |
+| `PMU_WiFi_GetIP()` | `AT+CIPSTA?` | Get IP address |
+
+**WiFi Operating Modes:**
+
+```c
+typedef enum {
+    PMU_WIFI_MODE_OFF = 0,    /* WiFi disabled */
+    PMU_WIFI_MODE_STA,        /* Station mode (connect to router) */
+    PMU_WIFI_MODE_AP,         /* Access Point mode (create network) */
+    PMU_WIFI_MODE_AP_STA      /* Both AP and STA simultaneously */
+} PMU_WiFi_Mode_t;
+```
+
+**WiFi Async Notifications:**
+
+```c
+/* Callback for WiFi events */
+static void WiFi_AsyncCallback(const char* notification, void* user_data)
+{
+    if (strstr(notification, "WIFI GOT IP")) {
+        wifi_state.connected = true;
+        WiFi_ParseIP(notification);  /* Extract IP address */
+    }
+    else if (strstr(notification, "WIFI DISCONNECT")) {
+        wifi_state.connected = false;
+    }
+    else if (strstr(notification, "+STA_CONNECTED")) {
+        wifi_state.client_count++;  /* Client connected to AP */
+    }
+}
+```
+
+### 11.4 Bluetooth Implementation (AT Commands)
+
+Bluetooth Low Energy (BLE) is implemented via ESP32 AT commands:
+
+| Function | AT Command | Description |
+|----------|------------|-------------|
+| `PMU_Bluetooth_Init()` | `AT+BLEINIT=2` | Init as BLE server |
+| `PMU_Bluetooth_SetName()` | `AT+BLENAME="PMU30-XXXX"` | Set device name |
+| `PMU_Bluetooth_StartAdvertising()` | `AT+BLEADVSTART` | Start advertising |
+| `PMU_Bluetooth_StopAdvertising()` | `AT+BLEADVSTOP` | Stop advertising |
+| `PMU_Bluetooth_SendData()` | `AT+BLEGATTSNTFY=0,1,1,len` | Notify characteristic |
+| `PMU_Bluetooth_GetConnections()` | `AT+BLECONN?` | List connections |
+
+**BLE GATT Server Setup:**
+
+```c
+HAL_StatusTypeDef BT_CreateGATTServer(void)
+{
+    /* 1. Create GATT service */
+    PMU_ESP32_SendCommand("AT+BLEGATTSSRVCRE", resp, sizeof(resp), 1000);
+
+    /* 2. Start GATT service */
+    PMU_ESP32_SendCommand("AT+BLEGATTSSRVSTART", resp, sizeof(resp), 1000);
+
+    /* 3. Set advertising data */
+    PMU_ESP32_SendCommand("AT+BLEADVDATA=\"0201060908504D553330\"",
+                          resp, sizeof(resp), 1000);
+
+    return HAL_OK;
+}
+```
+
+**BLE Service UUIDs:**
+
+| Service | UUID | Description |
+|---------|------|-------------|
+| PMU Service | `0x1820` | Primary PMU service |
+| Telemetry Char | `0x2A6E` | Telemetry data (notify) |
+| Command Char | `0x2A6F` | Command input (write) |
+| Status Char | `0x2A6D` | Device status (read) |
+
+**BLE Async Notifications:**
+
+```c
+static void BT_AsyncCallback(const char* notification, void* user_data)
+{
+    if (strstr(notification, "+BLECONN:")) {
+        bt_state.connected = true;
+        bt_state.connection_count++;
+    }
+    else if (strstr(notification, "+BLEDISCONN:")) {
+        bt_state.connected = false;
+    }
+    else if (strstr(notification, "+WRITE:")) {
+        /* Data received on write characteristic */
+        BT_ParseWriteData(notification);
+    }
+}
+```
+
+### 11.5 Packet Format
 
 ```
 ┌────────┬─────────┬────────┬─────────────────┬────────┐
@@ -1295,7 +1554,7 @@ static void IWDG_Init(void)
 └────────┴─────────┴────────┴─────────────────┴────────┘
 ```
 
-### 11.3 Command Categories
+### 11.6 Command Categories
 
 ```c
 typedef enum {
@@ -1371,7 +1630,7 @@ typedef enum {
 } PMU_CMD_Type_t;
 ```
 
-### 11.4 Telemetry Configuration
+### 11.7 Telemetry Configuration
 
 ```c
 typedef struct {
@@ -1385,7 +1644,7 @@ typedef struct {
 } PMU_TelemetryConfig_t;
 ```
 
-### 11.5 Standard CAN Stream
+### 11.8 Standard CAN Stream
 
 Broadcasts PMU status on CAN bus (ECUMaster compatible):
 
@@ -1634,11 +1893,47 @@ pio run -e pmu30_emulator
 
 ### 16.3 Emulator Features
 
-- Full protocol compatibility (socket on port 8080)
+- Full protocol compatibility (socket on port 9876)
 - Simulated channel values
 - JSON configuration loading
-- State persistence
-- Real-time telemetry
+- State persistence (`emu_state.json`)
+- Real-time telemetry streaming
+
+### 16.4 Emulator Limitations
+
+The emulator stubs out hardware-specific functionality:
+
+| Component | Emulator Behavior | Real Hardware |
+|-----------|-------------------|---------------|
+| **ESP32 WiFi/BT** | Stubbed (always "ready") | AT commands via UART3 |
+| **UART (ESP32)** | No actual communication | 115200 baud ring buffer |
+| **ADC Channels** | Set via protocol/file | DMA-based sampling |
+| **PWM Outputs** | State tracked, no waveform | Timer-based generation |
+| **PROFET Sensing** | Simulated current | Real IS pin ADC |
+| **CAN TX** | Logged to console | Hardware transmission |
+| **LIN Bus** | Fully stubbed | UART-based protocol |
+| **Flash Storage** | File-based (`emu_flash.bin`) | SPI flash chip |
+
+**Fully Functional in Emulator:**
+- All channel types (logic, number, timer, filter, table)
+- Configuration parsing and validation
+- Telemetry streaming
+- Protection logic and load shedding algorithm
+- Protocol handler with CRC16
+
+**For detailed emulator documentation, see [Emulator Guide](testing/emulator-guide.md).**
+
+### 16.5 Emulator-Specific Protocol Commands
+
+| Command | Code | Description |
+|---------|------|-------------|
+| `EMU_INJECT_FAULT` | `0x80` | Inject fault on output |
+| `EMU_CLEAR_FAULT` | `0x81` | Clear fault |
+| `EMU_SET_VOLTAGE` | `0x82` | Set battery voltage |
+| `EMU_SET_TEMPERATURE` | `0x83` | Set temperature |
+| `EMU_SET_DIGITAL_INPUT` | `0x84` | Set digital input |
+| `EMU_SET_ANALOG_INPUT` | `0x86` | Set analog voltage |
+| `EMU_INJECT_CAN` | `0x88` | Inject CAN message |
 
 ---
 
@@ -1651,6 +1946,8 @@ pio run -e pmu30_emulator
 | 1.0 | 2025-12-21 | PMU-30 Team | Initial stub |
 | 2.0 | 2025-12-29 | PMU-30 Team | Full architecture |
 | 3.0 | 2025-12-29 | PMU-30 Team | Deep HAL/RTOS detail |
+| 3.1 | 2025-12-30 | PMU-30 Team | ESP32 bridge layer, WiFi/BT AT commands, load shedding priority |
+| 3.2 | 2025-12-30 | PMU-30 Team | Emulator limitations documentation, ESP32/WiFi/BT stubs |
 
 ### 17.2 Related Documents
 
@@ -1659,6 +1956,7 @@ pio run -e pmu30_emulator
 - [Protocol Reference](reference/protocol.md) - Communication protocol
 - [Logic Functions Reference](reference/logic-functions.md) - Logic engine
 - [Hardware Specification](hardware/technical_specification.md) - Electrical specs
+- [Emulator Guide](testing/emulator-guide.md) - Emulator usage and limitations
 
 ### 17.3 Glossary
 

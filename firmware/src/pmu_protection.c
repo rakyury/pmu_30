@@ -22,6 +22,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_protection.h"
+#include "pmu_config.h"
 #include "pmu_profet.h"
 #include "pmu_hbridge.h"
 #include "pmu_adc.h"
@@ -54,6 +55,11 @@ static ADC_HandleTypeDef* hadc_vbat = NULL;
 static ADC_HandleTypeDef* hadc_temp = NULL;
 static uint32_t uptime_counter = 0;
 static uint32_t fault_recovery_timer = 0;
+
+/* Load shedding tracking */
+#define MAX_SHED_OUTPUTS    30
+static uint8_t shed_output_list[MAX_SHED_OUTPUTS];  /* List of shed output indices */
+static uint8_t shed_output_count = 0;                /* Number of outputs currently shed */
 
 /* Private function prototypes -----------------------------------------------*/
 static void Protection_UpdateVoltage(void);
@@ -328,18 +334,26 @@ static void Protection_CheckFaults(void)
 
 /**
  * @brief Handle load shedding - turn off low-priority outputs
+ * @note Called automatically when overcurrent/overpower condition detected
+ *
+ * Strategy:
+ * 1. Keep critical channels (shed_priority = 0)
+ * 2. Turn off lowest priority outputs first (highest priority number = shed first)
+ * 3. Monitor if fault condition improves
+ * 4. Restore outputs when condition clears
  */
 static void Protection_HandleLoadShedding(void)
 {
-    /* TODO: Implement intelligent load shedding based on channel priority */
-    /* For now, just a placeholder */
+    /* Only activate if we haven't reached target */
+    if (protection_state.power.total_current_mA <= protection_state.power.max_current_mA) {
+        return;  /* No need to shed more */
+    }
 
-    /* Strategy:
-     * 1. Keep critical channels (fuel pump, ECU power, ignition)
-     * 2. Turn off comfort features (heated seats, aux lights)
-     * 3. Reduce PWM duty on non-critical channels
-     * 4. Monitor if fault condition improves
-     */
+    /* Calculate how much current we need to shed */
+    uint32_t excess_current = protection_state.power.total_current_mA -
+                               (protection_state.power.max_current_mA * 90 / 100);  /* Target 90% of max */
+
+    PMU_Protection_ActivateLoadShedding(excess_current);
 }
 
 /**
@@ -649,6 +663,140 @@ uint16_t PMU_Protection_Get3V3Output(void)
 uint8_t PMU_Protection_IsTurningOff(void)
 {
     return protection_state.is_turning_off;
+}
+
+/**
+ * @brief Activate load shedding - disable lowest priority outputs
+ * @param target_reduction_mA Target current reduction in mA
+ * @retval Number of outputs shed
+ * @note Outputs with shed_priority=0 are never shed (critical loads)
+ */
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA)
+{
+    if (target_reduction_mA == 0) {
+        return 0;
+    }
+
+    /* Get system config to access output priorities */
+    PMU_SystemConfig_t* config = PMU_Config_Get();
+    if (config == NULL) {
+        return 0;
+    }
+
+    /* Build list of outputs sorted by priority (highest priority value first = shed first) */
+    typedef struct {
+        uint8_t output_index;
+        uint8_t priority;
+        uint32_t current_mA;
+    } ShedCandidate_t;
+
+    ShedCandidate_t candidates[PMU30_NUM_OUTPUTS];
+    uint8_t candidate_count = 0;
+
+    /* Collect all non-critical, enabled outputs */
+    for (uint8_t i = 0; i < PMU30_NUM_OUTPUTS; i++) {
+        PMU_OutputConfig_t* out_cfg = &config->outputs[i];
+
+        /* Skip critical outputs (priority 0) and disabled outputs */
+        if (out_cfg->shed_priority == 0 || !out_cfg->enabled) {
+            continue;
+        }
+
+        /* Skip already shed outputs */
+        uint8_t already_shed = 0;
+        for (uint8_t j = 0; j < shed_output_count; j++) {
+            if (shed_output_list[j] == i) {
+                already_shed = 1;
+                break;
+            }
+        }
+        if (already_shed) {
+            continue;
+        }
+
+        candidates[candidate_count].output_index = i;
+        candidates[candidate_count].priority = out_cfg->shed_priority;
+        candidates[candidate_count].current_mA = PMU_PROFET_GetCurrent(i);
+        candidate_count++;
+    }
+
+    if (candidate_count == 0) {
+        return 0;  /* No more outputs to shed */
+    }
+
+    /* Sort candidates by priority (higher = shed first) using simple bubble sort */
+    for (uint8_t i = 0; i < candidate_count - 1; i++) {
+        for (uint8_t j = 0; j < candidate_count - i - 1; j++) {
+            if (candidates[j].priority < candidates[j + 1].priority) {
+                ShedCandidate_t temp = candidates[j];
+                candidates[j] = candidates[j + 1];
+                candidates[j + 1] = temp;
+            }
+        }
+    }
+
+    /* Shed outputs until target reduction is met */
+    uint32_t current_reduced = 0;
+    uint8_t outputs_shed = 0;
+
+    for (uint8_t i = 0; i < candidate_count && current_reduced < target_reduction_mA; i++) {
+        uint8_t output_idx = candidates[i].output_index;
+
+        /* Turn off this output */
+        PMU_PROFET_SetState(output_idx, 0);
+
+        /* Track it in the shed list */
+        if (shed_output_count < MAX_SHED_OUTPUTS) {
+            shed_output_list[shed_output_count++] = output_idx;
+        }
+
+        current_reduced += candidates[i].current_mA;
+        outputs_shed++;
+    }
+
+    protection_state.load_shedding_active = (shed_output_count > 0) ? 1 : 0;
+
+    return outputs_shed;
+}
+
+/**
+ * @brief Deactivate load shedding - restore all shed outputs
+ * @retval Number of outputs restored
+ */
+uint8_t PMU_Protection_DeactivateLoadShedding(void)
+{
+    uint8_t restored = 0;
+
+    /* Restore all shed outputs */
+    for (uint8_t i = 0; i < shed_output_count; i++) {
+        uint8_t output_idx = shed_output_list[i];
+        PMU_PROFET_SetState(output_idx, 1);
+        restored++;
+    }
+
+    /* Clear shed list */
+    shed_output_count = 0;
+    protection_state.load_shedding_active = 0;
+
+    return restored;
+}
+
+/**
+ * @brief Check if load shedding is active
+ * @retval 1 if active, 0 otherwise
+ */
+uint8_t PMU_Protection_IsLoadSheddingActive(void)
+{
+    return protection_state.load_shedding_active;
+}
+
+/**
+ * @brief Get number of outputs currently shed
+ * @retval Count of shed outputs
+ */
+uint8_t PMU_Protection_GetShedOutputCount(void)
+{
+    return shed_output_count;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

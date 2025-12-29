@@ -237,6 +237,8 @@ typedef struct {
     uint16_t inrush_time_ms;
     uint8_t retry_count;
     bool retry_forever;
+    /* Load shedding priority (0=critical/never shed, 1-10=shed order, higher=shed first) */
+    uint8_t shed_priority;
 } PMU_PowerOutputConfig_t;
 
 /* ============================================================================
@@ -475,6 +477,8 @@ typedef struct {
     bool overtemp_enabled;          /* Overtemperature protection enabled */
     bool open_load_detect_enabled;  /* Open load detection enabled */
     bool short_circuit_enabled;     /* Short circuit protection enabled */
+    /* Load shedding priority (0=critical/never shed, 1-10=shed order, higher=shed first) */
+    uint8_t shed_priority;
 } PMU_OutputConfig_t;
 
 /**

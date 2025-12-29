@@ -237,6 +237,32 @@ uint16_t PMU_Protection_Get3V3Output(void);
  */
 uint8_t PMU_Protection_IsTurningOff(void);
 
+/**
+ * @brief Activate load shedding - disable lowest priority outputs
+ * @param target_reduction_mA Target current reduction in mA
+ * @retval Number of outputs shed
+ * @note Outputs with shed_priority=0 are never shed (critical loads)
+ */
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA);
+
+/**
+ * @brief Deactivate load shedding - restore all shed outputs
+ * @retval Number of outputs restored
+ */
+uint8_t PMU_Protection_DeactivateLoadShedding(void);
+
+/**
+ * @brief Check if load shedding is active
+ * @retval 1 if active, 0 otherwise
+ */
+uint8_t PMU_Protection_IsLoadSheddingActive(void);
+
+/**
+ * @brief Get number of outputs currently shed
+ * @retval Count of shed outputs
+ */
+uint8_t PMU_Protection_GetShedOutputCount(void);
+
 #ifdef __cplusplus
 }
 #endif

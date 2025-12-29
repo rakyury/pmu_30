@@ -22,6 +22,7 @@ SPI_HandleTypeDef hspi1;
 
 /* UART Handles --------------------------------------------------------------*/
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart3;  /* ESP32-C3 WiFi/BT module */
 
 /* Timer Handles -------------------------------------------------------------*/
 TIM_HandleTypeDef htim1;

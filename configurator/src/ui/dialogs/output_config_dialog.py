@@ -204,6 +204,20 @@ class OutputConfigDialog(BaseChannelDialog):
         self.retry_delay_spin.setToolTip("Delay between retry attempts")
         protection_layout.addWidget(self.retry_delay_spin, 2, 3)
 
+        # Row 3: Load Shedding Priority
+        protection_layout.addWidget(QLabel("Shed Priority:"), 3, 0)
+        self.shed_priority_spin = QSpinBox()
+        self.shed_priority_spin.setRange(0, 10)
+        self.shed_priority_spin.setValue(5)
+        self.shed_priority_spin.setToolTip(
+            "Load shedding priority (0=critical/never shed, 1-10=shed order, higher=shed first)")
+        protection_layout.addWidget(self.shed_priority_spin, 3, 1)
+
+        # Add explanatory label for shed priority
+        shed_priority_label = QLabel("0=Critical, 10=Shed first")
+        shed_priority_label.setStyleSheet("color: #888; font-size: 11px;")
+        protection_layout.addWidget(shed_priority_label, 3, 2, 1, 2)
+
         protection_group.setLayout(protection_layout)
         parent_layout.addWidget(protection_group)
 
@@ -497,6 +511,8 @@ class OutputConfigDialog(BaseChannelDialog):
             protection.get("retry_forever", config.get("retry_forever", False)))
         self.retry_delay_spin.setValue(
             protection.get("retry_delay_ms", config.get("retry_delay_ms", 1000)))
+        self.shed_priority_spin.setValue(
+            protection.get("shed_priority", config.get("shed_priority", 5)))
 
         # PWM settings - check both nested and flat formats
         pwm = config.get("pwm", {})
@@ -574,6 +590,7 @@ class OutputConfigDialog(BaseChannelDialog):
             "retry_count": self.retry_count_spin.value(),
             "retry_forever": self.retry_forever_check.isChecked(),
             "retry_delay_ms": self.retry_delay_spin.value(),
+            "shed_priority": self.shed_priority_spin.value(),
             # Nested format for backward compatibility
             "protection": {
                 "current_limit": self.current_limit_spin.value(),
@@ -581,7 +598,8 @@ class OutputConfigDialog(BaseChannelDialog):
                 "inrush_time_ms": self.inrush_time_spin.value(),
                 "retry_count": self.retry_count_spin.value(),
                 "retry_forever": self.retry_forever_check.isChecked(),
-                "retry_delay_ms": self.retry_delay_spin.value()
+                "retry_delay_ms": self.retry_delay_spin.value(),
+                "shed_priority": self.shed_priority_spin.value()
             },
             "pwm": {
                 "enabled": pwm_enabled,
