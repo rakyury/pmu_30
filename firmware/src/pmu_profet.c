@@ -139,7 +139,7 @@ static uint16_t PROFET_ReadStatusADC(uint8_t channel);
 static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state);
 
 /* Helper to set GPIO for a channel */
-#ifndef _WIN32
+#ifndef PMU_EMULATOR
 static inline void PROFET_SetGPIO(uint8_t channel, GPIO_PinState state)
 {
     HAL_GPIO_WritePin(profet_gpio[channel].port, profet_gpio[channel].pin, state);
