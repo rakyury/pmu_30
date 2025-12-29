@@ -3,8 +3,8 @@
 | Field | Value |
 |-------|-------|
 | **Document Title** | PCB Design Specification for PMU-30 Power Management Unit |
-| **Version** | 1.0 |
-| **Date** | December 2024 |
+| **Version** | 1.1 |
+| **Date** | 2025-12-29 |
 | **Project** | PMU-30 (30-Channel Power Management Unit) |
 | **Company** | R2 m-sport |
 
@@ -725,8 +725,8 @@ Rth = (125-85)/265 = 0.15 C/W
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.0 | December 2024 | Initial release |
-| 1.1 | December 2025 | Updated PCB dimensions (150mm × 120mm), added GPS/GNSS module, BlinkMarine CAN keypad, expanded CAN specifications |
+| 1.0 | 2025-12-21 | Initial release |
+| 1.1 | 2025-12-29 | Updated PCB dimensions (150mm × 120mm), 8-layer stack-up, added GPS/GNSS module, BlinkMarine CAN keypad, LIN transceiver, expanded CAN FD specifications |
 
 ---
 
