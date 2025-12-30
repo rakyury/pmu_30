@@ -61,10 +61,11 @@
 #define TASK_CAN_PRIORITY           (configMAX_PRIORITIES - 3)
 #define TASK_DEBUG_PRIORITY         (tskIDLE_PRIORITY + 2)
 
-#define TASK_CONTROL_STACK_SIZE     (256)
-#define TASK_PROTECTION_STACK_SIZE  (192)
-#define TASK_CAN_STACK_SIZE         (256)
-#define TASK_DEBUG_STACK_SIZE       (256)
+/* Reduced stack sizes for F446RE (128KB RAM) */
+#define TASK_CONTROL_STACK_SIZE     (128)
+#define TASK_PROTECTION_STACK_SIZE  (96)
+#define TASK_CAN_STACK_SIZE         (128)
+#define TASK_DEBUG_STACK_SIZE       (128)
 
 /* Pin definitions */
 #define USER_LED_PIN        GPIO_PIN_5
@@ -110,133 +111,186 @@ static void Debug_PrintStatus(void);
 static void Debug_PrintChannelStates(void);
 static void LED_Toggle(void);
 static void LED_Set(uint8_t state);
+static void DigitalInputs_Read(void);
+uint8_t DigitalInput_Get(uint8_t channel);
+
+/* Digital inputs storage */
+static uint8_t g_digital_inputs[8] = {0};
 
 /* Main function -------------------------------------------------------------*/
 
 int main(void)
 {
-    /* MCU Configuration */
-    HAL_Init();
-    SystemClock_Config();
+    /* ================================================================== */
+    /* DIAGNOSTIC INIT - Find where crash happens                          */
+    /* ================================================================== */
 
-    /* Initialize peripherals */
+    /* Disable SysTick and interrupts */
+    __disable_irq();
+    SysTick->CTRL = 0;
+
+    /* Bare-metal LED setup for diagnostics */
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    for (volatile int i = 0; i < 1000; i++);
+    GPIOA->MODER &= ~(3 << (5 * 2));
+    GPIOA->MODER |= (1 << (5 * 2));
+
+    /* Blink 1 = Start */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+
+    /* HAL_Init */
+    HAL_Init();
+    SysTick->CTRL = 0;
+
+    /* Blink 2 = HAL OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+
+    /* SystemClock_Config */
+    SystemClock_Config();
+    SysTick->CTRL = 0;
+
+    /* Blink 3 = Clock OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+
+    /* GPIO_Init */
     GPIO_Init();
+
+    /* Blink 4 = GPIO OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+
+    /* USART2_Init */
     USART2_Init();
 
-    /* Print startup banner */
-    Debug_Print("\r\n");
-    Debug_Print("╔═══════════════════════════════════════════════════════════════╗\r\n");
-    Debug_Print("║       PMU-30 Debug Firmware - Nucleo-F446RE                   ║\r\n");
-    Debug_Print("║                 R2 m-sport (c) 2025                           ║\r\n");
-    Debug_Print("╠═══════════════════════════════════════════════════════════════╣\r\n");
-    Debug_Print("║  MCU:              STM32F446RE @ 180 MHz                      ║\r\n");
-    Debug_Print("║  Config Parsing:   ENABLED                                    ║\r\n");
-    Debug_Print("║  Outputs:          6 (PWM on GPIO)                            ║\r\n");
-    Debug_Print("║  Analog Inputs:    5 (ADC)                                    ║\r\n");
-    Debug_Print("║  Digital Inputs:   8 (GPIO)                                   ║\r\n");
-    Debug_Print("║  Logic Engine:     ENABLED                                    ║\r\n");
-    Debug_Print("║  CAN:              CAN1 (PA11/PA12) @ 500kbit                 ║\r\n");
-    Debug_Print("║  Debug UART:       USART2 (115200 baud)                       ║\r\n");
-    Debug_Print("║  Protocol:         UART (Configurator support)               ║\r\n");
-    Debug_Print("╚═══════════════════════════════════════════════════════════════╝\r\n");
-    Debug_Print("\r\n");
+    /* Blink 5 = UART OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* LED blink to indicate startup */
-    for (int i = 0; i < 3; i++) {
-        LED_Set(1);
-        HAL_Delay(100);
-        LED_Set(0);
-        HAL_Delay(100);
-    }
+    /* ===== STEP-BY-STEP DIAGNOSTIC INIT ===== */
+    /* Each blink means one more step passed */
 
-    /* Initialize more peripherals */
-    Debug_Print("[INIT] CAN1_Init...\r\n");
-    CAN1_Init();
+    /* Skip CAN1_Init for now */
+    /* Blink 6 = (CAN skipped) */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] ADC1_Init...\r\n");
+    /* ADC1_Init */
     ADC1_Init();
+    /* Blink 7 = ADC OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] TIM_PWM_Init...\r\n");
+    /* TIM_PWM_Init */
     TIM_PWM_Init();
+    /* Blink 8 = PWM OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* Initialize PMU subsystems */
-    Debug_Print("[INIT] PMU_Config_Init...\r\n");
+    /* PMU_Config_Init */
     PMU_Config_Init();
+    /* Blink 9 = Config OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] PMU_CAN_Init...\r\n");
+    /* PMU_CAN_Init (stub) */
     PMU_CAN_Init();
+    /* Blink 9a = PMU_CAN OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 150000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 150000; d++);
 
-    Debug_Print("[INIT] PMU_ADC_Init...\r\n");
+    /* PMU_ADC_Init (stub) */
     PMU_ADC_Init();
+    /* Blink 9b = PMU_ADC OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 150000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 150000; d++);
 
-    Debug_Print("[INIT] PMU_Protection_Init...\r\n");
+    /* PMU_Protection_Init */
     PMU_Protection_Init();
+    /* Blink 10 = Protection OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] PMU_Channel_Init...\r\n");
+    /* PMU_Channel_Init */
     PMU_Channel_Init();
+    /* Blink 11 = Channel OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] PMU_LogicFunctions_Init...\r\n");
+    /* PMU_LogicFunctions_Init */
     PMU_LogicFunctions_Init();
 
-    Debug_Print("[INIT] PMU_Logic_Init...\r\n");
+    /* PMU_Logic_Init */
     PMU_Logic_Init();
+    /* Blink 12 = Logic OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    Debug_Print("[INIT] PMU_Logging_Init...\r\n");
+    /* PMU_Logging_Init */
     PMU_Logging_Init();
 
-#ifndef PMU_DISABLE_LUA
-    Debug_Print("[INIT] PMU_Lua_Init...\r\n");
-    PMU_Lua_Init();
-#endif
-
-    Debug_Print("[INIT] PMU_JSON_Init...\r\n");
+    /* PMU_JSON_Init */
     PMU_JSON_Init();
 
-    Debug_Print("[INIT] PMU_Protocol_Init (UART)...\r\n");
+    /* PMU_Protocol_Init */
     PMU_Protocol_Init(PMU_TRANSPORT_UART);
+    /* Blink 13 = Protocol OK */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* Start UART reception for protocol */
+    /* Blink 14 = Ready for main loop */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+
+    /* Enable interrupts but keep SysTick disabled */
+    __enable_irq();
+    SysTick->CTRL = 0;  /* Re-disable SysTick after enable_irq */
+
+    /* TEST: Send "READY" to verify UART TX works (bare-metal, no HAL timeout) */
+    {
+        const char* msg = "PMU30-READY\r\n";
+        while (*msg) {
+            while (!(USART2->SR & USART_SR_TXE));  /* Wait for TX empty */
+            USART2->DR = *msg++;
+        }
+        while (!(USART2->SR & USART_SR_TC));  /* Wait for transmission complete */
+    }
+
+    /* Start UART reception for protocol (without HAL_Delay) */
     extern void Protocol_StartUartReception(void);
     Protocol_StartUartReception();
-    Debug_Print("[OK] Protocol UART RX enabled\r\n");
 
-    /* Initialize CAN Stream */
-    PMU_CanStreamConfig_t stream_config = {
-        .enabled = true,
-        .can_bus = 0,           /* CAN1 */
-        .base_id = 0x600,
-        .is_extended = false,
-        .include_extended = true
-    };
-    Debug_Print("[INIT] PMU_CanStream_Init...\r\n");
-    PMU_CanStream_Init(&stream_config);
+    /* Make sure SysTick stays off */
+    SysTick->CTRL = 0;
 
-    Debug_Print("\r\n");
-    Debug_Print("═══════════════════════════════════════════════════════════════\r\n");
-    Debug_Print("  All subsystems initialized. Starting FreeRTOS...\r\n");
-    Debug_Print("═══════════════════════════════════════════════════════════════\r\n");
-    Debug_Print("\r\n");
+    /* ===== ALL INIT DONE - FAST BLINK 5x ===== */
+    for (int i = 0; i < 5; i++) {
+        GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 100000; d++);
+        GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 100000; d++);
+    }
 
-    /* Create FreeRTOS tasks */
-    xTaskCreate(vControlTask, "Control", TASK_CONTROL_STACK_SIZE,
-                NULL, TASK_CONTROL_PRIORITY, &xControlTaskHandle);
+    /* Blink 15 = Entering main loop */
+    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    xTaskCreate(vProtectionTask, "Protection", TASK_PROTECTION_STACK_SIZE,
-                NULL, TASK_PROTECTION_PRIORITY, &xProtectionTaskHandle);
-
-    xTaskCreate(vCANTask, "CAN", TASK_CAN_STACK_SIZE,
-                NULL, TASK_CAN_PRIORITY, &xCANTaskHandle);
-
-    xTaskCreate(vDebugTask, "Debug", TASK_DEBUG_STACK_SIZE,
-                NULL, TASK_DEBUG_PRIORITY, &xDebugTaskHandle);
-
-    /* Start scheduler */
-    vTaskStartScheduler();
-
-    /* Should never reach here */
+    /* Main loop - poll UART RX and process protocol */
     while (1) {
-        LED_Toggle();
-        HAL_Delay(50);
+        /* Check if UART has received data (bare-metal polling) */
+        if (USART2->SR & USART_SR_RXNE) {
+            uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
+
+            /* Pass to protocol handler (NO echo - would break protocol!) */
+            PMU_Protocol_ProcessData(&rx_byte, 1);
+        }
+
+        /* Slow blink every ~1s to show main loop running */
+        static uint32_t loop_count = 0;
+        if (++loop_count >= 200000) {
+            loop_count = 0;
+            GPIOA->ODR ^= (1 << 5);
+        }
     }
 }
 
@@ -326,9 +380,17 @@ static void vDebugTask(void *pvParameters)
 
 /* Debug output functions ----------------------------------------------------*/
 
+/* Debug output disabled - USART2 is shared with protocol communication */
+/* If you need debug output, use a different UART or only enable before protocol init */
+#define DEBUG_OUTPUT_ENABLED 0
+
 static void Debug_Print(const char* msg)
 {
+#if DEBUG_OUTPUT_ENABLED
     HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+#else
+    (void)msg; /* Suppress unused warning */
+#endif
 }
 
 static void Debug_PrintStatus(void)
@@ -351,8 +413,9 @@ static void Debug_PrintStatus(void)
 static void Debug_PrintChannelStates(void)
 {
     char buf[64];
-    Debug_Print("  Outputs:  ");
 
+#ifndef PMU_DISABLE_PROFET
+    Debug_Print("  Outputs:  ");
     for (uint8_t i = 0; i < 6; i++) {
         PMU_PROFET_Channel_t* ch = PMU_PROFET_GetChannelData(i);
         if (ch) {
@@ -368,6 +431,9 @@ static void Debug_PrintChannelStates(void)
         }
     }
     Debug_Print("\r\n");
+#else
+    Debug_Print("  Outputs: (PROFET disabled)\r\n");
+#endif
 
     /* Print digital inputs */
     Debug_Print("  DIN:      ");
@@ -431,8 +497,7 @@ static void GPIO_Init(void)
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
-/* Digital input reading */
-static uint8_t g_digital_inputs[8] = {0};
+/* Digital input reading (g_digital_inputs declared at top of file) */
 
 static void DigitalInputs_Read(void)
 {
@@ -676,44 +741,28 @@ static void TIM_PWM_Init(void)
 
 static void SystemClock_Config(void)
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    /* SIMPLE CONFIG: Just use HSI @ 16 MHz - no PLL, no waiting */
+    /* HAL functions need SysTick for timeouts, but we disabled it */
+    /* So we configure clocks directly via registers */
 
-    /* Configure power supply */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+    /* Enable power interface clock */
+    RCC->APB1ENR |= RCC_APB1ENR_PWREN;
 
-    /* Configure HSE and PLL for 180 MHz */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;  /* 8MHz from ST-LINK */
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 4;
-    RCC_OscInitStruct.PLL.PLLN = 180;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = 4;
-    RCC_OscInitStruct.PLL.PLLR = 2;
+    /* Set voltage scaling to Scale 1 (required for high freq, but ok for 16MHz too) */
+    PWR->CR |= PWR_CR_VOS;
 
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        while (1);
-    }
+    /* HSI is already on by default after reset */
+    /* Just make sure SYSCLK = HSI (should already be default) */
+    RCC->CFGR &= ~RCC_CFGR_SW;  /* SW = 00 = HSI */
 
-    /* Activate Over-Drive mode for 180 MHz */
-    if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
-        while (1);
-    }
+    /* Wait for HSI to be used as system clock */
+    while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI);
 
-    /* Configure clocks */
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
-                                  RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;  /* 45 MHz */
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;  /* 90 MHz */
+    /* Configure APB1 = HCLK/1 = 16 MHz, APB2 = HCLK/1 = 16 MHz */
+    RCC->CFGR &= ~(RCC_CFGR_PPRE1 | RCC_CFGR_PPRE2 | RCC_CFGR_HPRE);
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK) {
-        while (1);
-    }
+    /* Update SystemCoreClock variable */
+    SystemCoreClock = 16000000;
 }
 
 /* Error handlers ------------------------------------------------------------*/
@@ -747,12 +796,23 @@ void USART2_IRQHandler(void)
 /* Protocol RX buffer for interrupt reception */
 static uint8_t uart_rx_byte;
 
+/* Debug counters for protocol diagnostics */
+volatile uint32_t g_uart_rx_count = 0;
+volatile uint8_t g_last_rx_byte = 0;
+
 /**
  * @brief UART RX complete callback - called when a byte is received
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2) {
+        /* Debug: count received bytes and toggle LED */
+        g_uart_rx_count++;
+        g_last_rx_byte = uart_rx_byte;
+
+        /* Toggle LED on EVERY byte to show activity */
+        HAL_GPIO_TogglePin(USER_LED_PORT, USER_LED_PIN);
+
         /* Pass received byte to protocol handler */
         PMU_Protocol_ProcessData(&uart_rx_byte, 1);
 
@@ -766,7 +826,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
  */
 void Protocol_StartUartReception(void)
 {
-    HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
+    /* Start interrupt-driven reception */
+    HAL_StatusTypeDef status = HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
+
+    /* If failed, blink LED rapidly (bare-metal, no HAL_Delay) */
+    if (status != HAL_OK) {
+        for (int i = 0; i < 20; i++) {
+            GPIOA->ODR ^= (1 << 5);
+            for (volatile int d = 0; d < 50000; d++);
+        }
+    }
 }
 
 #endif /* NUCLEO_F446RE */

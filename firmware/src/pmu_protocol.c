@@ -51,6 +51,12 @@ static uint32_t stream_counter = 0;
 static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
+/* Config storage buffer - stores received config for GET_CONFIG response */
+#define CONFIG_BUFFER_SIZE 4096
+static char config_buffer[CONFIG_BUFFER_SIZE];
+static uint16_t config_buffer_len = 0;
+static bool config_received = false;
+
 #ifndef UNIT_TEST
   #ifdef NUCLEO_F446RE
     /* Nucleo-F446RE uses USART2 via ST-LINK VCP for protocol */
@@ -81,12 +87,15 @@ static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet);
 static bool Protocol_ValidatePacket(const PMU_Protocol_Packet_t* packet);
+#ifndef PMU_DISABLE_LUA
 static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet);
@@ -96,6 +105,7 @@ static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
+#endif
 static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg);
 
@@ -188,13 +198,16 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_GET_OUTPUTS,       Protocol_HandleGetOutputs},
     {PMU_CMD_GET_INPUTS,        Protocol_HandleGetInputs},
     /* Configuration commands */
+    {PMU_CMD_GET_CONFIG,        Protocol_HandleGetConfig},
     {PMU_CMD_LOAD_CONFIG,       Protocol_HandleLoadConfig},
+    {PMU_CMD_SAVE_CONFIG,       Protocol_HandleSaveConfig},
     /* Logging commands */
     {PMU_CMD_START_LOGGING,     Protocol_HandleStartLogging},
     {PMU_CMD_STOP_LOGGING,      Protocol_HandleStopLogging},
     {PMU_CMD_GET_LOG_INFO,      Protocol_HandleGetLogInfo},
     {PMU_CMD_DOWNLOAD_LOG,      Protocol_HandleDownloadLog},
     {PMU_CMD_ERASE_LOGS,        Protocol_HandleEraseLogs},
+#ifndef PMU_DISABLE_LUA
     /* Lua scripting commands */
     {PMU_CMD_LUA_EXECUTE,       Protocol_HandleLuaExecute},
     {PMU_CMD_LUA_LOAD_SCRIPT,   Protocol_HandleLuaLoadScript},
@@ -205,6 +218,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_LUA_GET_STATUS,    Protocol_HandleLuaGetStatus},
     {PMU_CMD_LUA_GET_OUTPUT,    Protocol_HandleLuaGetOutput},
     {PMU_CMD_LUA_SET_ENABLED,   Protocol_HandleLuaSetEnabled},
+#endif
     /* Atomic channel config update */
     {PMU_CMD_SET_CHANNEL_CONFIG, Protocol_HandleSetChannelConfig},
 };
@@ -425,6 +439,7 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         telemetry_data[index++] = prot->fault_flags;
     }
 
+#ifndef NUCLEO_F446RE
     /* Add virtual channels (Logic, Timer, Number, Switch, Filter, etc.) */
     /* Format: count (2 bytes) + [channel_id (2 bytes) + value (4 bytes)] * count */
     uint16_t virtual_count_offset = index;  /* Save offset for count */
@@ -451,6 +466,7 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
 
     /* Write virtual channel count at saved offset */
     memcpy(&telemetry_data[virtual_count_offset], &virtual_count, sizeof(virtual_count));
+#endif
 
     /* Send data packet */
     Protocol_SendData(PMU_CMD_DATA, telemetry_data, index);
@@ -838,6 +854,14 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
 
 static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
 {
+    /* Store received config for later GET_CONFIG response */
+    if (packet->length > 0 && packet->length < CONFIG_BUFFER_SIZE) {
+        memcpy(config_buffer, packet->data, packet->length);
+        config_buffer[packet->length] = '\0';
+        config_buffer_len = packet->length;
+        config_received = true;
+    }
+
     /* Load JSON configuration from packet data */
     PMU_JSON_LoadStats_t stats;
     PMU_JSON_Status_t status = PMU_JSON_LoadFromString((const char*)packet->data,
@@ -853,6 +877,60 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
     } else {
         Protocol_SendNACK(PMU_CMD_LOAD_CONFIG, PMU_JSON_GetLastError());
     }
+}
+
+/**
+ * @brief Handle GET_CONFIG command - send current configuration as JSON
+ */
+static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    const char* config_to_send;
+    uint16_t config_len;
+
+    /* Use stored config if available, otherwise minimal default */
+    if (config_received && config_buffer_len > 0) {
+        config_to_send = config_buffer;
+        config_len = config_buffer_len;
+    } else {
+        /* Minimal valid JSON config as fallback */
+        static const char* minimal_config =
+            "{"
+            "\"version\":\"1.0\","
+            "\"device\":{\"name\":\"PMU-30\",\"serial\":\"PMU30-NUCLEO-001\"},"
+            "\"outputs\":[],"
+            "\"inputs\":[],"
+            "\"hbridges\":[],"
+            "\"logic\":[]"
+            "}";
+        config_to_send = minimal_config;
+        config_len = strlen(minimal_config);
+    }
+
+    /* Build response with chunk header:
+     * [chunk_index:2B LE][total_chunks:2B LE][config_data]
+     */
+    uint8_t response[4 + CONFIG_BUFFER_SIZE];
+    response[0] = 0;  /* chunk_index low */
+    response[1] = 0;  /* chunk_index high */
+    response[2] = 1;  /* total_chunks low */
+    response[3] = 0;  /* total_chunks high */
+    memcpy(&response[4], config_to_send, config_len);
+
+    Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + config_len);
+}
+
+/**
+ * @brief Handle SAVE_CONFIG command - save configuration to flash
+ */
+static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+    /* For Nucleo, just acknowledge - config is kept in RAM buffer */
+    /* TODO: For PMU-30, implement actual flash storage */
+    uint8_t response[3] = {1, 0, 0};  /* success=1, error_code=0 */
+    Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
 }
 
 /**
@@ -977,6 +1055,7 @@ static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet)
     }
 }
 
+#ifndef PMU_DISABLE_LUA
 /* ============================================================================
  * Lua Scripting Command Handlers
  * ============================================================================ */
@@ -1208,6 +1287,7 @@ static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet)
         Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Script not found");
     }
 }
+#endif /* PMU_DISABLE_LUA */
 
 /* ============================================================================
  * Atomic Channel Configuration Update Handler

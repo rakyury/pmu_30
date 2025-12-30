@@ -280,10 +280,29 @@ class DeviceController(QObject):
             return None
         logger.debug("GET_CONFIG sent successfully, waiting for response...")
 
-        # Wait for all chunks
-        if not self._config_event.wait(timeout):
-            logger.error(f"Timeout waiting for config ({timeout}s)")
-            return None
+        # For Serial transport, do synchronous receive (no receive thread running)
+        if self._connection_type == "USB Serial":
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                # Read available data
+                data = self._transport.receive(4096, timeout=0.5)
+                if data:
+                    logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
+                    # Feed to protocol handler
+                    messages = self._protocol.feed_data(data)
+                    for msg in messages:
+                        self._handle_message(msg.msg_type, msg.payload)
+
+                    # Check if config complete
+                    if self._config_event.is_set():
+                        break
+                else:
+                    time.sleep(0.05)
+        else:
+            # For async transports (Emulator, WiFi), wait for event from receive thread
+            if not self._config_event.wait(timeout):
+                logger.error(f"Timeout waiting for config ({timeout}s)")
+                return None
 
         # Get assembled config data
         config_data = self._config_assembler.get_data()
