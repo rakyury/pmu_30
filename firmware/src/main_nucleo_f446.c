@@ -293,9 +293,17 @@ int main(void)
          */
         static uint32_t loop_count = 0;
         static uint32_t telemetry_count = 0;
+        static uint32_t input_count = 0;
         loop_count++;
 
-        /* Telemetry at ~10Hz (every 20000 loops) */
+        /* Read digital inputs at ~1kHz (every 200 loops) */
+        if (++input_count >= 200) {
+            input_count = 0;
+            DigitalInputs_Read();
+            PMU_ADC_Update();
+        }
+
+        /* Telemetry at ~10Hz (every 40000 loops) */
         if (++telemetry_count >= 40000) {
             telemetry_count = 0;
             /* Send telemetry if stream is active

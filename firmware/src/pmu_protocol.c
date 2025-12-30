@@ -24,6 +24,11 @@
 #include <string.h>
 #include <stdio.h>
 
+/* External functions from main_nucleo_f446.c */
+#ifdef NUCLEO_F446RE
+extern uint8_t DigitalInput_Get(uint8_t channel);
+#endif
+
 /* Private typedef -----------------------------------------------------------*/
 
 typedef struct {
@@ -397,14 +402,27 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         }
     }
 
-    /* Add inputs data */
+    /* Add analog inputs data */
     if (telemetry_config.inputs_enabled && index < TELEMETRY_BUFFER_SIZE - 40) {
-        /* Pack 20 input values (2 bytes each = 40 bytes) */
+        /* Pack 20 analog input values (2 bytes each = 40 bytes) */
         for (uint8_t i = 0; i < 20 && index < TELEMETRY_BUFFER_SIZE - 1; i++) {
             uint16_t val = PMU_ADC_GetRawValue(i);
             telemetry_data[index++] = (uint8_t)(val & 0xFF);
             telemetry_data[index++] = (uint8_t)(val >> 8);
         }
+
+        /* Pack 8 digital inputs as 1 byte (bit 0 = DIN0, bit 7 = DIN7) */
+#ifdef NUCLEO_F446RE
+        uint8_t din_byte = 0;
+        for (uint8_t i = 0; i < 8; i++) {
+            if (DigitalInput_Get(i)) {
+                din_byte |= (1 << i);
+            }
+        }
+        telemetry_data[index++] = din_byte;
+#else
+        telemetry_data[index++] = 0;  /* Placeholder for non-Nucleo */
+#endif
     }
 
     /* Add voltages */
