@@ -259,8 +259,11 @@ int main(void)
     }
 
     /* Start UART reception for protocol (without HAL_Delay) */
-    extern void Protocol_StartUartReception(void);
-    Protocol_StartUartReception();
+    /* NOTE: Using bare-metal polling in main loop instead of interrupt RX
+     * because SysTick is disabled and HAL_UART_Receive_IT may not work properly.
+     */
+    // extern void Protocol_StartUartReception(void);
+    // Protocol_StartUartReception();
 
     /* Make sure SysTick stays off */
     SysTick->CTRL = 0;
@@ -546,9 +549,9 @@ static void USART2_Init(void)
 
     HAL_UART_Init(&huart2);
 
-    /* Enable USART2 interrupt for protocol RX */
-    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    /* USART2 interrupt disabled - using bare-metal polling instead */
+    // HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    // HAL_NVIC_EnableIRQ(USART2_IRQn);
 }
 
 static void CAN1_Init(void)

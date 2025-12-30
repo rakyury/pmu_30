@@ -52,7 +52,7 @@ static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
 /* Config storage buffer - stores received config for GET_CONFIG response */
-#define CONFIG_BUFFER_SIZE 4096
+#define CONFIG_BUFFER_SIZE 512
 static char config_buffer[CONFIG_BUFFER_SIZE];
 static uint16_t config_buffer_len = 0;
 static bool config_received = false;
@@ -910,15 +910,18 @@ static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
 
     /* Build response with chunk header:
      * [chunk_index:2B LE][total_chunks:2B LE][config_data]
+     * Use static buffer to avoid stack overflow on F446RE
      */
-    uint8_t response[4 + CONFIG_BUFFER_SIZE];
+    static uint8_t response[4 + 512];  /* Max 512 bytes per chunk */
+    uint16_t send_len = (config_len > 508) ? 508 : config_len;
+
     response[0] = 0;  /* chunk_index low */
     response[1] = 0;  /* chunk_index high */
     response[2] = 1;  /* total_chunks low */
     response[3] = 0;  /* total_chunks high */
-    memcpy(&response[4], config_to_send, config_len);
+    memcpy(&response[4], config_to_send, send_len);
 
-    Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + config_len);
+    Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + send_len);
 }
 
 /**
