@@ -20,6 +20,12 @@
 #include <stddef.h>
 #include "board_config.h"
 
+/* Nucleo-F446RE hardware output control */
+#ifdef NUCLEO_F446RE
+extern void NucleoOutput_SetState(uint8_t channel, uint8_t state);
+extern void NucleoOutput_SetPWM(uint8_t channel, uint16_t duty);
+#endif
+
 /* ============================================================================
  * PROFET Stubs (when PMU_DISABLE_PROFET is defined)
  * ============================================================================ */
@@ -53,6 +59,9 @@ HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state)
 {
     if (channel >= PMU30_NUM_OUTPUTS) return HAL_ERROR;
     stub_channels[channel].state = state ? PMU_PROFET_STATE_ON : PMU_PROFET_STATE_OFF;
+#ifdef NUCLEO_F446RE
+    NucleoOutput_SetState(channel, state);
+#endif
     return HAL_OK;
 }
 
@@ -63,6 +72,9 @@ HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
     if (duty > 0) {
         stub_channels[channel].state = PMU_PROFET_STATE_PWM;
     }
+#ifdef NUCLEO_F446RE
+    NucleoOutput_SetPWM(channel, duty);
+#endif
     return HAL_OK;
 }
 
@@ -109,6 +121,12 @@ void PMU_PROFET_SetConfig(uint8_t channel, PMU_OutputConfig_t* config)
     (void)config;
 }
 
+uint8_t PMU_PROFET_HasManualOverride(uint8_t channel)
+{
+    (void)channel;
+    return 0;  /* No manual override in stub */
+}
+
 #endif /* PMU_DISABLE_PROFET */
 
 /* ============================================================================
@@ -124,7 +142,7 @@ static PMU_HBridge_Channel_t stub_hbridges[4];
 HAL_StatusTypeDef PMU_HBridge_Init(void)
 {
     for (uint8_t i = 0; i < 4; i++) {
-        stub_hbridges[i].state = PMU_HBRIDGE_STATE_OFF;
+        stub_hbridges[i].state = PMU_HBRIDGE_STATE_IDLE;
         stub_hbridges[i].position = 500;  /* Mid position */
         stub_hbridges[i].target_position = 500;
         stub_hbridges[i].duty_cycle = 0;
@@ -156,14 +174,14 @@ HAL_StatusTypeDef PMU_HBridge_SetDuty(uint8_t bridge, int16_t duty)
 HAL_StatusTypeDef PMU_HBridge_Stop(uint8_t bridge)
 {
     if (bridge >= 4) return HAL_ERROR;
-    stub_hbridges[bridge].state = PMU_HBRIDGE_STATE_OFF;
+    stub_hbridges[bridge].state = PMU_HBRIDGE_STATE_IDLE;
     stub_hbridges[bridge].duty_cycle = 0;
     return HAL_OK;
 }
 
 PMU_HBridge_State_t PMU_HBridge_GetState(uint8_t bridge)
 {
-    if (bridge >= 4) return PMU_HBRIDGE_STATE_OFF;
+    if (bridge >= 4) return PMU_HBRIDGE_STATE_IDLE;
     return stub_hbridges[bridge].state;
 }
 
@@ -185,6 +203,14 @@ PMU_HBridge_Channel_t* PMU_HBridge_GetChannelData(uint8_t bridge)
     return &stub_hbridges[bridge];
 }
 
+HAL_StatusTypeDef PMU_HBridge_SetMode(uint8_t bridge, PMU_HBridge_Mode_t mode, uint16_t duty)
+{
+    if (bridge >= 4) return HAL_ERROR;
+    stub_hbridges[bridge].mode = mode;
+    stub_hbridges[bridge].duty_cycle = duty;
+    return HAL_OK;
+}
+
 #endif /* PMU_DISABLE_HBRIDGE */
 
 /* ============================================================================
@@ -195,34 +221,57 @@ PMU_HBridge_Channel_t* PMU_HBridge_GetChannelData(uint8_t bridge)
 
 #include "pmu_flash.h"
 
-HAL_StatusTypeDef PMU_Flash_Init(void)
+PMU_Flash_Status_t PMU_Flash_Init(void)
 {
-    return HAL_OK;
+    return PMU_FLASH_OK;
 }
 
-HAL_StatusTypeDef PMU_Flash_Read(uint32_t address, uint8_t* data, uint32_t size)
+PMU_Flash_Status_t PMU_Flash_Read(uint32_t address, uint8_t* data, uint32_t length)
 {
     (void)address;
     /* Return zeros */
-    for (uint32_t i = 0; i < size; i++) {
+    for (uint32_t i = 0; i < length; i++) {
         data[i] = 0xFF;
     }
-    return HAL_OK;
+    return PMU_FLASH_OK;
 }
 
-HAL_StatusTypeDef PMU_Flash_Write(uint32_t address, const uint8_t* data, uint32_t size)
+PMU_Flash_Status_t PMU_Flash_Write(uint32_t address, const uint8_t* data, uint32_t length)
 {
     (void)address;
     (void)data;
-    (void)size;
-    return HAL_OK;
+    (void)length;
+    return PMU_FLASH_OK;
 }
 
-HAL_StatusTypeDef PMU_Flash_Erase(uint32_t address, uint32_t size)
+PMU_Flash_Status_t PMU_Flash_EraseSector(uint32_t address)
 {
     (void)address;
-    (void)size;
-    return HAL_OK;
+    return PMU_FLASH_OK;
+}
+
+PMU_Flash_Status_t PMU_Flash_EraseBlock64K(uint32_t address)
+{
+    (void)address;
+    return PMU_FLASH_OK;
+}
+
+PMU_Flash_Status_t PMU_Flash_EraseChip(void)
+{
+    return PMU_FLASH_OK;
+}
+
+PMU_Flash_Status_t PMU_Flash_GetInfo(PMU_Flash_Info_t* info)
+{
+    if (info) {
+        info->manufacturer_id = 0;
+        info->memory_type = 0;
+        info->capacity = 0;
+        info->jedec_id = 0;
+        info->unique_id = 0;
+        info->total_size = 0;
+    }
+    return PMU_FLASH_OK;
 }
 
 #endif /* PMU_DISABLE_SPI_FLASH */
@@ -242,9 +291,11 @@ PMU_Boot_SharedData_t* PMU_Bootloader_GetSharedData(void)
     return &stub_boot_data;
 }
 
-void PMU_Bootloader_JumpToApp(void)
+void PMU_Bootloader_JumpToApp(uint32_t app_address)
 {
-    /* No-op in stub */
+    (void)app_address;
+    /* No-op in stub - infinite loop to satisfy noreturn */
+    while (1) { }
 }
 
 void PMU_Bootloader_JumpToBootloader(void)
@@ -332,3 +383,366 @@ void PMU_UI_StartupAnimation(void)
 }
 
 #endif /* PMU_NUCLEO_BOARD */
+
+/* ============================================================================
+ * CAN Stubs (when NUCLEO_F446RE is defined - bxCAN vs FDCAN)
+ * F446RE has bxCAN (classic CAN), H7 has FDCAN. The pmu_can.c uses FDCAN types.
+ * ============================================================================ */
+
+#ifdef NUCLEO_F446RE
+
+#include "pmu_can.h"
+
+HAL_StatusTypeDef PMU_CAN_Init(void)
+{
+    /* CAN initialization is done in main_nucleo_f446.c using bxCAN HAL */
+    return HAL_OK;
+}
+
+void PMU_CAN_Update(void)
+{
+    /* No-op - CAN polling not implemented for bxCAN yet */
+}
+
+HAL_StatusTypeDef PMU_CAN_SendMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
+{
+    (void)bus;
+    (void)msg;
+    /* TODO: Implement bxCAN transmit */
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef PMU_CAN_SetFilter(PMU_CAN_Bus_t bus, uint32_t filter_id,
+                                     uint32_t filter_mask, PMU_CAN_IDType_t id_type)
+{
+    (void)bus;
+    (void)filter_id;
+    (void)filter_mask;
+    (void)id_type;
+    return HAL_OK;
+}
+
+uint16_t PMU_CAN_GetRxQueueCount(PMU_CAN_Bus_t bus)
+{
+    (void)bus;
+    return 0;
+}
+
+PMU_CAN_Message_t* PMU_CAN_GetNextMessage(PMU_CAN_Bus_t bus)
+{
+    (void)bus;
+    return NULL;
+}
+
+/* ============================================================================
+ * ADC Stubs (F446RE uses different ADC peripheral)
+ * ============================================================================ */
+
+#include "pmu_adc.h"
+
+/* Simulated ADC values (use 20 as fallback if PMU_MAX_INPUTS not defined) */
+#ifndef PMU_MAX_INPUTS
+#define PMU_MAX_INPUTS 20
+#endif
+static uint16_t g_simulated_adc[PMU_MAX_INPUTS] = {0};
+
+HAL_StatusTypeDef PMU_ADC_Init(void)
+{
+    /* ADC initialization is done in main_nucleo_f446.c */
+    return HAL_OK;
+}
+
+void PMU_ADC_Update(void)
+{
+    /* ADC reading should be implemented here if needed */
+}
+
+uint16_t PMU_ADC_GetRawValue(uint8_t channel)
+{
+    if (channel >= PMU_MAX_INPUTS) return 0;
+    return g_simulated_adc[channel];
+}
+
+float PMU_ADC_GetVoltage(uint8_t channel)
+{
+    if (channel >= PMU_MAX_INPUTS) return 0.0f;
+    /* Convert 12-bit ADC to voltage (3.3V reference) */
+    return (float)g_simulated_adc[channel] * 3.3f / 4095.0f;
+}
+
+float PMU_ADC_GetScaledValue(uint8_t channel)
+{
+    return PMU_ADC_GetVoltage(channel);
+}
+
+void PMU_ADC_SetSimulatedValue(uint8_t channel, uint16_t value)
+{
+    if (channel < PMU_MAX_INPUTS) {
+        g_simulated_adc[channel] = value;
+    }
+}
+
+/* ============================================================================
+ * CAN Stream Stubs (F446RE - simplified CAN streaming)
+ * ============================================================================ */
+
+#include "pmu_can_stream.h"
+
+int PMU_CanStream_Init(const PMU_CanStreamConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+void PMU_CanStream_Update(void)
+{
+    /* No-op */
+}
+
+#endif /* NUCLEO_F446RE */
+
+/* ============================================================================
+ * Additional Hardware Module Stubs (for NUCLEO_F446RE)
+ * These modules are disabled on F446RE but pmu_config_json.c references them
+ * ============================================================================ */
+
+#ifdef NUCLEO_F446RE
+
+/* ADC extended functions */
+#include "pmu_adc.h"
+
+HAL_StatusTypeDef PMU_ADC_SetConfig(uint8_t channel, PMU_InputConfig_t* config)
+{
+    (void)channel;
+    (void)config;
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef PMU_ADC_SetChannelId(uint8_t channel, uint16_t channel_id)
+{
+    (void)channel;
+    (void)channel_id;
+    return HAL_OK;
+}
+
+uint8_t PMU_ADC_GetDigitalState(uint8_t channel)
+{
+    (void)channel;
+    return 0;
+}
+
+uint32_t PMU_ADC_GetFrequency(uint8_t channel)
+{
+    (void)channel;
+    return 0;
+}
+
+/* LIN stubs - forward declare types to avoid including headers */
+typedef struct PMU_LIN_InputConfig_s PMU_LIN_InputConfig_t;
+typedef struct PMU_LIN_OutputConfig_s PMU_LIN_OutputConfig_t;
+typedef struct PMU_LIN_FrameObjectConfig_s PMU_LIN_FrameObjectConfig_t;
+
+int PMU_LIN_AddInput(const PMU_LIN_InputConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+int PMU_LIN_AddOutput(const PMU_LIN_OutputConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+int PMU_LIN_AddFrameObject(const PMU_LIN_FrameObjectConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+/* PID controller stubs */
+typedef struct PMU_PID_Config_s PMU_PID_Config_t;
+
+int PMU_PID_AddController(const PMU_PID_Config_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+/* BlinkMarine keypad stubs */
+typedef struct PMU_BlinkMarine_KeypadConfig_s PMU_BlinkMarine_KeypadConfig_t;
+
+int PMU_BlinkMarine_AddKeypad(const PMU_BlinkMarine_KeypadConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+/* CAN stream extended stubs */
+#include "pmu_can_stream.h"
+
+int PMU_CanStream_Configure(const PMU_CanStreamConfig_t* config)
+{
+    (void)config;
+    return 0;
+}
+
+void PMU_CanStream_SetEnabled(bool enabled)
+{
+    (void)enabled;
+}
+
+/* CAN bus configuration stub */
+#include "pmu_can.h"
+
+HAL_StatusTypeDef PMU_CAN_ConfigureBus(PMU_CAN_Bus_t bus, PMU_CAN_BusConfig_t* config)
+{
+    (void)bus;
+    (void)config;
+    return HAL_OK;
+}
+
+/* WiFi stubs */
+void PMU_WiFi_SetDefaultAPConfig(void* config)
+{
+    (void)config;
+}
+
+void PMU_WiFi_ApplyConfig(void)
+{
+    /* No-op */
+}
+
+/* Bluetooth stubs */
+void PMU_BT_SetDefaultConfig(void* config)
+{
+    (void)config;
+}
+
+void PMU_BT_ApplyConfig(void)
+{
+    /* No-op */
+}
+
+/* Handler stubs */
+void PMU_Handler_PushSystemEvent(uint8_t event_type, uint8_t severity, const char* message)
+{
+    (void)event_type;
+    (void)severity;
+    (void)message;
+}
+
+/* Fake ADC3 handle for pmu_protection.c */
+/* On F446RE, ADC3 is not used - pmu_protection.c references it for MCU temp */
+#include "stm32f4xx_hal.h"
+ADC_HandleTypeDef hadc3 = {0};
+
+#endif /* NUCLEO_F446RE */
+
+/* ============================================================================
+ * Lua Stubs (when PMU_DISABLE_LUA is defined)
+ * ============================================================================ */
+
+#ifdef PMU_DISABLE_LUA
+
+#include "pmu_lua.h"
+
+static PMU_Lua_Stats_t g_lua_stats = {0};
+
+HAL_StatusTypeDef PMU_Lua_Init(void)
+{
+    return HAL_OK;
+}
+
+void PMU_Lua_Deinit(void)
+{
+    /* No-op */
+}
+
+HAL_StatusTypeDef PMU_Lua_LoadScript(const char* name, const char* script, uint32_t length)
+{
+    (void)name;
+    (void)script;
+    (void)length;
+    return HAL_ERROR;  /* Lua disabled */
+}
+
+HAL_StatusTypeDef PMU_Lua_LoadScriptFromFile(const char* filename)
+{
+    (void)filename;
+    return HAL_ERROR;
+}
+
+HAL_StatusTypeDef PMU_Lua_UnloadScript(const char* name)
+{
+    (void)name;
+    return HAL_ERROR;
+}
+
+PMU_Lua_Status_t PMU_Lua_ExecuteScript(const char* name)
+{
+    (void)name;
+    return PMU_LUA_STATUS_ERROR;
+}
+
+PMU_Lua_Status_t PMU_Lua_ExecuteCode(const char* code)
+{
+    (void)code;
+    return PMU_LUA_STATUS_ERROR;
+}
+
+void PMU_Lua_Update(void)
+{
+    /* No-op */
+}
+
+HAL_StatusTypeDef PMU_Lua_SetScriptEnabled(const char* name, uint8_t enabled)
+{
+    (void)name;
+    (void)enabled;
+    return HAL_ERROR;
+}
+
+HAL_StatusTypeDef PMU_Lua_SetScriptAutoRun(const char* name, uint8_t auto_run)
+{
+    (void)name;
+    (void)auto_run;
+    return HAL_ERROR;
+}
+
+PMU_Lua_ScriptInfo_t* PMU_Lua_GetScriptInfo(const char* name)
+{
+    (void)name;
+    return NULL;
+}
+
+PMU_Lua_Stats_t* PMU_Lua_GetStats(void)
+{
+    return &g_lua_stats;
+}
+
+uint8_t PMU_Lua_ListScripts(PMU_Lua_ScriptInfo_t* scripts, uint8_t max_count)
+{
+    (void)scripts;
+    (void)max_count;
+    return 0;
+}
+
+void PMU_Lua_ClearErrors(void)
+{
+    /* No-op */
+}
+
+const char* PMU_Lua_GetLastError(void)
+{
+    return "Lua disabled";
+}
+
+HAL_StatusTypeDef PMU_Lua_RegisterFunction(const char* name, void* func)
+{
+    (void)name;
+    (void)func;
+    return HAL_ERROR;
+}
+
+#endif /* PMU_DISABLE_LUA */
