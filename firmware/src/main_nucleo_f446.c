@@ -287,9 +287,28 @@ int main(void)
             PMU_Protocol_ProcessData(&rx_byte, 1);
         }
 
-        /* Slow blink every ~1s to show main loop running */
+        /* Counter-based timing since SysTick is disabled
+         * At ~16MHz HSI, the loop runs approximately 200000 times/second
+         * For 10Hz telemetry: call every ~20000 iterations
+         */
         static uint32_t loop_count = 0;
-        if (++loop_count >= 200000) {
+        static uint32_t telemetry_count = 0;
+        loop_count++;
+
+        /* Telemetry at ~10Hz (every 20000 loops) */
+        if (++telemetry_count >= 40000) {
+            telemetry_count = 0;
+            /* Send telemetry if stream is active
+             * Note: PMU_Protocol_Update uses HAL_GetTick which is 0 (SysTick disabled),
+             * so we call SendTelemetry directly with counter-based timing
+             */
+            if (PMU_Protocol_IsStreamActive()) {
+                PMU_Protocol_SendTelemetry();
+            }
+        }
+
+        /* Slow blink every ~1s to show main loop running */
+        if (loop_count >= 200000) {
             loop_count = 0;
             GPIOA->ODR ^= (1 << 5);
         }

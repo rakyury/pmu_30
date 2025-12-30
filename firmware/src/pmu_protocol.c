@@ -541,6 +541,14 @@ HAL_StatusTypeDef PMU_Protocol_StopStream(void)
 }
 
 /**
+ * @brief Check if telemetry stream is active
+ */
+bool PMU_Protocol_IsStreamActive(void)
+{
+    return stream_active;
+}
+
+/**
  * @brief Get protocol statistics
  */
 PMU_Protocol_Stats_t* PMU_Protocol_GetStats(void)

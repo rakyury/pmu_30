@@ -48,39 +48,48 @@ extern "C" {
  * @brief Protocol command types
  */
 typedef enum {
-    /* Basic commands (0x00-0x1F) */
+    /* Basic commands (0x00-0x1F) - matches configurator protocol */
     PMU_CMD_PING                = 0x01,  /**< Ping device */
-    PMU_CMD_GET_VERSION         = 0x02,  /**< Get firmware version */
+    PMU_CMD_PONG                = 0x02,  /**< Pong response */
+    PMU_CMD_GET_VERSION         = 0x10,  /**< Get firmware version (GET_INFO) */
     PMU_CMD_GET_SERIAL          = 0x03,  /**< Get serial number */
-    PMU_CMD_RESET               = 0x04,  /**< Reset device */
-    PMU_CMD_BOOTLOADER          = 0x05,  /**< Enter bootloader */
+    PMU_CMD_INFO_RESP           = 0x11,  /**< Info response */
 
-    /* Telemetry commands (0x20-0x3F) */
-    PMU_CMD_START_STREAM        = 0x20,  /**< Start telemetry streaming */
-    PMU_CMD_STOP_STREAM         = 0x21,  /**< Stop telemetry streaming */
-    PMU_CMD_GET_OUTPUTS         = 0x22,  /**< Get output states */
-    PMU_CMD_GET_INPUTS          = 0x23,  /**< Get input values */
-    PMU_CMD_GET_CAN             = 0x24,  /**< Get CAN data */
-    PMU_CMD_GET_TEMPS           = 0x25,  /**< Get temperatures */
-    PMU_CMD_GET_VOLTAGES        = 0x26,  /**< Get voltages */
-    PMU_CMD_GET_FAULTS          = 0x27,  /**< Get fault status */
+    /* Configuration commands (0x20-0x2F) - matches configurator protocol */
+    PMU_CMD_GET_CONFIG          = 0x20,  /**< Get current configuration */
+    PMU_CMD_CONFIG_DATA         = 0x21,  /**< Configuration data response */
+    PMU_CMD_LOAD_CONFIG         = 0x22,  /**< Load/set configuration (SET_CONFIG) */
+    PMU_CMD_CONFIG_ACK          = 0x23,  /**< Configuration acknowledgment */
+    PMU_CMD_SAVE_CONFIG         = 0x24,  /**< Save configuration to flash */
+    PMU_CMD_FLASH_ACK           = 0x25,  /**< Flash save acknowledgment */
 
-    /* Control commands (0x40-0x5F) */
-    PMU_CMD_SET_OUTPUT          = 0x40,  /**< Set output state */
-    PMU_CMD_SET_PWM             = 0x41,  /**< Set PWM duty cycle */
+    /* Telemetry commands (0x30-0x3F) - matches configurator protocol */
+    PMU_CMD_START_STREAM        = 0x30,  /**< Subscribe to telemetry */
+    PMU_CMD_STOP_STREAM         = 0x31,  /**< Unsubscribe from telemetry */
+    PMU_CMD_DATA                = 0x32,  /**< Telemetry data */
+
+    /* Control commands (0x40-0x4F) - matches configurator protocol */
+    PMU_CMD_SET_OUTPUT          = 0x40,  /**< Set channel value */
+    PMU_CMD_OUTPUT_ACK          = 0x41,  /**< Channel set acknowledgment */
     PMU_CMD_SET_HBRIDGE         = 0x42,  /**< Set H-bridge mode */
-    PMU_CMD_CLEAR_FAULTS        = 0x43,  /**< Clear all faults */
-    PMU_CMD_SET_VIRTUAL         = 0x44,  /**< Set virtual channel value */
+    PMU_CMD_GET_CHANNEL         = 0x43,  /**< Get channel value */
+    PMU_CMD_CHANNEL_DATA        = 0x44,  /**< Channel data response */
+    PMU_CMD_SET_PWM             = 0x45,  /**< Set PWM duty cycle */
+    PMU_CMD_GET_OUTPUTS         = 0x46,  /**< Get all output states */
+    PMU_CMD_GET_INPUTS          = 0x47,  /**< Get all input states */
 
-    /* Configuration commands (0x60-0x7F) */
-    PMU_CMD_LOAD_CONFIG         = 0x60,  /**< Load configuration */
-    PMU_CMD_SAVE_CONFIG         = 0x61,  /**< Save configuration to flash */
-    PMU_CMD_GET_CONFIG          = 0x62,  /**< Get current configuration */
-    PMU_CMD_UPLOAD_CONFIG       = 0x63,  /**< Upload configuration (chunked) */
-    PMU_CMD_DOWNLOAD_CONFIG     = 0x64,  /**< Download configuration (chunked) */
-    PMU_CMD_VALIDATE_CONFIG     = 0x65,  /**< Validate configuration */
+    /* Error/Log (0x50-0x5F) */
+    PMU_CMD_ERROR               = 0x50,  /**< Error message */
+    PMU_CMD_LOG                 = 0x55,  /**< Log message */
+
+    /* Device control (0x60-0x6F) */
     PMU_CMD_SET_CHANNEL_CONFIG  = 0x66,  /**< Set single channel config (atomic update) */
     PMU_CMD_CHANNEL_CONFIG_ACK  = 0x67,  /**< Channel config update response */
+
+    /* Device restart (0x70-0x7F) */
+    PMU_CMD_RESET               = 0x70,  /**< Reset/restart device */
+    PMU_CMD_RESET_ACK           = 0x71,  /**< Reset acknowledgment */
+    PMU_CMD_BOOT_COMPLETE       = 0x72,  /**< Boot complete notification */
 
     /* Logging commands (0x80-0x9F) */
     PMU_CMD_START_LOGGING       = 0x80,  /**< Start data logging */
@@ -114,20 +123,27 @@ typedef enum {
 
     /* Response codes (0xE0-0xFF) */
     PMU_CMD_ACK                 = 0xE0,  /**< Command acknowledged */
-    PMU_CMD_NACK                = 0xE1,  /**< Command not acknowledged */
-    PMU_CMD_ERROR               = 0xE2,  /**< Error response */
-    PMU_CMD_DATA                = 0xE3   /**< Data response */
+    PMU_CMD_NACK                = 0xE1   /**< Command not acknowledged */
+    /* Note: PMU_CMD_ERROR = 0x50, PMU_CMD_DATA = 0x32 defined above */
 } PMU_CMD_Type_t;
 
 /**
  * @brief Protocol packet structure
+ *
+ * Frame format (matching configurator/emulator):
+ * ┌──────┬────────┬───────┬─────────────┬───────┐
+ * │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
+ * │ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
+ * └──────┴────────┴───────┴─────────────┴───────┘
+ *
+ * CRC16 is calculated over Length+MsgID+Payload (excludes start marker)
  */
 typedef struct __attribute__((packed)) {
     uint8_t  start_marker;      /**< Start marker (0xAA) */
-    uint8_t  command;           /**< Command type */
-    uint16_t length;            /**< Payload length */
+    uint16_t length;            /**< Payload length (little-endian) */
+    uint8_t  command;           /**< Command/message type */
     uint8_t  data[256];         /**< Payload data */
-    uint16_t crc16;             /**< CRC16 checksum */
+    uint16_t crc16;             /**< CRC16 checksum (little-endian) */
 } PMU_Protocol_Packet_t;
 
 /**
@@ -238,6 +254,12 @@ HAL_StatusTypeDef PMU_Protocol_StartStream(void);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_Protocol_StopStream(void);
+
+/**
+ * @brief Check if telemetry stream is active
+ * @retval true if streaming, false otherwise
+ */
+bool PMU_Protocol_IsStreamActive(void);
 
 /**
  * @brief Get protocol statistics
