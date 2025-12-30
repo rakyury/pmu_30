@@ -933,9 +933,60 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_GET_INPUTS, data, index);
 }
 
+/* Chunked config receive buffer */
+static char chunked_config_buffer[CONFIG_BUFFER_SIZE];
+static uint16_t chunked_config_len = 0;
+static uint16_t chunked_total_chunks = 0;
+static uint16_t chunked_received_chunks = 0;
+
 static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
 {
-    /* Store received config for later GET_CONFIG response */
+    /* Check for chunked format: [chunk_idx:2B LE][total_chunks:2B LE][data] */
+    if (packet->length >= 4) {
+        uint16_t chunk_idx = packet->data[0] | (packet->data[1] << 8);
+        uint16_t total_chunks = packet->data[2] | (packet->data[3] << 8);
+
+        /* Detect chunked format: total_chunks > 0 and reasonable values */
+        if (total_chunks > 0 && total_chunks <= 64 && chunk_idx < total_chunks) {
+            const uint8_t* chunk_data = packet->data + 4;
+            uint16_t chunk_len = packet->length - 4;
+
+            /* First chunk - reset buffer */
+            if (chunk_idx == 0) {
+                chunked_config_len = 0;
+                chunked_total_chunks = total_chunks;
+                chunked_received_chunks = 0;
+            }
+
+            /* Accumulate chunk data */
+            if (chunked_config_len + chunk_len < CONFIG_BUFFER_SIZE) {
+                memcpy(chunked_config_buffer + chunked_config_len, chunk_data, chunk_len);
+                chunked_config_len += chunk_len;
+                chunked_received_chunks++;
+            }
+
+            /* Send ACK for this chunk */
+            uint8_t response[3] = {1, 0, 0};
+            Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
+
+            /* All chunks received - process config */
+            if (chunked_received_chunks >= chunked_total_chunks) {
+                chunked_config_buffer[chunked_config_len] = '\0';
+
+                /* Store for GET_CONFIG */
+                memcpy(config_buffer, chunked_config_buffer, chunked_config_len + 1);
+                config_buffer_len = chunked_config_len;
+                config_received = true;
+
+                /* Load JSON */
+                PMU_JSON_LoadStats_t stats;
+                PMU_JSON_LoadFromString(chunked_config_buffer, chunked_config_len, &stats);
+            }
+            return;
+        }
+    }
+
+    /* Non-chunked format: raw JSON data */
     if (packet->length > 0 && packet->length < CONFIG_BUFFER_SIZE) {
         memcpy(config_buffer, packet->data, packet->length);
         config_buffer[packet->length] = '\0';
