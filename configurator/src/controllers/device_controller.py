@@ -376,9 +376,26 @@ class DeviceController(QObject):
 
         # Wait for CONFIG_ACK after all chunks sent
         logger.info("All chunks sent, waiting for ACK...")
-        if not self._config_ack_event.wait(timeout):
-            logger.error(f"Timeout waiting for config ACK ({timeout}s)")
-            return False
+
+        # For Serial transport, do synchronous receive (no receive thread)
+        if self._connection_type == "USB Serial":
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                data = self._transport.receive(4096, timeout=0.5)
+                if data:
+                    logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
+                    messages = self._protocol.feed_data(data)
+                    for msg in messages:
+                        self._handle_message(msg.msg_type, msg.payload)
+
+                    if self._config_ack_event.is_set():
+                        break
+                else:
+                    time.sleep(0.05)
+        else:
+            if not self._config_ack_event.wait(timeout):
+                logger.error(f"Timeout waiting for config ACK ({timeout}s)")
+                return False
 
         if self._config_ack_success:
             logger.info("Configuration written successfully")
@@ -689,10 +706,25 @@ class DeviceController(QObject):
 
         logger.info("Save to flash requested, waiting for ACK...")
 
-        # Wait for FLASH_ACK
-        if not self._flash_ack_event.wait(timeout):
-            logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
-            return False
+        # For Serial transport, do synchronous receive (no receive thread)
+        if self._connection_type == "USB Serial":
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                data = self._transport.receive(4096, timeout=0.5)
+                if data:
+                    logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
+                    messages = self._protocol.feed_data(data)
+                    for msg in messages:
+                        self._handle_message(msg.msg_type, msg.payload)
+
+                    if self._flash_ack_event.is_set():
+                        break
+                else:
+                    time.sleep(0.05)
+        else:
+            if not self._flash_ack_event.wait(timeout):
+                logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
+                return False
 
         if self._flash_ack_success:
             logger.info("Configuration saved to flash successfully")

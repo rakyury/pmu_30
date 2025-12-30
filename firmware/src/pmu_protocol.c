@@ -869,13 +869,13 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
                                                         &stats);
 
     if (status == PMU_JSON_OK) {
-        uint8_t response[32];
-        snprintf((char*)response, sizeof(response),
-                 "Loaded: %u inputs, %u outputs",
-                 (unsigned int)stats.inputs_loaded, (unsigned int)stats.outputs_loaded);
-        Protocol_SendData(PMU_CMD_LOAD_CONFIG, response, strlen((char*)response));
+        /* Send CONFIG_ACK with success=1, error_code=0 */
+        uint8_t response[3] = {1, 0, 0};  /* success, error_code low, error_code high */
+        Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
     } else {
-        Protocol_SendNACK(PMU_CMD_LOAD_CONFIG, PMU_JSON_GetLastError());
+        /* Send CONFIG_ACK with success=0, error_code=1 */
+        uint8_t response[3] = {0, 1, 0};
+        Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
     }
 }
 
