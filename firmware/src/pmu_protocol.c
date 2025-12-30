@@ -20,8 +20,7 @@
 #include "pmu_logic.h"
 #include "pmu_logging.h"
 #include "pmu_config_json.h"
-#include "pmu_lua.h"
-#include "pmu_channel.h"
+#include "board_config.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -53,8 +52,16 @@ static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
 #ifndef UNIT_TEST
-extern UART_HandleTypeDef huart1;  /* UART for WiFi module (ESP32-C3) */
-extern UART_HandleTypeDef huart2;  /* UART for USB/debug */
+  #ifdef NUCLEO_F446RE
+    /* Nucleo-F446RE uses USART2 via ST-LINK VCP for protocol */
+    extern UART_HandleTypeDef huart2;
+    #define PROTOCOL_UART huart2
+  #else
+    /* PMU-30 and H7 Nucleo use USART1 for WiFi/protocol */
+    extern UART_HandleTypeDef huart1;
+    extern UART_HandleTypeDef huart2;  /* UART for USB/debug */
+    #define PROTOCOL_UART huart1
+  #endif
 #endif
 
 /* Private function prototypes -----------------------------------------------*/
@@ -230,8 +237,14 @@ HAL_StatusTypeDef PMU_Protocol_Init(PMU_Transport_t transport)
     stream_period_ms = 1000 / telemetry_config.rate_hz;
 
 #ifndef UNIT_TEST
-    /* Initialize UART for WiFi module (ESP32-C3) */
+    /* Initialize UART for protocol communication */
     if (transport == PMU_TRANSPORT_UART || transport == PMU_TRANSPORT_WIFI) {
+  #ifdef NUCLEO_F446RE
+        /* USART2 is already initialized in main_nucleo_f446.c */
+        /* Just enable RX interrupt for protocol */
+        HAL_UART_Receive_IT(&PROTOCOL_UART, protocol_buffer.rx_buffer, 1);
+  #else
+        /* Initialize USART1 for WiFi module (ESP32-C3) on PMU-30/H7 */
         huart1.Instance = USART1;
         huart1.Init.BaudRate = PMU_PROTOCOL_UART_BAUD;
         huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -247,6 +260,7 @@ HAL_StatusTypeDef PMU_Protocol_Init(PMU_Transport_t transport)
 
         /* Enable UART RX interrupt */
         HAL_UART_Receive_IT(&huart1, protocol_buffer.rx_buffer, 1);
+  #endif
     }
 #endif
 
@@ -604,7 +618,7 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
 
     if (active_transport == PMU_TRANSPORT_UART || active_transport == PMU_TRANSPORT_WIFI) {
         /* Send via UART */
-        HAL_UART_Transmit(&huart1, (uint8_t*)packet, total_len, 100);
+        HAL_UART_Transmit(&PROTOCOL_UART, (uint8_t*)packet, total_len, 100);
         protocol_stats.tx_packets++;
         protocol_stats.last_tx_time_ms = HAL_GetTick();
     } else if (active_transport == PMU_TRANSPORT_CAN) {

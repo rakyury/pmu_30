@@ -34,7 +34,11 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#ifdef NUCLEO_F446RE
+#include "stm32f4xx_hal.h"
+#else
 #include "stm32h7xx_hal.h"
+#endif
 #include <stdint.h>
 #include <stdbool.h>
 
