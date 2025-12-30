@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QFormLayout, QGroupBox, QComboBox, QSpinBox, QGridLayout,
     QLabel, QWidget
 )
-from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
@@ -19,12 +18,9 @@ class TimerDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.TIMER)
-
-        # Increase height to avoid scrollbar
-        self.setMinimumHeight(520)
-        self.resize(600, 540)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.TIMER, existing_channels)
 
         self._create_trigger_group()
         self._create_settings_group()
@@ -32,6 +28,9 @@ class TimerDialog(BaseChannelDialog):
         # Load config if editing
         if config:
             self._load_specific_config(config)
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_trigger_group(self):
         """Create start/stop trigger settings group with two-column layout"""
@@ -51,11 +50,11 @@ class TimerDialog(BaseChannelDialog):
 
         # Start edge and Stop edge in same row
         layout.addWidget(QLabel("Start Edge:"), row, 0)
-        self.start_edge_combo = self._create_edge_combo(include_both=False)
+        self.start_edge_combo = self._create_edge_combo(include_both=False, include_level=True)
         layout.addWidget(self.start_edge_combo, row, 1)
 
         layout.addWidget(QLabel("Stop Edge:"), row, 2)
-        self.stop_edge_combo = self._create_edge_combo(include_both=False)
+        self.stop_edge_combo = self._create_edge_combo(include_both=False, include_level=True)
         self.stop_edge_combo.setCurrentIndex(1)  # Default to Falling
         layout.addWidget(self.stop_edge_combo, row, 3)
         row += 1
@@ -73,7 +72,7 @@ class TimerDialog(BaseChannelDialog):
             "Timer starts when start edge is detected on start channel.\n"
             "If stop channel is not set, timer stops when reaching the limit."
         )
-        info.setStyleSheet("color: #666; font-style: italic;")
+        info.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info, row, 0, 1, 4)
 
         trigger_group.setLayout(layout)
@@ -147,7 +146,7 @@ class TimerDialog(BaseChannelDialog):
             "Count Up: Timer value goes 0 -> Limit\n"
             "Count Down: Timer value goes Limit -> 0"
         )
-        info.setStyleSheet("color: #666; font-style: italic;")
+        info.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info, row, 0, 1, 4)
 
         settings_group.setLayout(layout)
@@ -175,15 +174,21 @@ class TimerDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Start channel
-        self.start_channel_edit.setText(config.get("start_channel", ""))
+        # Start channel - use helper to show channel name
+        self._set_channel_edit_value(
+            self.start_channel_edit,
+            config.get("start_channel")
+        )
         self._set_edge_combo_value(
             self.start_edge_combo,
             config.get("start_edge", "rising")
         )
 
-        # Stop channel
-        self.stop_channel_edit.setText(config.get("stop_channel", ""))
+        # Stop channel - use helper to show channel name
+        self._set_channel_edit_value(
+            self.stop_channel_edit,
+            config.get("stop_channel")
+        )
         self._set_edge_combo_value(
             self.stop_edge_combo,
             config.get("stop_edge", "falling")
@@ -207,8 +212,9 @@ class TimerDialog(BaseChannelDialog):
         """Validate type-specific fields"""
         errors = []
 
+        # Start channel is always required (use "one" function for auto-start)
         if not self.start_channel_edit.text().strip():
-            errors.append("Start channel is required")
+            errors.append("Start channel is required (use 'one' function for auto-start)")
 
         total_time = (
             self.hours_spin.value() * 3600 +
@@ -224,10 +230,14 @@ class TimerDialog(BaseChannelDialog):
         """Get full configuration"""
         config = self.get_base_config()
 
+        # Get channel IDs using helper method
+        start_channel_id = self._get_channel_id_from_edit(self.start_channel_edit)
+        stop_channel_id = self._get_channel_id_from_edit(self.stop_channel_edit)
+
         config.update({
-            "start_channel": self.start_channel_edit.text().strip(),
+            "start_channel": start_channel_id if start_channel_id else "",
             "start_edge": self._get_edge_combo_value(self.start_edge_combo),
-            "stop_channel": self.stop_channel_edit.text().strip(),
+            "stop_channel": stop_channel_id if stop_channel_id else "",
             "stop_edge": self._get_edge_combo_value(self.stop_edge_combo),
             "mode": self.mode_combo.currentData(),
             "limit_hours": self.hours_spin.value(),

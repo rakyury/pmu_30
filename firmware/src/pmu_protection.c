@@ -22,9 +22,11 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_protection.h"
+#include "pmu_config.h"
 #include "pmu_profet.h"
 #include "pmu_hbridge.h"
 #include "pmu_adc.h"
+#include "pmu_handler.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 
@@ -54,6 +56,11 @@ static ADC_HandleTypeDef* hadc_temp = NULL;
 static uint32_t uptime_counter = 0;
 static uint32_t fault_recovery_timer = 0;
 
+/* Load shedding tracking */
+#define MAX_SHED_OUTPUTS    30
+static uint8_t shed_output_list[MAX_SHED_OUTPUTS];  /* List of shed output indices */
+static uint8_t shed_output_count = 0;                /* Number of outputs currently shed */
+
 /* Private function prototypes -----------------------------------------------*/
 static void Protection_UpdateVoltage(void);
 static void Protection_UpdateTemperature(void);
@@ -62,8 +69,11 @@ static void Protection_CheckFaults(void);
 static void Protection_HandleLoadShedding(void);
 static uint16_t Protection_ReadVbatADC(void);
 static int16_t Protection_ReadMCUTemp(void);
-static int16_t Protection_ReadBoardTemp(void);
+int16_t Protection_ReadBoardTempL(void);
+int16_t Protection_ReadBoardTempR(void);
 static inline int16_t Protection_GetMaxTemp(void);
+static uint16_t Protection_Read5VOutput(void);
+static uint16_t Protection_Read3V3Output(void);
 
 /* Private user code ---------------------------------------------------------*/
 
@@ -184,10 +194,15 @@ static void Protection_UpdateTemperature(void)
     /* Read MCU internal temperature sensor */
     protection_state.temperature.mcu_temp_C = Protection_ReadMCUTemp();
 
-    /* Read board temperature sensor */
-    protection_state.temperature.board_temp_C = Protection_ReadBoardTemp();
+    /* Read board temperature sensors (Left and Right) */
+    protection_state.temperature.board_temp_L_C = Protection_ReadBoardTempL();
+    protection_state.temperature.board_temp_R_C = Protection_ReadBoardTempR();
 
-    /* Check for overtemperature using max of both sensors */
+    /* Update voltage outputs monitoring */
+    protection_state.output_5v_mV = Protection_Read5VOutput();
+    protection_state.output_3v3_mV = Protection_Read3V3Output();
+
+    /* Check for overtemperature using max of all sensors */
     int16_t max_temp = Protection_GetMaxTemp();
 
     if (max_temp >= protection_state.temperature.temp_critical_C) {
@@ -285,6 +300,18 @@ static void Protection_CheckFaults(void)
         protection_state.fault_count_total++;
     }
 
+    /* Push system events for new faults */
+    uint16_t newly_set = (new_faults & ~old_faults);
+    if (newly_set & PMU_PROT_FAULT_UNDERVOLTAGE) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_UNDERVOLT);
+    }
+    if (newly_set & PMU_PROT_FAULT_OVERVOLTAGE) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_OVERVOLT);
+    }
+    if (newly_set & PMU_PROT_FAULT_OVERTEMP_CRITICAL) {
+        PMU_Handler_PushSystemEvent(PMU_EVENT_SYSTEM_OVERTEMP);
+    }
+
     /* Update status based on faults */
     if (new_faults & (PMU_PROT_FAULT_UNDERVOLTAGE |
                       PMU_PROT_FAULT_OVERVOLTAGE |
@@ -307,18 +334,26 @@ static void Protection_CheckFaults(void)
 
 /**
  * @brief Handle load shedding - turn off low-priority outputs
+ * @note Called automatically when overcurrent/overpower condition detected
+ *
+ * Strategy:
+ * 1. Keep critical channels (shed_priority = 0)
+ * 2. Turn off lowest priority outputs first (highest priority number = shed first)
+ * 3. Monitor if fault condition improves
+ * 4. Restore outputs when condition clears
  */
 static void Protection_HandleLoadShedding(void)
 {
-    /* TODO: Implement intelligent load shedding based on channel priority */
-    /* For now, just a placeholder */
+    /* Only activate if we haven't reached target */
+    if (protection_state.power.total_current_mA <= protection_state.power.max_current_mA) {
+        return;  /* No need to shed more */
+    }
 
-    /* Strategy:
-     * 1. Keep critical channels (fuel pump, ECU power, ignition)
-     * 2. Turn off comfort features (heated seats, aux lights)
-     * 3. Reduce PWM duty on non-critical channels
-     * 4. Monitor if fault condition improves
-     */
+    /* Calculate how much current we need to shed */
+    uint32_t excess_current = protection_state.power.total_current_mA -
+                               (protection_state.power.max_current_mA * 90 / 100);  /* Target 90% of max */
+
+    PMU_Protection_ActivateLoadShedding(excess_current);
 }
 
 /**
@@ -400,58 +435,87 @@ static int16_t Protection_ReadMCUTemp(void)
 }
 
 /**
- * @brief Read board temperature sensor
+ * @brief Read board temperature sensor Left
  * @retval Temperature in °C
+ * @note Weak function - can be overridden by emulator
  */
-static int16_t Protection_ReadBoardTemp(void)
+__attribute__((weak))
+int16_t Protection_ReadBoardTempL(void)
 {
 #ifdef UNIT_TEST
     /* For unit tests, return nominal temperature */
     return 25;
 #else
-    /* External board temperature sensor implementation
-     *
-     * Option 1: NTC Thermistor with voltage divider
-     * - Connect to ADC channel (e.g., ADC2_IN5)
-     * - Use Steinhart-Hart equation for conversion
-     *
-     * Option 2: Digital sensor (I2C/SPI)
-     * - TMP102, LM75, DS18B20, etc.
-     * - Read via I2C interface
-     *
-     * For now, returning nominal until sensor is specified
+    /* External board temperature sensor Left - primary sensor
+     * TODO: Implement actual sensor reading
      */
-
-    /* Example NTC implementation (10kΩ @ 25°C):
-     *
-     * uint16_t adc_value = ADC_ReadBoardTempChannel();
-     * float voltage = (adc_value * 3.3f) / 4096.0f;
-     * float resistance = (10000.0f * voltage) / (3.3f - voltage);
-     *
-     * // Steinhart-Hart equation coefficients for 10k NTC
-     * float steinhart = log(resistance / 10000.0f);
-     * steinhart /= 3950.0f;  // B coefficient
-     * steinhart += 1.0f / (25.0f + 273.15f);
-     * steinhart = 1.0f / steinhart;
-     * steinhart -= 273.15f;  // Convert to Celsius
-     *
-     * return (int16_t)steinhart;
-     */
-
     return 25;  /* Nominal 25°C until sensor is configured */
 #endif
 }
 
 /**
- * @brief Get maximum temperature from MCU and board sensors
+ * @brief Read board temperature sensor Right
+ * @retval Temperature in °C
+ * @note Weak function - can be overridden by emulator
+ */
+__attribute__((weak))
+int16_t Protection_ReadBoardTempR(void)
+{
+#ifdef UNIT_TEST
+    /* For unit tests, return nominal temperature */
+    return 25;
+#else
+    /* External board temperature sensor Right - secondary sensor
+     * TODO: Implement actual sensor reading
+     */
+    return 25;  /* Nominal 25°C until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Read 5V output voltage
+ * @retval Voltage in mV
+ */
+static uint16_t Protection_Read5VOutput(void)
+{
+#ifdef UNIT_TEST
+    return 5000;  /* Nominal 5V */
+#else
+    /* TODO: Read from ADC channel monitoring 5V rail */
+    return 5000;  /* Nominal until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Read 3.3V output voltage
+ * @retval Voltage in mV
+ */
+static uint16_t Protection_Read3V3Output(void)
+{
+#ifdef UNIT_TEST
+    return 3300;  /* Nominal 3.3V */
+#else
+    /* TODO: Read from ADC channel monitoring 3.3V rail */
+    return 3300;  /* Nominal until sensor is configured */
+#endif
+}
+
+/**
+ * @brief Get maximum temperature from all sensors
  * @retval Maximum temperature in °C
  */
 static inline int16_t Protection_GetMaxTemp(void)
 {
-    return (protection_state.temperature.mcu_temp_C >
-            protection_state.temperature.board_temp_C) ?
-            protection_state.temperature.mcu_temp_C :
-            protection_state.temperature.board_temp_C;
+    int16_t max_temp = protection_state.temperature.mcu_temp_C;
+
+    if (protection_state.temperature.board_temp_L_C > max_temp) {
+        max_temp = protection_state.temperature.board_temp_L_C;
+    }
+    if (protection_state.temperature.board_temp_R_C > max_temp) {
+        max_temp = protection_state.temperature.board_temp_R_C;
+    }
+
+    return max_temp;
 }
 
 /**
@@ -517,12 +581,16 @@ uint16_t PMU_Protection_GetVoltage(void)
 }
 
 /**
- * @brief Get board temperature in °C
+ * @brief Get board temperature in °C (returns max of L/R for backward compat)
  * @retval Temperature in degrees Celsius
  */
 int16_t PMU_Protection_GetTemperature(void)
 {
-    return protection_state.temperature.board_temp_C;
+    /* Return max of L/R for backward compatibility */
+    return (protection_state.temperature.board_temp_L_C >
+            protection_state.temperature.board_temp_R_C) ?
+            protection_state.temperature.board_temp_L_C :
+            protection_state.temperature.board_temp_R_C;
 }
 
 /**
@@ -532,6 +600,203 @@ int16_t PMU_Protection_GetTemperature(void)
 uint32_t PMU_Protection_GetTotalCurrent(void)
 {
     return protection_state.power.total_current_mA;
+}
+
+/**
+ * @brief Get board temperature Left (primary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempL(void)
+{
+    return protection_state.temperature.board_temp_L_C;
+}
+
+/**
+ * @brief Get board temperature Right (secondary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempR(void)
+{
+    return protection_state.temperature.board_temp_R_C;
+}
+
+/**
+ * @brief Get system status bits (ECUMaster compatible)
+ * @retval Status bits
+ */
+uint16_t PMU_Protection_GetStatus(void)
+{
+    return protection_state.system_status;
+}
+
+/**
+ * @brief Get user error flag
+ * @retval 1 if user error, 0 otherwise
+ */
+uint8_t PMU_Protection_GetUserError(void)
+{
+    return protection_state.user_error;
+}
+
+/**
+ * @brief Get 5V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get5VOutput(void)
+{
+    return protection_state.output_5v_mV;
+}
+
+/**
+ * @brief Get 3.3V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get3V3Output(void)
+{
+    return protection_state.output_3v3_mV;
+}
+
+/**
+ * @brief Check if system is in shutdown sequence
+ * @retval 1 if turning off, 0 otherwise
+ */
+uint8_t PMU_Protection_IsTurningOff(void)
+{
+    return protection_state.is_turning_off;
+}
+
+/**
+ * @brief Activate load shedding - disable lowest priority outputs
+ * @param target_reduction_mA Target current reduction in mA
+ * @retval Number of outputs shed
+ * @note Outputs with shed_priority=0 are never shed (critical loads)
+ */
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA)
+{
+    if (target_reduction_mA == 0) {
+        return 0;
+    }
+
+    /* Get system config to access output priorities */
+    PMU_SystemConfig_t* config = PMU_Config_Get();
+    if (config == NULL) {
+        return 0;
+    }
+
+    /* Build list of outputs sorted by priority (highest priority value first = shed first) */
+    typedef struct {
+        uint8_t output_index;
+        uint8_t priority;
+        uint32_t current_mA;
+    } ShedCandidate_t;
+
+    ShedCandidate_t candidates[PMU30_NUM_OUTPUTS];
+    uint8_t candidate_count = 0;
+
+    /* Collect all non-critical, enabled outputs */
+    for (uint8_t i = 0; i < PMU30_NUM_OUTPUTS; i++) {
+        PMU_OutputConfig_t* out_cfg = &config->outputs[i];
+
+        /* Skip critical outputs (priority 0) and disabled outputs */
+        if (out_cfg->shed_priority == 0 || !out_cfg->enabled) {
+            continue;
+        }
+
+        /* Skip already shed outputs */
+        uint8_t already_shed = 0;
+        for (uint8_t j = 0; j < shed_output_count; j++) {
+            if (shed_output_list[j] == i) {
+                already_shed = 1;
+                break;
+            }
+        }
+        if (already_shed) {
+            continue;
+        }
+
+        candidates[candidate_count].output_index = i;
+        candidates[candidate_count].priority = out_cfg->shed_priority;
+        candidates[candidate_count].current_mA = PMU_PROFET_GetCurrent(i);
+        candidate_count++;
+    }
+
+    if (candidate_count == 0) {
+        return 0;  /* No more outputs to shed */
+    }
+
+    /* Sort candidates by priority (higher = shed first) using simple bubble sort */
+    for (uint8_t i = 0; i < candidate_count - 1; i++) {
+        for (uint8_t j = 0; j < candidate_count - i - 1; j++) {
+            if (candidates[j].priority < candidates[j + 1].priority) {
+                ShedCandidate_t temp = candidates[j];
+                candidates[j] = candidates[j + 1];
+                candidates[j + 1] = temp;
+            }
+        }
+    }
+
+    /* Shed outputs until target reduction is met */
+    uint32_t current_reduced = 0;
+    uint8_t outputs_shed = 0;
+
+    for (uint8_t i = 0; i < candidate_count && current_reduced < target_reduction_mA; i++) {
+        uint8_t output_idx = candidates[i].output_index;
+
+        /* Turn off this output */
+        PMU_PROFET_SetState(output_idx, 0);
+
+        /* Track it in the shed list */
+        if (shed_output_count < MAX_SHED_OUTPUTS) {
+            shed_output_list[shed_output_count++] = output_idx;
+        }
+
+        current_reduced += candidates[i].current_mA;
+        outputs_shed++;
+    }
+
+    protection_state.load_shedding_active = (shed_output_count > 0) ? 1 : 0;
+
+    return outputs_shed;
+}
+
+/**
+ * @brief Deactivate load shedding - restore all shed outputs
+ * @retval Number of outputs restored
+ */
+uint8_t PMU_Protection_DeactivateLoadShedding(void)
+{
+    uint8_t restored = 0;
+
+    /* Restore all shed outputs */
+    for (uint8_t i = 0; i < shed_output_count; i++) {
+        uint8_t output_idx = shed_output_list[i];
+        PMU_PROFET_SetState(output_idx, 1);
+        restored++;
+    }
+
+    /* Clear shed list */
+    shed_output_count = 0;
+    protection_state.load_shedding_active = 0;
+
+    return restored;
+}
+
+/**
+ * @brief Check if load shedding is active
+ * @retval 1 if active, 0 otherwise
+ */
+uint8_t PMU_Protection_IsLoadSheddingActive(void)
+{
+    return protection_state.load_shedding_active;
+}
+
+/**
+ * @brief Get number of outputs currently shed
+ * @retval Count of shed outputs
+ */
+uint8_t PMU_Protection_GetShedOutputCount(void)
+{
+    return shed_output_count;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

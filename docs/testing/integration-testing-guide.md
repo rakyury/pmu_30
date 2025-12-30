@@ -445,6 +445,7 @@ integration_test:
 
 ## See Also
 
+- [Emulator Guide](emulator-guide.md) - Desktop testing without hardware
 - [Unit Testing Guide](unit-testing-guide.md)
 - [Test Cases](test-cases.md)
 - [Troubleshooting Guide](../operations/troubleshooting-guide.md)

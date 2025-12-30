@@ -28,49 +28,54 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32h7xx_hal.h"
+#include "pmu_types.h"
 #include <stdint.h>
 #include <stdbool.h>
 
 /* Exported types ------------------------------------------------------------*/
 
 /**
- * @brief Channel type classification
+ * @brief Channel hardware classification (physical/virtual, input/output)
+ *
+ * Note: This is different from PMU_ChannelType_t in pmu_types.h which is
+ * used for configuration. This enum classifies channels by hardware type.
  */
 typedef enum {
     /* Physical Inputs (0x00-0x1F) */
-    PMU_CHANNEL_INPUT_ANALOG        = 0x00,  /**< Physical analog input (0-5V) */
-    PMU_CHANNEL_INPUT_DIGITAL       = 0x01,  /**< Physical digital input (on/off) */
-    PMU_CHANNEL_INPUT_SWITCH        = 0x02,  /**< Physical switch input */
-    PMU_CHANNEL_INPUT_ROTARY        = 0x03,  /**< Physical rotary switch */
-    PMU_CHANNEL_INPUT_FREQUENCY     = 0x04,  /**< Physical frequency input */
+    PMU_CHANNEL_CLASS_INPUT_ANALOG        = 0x00,  /**< Physical analog input (0-5V) */
+    PMU_CHANNEL_CLASS_INPUT_DIGITAL       = 0x01,  /**< Physical digital input (on/off) */
+    PMU_CHANNEL_CLASS_INPUT_SWITCH        = 0x02,  /**< Physical switch input */
+    PMU_CHANNEL_CLASS_INPUT_ROTARY        = 0x03,  /**< Physical rotary switch */
+    PMU_CHANNEL_CLASS_INPUT_FREQUENCY     = 0x04,  /**< Physical frequency input */
 
     /* Virtual Inputs (0x20-0x3F) */
-    PMU_CHANNEL_INPUT_CAN           = 0x20,  /**< Virtual CAN bus input */
-    PMU_CHANNEL_INPUT_CALCULATED    = 0x21,  /**< Virtual calculated value */
-    PMU_CHANNEL_INPUT_SYSTEM        = 0x22,  /**< System value (voltage, temp, etc.) */
+    PMU_CHANNEL_CLASS_INPUT_CAN           = 0x20,  /**< Virtual CAN bus input */
+    PMU_CHANNEL_CLASS_INPUT_CALCULATED    = 0x21,  /**< Virtual calculated value */
+    PMU_CHANNEL_CLASS_INPUT_SYSTEM        = 0x22,  /**< System value (voltage, temp, etc.) */
 
     /* Physical Outputs (0x40-0x5F) */
-    PMU_CHANNEL_OUTPUT_POWER        = 0x40,  /**< Power output (PROFET) */
-    PMU_CHANNEL_OUTPUT_PWM          = 0x41,  /**< PWM output */
-    PMU_CHANNEL_OUTPUT_HBRIDGE      = 0x42,  /**< H-bridge output */
-    PMU_CHANNEL_OUTPUT_ANALOG       = 0x43,  /**< Analog output (DAC) */
+    PMU_CHANNEL_CLASS_OUTPUT_POWER        = 0x40,  /**< Power output (PROFET) */
+    PMU_CHANNEL_CLASS_OUTPUT_PWM          = 0x41,  /**< PWM output */
+    PMU_CHANNEL_CLASS_OUTPUT_HBRIDGE      = 0x42,  /**< H-bridge output */
+    PMU_CHANNEL_CLASS_OUTPUT_ANALOG       = 0x43,  /**< Analog output (DAC) */
 
     /* Virtual Outputs (0x60-0x7F) */
-    PMU_CHANNEL_OUTPUT_FUNCTION     = 0x60,  /**< Logic function output */
-    PMU_CHANNEL_OUTPUT_TABLE        = 0x61,  /**< Lookup table output */
-    PMU_CHANNEL_OUTPUT_ENUM         = 0x62,  /**< Enumeration output */
-    PMU_CHANNEL_OUTPUT_NUMBER       = 0x63,  /**< Constant number output */
-    PMU_CHANNEL_OUTPUT_CAN          = 0x64,  /**< Virtual CAN bus output */
-    PMU_CHANNEL_OUTPUT_PID          = 0x65,  /**< PID controller output */
-} PMU_ChannelType_t;
+    PMU_CHANNEL_CLASS_OUTPUT_FUNCTION     = 0x60,  /**< Logic function output */
+    PMU_CHANNEL_CLASS_OUTPUT_TABLE        = 0x61,  /**< Lookup table output */
+    PMU_CHANNEL_CLASS_OUTPUT_ENUM         = 0x62,  /**< Enumeration output */
+    PMU_CHANNEL_CLASS_OUTPUT_NUMBER       = 0x63,  /**< Constant number output */
+    PMU_CHANNEL_CLASS_OUTPUT_CAN          = 0x64,  /**< Virtual CAN bus output */
+    PMU_CHANNEL_CLASS_OUTPUT_PID          = 0x65,  /**< PID controller output */
+} PMU_ChannelClass_t;
 
 /**
  * @brief Channel direction
  */
 typedef enum {
-    PMU_CHANNEL_DIR_INPUT  = 0,  /**< Input channel */
-    PMU_CHANNEL_DIR_OUTPUT = 1,  /**< Output channel */
-    PMU_CHANNEL_DIR_BIDIR  = 2   /**< Bidirectional channel */
+    PMU_CHANNEL_DIR_INPUT   = 0,  /**< Input channel */
+    PMU_CHANNEL_DIR_OUTPUT  = 1,  /**< Output channel */
+    PMU_CHANNEL_DIR_BIDIR   = 2,  /**< Bidirectional channel */
+    PMU_CHANNEL_DIR_VIRTUAL = 3   /**< Virtual/computed channel */
 } PMU_ChannelDir_t;
 
 /**
@@ -83,7 +88,8 @@ typedef enum {
     PMU_CHANNEL_FORMAT_CURRENT  = 3,  /**< Current in mA */
     PMU_CHANNEL_FORMAT_BOOLEAN  = 4,  /**< Boolean (0/1) */
     PMU_CHANNEL_FORMAT_ENUM     = 5,  /**< Enumeration (0-255) */
-    PMU_CHANNEL_FORMAT_SIGNED   = 6   /**< Signed value (-32768 to +32767) */
+    PMU_CHANNEL_FORMAT_SIGNED   = 6,  /**< Signed value (-32768 to +32767) */
+    PMU_CHANNEL_FORMAT_INT      = 7   /**< Integer value */
 } PMU_ChannelFormat_t;
 
 /**
@@ -91,7 +97,7 @@ typedef enum {
  */
 typedef struct {
     uint16_t channel_id;            /**< Global channel ID (0-1023) */
-    PMU_ChannelType_t type;         /**< Channel type */
+    PMU_ChannelClass_t hw_class;    /**< Hardware classification */
     PMU_ChannelDir_t direction;     /**< Channel direction */
     PMU_ChannelFormat_t format;     /**< Value format */
 
@@ -137,12 +143,34 @@ typedef struct {
 #define PMU_CHANNEL_FLAG_FAULT          0x04    /**< Fault detected */
 #define PMU_CHANNEL_FLAG_OVERRIDE       0x08    /**< Manual override active */
 
-/* System channel IDs */
-#define PMU_CHANNEL_SYSTEM_BATTERY_V    1000    /**< Battery voltage */
-#define PMU_CHANNEL_SYSTEM_TOTAL_I      1001    /**< Total current */
-#define PMU_CHANNEL_SYSTEM_MCU_TEMP     1002    /**< MCU temperature */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP   1003    /**< Board temperature */
-#define PMU_CHANNEL_SYSTEM_UPTIME       1004    /**< System uptime (seconds) */
+/* System channel IDs (ECUMaster compatible: pmuX.*) */
+#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000    /**< Battery voltage (pmuX.battery) */
+#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001    /**< Total current (pmuX.totalCurrent) */
+#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002    /**< MCU temperature */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003    /**< Board temperature Left (pmuX.boardTemperatureL) */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004    /**< Board temperature Right (pmuX.boardTemperatureR) */
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005    /**< Board temperature Max (pmuX.boardTemperatureMax) */
+#define PMU_CHANNEL_SYSTEM_UPTIME           1006    /**< System uptime (seconds) */
+#define PMU_CHANNEL_SYSTEM_STATUS           1007    /**< System status (pmuX.status) */
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008    /**< User error (pmuX.userError) */
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009    /**< 5V output voltage */
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010    /**< 3.3V output voltage */
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011    /**< Shutdown in progress flag */
+
+/* Constant channels (always return fixed value) */
+#define PMU_CHANNEL_CONST_ZERO              1012    /**< Constant 0 (zero) */
+#define PMU_CHANNEL_CONST_ONE               1013    /**< Constant 1 (one) */
+
+/* Per-output channel bases (ECUMaster compatible: pmuX.oY.*) */
+/* Use: PMU_CHANNEL_OUTPUT_STATUS_BASE + output_index (0-29) */
+#define PMU_CHANNEL_OUTPUT_STATUS_BASE      1100    /**< Output status base (oY.status) */
+#define PMU_CHANNEL_OUTPUT_CURRENT_BASE     1130    /**< Output current base (oY.current) */
+#define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     1160    /**< Output voltage base (oY.voltage) */
+#define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      1190    /**< Output active base (oY.active) */
+#define PMU_CHANNEL_OUTPUT_DUTY_BASE        1250    /**< Output duty cycle base (oY.dutyCycle) 0-1000 */
+
+/* Analog input channel base (ECUMaster compatible: pmuX.aY.*) */
+#define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     1220    /**< Analog input voltage base (aY.voltage) */
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -182,6 +210,16 @@ int32_t PMU_Channel_GetValue(uint16_t channel_id);
 HAL_StatusTypeDef PMU_Channel_SetValue(uint16_t channel_id, int32_t value);
 
 /**
+ * @brief Update channel value (for INPUT channels)
+ * @param channel_id Channel ID
+ * @param value Value to set
+ * @retval HAL status
+ * @note Unlike PMU_Channel_SetValue, this function allows setting INPUT channel values.
+ *       Use this for syncing hardware input states to the channel system.
+ */
+HAL_StatusTypeDef PMU_Channel_UpdateValue(uint16_t channel_id, int32_t value);
+
+/**
  * @brief Get channel information
  * @param channel_id Channel ID
  * @retval Pointer to channel structure (or NULL if not found)
@@ -194,6 +232,13 @@ const PMU_Channel_t* PMU_Channel_GetInfo(uint16_t channel_id);
  * @retval Pointer to channel structure (or NULL if not found)
  */
 const PMU_Channel_t* PMU_Channel_GetByName(const char* name);
+
+/**
+ * @brief Get channel ID by name string
+ * @param name Channel name/ID string
+ * @retval Channel ID (0-1023) or 0xFFFF if not found
+ */
+uint16_t PMU_Channel_GetIndexByID(const char* name);
 
 /**
  * @brief Update all channels (called at 1kHz)
@@ -224,39 +269,45 @@ uint16_t PMU_Channel_List(PMU_Channel_t* channels, uint16_t max_count);
 HAL_StatusTypeDef PMU_Channel_SetEnabled(uint16_t channel_id, bool enabled);
 
 /**
+ * @brief Generate unique channel ID for dynamic channels
+ * @retval Unique channel ID
+ */
+uint16_t PMU_Channel_GenerateID(void);
+
+/**
  * @brief Check if channel is input
- * @param type Channel type
+ * @param hw_class Channel hardware classification
  * @retval true if input, false otherwise
  */
-static inline bool PMU_Channel_IsInput(PMU_ChannelType_t type) {
-    return (type < 0x40);
+static inline bool PMU_Channel_IsInput(PMU_ChannelClass_t hw_class) {
+    return (hw_class < 0x40);
 }
 
 /**
  * @brief Check if channel is output
- * @param type Channel type
+ * @param hw_class Channel hardware classification
  * @retval true if output, false otherwise
  */
-static inline bool PMU_Channel_IsOutput(PMU_ChannelType_t type) {
-    return (type >= 0x40);
+static inline bool PMU_Channel_IsOutput(PMU_ChannelClass_t hw_class) {
+    return (hw_class >= 0x40);
 }
 
 /**
  * @brief Check if channel is virtual
- * @param type Channel type
+ * @param hw_class Channel hardware classification
  * @retval true if virtual, false otherwise
  */
-static inline bool PMU_Channel_IsVirtual(PMU_ChannelType_t type) {
-    return ((type >= 0x20 && type < 0x40) || (type >= 0x60));
+static inline bool PMU_Channel_IsVirtual(PMU_ChannelClass_t hw_class) {
+    return ((hw_class >= 0x20 && hw_class < 0x40) || (hw_class >= 0x60));
 }
 
 /**
  * @brief Check if channel is physical
- * @param type Channel type
+ * @param hw_class Channel hardware classification
  * @retval true if physical, false otherwise
  */
-static inline bool PMU_Channel_IsPhysical(PMU_ChannelType_t type) {
-    return !PMU_Channel_IsVirtual(type);
+static inline bool PMU_Channel_IsPhysical(PMU_ChannelClass_t hw_class) {
+    return !PMU_Channel_IsVirtual(hw_class);
 }
 
 #ifdef __cplusplus

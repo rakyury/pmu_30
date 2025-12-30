@@ -79,6 +79,8 @@ typedef enum {
     PMU_CMD_UPLOAD_CONFIG       = 0x63,  /**< Upload configuration (chunked) */
     PMU_CMD_DOWNLOAD_CONFIG     = 0x64,  /**< Download configuration (chunked) */
     PMU_CMD_VALIDATE_CONFIG     = 0x65,  /**< Validate configuration */
+    PMU_CMD_SET_CHANNEL_CONFIG  = 0x66,  /**< Set single channel config (atomic update) */
+    PMU_CMD_CHANNEL_CONFIG_ACK  = 0x67,  /**< Channel config update response */
 
     /* Logging commands (0x80-0x9F) */
     PMU_CMD_START_LOGGING       = 0x80,  /**< Start data logging */
@@ -87,11 +89,22 @@ typedef enum {
     PMU_CMD_DOWNLOAD_LOG        = 0x83,  /**< Download log data */
     PMU_CMD_ERASE_LOGS          = 0x84,  /**< Erase all logs */
 
-    /* Diagnostic commands (0xA0-0xBF) */
+    /* Diagnostic commands (0xA0-0xAF) */
     PMU_CMD_GET_STATS           = 0xA0,  /**< Get system statistics */
     PMU_CMD_GET_UPTIME          = 0xA1,  /**< Get system uptime */
     PMU_CMD_GET_CAN_STATS       = 0xA2,  /**< Get CAN bus statistics */
     PMU_CMD_SELF_TEST           = 0xA3,  /**< Run self-test */
+
+    /* Lua scripting commands (0xB0-0xBF) */
+    PMU_CMD_LUA_EXECUTE         = 0xB0,  /**< Execute Lua code directly */
+    PMU_CMD_LUA_LOAD_SCRIPT     = 0xB1,  /**< Load/update Lua script */
+    PMU_CMD_LUA_UNLOAD_SCRIPT   = 0xB2,  /**< Unload Lua script */
+    PMU_CMD_LUA_RUN_SCRIPT      = 0xB3,  /**< Run loaded script by name */
+    PMU_CMD_LUA_STOP_SCRIPT     = 0xB4,  /**< Stop running script */
+    PMU_CMD_LUA_GET_SCRIPTS     = 0xB5,  /**< List loaded scripts */
+    PMU_CMD_LUA_GET_STATUS      = 0xB6,  /**< Get Lua engine status */
+    PMU_CMD_LUA_GET_OUTPUT      = 0xB7,  /**< Get script output/result */
+    PMU_CMD_LUA_SET_ENABLED     = 0xB8,  /**< Enable/disable script */
 
     /* Firmware update (0xC0-0xDF) */
     PMU_CMD_FW_UPDATE_START     = 0xC0,  /**< Start firmware update */

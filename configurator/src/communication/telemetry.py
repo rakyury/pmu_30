@@ -4,15 +4,16 @@ PMU-30 Telemetry Data Structures
 This module defines the telemetry packet format and data structures
 for real-time monitoring of PMU-30 device state.
 
-Telemetry Packet Structure (119 bytes at 50Hz):
+Telemetry Packet Structure (154 bytes at configurable rate):
 - timestamp_ms: 4 bytes (uint32)
-- channel_states: 30 bytes (1 byte per channel)
-- analog_values: 16 bytes (8 x uint16)
-- output_currents: 60 bytes (30 x uint16, mA)
-- input_voltage: 2 bytes (uint16, mV)
-- temperature: 1 byte (int8, Celsius)
-- fault_flags: 4 bytes (uint32)
-- crc16: 2 bytes
+- voltage_mv: 2 bytes (uint16) - battery voltage in mV
+- temperature_c: 2 bytes (int16) - board temperature in Celsius
+- total_current_ma: 4 bytes (uint32) - total current in mA
+- adc_values: 40 bytes (20 x uint16) - raw ADC readings
+- profet_states: 30 bytes (30 x uint8) - PROFET channel states
+- profet_duties: 60 bytes (30 x uint16) - PROFET PWM duties (0-1000)
+- hbridge_states: 4 bytes (4 x uint8) - H-Bridge states
+- hbridge_positions: 8 bytes (4 x uint16) - H-Bridge positions
 """
 
 from dataclasses import dataclass, field
@@ -32,6 +33,26 @@ class ChannelState(IntEnum):
     FAULT_OPEN = 5
     PWM_ACTIVE = 6
     DISABLED = 7
+
+
+class HBridgeMode(IntEnum):
+    """H-Bridge operating modes."""
+    COAST = 0
+    FORWARD = 1
+    REVERSE = 2
+    BRAKE = 3
+    WIPER_PARK = 4
+    PID_POSITION = 5
+
+
+class HBridgeState(IntEnum):
+    """H-Bridge state values."""
+    IDLE = 0
+    RUNNING = 1
+    STALLED = 2
+    FAULT = 3
+    OVERCURRENT = 4
+    OVERTEMP = 5
 
 
 class FaultFlags(IntFlag):
@@ -62,28 +83,67 @@ class TelemetryPacket:
     """
     Real-time telemetry data from PMU-30.
 
-    This packet is sent at 50Hz when telemetry streaming is enabled.
+    This packet is sent at configurable rate when telemetry streaming is enabled.
     """
 
     # Timing
     timestamp_ms: int = 0
     local_timestamp: float = field(default_factory=time.time)
 
-    # Channel states (30 channels)
-    channel_states: list[ChannelState] = field(
-        default_factory=lambda: [ChannelState.OFF] * 30
-    )
-
-    # Analog input values (8 primary ADC channels)
-    analog_values: list[int] = field(default_factory=lambda: [0] * 8)
-
-    # Output currents in mA (30 channels)
-    output_currents: list[int] = field(default_factory=lambda: [0] * 30)
-
     # System values
     input_voltage_mv: int = 0
     temperature_c: int = 0
+    total_current_ma: int = 0
+
+    # ADC values (20 channels, raw 12-bit values 0-4095)
+    adc_values: list[int] = field(default_factory=lambda: [0] * 20)
+
+    # PROFET channel states (30 channels)
+    profet_states: list[ChannelState] = field(
+        default_factory=lambda: [ChannelState.OFF] * 30
+    )
+
+    # PROFET PWM duties (30 channels, 0-1000 = 0-100.0%)
+    profet_duties: list[int] = field(default_factory=lambda: [0] * 30)
+
+    # H-Bridge states (4 bridges)
+    hbridge_states: list[int] = field(default_factory=lambda: [0] * 4)
+
+    # H-Bridge positions (4 bridges)
+    hbridge_positions: list[int] = field(default_factory=lambda: [0] * 4)
+
+    # Extended system values
+    board_temp_2: int = 0       # Second temperature sensor (°C)
+    output_5v_mv: int = 5000    # 5V rail voltage (mV)
+    output_3v3_mv: int = 3300   # 3.3V rail voltage (mV)
+    flash_temp: int = 0         # Flash temperature (°C)
+    system_status: int = 0      # System status flags (bitfield)
+
+    # Fault flags
     fault_flags: FaultFlags = FaultFlags.NONE
+
+    # Digital inputs (20 inputs as list of 0/1)
+    digital_inputs: list[int] = field(default_factory=lambda: [0] * 20)
+
+    # Virtual channels (logic, timer, switch, number, etc.)
+    # Dictionary mapping channel_id -> value
+    virtual_channels: dict[int, int] = field(default_factory=dict)
+
+    @property
+    def channel_states(self) -> list[ChannelState]:
+        """Alias for profet_states for legacy code."""
+        return self.profet_states
+
+    @property
+    def analog_values(self) -> list[int]:
+        """Get first 8 ADC values (primary analog inputs)."""
+        return self.adc_values[:8]
+
+    @property
+    def output_currents(self) -> list[int]:
+        """Estimate output currents from PWM duty cycles (placeholder)."""
+        # Real current sensing would come from ADC channels
+        return [duty for duty in self.profet_duties]
 
     @property
     def input_voltage(self) -> float:
@@ -116,9 +176,32 @@ class TelemetryPacket:
             )
         ]
 
+    def get_hbridge_telemetry(self, bridge_id: int) -> Optional['HBridgeTelemetry']:
+        """Get basic H-Bridge telemetry for specified bridge.
+
+        Note: This provides basic state/position data from the standard telemetry packet.
+        Extended telemetry (current, speed, temperature) requires emulator or extended protocol.
+        """
+        if 0 <= bridge_id < 4:
+            state = self.hbridge_states[bridge_id]
+            position = self.hbridge_positions[bridge_id]
+            # Create basic telemetry from available data
+            return HBridgeTelemetry(
+                bridge_id=bridge_id,
+                mode=HBridgeMode(state & 0x07),  # Lower 3 bits = mode
+                state=HBridgeState((state >> 3) & 0x07),  # Next 3 bits = state
+                direction=(state >> 6) & 0x03,  # Top 2 bits = direction
+                position=position,
+            )
+        return None
+
+    def get_all_hbridge_telemetry(self) -> list['HBridgeTelemetry']:
+        """Get telemetry for all 4 H-Bridges."""
+        return [self.get_hbridge_telemetry(i) for i in range(4)]
+
     @property
-    def total_current_ma(self) -> int:
-        """Get total current draw in mA."""
+    def calculated_total_current_ma(self) -> int:
+        """Get calculated total current draw from duties in mA."""
         return sum(self.output_currents)
 
     @property
@@ -172,19 +255,28 @@ class TelemetryPacket:
 
 
 # Telemetry packet format string for struct.unpack
-# Total size: 119 bytes
+# Total size: 174 bytes (extended format with system fields)
 TELEMETRY_FORMAT = "<" + "".join([
     "I",      # timestamp_ms (4 bytes)
-    "30B",    # channel_states (30 bytes)
-    "8H",     # analog_values (16 bytes)
-    "30H",    # output_currents (60 bytes)
-    "H",      # input_voltage_mv (2 bytes)
-    "b",      # temperature_c (1 byte)
-    "I",      # fault_flags (4 bytes)
-    "H",      # crc16 (2 bytes)
+    "H",      # voltage_mv (2 bytes)
+    "h",      # temperature_c (2 bytes, signed)
+    "I",      # total_current_ma (4 bytes)
+    "20H",    # adc_values (40 bytes)
+    "30B",    # profet_states (30 bytes)
+    "30H",    # profet_duties (60 bytes)
+    "4B",     # hbridge_states (4 bytes)
+    "4H",     # hbridge_positions (8 bytes)
+    # Extended system fields (16 bytes)
+    "h",      # board_temp_2 (2 bytes, signed)
+    "H",      # 5v_output_mv (2 bytes)
+    "H",      # 3v3_output_mv (2 bytes)
+    "h",      # flash_temp (2 bytes, signed)
+    "I",      # system_status (4 bytes) - bit flags
+    "I",      # fault_flags (4 bytes) - FaultFlags bitmask
+    "I",      # digital_inputs (4 bytes) - bitmask for 20 inputs
 ])
 
-TELEMETRY_PACKET_SIZE = 119
+TELEMETRY_PACKET_SIZE = 174
 
 
 def parse_telemetry(data: bytes) -> TelemetryPacket:
@@ -192,13 +284,13 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     Parse telemetry data from raw bytes.
 
     Args:
-        data: Raw telemetry packet bytes (119 bytes)
+        data: Raw telemetry packet bytes (154 bytes)
 
     Returns:
         Parsed TelemetryPacket
 
     Raises:
-        ValueError: If data is invalid or CRC fails
+        ValueError: If data is invalid
     """
     if len(data) < TELEMETRY_PACKET_SIZE:
         raise ValueError(f"Telemetry packet too short: {len(data)} < {TELEMETRY_PACKET_SIZE}")
@@ -211,38 +303,92 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     timestamp_ms = values[idx]
     idx += 1
 
-    channel_states = [ChannelState(v) for v in values[idx:idx + 30]]
-    idx += 30
-
-    analog_values = list(values[idx:idx + 8])
-    idx += 8
-
-    output_currents = list(values[idx:idx + 30])
-    idx += 30
-
-    input_voltage_mv = values[idx]
+    voltage_mv = values[idx]
     idx += 1
 
     temperature_c = values[idx]
     idx += 1
 
-    fault_flags = FaultFlags(values[idx])
+    total_current_ma = values[idx]
     idx += 1
 
-    # Note: CRC is at values[idx], already validated by protocol layer
+    adc_values = list(values[idx:idx + 20])
+    idx += 20
+
+    profet_states = [ChannelState(min(v, 7)) for v in values[idx:idx + 30]]
+    idx += 30
+
+    profet_duties = list(values[idx:idx + 30])
+    idx += 30
+
+    hbridge_states = list(values[idx:idx + 4])
+    idx += 4
+
+    hbridge_positions = list(values[idx:idx + 4])
+    idx += 4
+
+    # Extended system fields
+    board_temp_2 = values[idx]
+    idx += 1
+
+    output_5v_mv = values[idx]
+    idx += 1
+
+    output_3v3_mv = values[idx]
+    idx += 1
+
+    flash_temp = values[idx]
+    idx += 1
+
+    system_status = values[idx]
+    idx += 1
+
+    fault_flags_raw = values[idx]
+    idx += 1
+
+    # Digital inputs bitmask
+    digital_inputs_raw = values[idx]
+    digital_inputs = [(digital_inputs_raw >> i) & 1 for i in range(20)]
+
+    # Parse virtual channels if present (extended format)
+    virtual_channels = {}
+    remaining_data = data[TELEMETRY_PACKET_SIZE:]
+    if len(remaining_data) >= 2:
+        # Virtual channel count
+        virtual_count = struct.unpack("<H", remaining_data[:2])[0]
+        offset = 2
+
+        # Parse each virtual channel: id (2 bytes) + value (4 bytes) = 6 bytes each
+        for _ in range(virtual_count):
+            if offset + 6 <= len(remaining_data):
+                ch_id, ch_value = struct.unpack("<Hi", remaining_data[offset:offset + 6])
+                virtual_channels[ch_id] = ch_value
+                offset += 6
+            else:
+                break
 
     return TelemetryPacket(
         timestamp_ms=timestamp_ms,
-        channel_states=channel_states,
-        analog_values=analog_values,
-        output_currents=output_currents,
-        input_voltage_mv=input_voltage_mv,
+        input_voltage_mv=voltage_mv,
         temperature_c=temperature_c,
-        fault_flags=fault_flags,
+        total_current_ma=total_current_ma,
+        adc_values=adc_values,
+        profet_states=profet_states,
+        profet_duties=profet_duties,
+        hbridge_states=hbridge_states,
+        hbridge_positions=hbridge_positions,
+        board_temp_2=board_temp_2,
+        output_5v_mv=output_5v_mv,
+        output_3v3_mv=output_3v3_mv,
+        flash_temp=flash_temp,
+        system_status=system_status,
+        fault_flags=FaultFlags(fault_flags_raw),
+        digital_inputs=digital_inputs,
+        virtual_channels=virtual_channels,
     )
 
 
-def create_telemetry_bytes(packet: TelemetryPacket, crc: int = 0) -> bytes:
+def create_telemetry_bytes(packet: TelemetryPacket) -> bytes:
     """
     Create raw bytes from a telemetry packet.
 
@@ -250,21 +396,32 @@ def create_telemetry_bytes(packet: TelemetryPacket, crc: int = 0) -> bytes:
 
     Args:
         packet: TelemetryPacket to serialize
-        crc: CRC value to include (usually calculated by caller)
 
     Returns:
         Raw bytes representation
     """
+    # Convert digital_inputs list to bitmask
+    di_bitmask = sum((1 if v else 0) << i for i, v in enumerate(packet.digital_inputs[:20]))
+
     return struct.pack(
         TELEMETRY_FORMAT,
         packet.timestamp_ms,
-        *[s.value for s in packet.channel_states],
-        *packet.analog_values,
-        *packet.output_currents,
         packet.input_voltage_mv,
         packet.temperature_c,
-        packet.fault_flags.value,
-        crc,
+        packet.total_current_ma,
+        *packet.adc_values,
+        *[s.value if isinstance(s, ChannelState) else s for s in packet.profet_states],
+        *packet.profet_duties,
+        *packet.hbridge_states,
+        *packet.hbridge_positions,
+        # Extended fields
+        packet.board_temp_2,
+        packet.output_5v_mv,
+        packet.output_3v3_mv,
+        packet.flash_temp,
+        packet.system_status,
+        packet.fault_flags.value if isinstance(packet.fault_flags, FaultFlags) else packet.fault_flags,
+        di_bitmask,
     )
 
 
@@ -346,3 +503,123 @@ class ChannelStatus:
             ChannelState.DISABLED: "Disabled",
         }
         return state_names.get(self.state, "Unknown")
+
+
+@dataclass
+class HBridgeTelemetry:
+    """Extended telemetry data for a single H-Bridge channel."""
+
+    bridge_id: int = 0
+
+    # Operating mode and state
+    mode: HBridgeMode = HBridgeMode.COAST
+    state: HBridgeState = HBridgeState.IDLE
+    direction: int = 0  # 0=coast, 1=forward, 2=reverse, 3=brake
+
+    # Control values
+    pwm: int = 0  # 0-255
+    target_position: int = 0
+
+    # Motor feedback
+    current_ma: int = 0  # Motor current in mA
+    position: int = 0  # Position feedback (raw ADC or encoder)
+    omega: float = 0.0  # Angular velocity (rad/s)
+    theta: float = 0.0  # Angular position (rad)
+    back_emf_v: float = 0.0  # Back-EMF voltage
+
+    # Thermal
+    temperature_c: float = 25.0  # Motor/driver temperature
+
+    # Motor physics (from emulator)
+    torque_nm: float = 0.0  # Motor torque (Nm)
+
+    # Status flags
+    stalled: bool = False
+    at_endstop: int = 0  # 0=free, 1=min, 2=max
+    fault: int = 0  # Fault code
+
+    @property
+    def current_a(self) -> float:
+        """Get current in amps."""
+        return self.current_ma / 1000.0
+
+    @property
+    def speed_rpm(self) -> float:
+        """Get motor speed in RPM."""
+        return abs(self.omega) * 9.549  # rad/s to RPM (30/pi)
+
+    @property
+    def position_degrees(self) -> float:
+        """Get position in degrees."""
+        return self.theta * 57.2958  # rad to degrees (180/pi)
+
+    @property
+    def duty_percent(self) -> float:
+        """Get PWM duty as percentage."""
+        return (self.pwm / 255.0) * 100.0
+
+    @property
+    def direction_str(self) -> str:
+        """Get human-readable direction string."""
+        return {0: "Coast", 1: "FWD", 2: "REV", 3: "Brake"}.get(self.direction, "?")
+
+    @property
+    def mode_str(self) -> str:
+        """Get human-readable mode string."""
+        mode_names = {
+            HBridgeMode.COAST: "Coast",
+            HBridgeMode.FORWARD: "Forward",
+            HBridgeMode.REVERSE: "Reverse",
+            HBridgeMode.BRAKE: "Brake",
+            HBridgeMode.WIPER_PARK: "Wiper Park",
+            HBridgeMode.PID_POSITION: "PID Position",
+        }
+        return mode_names.get(self.mode, "Unknown")
+
+    @property
+    def state_str(self) -> str:
+        """Get human-readable state string."""
+        state_names = {
+            HBridgeState.IDLE: "Idle",
+            HBridgeState.RUNNING: "Running",
+            HBridgeState.STALLED: "Stalled",
+            HBridgeState.FAULT: "Fault",
+            HBridgeState.OVERCURRENT: "Overcurrent",
+            HBridgeState.OVERTEMP: "Overtemp",
+        }
+        return state_names.get(self.state, "Unknown")
+
+    @property
+    def is_running(self) -> bool:
+        """Check if motor is running."""
+        return self.state == HBridgeState.RUNNING and self.pwm > 0
+
+    @property
+    def is_faulted(self) -> bool:
+        """Check if H-Bridge is in fault state."""
+        return self.state in (
+            HBridgeState.FAULT,
+            HBridgeState.OVERCURRENT,
+            HBridgeState.OVERTEMP
+        ) or self.fault != 0
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for HBridgeMonitor."""
+        return {
+            'bridge': self.bridge_id,
+            'mode': self.mode.value if isinstance(self.mode, HBridgeMode) else self.mode,
+            'state': self.state.value if isinstance(self.state, HBridgeState) else self.state,
+            'direction': self.direction,
+            'pwm': self.pwm,
+            'current': self.current_ma,
+            'omega': self.omega,
+            'theta': self.theta,
+            'backEmf': self.back_emf_v,
+            'torque': self.torque_nm,
+            'temp': self.temperature_c,
+            'stalled': 1 if self.stalled else 0,
+            'endstop': self.at_endstop,
+            'fault': self.fault,
+            'position': self.position,
+            'target': self.target_position,
+        }

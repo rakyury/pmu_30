@@ -4,7 +4,7 @@ Dynamic UI based on operation type
 """
 
 from PyQt6.QtWidgets import (
-    QFormLayout, QGridLayout, QGroupBox, QComboBox, QDoubleSpinBox, QSpinBox,
+    QFormLayout, QGridLayout, QGroupBox, QComboBox, QSpinBox,
     QLabel, QStackedWidget, QWidget, QVBoxLayout, QCheckBox
 )
 from PyQt6.QtCore import Qt
@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, LogicOperation, LogicPolarity, LogicDefaultState, EdgeType
+from ui.widgets.constant_spinbox import ConstantSpinBox, ScalingFactorSpinBox, TimeDelaySpinBox
 
 
 class LogicDialog(BaseChannelDialog):
@@ -88,8 +89,9 @@ class LogicDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.LOGIC)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.LOGIC, existing_channels)
 
         self._create_operation_group()
         self._create_params_group()
@@ -104,6 +106,10 @@ class LogicDialog(BaseChannelDialog):
         # Update visibility based on current operation
         self._on_operation_changed()
 
+        # Finalize UI sizing
+        self._finalize_ui()
+        self.setFixedWidth(300)
+
     def _create_operation_group(self):
         """Create operation selection group"""
         op_group = QGroupBox("Operation")
@@ -117,7 +123,7 @@ class LogicDialog(BaseChannelDialog):
 
         # Operation description
         self.op_description = QLabel("")
-        self.op_description.setStyleSheet("color: #666; font-style: italic;")
+        self.op_description.setStyleSheet("color: #b0b0b0; font-style: italic;")
         self.op_description.setWordWrap(True)
         op_layout.addRow("", self.op_description)
 
@@ -178,20 +184,14 @@ class LogicDialog(BaseChannelDialog):
         )
         layout.addWidget(self.is_tf_channel_widget, 0, 1, 1, 3)
 
-        # Row 1: True delay | False delay
+        # Row 1: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 1, 0)
-        self.is_tf_true_delay = QDoubleSpinBox()
-        self.is_tf_true_delay.setRange(0, 3600)
-        self.is_tf_true_delay.setDecimals(2)
-        self.is_tf_true_delay.setSuffix(" s")
+        self.is_tf_true_delay = TimeDelaySpinBox()
         self.is_tf_true_delay.setValue(0)
         layout.addWidget(self.is_tf_true_delay, 1, 1)
 
         layout.addWidget(QLabel("False delay:"), 1, 2)
-        self.is_tf_false_delay = QDoubleSpinBox()
-        self.is_tf_false_delay.setRange(0, 3600)
-        self.is_tf_false_delay.setDecimals(2)
-        self.is_tf_false_delay.setSuffix(" s")
+        self.is_tf_false_delay = TimeDelaySpinBox()
         self.is_tf_false_delay.setValue(0)
         layout.addWidget(self.is_tf_false_delay, 1, 3)
 
@@ -212,26 +212,19 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Constant | (empty)
         layout.addWidget(QLabel("Constant:"), 1, 0)
-        self.cmp_constant = QDoubleSpinBox()
-        self.cmp_constant.setRange(-1000000, 1000000)
-        self.cmp_constant.setDecimals(4)
+        self.cmp_constant = ConstantSpinBox()
+        self.cmp_constant.setRange(-10000.00, 10000.00)
         self.cmp_constant.setValue(0)
         layout.addWidget(self.cmp_constant, 1, 1)
 
-        # Row 2: True delay | False delay
+        # Row 2: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 2, 0)
-        self.cmp_true_delay = QDoubleSpinBox()
-        self.cmp_true_delay.setRange(0, 3600)
-        self.cmp_true_delay.setDecimals(2)
-        self.cmp_true_delay.setSuffix(" s")
+        self.cmp_true_delay = TimeDelaySpinBox()
         self.cmp_true_delay.setValue(0)
         layout.addWidget(self.cmp_true_delay, 2, 1)
 
         layout.addWidget(QLabel("False delay:"), 2, 2)
-        self.cmp_false_delay = QDoubleSpinBox()
-        self.cmp_false_delay.setRange(0, 3600)
-        self.cmp_false_delay.setDecimals(2)
-        self.cmp_false_delay.setSuffix(" s")
+        self.cmp_false_delay = TimeDelaySpinBox()
         self.cmp_false_delay.setValue(0)
         layout.addWidget(self.cmp_false_delay, 2, 3)
 
@@ -257,20 +250,14 @@ class LogicDialog(BaseChannelDialog):
         )
         layout.addWidget(self.and_or_ch2_widget, 1, 1, 1, 3)
 
-        # Row 2: True delay | False delay
+        # Row 2: True delay | False delay (2 decimal places for seconds)
         layout.addWidget(QLabel("True delay:"), 2, 0)
-        self.and_or_true_delay = QDoubleSpinBox()
-        self.and_or_true_delay.setRange(0, 3600)
-        self.and_or_true_delay.setDecimals(2)
-        self.and_or_true_delay.setSuffix(" s")
+        self.and_or_true_delay = TimeDelaySpinBox()
         self.and_or_true_delay.setValue(0)
         layout.addWidget(self.and_or_true_delay, 2, 1)
 
         layout.addWidget(QLabel("False delay:"), 2, 2)
-        self.and_or_false_delay = QDoubleSpinBox()
-        self.and_or_false_delay.setRange(0, 3600)
-        self.and_or_false_delay.setDecimals(2)
-        self.and_or_false_delay.setSuffix(" s")
+        self.and_or_false_delay = TimeDelaySpinBox()
         self.and_or_false_delay.setValue(0)
         layout.addWidget(self.and_or_false_delay, 2, 3)
 
@@ -291,16 +278,14 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Threshold | Time on
         layout.addWidget(QLabel("Threshold:"), 1, 0)
-        self.changed_threshold = QDoubleSpinBox()
-        self.changed_threshold.setRange(0, 1000000)
-        self.changed_threshold.setDecimals(4)
+        self.changed_threshold = ConstantSpinBox()
+        self.changed_threshold.setRange(0, 10000.00)
         self.changed_threshold.setValue(1.0)
         layout.addWidget(self.changed_threshold, 1, 1)
 
         layout.addWidget(QLabel("Time on:"), 1, 2)
-        self.changed_time_on = QDoubleSpinBox()
-        self.changed_time_on.setRange(0, 3600)
-        self.changed_time_on.setDecimals(2)
+        self.changed_time_on = ScalingFactorSpinBox()
+        self.changed_time_on.setRange(0, 3600.0)
         self.changed_time_on.setSuffix(" s")
         self.changed_time_on.setValue(0.5)
         layout.addWidget(self.changed_time_on, 1, 3)
@@ -329,16 +314,14 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 2: Upper value | Lower value
         layout.addWidget(QLabel("Upper value:"), 2, 0)
-        self.hyst_upper = QDoubleSpinBox()
-        self.hyst_upper.setRange(-1000000, 1000000)
-        self.hyst_upper.setDecimals(2)
+        self.hyst_upper = ConstantSpinBox()
+        self.hyst_upper.setRange(-10000.00, 10000.00)
         self.hyst_upper.setValue(100.0)
         layout.addWidget(self.hyst_upper, 2, 1)
 
         layout.addWidget(QLabel("Lower value:"), 2, 2)
-        self.hyst_lower = QDoubleSpinBox()
-        self.hyst_lower.setRange(-1000000, 1000000)
-        self.hyst_lower.setDecimals(2)
+        self.hyst_lower = ConstantSpinBox()
+        self.hyst_lower.setRange(-10000.00, 10000.00)
         self.hyst_lower.setValue(0.0)
         layout.addWidget(self.hyst_lower, 2, 3)
 
@@ -443,9 +426,8 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 2: Time on | Retrigger
         layout.addWidget(QLabel("Time on:"), 2, 0)
-        self.pulse_time_on = QDoubleSpinBox()
-        self.pulse_time_on.setRange(0.01, 3600)
-        self.pulse_time_on.setDecimals(2)
+        self.pulse_time_on = ScalingFactorSpinBox()
+        self.pulse_time_on.setRange(0.01, 3600.0)
         self.pulse_time_on.setSuffix(" s")
         self.pulse_time_on.setValue(0.5)
         layout.addWidget(self.pulse_time_on, 2, 1)
@@ -471,17 +453,15 @@ class LogicDialog(BaseChannelDialog):
 
         # Row 1: Time on | Time off
         layout.addWidget(QLabel("Time on:"), 1, 0)
-        self.flash_time_on = QDoubleSpinBox()
-        self.flash_time_on.setRange(0.01, 3600)
-        self.flash_time_on.setDecimals(2)
+        self.flash_time_on = ScalingFactorSpinBox()
+        self.flash_time_on.setRange(0.01, 3600.0)
         self.flash_time_on.setSuffix(" s")
         self.flash_time_on.setValue(0.5)
         layout.addWidget(self.flash_time_on, 1, 1)
 
         layout.addWidget(QLabel("Time off:"), 1, 2)
-        self.flash_time_off = QDoubleSpinBox()
-        self.flash_time_off.setRange(0.01, 3600)
-        self.flash_time_off.setDecimals(2)
+        self.flash_time_off = ScalingFactorSpinBox()
+        self.flash_time_off.setRange(0.01, 3600.0)
         self.flash_time_off.setSuffix(" s")
         self.flash_time_off.setValue(0.5)
         layout.addWidget(self.flash_time_off, 1, 3)
@@ -535,29 +515,29 @@ class LogicDialog(BaseChannelDialog):
         page_index = self.OPERATION_PAGE_MAP.get(op_enum, 0)
 
         if page_index == 0:  # Is True / Is False
-            self.is_tf_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.is_tf_channel_edit, config.get("channel"))
             self.is_tf_true_delay.setValue(config.get("true_delay_s", 0))
             self.is_tf_false_delay.setValue(config.get("false_delay_s", 0))
 
         elif page_index == 1:  # Comparison
-            self.cmp_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.cmp_channel_edit, config.get("channel"))
             self.cmp_constant.setValue(config.get("constant", 0))
             self.cmp_true_delay.setValue(config.get("true_delay_s", 0))
             self.cmp_false_delay.setValue(config.get("false_delay_s", 0))
 
         elif page_index == 2:  # And / Or / Xor
-            self.and_or_ch1_edit.setText(config.get("channel", ""))
-            self.and_or_ch2_edit.setText(config.get("channel_2", ""))
+            self._set_channel_edit_value(self.and_or_ch1_edit, config.get("channel"))
+            self._set_channel_edit_value(self.and_or_ch2_edit, config.get("channel_2"))
             self.and_or_true_delay.setValue(config.get("true_delay_s", 0))
             self.and_or_false_delay.setValue(config.get("false_delay_s", 0))
 
         elif page_index == 3:  # Changed
-            self.changed_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.changed_channel_edit, config.get("channel"))
             self.changed_threshold.setValue(config.get("threshold", 1.0))
             self.changed_time_on.setValue(config.get("time_on_s", 0.5))
 
         elif page_index == 4:  # Hysteresis
-            self.hyst_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.hyst_channel_edit, config.get("channel"))
             polarity = config.get("polarity", "normal")
             for i in range(self.hyst_polarity.count()):
                 if self.hyst_polarity.itemData(i) == polarity:
@@ -567,8 +547,8 @@ class LogicDialog(BaseChannelDialog):
             self.hyst_lower.setValue(config.get("lower_value", 0))
 
         elif page_index == 5:  # Set-Reset Latch
-            self.sr_set_edit.setText(config.get("set_channel", ""))
-            self.sr_reset_edit.setText(config.get("reset_channel", ""))
+            self._set_channel_edit_value(self.sr_set_edit, config.get("set_channel"))
+            self._set_channel_edit_value(self.sr_reset_edit, config.get("reset_channel"))
             default = config.get("default_state", "off")
             for i in range(self.sr_default.count()):
                 if self.sr_default.itemData(i) == default:
@@ -581,9 +561,9 @@ class LogicDialog(BaseChannelDialog):
                 if self.toggle_edge.itemData(i) == edge:
                     self.toggle_edge.setCurrentIndex(i)
                     break
-            self.toggle_channel_edit.setText(config.get("toggle_channel", ""))
-            self.toggle_set_edit.setText(config.get("set_channel", ""))
-            self.toggle_reset_edit.setText(config.get("reset_channel", ""))
+            self._set_channel_edit_value(self.toggle_channel_edit, config.get("toggle_channel"))
+            self._set_channel_edit_value(self.toggle_set_edit, config.get("set_channel"))
+            self._set_channel_edit_value(self.toggle_reset_edit, config.get("reset_channel"))
             default = config.get("default_state", "off")
             for i in range(self.toggle_default.count()):
                 if self.toggle_default.itemData(i) == default:
@@ -596,18 +576,18 @@ class LogicDialog(BaseChannelDialog):
                 if self.pulse_edge.itemData(i) == edge:
                     self.pulse_edge.setCurrentIndex(i)
                     break
-            self.pulse_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.pulse_channel_edit, config.get("channel"))
             self.pulse_count.setValue(config.get("pulse_count", 1))
             self.pulse_time_on.setValue(config.get("time_on_s", 0.5))
             self.pulse_retrigger.setChecked(config.get("retrigger", False))
 
         elif page_index == 8:  # Flash
-            self.flash_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.flash_channel_edit, config.get("channel"))
             self.flash_time_on.setValue(config.get("time_on_s", 0.5))
             self.flash_time_off.setValue(config.get("time_off_s", 0.5))
 
         elif page_index == 9:  # Edge detection
-            self.edge_channel_edit.setText(config.get("channel", ""))
+            self._set_channel_edit_value(self.edge_channel_edit, config.get("channel"))
 
     def _validate_specific(self) -> List[str]:
         """Validate type-specific fields"""
@@ -693,60 +673,60 @@ class LogicDialog(BaseChannelDialog):
         config["retrigger"] = False
         config["time_off_s"] = 0.5
 
-        # Fill specific fields based on operation
+        # Fill specific fields based on operation (using _get_channel_id_from_edit for channel fields)
         if page_index == 0:  # Is True / Is False
-            config["channel"] = self.is_tf_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.is_tf_channel_edit) or ""
             config["true_delay_s"] = self.is_tf_true_delay.value()
             config["false_delay_s"] = self.is_tf_false_delay.value()
 
         elif page_index == 1:  # Comparison
-            config["channel"] = self.cmp_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.cmp_channel_edit) or ""
             config["constant"] = self.cmp_constant.value()
             config["true_delay_s"] = self.cmp_true_delay.value()
             config["false_delay_s"] = self.cmp_false_delay.value()
 
         elif page_index == 2:  # And / Or / Xor
-            config["channel"] = self.and_or_ch1_edit.text().strip()
-            config["channel_2"] = self.and_or_ch2_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.and_or_ch1_edit) or ""
+            config["channel_2"] = self._get_channel_id_from_edit(self.and_or_ch2_edit) or ""
             config["true_delay_s"] = self.and_or_true_delay.value()
             config["false_delay_s"] = self.and_or_false_delay.value()
 
         elif page_index == 3:  # Changed
-            config["channel"] = self.changed_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.changed_channel_edit) or ""
             config["threshold"] = self.changed_threshold.value()
             config["time_on_s"] = self.changed_time_on.value()
 
         elif page_index == 4:  # Hysteresis
-            config["channel"] = self.hyst_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.hyst_channel_edit) or ""
             config["polarity"] = self.hyst_polarity.currentData()
             config["upper_value"] = self.hyst_upper.value()
             config["lower_value"] = self.hyst_lower.value()
 
         elif page_index == 5:  # Set-Reset Latch
-            config["set_channel"] = self.sr_set_edit.text().strip()
-            config["reset_channel"] = self.sr_reset_edit.text().strip()
+            config["set_channel"] = self._get_channel_id_from_edit(self.sr_set_edit) or ""
+            config["reset_channel"] = self._get_channel_id_from_edit(self.sr_reset_edit) or ""
             config["default_state"] = self.sr_default.currentData()
 
         elif page_index == 6:  # Toggle
             config["edge"] = self.toggle_edge.currentData()
-            config["toggle_channel"] = self.toggle_channel_edit.text().strip()
-            config["set_channel"] = self.toggle_set_edit.text().strip()
-            config["reset_channel"] = self.toggle_reset_edit.text().strip()
+            config["toggle_channel"] = self._get_channel_id_from_edit(self.toggle_channel_edit) or ""
+            config["set_channel"] = self._get_channel_id_from_edit(self.toggle_set_edit) or ""
+            config["reset_channel"] = self._get_channel_id_from_edit(self.toggle_reset_edit) or ""
             config["default_state"] = self.toggle_default.currentData()
 
         elif page_index == 7:  # Pulse
             config["edge"] = self.pulse_edge.currentData()
-            config["channel"] = self.pulse_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.pulse_channel_edit) or ""
             config["pulse_count"] = self.pulse_count.value()
             config["time_on_s"] = self.pulse_time_on.value()
             config["retrigger"] = self.pulse_retrigger.isChecked()
 
         elif page_index == 8:  # Flash
-            config["channel"] = self.flash_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.flash_channel_edit) or ""
             config["time_on_s"] = self.flash_time_on.value()
             config["time_off_s"] = self.flash_time_off.value()
 
         elif page_index == 9:  # Edge detection
-            config["channel"] = self.edge_channel_edit.text().strip()
+            config["channel"] = self._get_channel_id_from_edit(self.edge_channel_edit) or ""
 
         return config

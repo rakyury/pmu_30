@@ -18,7 +18,20 @@
       "Bash(python -m unittest:*)",
       "Bash(grep:*)",
       "Bash(cat:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(python -m platformio:*)",
+      "Bash(powershell -Command '$env:PATH = \\\\\"\"C:\\\\msys64\\\\ucrt64\\\\bin;\\\\\"\" + $env:PATH; cd c:\\\\Projects\\\\pmu_30\\\\firmware; python -m platformio run -e pmu30_emulator')",
+      "Bash(powershell -Command '$env:PATH = \"\"C:\\\\msys64\\\\ucrt64\\\\bin;\"\" + $env:PATH; cd c:\\\\Projects\\\\pmu_30\\\\firmware; python -m platformio run -e pmu30_emulator')",
+      "Bash(powershell -Command '$env:PATH = \"\"C:\\\\msys64\\\\ucrt64\\\\bin;\"\" + $env:PATH; cd c:\\\\Projects\\\\pmu_30\\\\firmware; python -m platformio run -e pmu30_emulator -t clean; python -m platformio run -e pmu30_emulator 2>&1 | Select-Object -Last 25')",
+      "Bash(powershell -Command '$env:PATH = \"\"C:\\\\msys64\\\\ucrt64\\\\bin;\"\" + $env:PATH; cd c:\\\\Projects\\\\pmu_30\\\\firmware; python -m platformio run -e pmu30_emulator 2>&1 | Select-Object -Last 15')",
+      "Bash(.piobuildpmu30_emulatorprogram.exe)",
+      "Bash(powershell -Command \"cd c:\\\\Projects\\\\pmu_30\\\\firmware; .\\\\.pio\\\\build\\\\pmu30_emulator\\\\program.exe\")",
+      "Bash(powershell -Command:*)",
+      "Bash(python build_exe.py:*)",
+      "Bash(powershell -Command \"cd ''c:\\\\Projects\\\\pmu_30\\\\configurator''; python build_exe.py --skip-deps\")",
+      "Bash(powershell -Command \"pip install pyinstaller\")",
+      "Bash(powershell -Command \"python -m pip install pyinstaller\")",
+      "Bash(taskkill:*)"
     ]
   }
 }

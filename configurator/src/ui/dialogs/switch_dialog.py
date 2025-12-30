@@ -4,15 +4,14 @@ Allows creation of state switches (latching or press/hold)
 """
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QSpinBox,
-    QComboBox, QDialogButtonBox, QGroupBox, QPushButton
+    QFormLayout, QSpinBox, QComboBox, QGroupBox, QGridLayout, QLabel
 )
-from PyQt6.QtCore import Qt
-from typing import Dict, Any, Optional
-from .channel_selector_dialog import ChannelSelectorDialog
+from typing import Dict, Any, Optional, List
+from .base_channel_dialog import BaseChannelDialog
+from models.channel import ChannelType
 
 
-class SwitchDialog(QDialog):
+class SwitchDialog(BaseChannelDialog):
     """Dialog for configuring state switches."""
 
     SWITCH_TYPES = [
@@ -20,119 +19,101 @@ class SwitchDialog(QDialog):
         "press/hold switch"
     ]
 
-    TRIGGER_EDGES = [
-        "Rising",
-        "Falling",
-        "Both"
-    ]
+    def __init__(self, parent=None,
+                 config: Optional[Dict[str, Any]] = None,
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        """Initialize SwitchDialog with standard constructor pattern."""
+        super().__init__(parent, config, available_channels, ChannelType.SWITCH, existing_channels)
 
-    def __init__(self, parent=None, config: Optional[Dict[str, Any]] = None, available_channels: Optional[Dict] = None):
-        super().__init__(parent)
-        self.config = config or {}
-        self.available_channels = available_channels or {}  # Dict of all available channels/functions
-        self._init_ui()
-        self._load_config()
+        # Create Switch specific UI
+        self._create_switch_ui()
 
-    def _init_ui(self):
-        """Initialize UI."""
-        self.setWindowTitle("New Switch")
-        self.setMinimumWidth(550)
+        # Load config if editing
+        if config:
+            self._load_specific_config(config)
 
-        layout = QVBoxLayout(self)
+        # Finalize UI sizing
+        self._finalize_ui()
 
-        # Main settings group
-        main_group = QGroupBox("eSwitch")
-        main_layout = QFormLayout()
-
-        # Channel name
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., s_switch1")
-        main_layout.addRow("Channel name:", self.name_edit)
+    def _create_switch_ui(self):
+        """Create Switch specific UI components using base class helpers."""
+        # Switch settings group
+        switch_group = QGroupBox("Switch Settings")
+        layout = QGridLayout()
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(3, 1)
+        row = 0
 
         # Switch type
+        layout.addWidget(QLabel("Switch type:"), row, 0)
         self.type_combo = QComboBox()
         self.type_combo.addItems(self.SWITCH_TYPES)
-        main_layout.addRow("Switch type:", self.type_combo)
+        layout.addWidget(self.type_combo, row, 1, 1, 3)
+        row += 1
 
-        # Input channel up
-        channel_up_layout = QHBoxLayout()
-        self.channel_up_edit = QLineEdit()
-        self.channel_up_edit.setPlaceholderText("Select input channel...")
-        self.channel_up_edit.setReadOnly(True)
-        channel_up_layout.addWidget(self.channel_up_edit, stretch=1)
-
-        self.channel_up_btn = QPushButton("Browse...")
-        self.channel_up_btn.clicked.connect(self._browse_channel_up)
-        channel_up_layout.addWidget(self.channel_up_btn)
-        main_layout.addRow("Input channel up:", channel_up_layout)
+        # Input channel up (full width) - using base class helper
+        layout.addWidget(QLabel("Channel up:"), row, 0)
+        self.channel_up_widget, self.channel_up_edit = self._create_channel_selector(
+            "Select channel for incrementing state..."
+        )
+        layout.addWidget(self.channel_up_widget, row, 1, 1, 3)
+        row += 1
 
         # Trigger edge up
-        self.trigger_up_combo = QComboBox()
-        self.trigger_up_combo.addItems(self.TRIGGER_EDGES)
-        main_layout.addRow("Trigger edge up:", self.trigger_up_combo)
+        layout.addWidget(QLabel("Edge up:"), row, 0)
+        self.trigger_up_combo = self._create_edge_combo(include_both=True, include_level=False)
+        layout.addWidget(self.trigger_up_combo, row, 1)
+        row += 1
 
-        # Input channel down
-        channel_down_layout = QHBoxLayout()
-        self.channel_down_edit = QLineEdit()
-        self.channel_down_edit.setPlaceholderText("Select input channel...")
-        self.channel_down_edit.setReadOnly(True)
-        channel_down_layout.addWidget(self.channel_down_edit, stretch=1)
-
-        self.channel_down_btn = QPushButton("Browse...")
-        self.channel_down_btn.clicked.connect(self._browse_channel_down)
-        channel_down_layout.addWidget(self.channel_down_btn)
-        main_layout.addRow("Input channel down:", channel_down_layout)
+        # Input channel down (full width) - using base class helper
+        layout.addWidget(QLabel("Channel down:"), row, 0)
+        self.channel_down_widget, self.channel_down_edit = self._create_channel_selector(
+            "Select channel for decrementing state..."
+        )
+        layout.addWidget(self.channel_down_widget, row, 1, 1, 3)
+        row += 1
 
         # Trigger edge down
-        self.trigger_down_combo = QComboBox()
-        self.trigger_down_combo.addItems(self.TRIGGER_EDGES)
-        main_layout.addRow("Trigger edge down:", self.trigger_down_combo)
+        layout.addWidget(QLabel("Edge down:"), row, 0)
+        self.trigger_down_combo = self._create_edge_combo(include_both=True, include_level=False)
+        layout.addWidget(self.trigger_down_combo, row, 1)
+
+        switch_group.setLayout(layout)
+        self.content_layout.addWidget(switch_group)
+
+        # State settings group
+        state_group = QGroupBox("State Range")
+        state_layout = QFormLayout()
 
         # First state
         self.first_state_spin = QSpinBox()
         self.first_state_spin.setRange(0, 255)
         self.first_state_spin.setValue(0)
-        main_layout.addRow("First state:", self.first_state_spin)
+        state_layout.addRow("First state:", self.first_state_spin)
 
         # Last state
         self.last_state_spin = QSpinBox()
         self.last_state_spin.setRange(0, 255)
         self.last_state_spin.setValue(2)
-        main_layout.addRow("Last state:", self.last_state_spin)
+        state_layout.addRow("Last state:", self.last_state_spin)
 
         # Default state
         self.default_state_spin = QSpinBox()
         self.default_state_spin.setRange(0, 255)
         self.default_state_spin.setValue(0)
-        main_layout.addRow("Default state:", self.default_state_spin)
+        state_layout.addRow("Default state:", self.default_state_spin)
 
-        main_group.setLayout(main_layout)
-        layout.addWidget(main_group)
+        state_group.setLayout(state_layout)
+        self.content_layout.addWidget(state_group)
 
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _on_accept(self):
-        """Validate and accept dialog."""
-        from PyQt6.QtWidgets import QMessageBox
-
-        # Validate name (required field)
-        if not self.name_edit.text().strip():
-            QMessageBox.warning(self, "Validation Error", "Channel name is required!")
-            self.name_edit.setFocus()
-            return
+    def _validate_specific(self) -> list:
+        """Validate Switch specific fields."""
+        errors = []
 
         # Validate first state <= last state
         if self.first_state_spin.value() > self.last_state_spin.value():
-            QMessageBox.warning(self, "Validation Error", "First state must be less than or equal to Last state!")
-            self.first_state_spin.setFocus()
-            return
+            errors.append("First state must be less than or equal to Last state")
 
         # Validate default state is within range
         default_state = self.default_state_spin.value()
@@ -140,70 +121,46 @@ class SwitchDialog(QDialog):
         last_state = self.last_state_spin.value()
 
         if default_state < first_state or default_state > last_state:
-            QMessageBox.warning(self, "Validation Error",
-                f"Default state ({default_state}) must be between First state ({first_state}) and Last state ({last_state})!")
-            self.default_state_spin.setFocus()
-            return
+            errors.append(f"Default state ({default_state}) must be between First state ({first_state}) and Last state ({last_state})")
 
-        self.accept()
+        return errors
 
-    def _browse_channel_up(self):
-        """Browse and select input channel up."""
-        current = self.channel_up_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.channel_up_edit.setText(channel)
-
-    def _browse_channel_down(self):
-        """Browse and select input channel down."""
-        current = self.channel_down_edit.text()
-        channel = ChannelSelectorDialog.select_channel(self, current, self.available_channels)
-        if channel:
-            self.channel_down_edit.setText(channel)
-
-    def _load_config(self):
-        """Load configuration into UI."""
-        if not self.config:
-            return
-
-        self.name_edit.setText(self.config.get("name", ""))
-
+    def _load_specific_config(self, config: Dict[str, Any]):
+        """Load Switch specific configuration."""
         # Switch type
-        switch_type = self.config.get("switch_type", "latching switch")
+        switch_type = config.get("switch_type", "latching switch")
         idx = self.type_combo.findText(switch_type)
         if idx >= 0:
             self.type_combo.setCurrentIndex(idx)
 
-        # Input channels
-        self.channel_up_edit.setText(self.config.get("input_channel_up", ""))
-        self.channel_down_edit.setText(self.config.get("input_channel_down", ""))
+        # Input channels - using base class helper
+        self._set_channel_edit_value(self.channel_up_edit, config.get("input_channel_up"))
+        self._set_channel_edit_value(self.channel_down_edit, config.get("input_channel_down"))
 
-        # Trigger edges
-        trigger_up = self.config.get("trigger_edge_up", "Rising")
-        idx = self.trigger_up_combo.findText(trigger_up)
-        if idx >= 0:
-            self.trigger_up_combo.setCurrentIndex(idx)
-
-        trigger_down = self.config.get("trigger_edge_down", "Rising")
-        idx = self.trigger_down_combo.findText(trigger_down)
-        if idx >= 0:
-            self.trigger_down_combo.setCurrentIndex(idx)
+        # Trigger edges - using base class helper
+        self._set_edge_combo_value(self.trigger_up_combo, config.get("trigger_edge_up", "rising"))
+        self._set_edge_combo_value(self.trigger_down_combo, config.get("trigger_edge_down", "rising"))
 
         # States
-        self.first_state_spin.setValue(self.config.get("first_state", 0))
-        self.last_state_spin.setValue(self.config.get("last_state", 2))
-        self.default_state_spin.setValue(self.config.get("default_state", 0))
+        self.first_state_spin.setValue(config.get("first_state", 0))
+        self.last_state_spin.setValue(config.get("last_state", 2))
+        self.default_state_spin.setValue(config.get("default_state", 0))
 
     def get_config(self) -> Dict[str, Any]:
-        """Get configuration from UI."""
-        return {
-            "name": self.name_edit.text(),
+        """Get configuration from dialog."""
+        # Get base config (channel_id, name, enabled, channel_type)
+        config = self.get_base_config()
+
+        # Add Switch specific fields - using base class helpers for channel IDs
+        config.update({
             "switch_type": self.type_combo.currentText(),
-            "input_channel_up": self.channel_up_edit.text(),
-            "trigger_edge_up": self.trigger_up_combo.currentText(),
-            "input_channel_down": self.channel_down_edit.text(),
-            "trigger_edge_down": self.trigger_down_combo.currentText(),
+            "input_channel_up": self._get_channel_id_from_edit(self.channel_up_edit) or "",
+            "trigger_edge_up": self._get_edge_combo_value(self.trigger_up_combo),
+            "input_channel_down": self._get_channel_id_from_edit(self.channel_down_edit) or "",
+            "trigger_edge_down": self._get_edge_combo_value(self.trigger_down_combo),
             "first_state": self.first_state_spin.value(),
             "last_state": self.last_state_spin.value(),
             "default_state": self.default_state_spin.value()
-        }
+        })
+
+        return config

@@ -15,6 +15,17 @@ extern int test_can_main(void);
 extern int test_logging_main(void);
 extern int test_ui_main(void);
 extern int test_lua_main(void);
+extern int test_channel_main(void);
+extern int test_config_json_main(void);
+extern int test_logic_ext_main(void);
+extern int test_profet_main(void);
+extern int test_adc_main(void);
+extern int test_timer_main(void);
+extern int test_pid_main(void);
+extern int test_hbridge_main(void);
+extern int test_can_stream_main(void);
+extern int test_protocol_main(void);
+extern int test_handler_main(void);
 
 /* Test statistics */
 static int total_tests = 0;
@@ -63,6 +74,39 @@ int main(int argc, char** argv)
 
     printf("\nRunning Lua Scripting Tests...\n");
     result += test_lua_main();
+
+    printf("\nRunning Channel System Tests...\n");
+    result += test_channel_main();
+
+    printf("\nRunning JSON Config Tests...\n");
+    result += test_config_json_main();
+
+    printf("\nRunning Extended Logic Tests...\n");
+    result += test_logic_ext_main();
+
+    printf("\nRunning PROFET Output Tests...\n");
+    result += test_profet_main();
+
+    printf("\nRunning ADC Input Tests...\n");
+    result += test_adc_main();
+
+    printf("\nRunning Timer Tests...\n");
+    result += test_timer_main();
+
+    printf("\nRunning PID Controller Tests...\n");
+    result += test_pid_main();
+
+    printf("\nRunning H-Bridge Tests...\n");
+    result += test_hbridge_main();
+
+    printf("\nRunning CAN Stream Tests...\n");
+    result += test_can_stream_main();
+
+    printf("\nRunning Protocol Tests...\n");
+    result += test_protocol_main();
+
+    printf("\nRunning Handler Tests...\n");
+    result += test_handler_main();
 
     /* Print summary */
     print_test_summary();

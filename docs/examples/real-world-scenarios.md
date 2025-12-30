@@ -1,9 +1,21 @@
 # Real-World Scenarios
 
-**Version:** 1.0
-**Date:** December 2024
+**Version:** 2.0
+**Date:** December 2025
 
-Practical examples of PMU-30 configurations for common motorsport applications.
+Practical examples of PMU-30 configurations for common motorsport applications using JSON configuration v3.0 format.
+
+---
+
+## Channel ID Reference
+
+| Range | Type | Description |
+|-------|------|-------------|
+| 0-49 | Digital Inputs | d1-d20 physical digital inputs |
+| 50-99 | Analog Inputs | a1-a20 physical analog inputs |
+| 100-199 | Physical Outputs | o1-o30 power outputs, hb1-hb4 H-bridges |
+| 200-999 | Virtual Channels | Logic, numbers, tables, CAN RX/TX, timers |
+| 1000-1023 | System Channels | Battery voltage, temperatures, status |
 
 ---
 
@@ -15,65 +27,127 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Oil cooler fan for track use
 - Dashboard warning light
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 0, "name": "Coolant Temp", "type": "ntc_10k"},
-    {"id": 1, "name": "Oil Temp", "type": "ntc_10k"},
-    {"id": 20, "name": "Track Mode", "type": "digital"}
-  ],
-  "outputs": [
-    {"id": 100, "name": "Radiator Fan", "current_limit": 25},
-    {"id": 101, "name": "Water Pump", "pwm_frequency": 1000},
-    {"id": 102, "name": "Oil Fan", "current_limit": 15},
-    {"id": 103, "name": "Temp Warning", "current_limit": 1}
-  ],
-  "logic_functions": [
+  "version": "3.0",
+  "device": {
+    "name": "CoolingSystem"
+  },
+  "can_messages": [],
+  "channels": [
     {
-      "id": 0, "name": "Fan Control",
-      "type": "hysteresis",
-      "input": 0,
-      "output": 100,
-      "parameters": {"threshold_on": 900, "threshold_off": 850}
+      "type": "analog_input",
+      "channel_id": 50,
+      "channel_name": "CoolantTemp",
+      "pin": 1,
+      "sensor_type": "ntc_10k"
     },
     {
-      "id": 1, "name": "Water Pump",
-      "type": "pwm_duty",
-      "input": 0,
-      "output": 101,
-      "parameters": {"input_min": 600, "input_max": 1000, "duty_min": 300, "duty_max": 1000}
+      "type": "analog_input",
+      "channel_id": 51,
+      "channel_name": "OilTemp",
+      "pin": 2,
+      "sensor_type": "ntc_10k"
     },
     {
-      "id": 2, "name": "Oil Fan Enable",
-      "type": "and",
-      "inputs": [210, 20],
-      "output": 102
+      "type": "digital_input",
+      "channel_id": 0,
+      "channel_name": "TrackMode",
+      "pin": 1,
+      "debounce_ms": 50
     },
     {
-      "id": 3, "name": "Oil Temp High",
-      "type": "greater",
-      "inputs": [1, 1100],
-      "output": 210
+      "type": "logic",
+      "channel_id": 200,
+      "channel_name": "FanControl",
+      "operator": "hysteresis",
+      "input_a_channel_id": 50,
+      "threshold_on": 900,
+      "threshold_off": 850
     },
     {
-      "id": 4, "name": "Temp Warning",
-      "type": "or",
-      "inputs": [211, 212],
-      "output": 103
+      "type": "table_2d",
+      "channel_id": 201,
+      "channel_name": "WaterPumpDuty",
+      "input_channel_id": 50,
+      "x_axis": [600, 700, 800, 900, 1000],
+      "values": [300, 500, 700, 900, 1000]
     },
     {
-      "id": 5, "name": "Coolant High",
-      "type": "greater",
-      "inputs": [0, 1050],
-      "output": 211
+      "type": "logic",
+      "channel_id": 210,
+      "channel_name": "OilTempHigh",
+      "operator": "greater_than",
+      "input_a_channel_id": 51,
+      "threshold": 1100
     },
     {
-      "id": 6, "name": "Oil High",
-      "type": "greater",
-      "inputs": [1, 1300],
-      "output": 212
+      "type": "logic",
+      "channel_id": 211,
+      "channel_name": "OilFanEnable",
+      "operator": "and",
+      "input_a_channel_id": 210,
+      "input_b_channel_id": 0
+    },
+    {
+      "type": "logic",
+      "channel_id": 212,
+      "channel_name": "CoolantHigh",
+      "operator": "greater_than",
+      "input_a_channel_id": 50,
+      "threshold": 1050
+    },
+    {
+      "type": "logic",
+      "channel_id": 213,
+      "channel_name": "OilHigh",
+      "operator": "greater_than",
+      "input_a_channel_id": 51,
+      "threshold": 1300
+    },
+    {
+      "type": "logic",
+      "channel_id": 214,
+      "channel_name": "TempWarning",
+      "operator": "or",
+      "input_a_channel_id": 212,
+      "input_b_channel_id": 213
+    },
+    {
+      "type": "power_output",
+      "channel_id": 100,
+      "channel_name": "RadiatorFan",
+      "pins": [1],
+      "source_channel_id": 200,
+      "current_limit_a": 25
+    },
+    {
+      "type": "power_output",
+      "channel_id": 101,
+      "channel_name": "WaterPump",
+      "pins": [2],
+      "source_channel_id": 201,
+      "pwm_enabled": true,
+      "pwm_frequency": 1000,
+      "current_limit_a": 10
+    },
+    {
+      "type": "power_output",
+      "channel_id": 102,
+      "channel_name": "OilFan",
+      "pins": [3],
+      "source_channel_id": 211,
+      "current_limit_a": 15
+    },
+    {
+      "type": "power_output",
+      "channel_id": 103,
+      "channel_name": "TempWarningLight",
+      "pins": [4],
+      "source_channel_id": 214,
+      "current_limit_a": 1
     }
   ]
 }
@@ -89,59 +163,102 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Low fuel pressure warning
 - Engine-off fuel pump timeout
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 2, "name": "Fuel Pressure", "type": "voltage"},
-    {"id": 21, "name": "Ignition", "type": "digital"}
+  "version": "3.0",
+  "device": {
+    "name": "FuelSystem"
+  },
+  "can_messages": [
+    {
+      "message_id": 864,
+      "name": "ECU_Engine",
+      "can_bus": 1,
+      "signals": [
+        {"name": "RPM", "start_bit": 0, "length": 16, "scale": 1, "offset": 0}
+      ]
+    }
   ],
-  "can_rx": [
-    {"id": "0x360", "signal": "RPM", "channel": 200}
-  ],
-  "outputs": [
-    {"id": 104, "name": "Fuel Pump", "current_limit": 15},
-    {"id": 105, "name": "Low Fuel Press", "current_limit": 1}
-  ],
-  "logic_functions": [
+  "channels": [
     {
-      "id": 10, "name": "Engine Running",
-      "type": "greater",
-      "inputs": [200, 300],
-      "output": 220
+      "type": "analog_input",
+      "channel_id": 52,
+      "channel_name": "FuelPressure",
+      "pin": 3,
+      "sensor_type": "voltage",
+      "scaling": {"factor": 244, "offset": -122}
     },
     {
-      "id": 11, "name": "Prime Pulse",
-      "type": "pulse",
-      "input": 21,
-      "output": 221,
-      "parameters": {"duration_ms": 3000}
+      "type": "digital_input",
+      "channel_id": 1,
+      "channel_name": "Ignition",
+      "pin": 2,
+      "debounce_ms": 50
     },
     {
-      "id": 12, "name": "Fuel Pump Logic",
-      "type": "or",
-      "inputs": [220, 221],
-      "output": 104
+      "type": "can_rx",
+      "channel_id": 300,
+      "channel_name": "EngineRPM",
+      "message_id": 864,
+      "signal_name": "RPM"
     },
     {
-      "id": 13, "name": "Press Convert",
-      "type": "channel_scale",
-      "input": 2,
-      "output": 230,
-      "parameters": {"factor": 24.4, "offset": -12}
+      "type": "logic",
+      "channel_id": 220,
+      "channel_name": "EngineRunning",
+      "operator": "greater_than",
+      "input_a_channel_id": 300,
+      "threshold": 300
     },
     {
-      "id": 14, "name": "Low Pressure",
-      "type": "less",
-      "inputs": [230, 300],
-      "output": 231
+      "type": "timer",
+      "channel_id": 221,
+      "channel_name": "PrimePulse",
+      "timer_mode": "pulse",
+      "trigger_channel_id": 1,
+      "duration_ms": 3000
     },
     {
-      "id": 15, "name": "Press Warning",
-      "type": "and",
-      "inputs": [231, 220],
-      "output": 105
+      "type": "logic",
+      "channel_id": 222,
+      "channel_name": "FuelPumpLogic",
+      "operator": "or",
+      "input_a_channel_id": 220,
+      "input_b_channel_id": 221
+    },
+    {
+      "type": "logic",
+      "channel_id": 230,
+      "channel_name": "LowPressure",
+      "operator": "less_than",
+      "input_a_channel_id": 52,
+      "threshold": 300
+    },
+    {
+      "type": "logic",
+      "channel_id": 231,
+      "channel_name": "PressWarning",
+      "operator": "and",
+      "input_a_channel_id": 230,
+      "input_b_channel_id": 220
+    },
+    {
+      "type": "power_output",
+      "channel_id": 104,
+      "channel_name": "FuelPump",
+      "pins": [5],
+      "source_channel_id": 222,
+      "current_limit_a": 15
+    },
+    {
+      "type": "power_output",
+      "channel_id": 105,
+      "channel_name": "LowFuelPressLight",
+      "pins": [6],
+      "source_channel_id": 231,
+      "current_limit_a": 1
     }
   ]
 }
@@ -155,94 +272,188 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Headlights with high/low beam
 - Turn signals with hazard mode
 - Brake lights
-- Reverse lights with auto-off
+- Reverse lights
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 22, "name": "Light Switch", "type": "rotary"},
-    {"id": 23, "name": "High Beam", "type": "digital"},
-    {"id": 24, "name": "Left Signal", "type": "digital"},
-    {"id": 25, "name": "Right Signal", "type": "digital"},
-    {"id": 26, "name": "Hazard", "type": "digital"},
-    {"id": 27, "name": "Brake Pedal", "type": "digital"},
-    {"id": 28, "name": "Reverse Gear", "type": "digital"}
-  ],
-  "outputs": [
-    {"id": 106, "name": "Low Beam L", "current_limit": 8},
-    {"id": 107, "name": "Low Beam R", "current_limit": 8},
-    {"id": 108, "name": "High Beam L", "current_limit": 8},
-    {"id": 109, "name": "High Beam R", "current_limit": 8},
-    {"id": 110, "name": "Signal L", "current_limit": 5},
-    {"id": 111, "name": "Signal R", "current_limit": 5},
-    {"id": 112, "name": "Brake L", "current_limit": 5},
-    {"id": 113, "name": "Brake R", "current_limit": 5},
-    {"id": 114, "name": "Reverse", "current_limit": 5}
-  ],
-  "logic_functions": [
+  "version": "3.0",
+  "device": {
+    "name": "LightingSystem"
+  },
+  "can_messages": [],
+  "channels": [
     {
-      "id": 20, "name": "Lights On",
-      "type": "greater",
-      "inputs": [22, 0],
-      "output": 240
+      "type": "switch",
+      "channel_id": 240,
+      "channel_name": "LightSwitch",
+      "input_channel_ids": [2, 3],
+      "output_values": [0, 1, 2, 3]
     },
     {
-      "id": 21, "name": "Low Beam",
-      "type": "channel_sync",
-      "input": 240,
-      "outputs": [106, 107]
+      "type": "digital_input",
+      "channel_id": 3,
+      "channel_name": "HighBeamBtn",
+      "pin": 4,
+      "debounce_ms": 50
     },
     {
-      "id": 22, "name": "High Beam",
-      "type": "and",
-      "inputs": [240, 23],
-      "output": 241
+      "type": "digital_input",
+      "channel_id": 4,
+      "channel_name": "LeftSignalBtn",
+      "pin": 5,
+      "debounce_ms": 50
     },
     {
-      "id": 23, "name": "High Beam Out",
-      "type": "channel_sync",
-      "input": 241,
-      "outputs": [108, 109]
+      "type": "digital_input",
+      "channel_id": 5,
+      "channel_name": "RightSignalBtn",
+      "pin": 6,
+      "debounce_ms": 50
     },
     {
-      "id": 24, "name": "Left Flash",
-      "type": "or",
-      "inputs": [24, 26],
-      "output": 242
+      "type": "digital_input",
+      "channel_id": 6,
+      "channel_name": "HazardBtn",
+      "pin": 7,
+      "debounce_ms": 50
     },
     {
-      "id": 25, "name": "Right Flash",
-      "type": "or",
-      "inputs": [25, 26],
-      "output": 243
+      "type": "digital_input",
+      "channel_id": 7,
+      "channel_name": "BrakePedal",
+      "pin": 8,
+      "debounce_ms": 10
     },
     {
-      "id": 26, "name": "Left Signal",
-      "type": "flasher",
-      "input": 242,
-      "output": 110,
-      "parameters": {"on_time_ms": 500, "off_time_ms": 500}
+      "type": "digital_input",
+      "channel_id": 8,
+      "channel_name": "ReverseGear",
+      "pin": 9,
+      "debounce_ms": 50
     },
     {
-      "id": 27, "name": "Right Signal",
-      "type": "flasher",
-      "input": 243,
-      "output": 111,
-      "parameters": {"on_time_ms": 500, "off_time_ms": 500}
+      "type": "logic",
+      "channel_id": 241,
+      "channel_name": "LightsOn",
+      "operator": "greater_than",
+      "input_a_channel_id": 240,
+      "threshold": 0
     },
     {
-      "id": 28, "name": "Brake Lights",
-      "type": "channel_sync",
-      "input": 27,
-      "outputs": [112, 113]
+      "type": "logic",
+      "channel_id": 242,
+      "channel_name": "HighBeamEnable",
+      "operator": "and",
+      "input_a_channel_id": 241,
+      "input_b_channel_id": 3
     },
     {
-      "id": 29, "name": "Reverse Light",
-      "type": "channel_copy",
-      "input": 28,
-      "output": 114
+      "type": "logic",
+      "channel_id": 243,
+      "channel_name": "LeftFlash",
+      "operator": "or",
+      "input_a_channel_id": 4,
+      "input_b_channel_id": 6
+    },
+    {
+      "type": "logic",
+      "channel_id": 244,
+      "channel_name": "RightFlash",
+      "operator": "or",
+      "input_a_channel_id": 5,
+      "input_b_channel_id": 6
+    },
+    {
+      "type": "timer",
+      "channel_id": 245,
+      "channel_name": "LeftSignalFlasher",
+      "timer_mode": "flasher",
+      "trigger_channel_id": 243,
+      "on_time_ms": 500,
+      "off_time_ms": 500
+    },
+    {
+      "type": "timer",
+      "channel_id": 246,
+      "channel_name": "RightSignalFlasher",
+      "timer_mode": "flasher",
+      "trigger_channel_id": 244,
+      "on_time_ms": 500,
+      "off_time_ms": 500
+    },
+    {
+      "type": "power_output",
+      "channel_id": 106,
+      "channel_name": "LowBeamL",
+      "pins": [7],
+      "source_channel_id": 241,
+      "current_limit_a": 8
+    },
+    {
+      "type": "power_output",
+      "channel_id": 107,
+      "channel_name": "LowBeamR",
+      "pins": [8],
+      "source_channel_id": 241,
+      "current_limit_a": 8
+    },
+    {
+      "type": "power_output",
+      "channel_id": 108,
+      "channel_name": "HighBeamL",
+      "pins": [9],
+      "source_channel_id": 242,
+      "current_limit_a": 8
+    },
+    {
+      "type": "power_output",
+      "channel_id": 109,
+      "channel_name": "HighBeamR",
+      "pins": [10],
+      "source_channel_id": 242,
+      "current_limit_a": 8
+    },
+    {
+      "type": "power_output",
+      "channel_id": 110,
+      "channel_name": "SignalL",
+      "pins": [11],
+      "source_channel_id": 245,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 111,
+      "channel_name": "SignalR",
+      "pins": [12],
+      "source_channel_id": 246,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 112,
+      "channel_name": "BrakeL",
+      "pins": [13],
+      "source_channel_id": 7,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 113,
+      "channel_name": "BrakeR",
+      "pins": [14],
+      "source_channel_id": 7,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 114,
+      "channel_name": "Reverse",
+      "pins": [15],
+      "source_channel_id": 8,
+      "current_limit_a": 5
     }
   ]
 }
@@ -250,7 +461,7 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 
 ---
 
-## 4. Wiper Control
+## 4. Wiper Control with Speed-Sensitive Intermittent
 
 ### Requirements
 - Off/Intermittent/Low/High modes
@@ -258,42 +469,80 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Washer with auto-wipe
 - Speed-sensitive intermittent
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 3, "name": "Wiper Switch", "type": "rotary"},
-    {"id": 29, "name": "Park Switch", "type": "digital"},
-    {"id": 30, "name": "Washer Button", "type": "digital"}
-  ],
-  "can_rx": [
-    {"id": "0x361", "signal": "Vehicle Speed", "channel": 201}
-  ],
-  "outputs": [
-    {"id": 130, "name": "Wiper Motor", "type": "hbridge", "current_limit": 15}
-  ],
-  "logic_functions": [
+  "version": "3.0",
+  "device": {
+    "name": "WiperSystem"
+  },
+  "can_messages": [
     {
-      "id": 30, "name": "Speed Factor",
-      "type": "table_1d",
-      "input": 201,
-      "output": 250,
-      "parameters": {
-        "x_values": [0, 30, 60, 100, 150],
-        "y_values": [6000, 5000, 4000, 3000, 2000]
-      }
+      "message_id": 865,
+      "name": "ECU_Vehicle",
+      "can_bus": 1,
+      "signals": [
+        {"name": "VehicleSpeed", "start_bit": 0, "length": 16, "scale": 0.1, "offset": 0}
+      ]
+    }
+  ],
+  "channels": [
+    {
+      "type": "switch",
+      "channel_id": 250,
+      "channel_name": "WiperSwitch",
+      "input_channel_ids": [9, 10],
+      "output_values": [0, 1, 2, 3]
     },
     {
-      "id": 31, "name": "Wiper Mode",
-      "type": "wiper",
-      "inputs": [3, 29, 30],
-      "output": 130,
-      "parameters": {
-        "intermittent_channel": 250,
-        "wash_wipes": 3,
-        "wash_delay_ms": 500
-      }
+      "type": "digital_input",
+      "channel_id": 11,
+      "channel_name": "ParkSwitch",
+      "pin": 12,
+      "debounce_ms": 50
+    },
+    {
+      "type": "digital_input",
+      "channel_id": 12,
+      "channel_name": "WasherButton",
+      "pin": 13,
+      "debounce_ms": 50
+    },
+    {
+      "type": "can_rx",
+      "channel_id": 301,
+      "channel_name": "VehicleSpeed",
+      "message_id": 865,
+      "signal_name": "VehicleSpeed"
+    },
+    {
+      "type": "table_2d",
+      "channel_id": 251,
+      "channel_name": "IntermittentDelay",
+      "input_channel_id": 301,
+      "x_axis": [0, 300, 600, 1000, 1500],
+      "values": [6000, 5000, 4000, 3000, 2000]
+    },
+    {
+      "type": "handler",
+      "channel_id": 252,
+      "channel_name": "WiperHandler",
+      "handler_type": "wiper",
+      "switch_channel_id": 250,
+      "park_channel_id": 11,
+      "washer_channel_id": 12,
+      "intermittent_delay_channel_id": 251,
+      "wash_wipes": 3,
+      "wash_delay_ms": 500
+    },
+    {
+      "type": "hbridge",
+      "channel_id": 130,
+      "channel_name": "WiperMotor",
+      "pins": [1, 2],
+      "source_channel_id": 252,
+      "current_limit_a": 15
     }
   ]
 }
@@ -310,78 +559,150 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Progressive ramp
 - Fuel pressure safety
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 4, "name": "Fuel Pressure", "type": "voltage"},
-    {"id": 31, "name": "Arm Switch", "type": "digital"},
-    {"id": 32, "name": "Activate Button", "type": "digital"}
+  "version": "3.0",
+  "device": {
+    "name": "NitrousSystem"
+  },
+  "can_messages": [
+    {
+      "message_id": 864,
+      "name": "ECU_Engine",
+      "can_bus": 1,
+      "signals": [
+        {"name": "RPM", "start_bit": 0, "length": 16, "scale": 1, "offset": 0},
+        {"name": "TPS", "start_bit": 16, "length": 16, "scale": 0.1, "offset": 0}
+      ]
+    }
   ],
-  "can_rx": [
-    {"id": "0x360", "signal": "RPM", "channel": 200},
-    {"id": "0x361", "signal": "TPS", "channel": 202}
-  ],
-  "outputs": [
-    {"id": 115, "name": "N2O Solenoid", "pwm_frequency": 20, "current_limit": 5},
-    {"id": 116, "name": "Fuel Solenoid", "pwm_frequency": 20, "current_limit": 5},
-    {"id": 117, "name": "Arm LED", "current_limit": 0.5}
-  ],
-  "logic_functions": [
+  "channels": [
     {
-      "id": 40, "name": "RPM OK",
-      "type": "in_range",
-      "input": 200,
-      "output": 260,
-      "parameters": {"min": 4000, "max": 7500}
+      "type": "analog_input",
+      "channel_id": 54,
+      "channel_name": "FuelPressure",
+      "pin": 5,
+      "sensor_type": "voltage"
     },
     {
-      "id": 41, "name": "TPS OK",
-      "type": "greater",
-      "inputs": [202, 900],
-      "output": 261
+      "type": "digital_input",
+      "channel_id": 13,
+      "channel_name": "ArmSwitch",
+      "pin": 14,
+      "debounce_ms": 50
     },
     {
-      "id": 42, "name": "Fuel OK",
-      "type": "greater",
-      "inputs": [4, 400],
-      "output": 262
+      "type": "digital_input",
+      "channel_id": 14,
+      "channel_name": "ActivateButton",
+      "pin": 15,
+      "debounce_ms": 10
     },
     {
-      "id": 43, "name": "All Conditions",
-      "type": "and",
-      "inputs": [260, 261, 262, 31, 32],
-      "output": 263
+      "type": "can_rx",
+      "channel_id": 300,
+      "channel_name": "EngineRPM",
+      "message_id": 864,
+      "signal_name": "RPM"
     },
     {
-      "id": 44, "name": "Progressive Ramp",
-      "type": "ramp_generator",
-      "input": 263,
-      "output": 264,
-      "parameters": {
-        "start_value": 200,
-        "end_value": 1000,
-        "duration_ms": 2000
-      }
+      "type": "can_rx",
+      "channel_id": 302,
+      "channel_name": "TPS",
+      "message_id": 864,
+      "signal_name": "TPS"
     },
     {
-      "id": 45, "name": "N2O Enable",
-      "type": "if_then_else",
-      "inputs": [263, 264, 0],
-      "output": 115
+      "type": "logic",
+      "channel_id": 260,
+      "channel_name": "RPMInWindow",
+      "operator": "in_range",
+      "input_a_channel_id": 300,
+      "min_value": 4000,
+      "max_value": 7500
     },
     {
-      "id": 46, "name": "Fuel Enable",
-      "type": "channel_copy",
-      "input": 115,
-      "output": 116
+      "type": "logic",
+      "channel_id": 261,
+      "channel_name": "TPSHigh",
+      "operator": "greater_than",
+      "input_a_channel_id": 302,
+      "threshold": 900
     },
     {
-      "id": 47, "name": "Arm LED",
-      "type": "channel_copy",
-      "input": 31,
-      "output": 117
+      "type": "logic",
+      "channel_id": 262,
+      "channel_name": "FuelOK",
+      "operator": "greater_than",
+      "input_a_channel_id": 54,
+      "threshold": 400
+    },
+    {
+      "type": "logic",
+      "channel_id": 263,
+      "channel_name": "AllConditions",
+      "operator": "and",
+      "input_a_channel_id": 260,
+      "input_b_channel_id": 261,
+      "input_c_channel_id": 262,
+      "input_d_channel_id": 13
+    },
+    {
+      "type": "logic",
+      "channel_id": 264,
+      "channel_name": "NitrousEnabled",
+      "operator": "and",
+      "input_a_channel_id": 263,
+      "input_b_channel_id": 14
+    },
+    {
+      "type": "timer",
+      "channel_id": 265,
+      "channel_name": "ProgressiveRamp",
+      "timer_mode": "ramp",
+      "trigger_channel_id": 264,
+      "start_value": 200,
+      "end_value": 1000,
+      "ramp_time_ms": 2000
+    },
+    {
+      "type": "logic",
+      "channel_id": 266,
+      "channel_name": "NitrousOutput",
+      "operator": "conditional",
+      "condition_channel_id": 264,
+      "true_channel_id": 265,
+      "false_channel_id": 1012
+    },
+    {
+      "type": "power_output",
+      "channel_id": 115,
+      "channel_name": "N2OSolenoid",
+      "pins": [16],
+      "source_channel_id": 266,
+      "pwm_enabled": true,
+      "pwm_frequency": 20,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 116,
+      "channel_name": "FuelSolenoid",
+      "pins": [17],
+      "source_channel_id": 266,
+      "pwm_enabled": true,
+      "pwm_frequency": 20,
+      "current_limit_a": 5
+    },
+    {
+      "type": "power_output",
+      "channel_id": 117,
+      "channel_name": "ArmLED",
+      "pins": [18],
+      "source_channel_id": 13,
+      "current_limit_a": 0.5
     }
   ]
 }
@@ -398,56 +719,94 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 - Cranking timeout
 - Starter motor protection
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 33, "name": "Start Button", "type": "digital"},
-    {"id": 34, "name": "Neutral Switch", "type": "digital"}
-  ],
-  "can_rx": [
-    {"id": "0x360", "signal": "RPM", "channel": 200}
-  ],
-  "outputs": [
-    {"id": 118, "name": "Starter Motor", "current_limit": 40, "soft_start_ms": 0}
-  ],
-  "logic_functions": [
+  "version": "3.0",
+  "device": {
+    "name": "StarterSystem"
+  },
+  "can_messages": [
     {
-      "id": 50, "name": "Engine Running",
-      "type": "greater",
-      "inputs": [200, 400],
-      "output": 270
+      "message_id": 864,
+      "name": "ECU_Engine",
+      "can_bus": 1,
+      "signals": [
+        {"name": "RPM", "start_bit": 0, "length": 16, "scale": 1, "offset": 0}
+      ]
+    }
+  ],
+  "channels": [
+    {
+      "type": "digital_input",
+      "channel_id": 15,
+      "channel_name": "StartButton",
+      "pin": 16,
+      "debounce_ms": 50
     },
     {
-      "id": 51, "name": "Not Running",
-      "type": "not",
-      "input": 270,
-      "output": 271
+      "type": "digital_input",
+      "channel_id": 16,
+      "channel_name": "NeutralSwitch",
+      "pin": 17,
+      "debounce_ms": 50
     },
     {
-      "id": 52, "name": "Start Request",
-      "type": "and",
-      "inputs": [33, 34, 271],
-      "output": 272
+      "type": "can_rx",
+      "channel_id": 300,
+      "channel_name": "EngineRPM",
+      "message_id": 864,
+      "signal_name": "RPM"
     },
     {
-      "id": 53, "name": "Crank Timer",
+      "type": "logic",
+      "channel_id": 270,
+      "channel_name": "EngineRunning",
+      "operator": "greater_than",
+      "input_a_channel_id": 300,
+      "threshold": 400
+    },
+    {
+      "type": "logic",
+      "channel_id": 271,
+      "channel_name": "NotRunning",
+      "operator": "not",
+      "input_a_channel_id": 270
+    },
+    {
+      "type": "logic",
+      "channel_id": 272,
+      "channel_name": "StartRequest",
+      "operator": "and",
+      "input_a_channel_id": 15,
+      "input_b_channel_id": 16,
+      "input_c_channel_id": 271
+    },
+    {
       "type": "timer",
-      "inputs": [272, 270],
-      "output": 273
+      "channel_id": 273,
+      "channel_name": "CrankTimer",
+      "timer_mode": "timeout",
+      "trigger_channel_id": 272,
+      "timeout_ms": 5000
     },
     {
-      "id": 54, "name": "Crank Timeout",
-      "type": "less",
-      "inputs": [273, 5000],
-      "output": 274
+      "type": "logic",
+      "channel_id": 274,
+      "channel_name": "StarterEnable",
+      "operator": "and",
+      "input_a_channel_id": 272,
+      "input_b_channel_id": 273
     },
     {
-      "id": 55, "name": "Starter Enable",
-      "type": "and",
-      "inputs": [272, 274],
-      "output": 118
+      "type": "power_output",
+      "channel_id": 118,
+      "channel_name": "StarterMotor",
+      "pins": [19],
+      "source_channel_id": 274,
+      "current_limit_a": 40,
+      "soft_start_ms": 0
     }
   ]
 }
@@ -459,67 +818,231 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 
 ### Requirements
 - Activated by button
-- Limits speed via output
+- Limits speed via output signal
 - LED indicator
 - Auto-disable above threshold
 
-### Configuration
+### Configuration (v3.0)
 
 ```json
 {
-  "inputs": [
-    {"id": 35, "name": "Pit Button", "type": "digital"}
+  "version": "3.0",
+  "device": {
+    "name": "PitLimiter"
+  },
+  "can_messages": [
+    {
+      "message_id": 865,
+      "name": "ECU_Vehicle",
+      "can_bus": 1,
+      "signals": [
+        {"name": "VehicleSpeed", "start_bit": 0, "length": 16, "scale": 0.1, "offset": 0}
+      ]
+    }
   ],
-  "can_rx": [
-    {"id": "0x361", "signal": "Speed", "channel": 201}
-  ],
-  "outputs": [
-    {"id": 119, "name": "Speed Limit", "current_limit": 2},
-    {"id": 120, "name": "Pit LED", "current_limit": 0.5}
-  ],
-  "logic_functions": [
+  "channels": [
     {
-      "id": 60, "name": "Speed Low",
-      "type": "less",
-      "inputs": [201, 100],
-      "output": 280
+      "type": "digital_input",
+      "channel_id": 17,
+      "channel_name": "PitButton",
+      "pin": 18,
+      "debounce_ms": 50
     },
     {
-      "id": 61, "name": "Pit Latch",
-      "type": "latch_sr",
-      "inputs": [281, 282],
-      "output": 283
+      "type": "can_rx",
+      "channel_id": 301,
+      "channel_name": "VehicleSpeed",
+      "message_id": 865,
+      "signal_name": "VehicleSpeed"
     },
     {
-      "id": 62, "name": "Pit Set",
-      "type": "and",
-      "inputs": [35, 280],
-      "output": 281
+      "type": "number",
+      "channel_id": 280,
+      "channel_name": "PitSpeedLimit",
+      "value": 600
     },
     {
-      "id": 63, "name": "Speed High",
-      "type": "greater",
-      "inputs": [201, 80],
-      "output": 284
+      "type": "logic",
+      "channel_id": 281,
+      "channel_name": "SpeedLow",
+      "operator": "less_than",
+      "input_a_channel_id": 301,
+      "threshold": 100
     },
     {
-      "id": 64, "name": "Pit Reset",
-      "type": "and",
-      "inputs": [35, 284],
-      "output": 282
+      "type": "logic",
+      "channel_id": 282,
+      "channel_name": "CanEnablePit",
+      "operator": "and",
+      "input_a_channel_id": 17,
+      "input_b_channel_id": 281
     },
     {
-      "id": 65, "name": "Pit Output",
-      "type": "channel_copy",
-      "input": 283,
-      "output": 119
+      "type": "logic",
+      "channel_id": 283,
+      "channel_name": "SpeedHigh",
+      "operator": "greater_than",
+      "input_a_channel_id": 301,
+      "threshold": 800
     },
     {
-      "id": 66, "name": "Pit LED",
-      "type": "flasher",
-      "input": 283,
-      "output": 120,
-      "parameters": {"on_time_ms": 200, "off_time_ms": 200}
+      "type": "logic",
+      "channel_id": 284,
+      "channel_name": "DisablePit",
+      "operator": "and",
+      "input_a_channel_id": 17,
+      "input_b_channel_id": 283
+    },
+    {
+      "type": "logic",
+      "channel_id": 285,
+      "channel_name": "PitActive",
+      "operator": "latch_sr",
+      "set_channel_id": 282,
+      "reset_channel_id": 284
+    },
+    {
+      "type": "timer",
+      "channel_id": 286,
+      "channel_name": "PitLEDFlasher",
+      "timer_mode": "flasher",
+      "trigger_channel_id": 285,
+      "on_time_ms": 200,
+      "off_time_ms": 200
+    },
+    {
+      "type": "power_output",
+      "channel_id": 119,
+      "channel_name": "SpeedLimitOutput",
+      "pins": [20],
+      "source_channel_id": 285,
+      "current_limit_a": 2
+    },
+    {
+      "type": "power_output",
+      "channel_id": 120,
+      "channel_name": "PitLED",
+      "pins": [21],
+      "source_channel_id": 286,
+      "current_limit_a": 0.5
+    }
+  ]
+}
+```
+
+---
+
+## 8. Power Window with Auto-Up/Down
+
+### Requirements
+- One-touch up/down
+- Pinch protection
+- Position memory
+- Thermal protection
+
+### Configuration (v3.0)
+
+```json
+{
+  "version": "3.0",
+  "device": {
+    "name": "PowerWindow"
+  },
+  "can_messages": [],
+  "channels": [
+    {
+      "type": "digital_input",
+      "channel_id": 18,
+      "channel_name": "WindowUpBtn",
+      "pin": 19,
+      "debounce_ms": 50
+    },
+    {
+      "type": "digital_input",
+      "channel_id": 19,
+      "channel_name": "WindowDownBtn",
+      "pin": 20,
+      "debounce_ms": 50
+    },
+    {
+      "type": "digital_input",
+      "channel_id": 20,
+      "channel_name": "WindowUpLimit",
+      "pin": 21,
+      "debounce_ms": 10
+    },
+    {
+      "type": "digital_input",
+      "channel_id": 21,
+      "channel_name": "WindowDownLimit",
+      "pin": 22,
+      "debounce_ms": 10
+    },
+    {
+      "type": "logic",
+      "channel_id": 290,
+      "channel_name": "UpCommand",
+      "operator": "and",
+      "input_a_channel_id": 18,
+      "input_b_channel_id": 21
+    },
+    {
+      "type": "logic",
+      "channel_id": 291,
+      "channel_name": "NotAtUpLimit",
+      "operator": "not",
+      "input_a_channel_id": 20
+    },
+    {
+      "type": "logic",
+      "channel_id": 292,
+      "channel_name": "UpAllowed",
+      "operator": "and",
+      "input_a_channel_id": 290,
+      "input_b_channel_id": 291
+    },
+    {
+      "type": "logic",
+      "channel_id": 293,
+      "channel_name": "DownCommand",
+      "operator": "and",
+      "input_a_channel_id": 19,
+      "input_b_channel_id": 20
+    },
+    {
+      "type": "logic",
+      "channel_id": 294,
+      "channel_name": "NotAtDownLimit",
+      "operator": "not",
+      "input_a_channel_id": 21
+    },
+    {
+      "type": "logic",
+      "channel_id": 295,
+      "channel_name": "DownAllowed",
+      "operator": "and",
+      "input_a_channel_id": 293,
+      "input_b_channel_id": 294
+    },
+    {
+      "type": "handler",
+      "channel_id": 296,
+      "channel_name": "WindowHandler",
+      "handler_type": "window",
+      "up_channel_id": 292,
+      "down_channel_id": 295,
+      "up_limit_channel_id": 20,
+      "down_limit_channel_id": 21,
+      "auto_duration_ms": 10000,
+      "thermal_limit_a": 15
+    },
+    {
+      "type": "hbridge",
+      "channel_id": 131,
+      "channel_name": "WindowMotor",
+      "pins": [3, 4],
+      "source_channel_id": 296,
+      "current_limit_a": 20
     }
   ]
 }
@@ -531,9 +1054,9 @@ Practical examples of PMU-30 configurations for common motorsport applications.
 
 - [Channel Examples](channel-examples.md)
 - [Logic Function Examples](logic-function-examples.md)
-- [Configuration Reference](../operations/configuration-reference.md)
+- [JSON Configuration](../../firmware/JSON_CONFIG.md) - Configuration format v3.0
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** December 2024
+**Document Version:** 2.0
+**Last Updated:** December 2025

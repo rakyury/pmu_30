@@ -4,7 +4,7 @@ Signal filtering with different filter types
 """
 
 from PyQt6.QtWidgets import (
-    QGroupBox, QComboBox, QSpinBox, QDoubleSpinBox,
+    QGroupBox, QComboBox, QSpinBox,
     QLabel, QGridLayout
 )
 from PyQt6.QtCore import Qt
@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType, FilterType
+from ui.widgets.constant_spinbox import TimeDelaySpinBox
 
 
 class FilterDialog(BaseChannelDialog):
@@ -28,8 +29,9 @@ class FilterDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.FILTER)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.FILTER, existing_channels)
 
         self._create_filter_group()
 
@@ -42,6 +44,9 @@ class FilterDialog(BaseChannelDialog):
 
         # Initialize visibility
         self._on_filter_type_changed()
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_filter_group(self):
         """Create filter settings group"""
@@ -76,21 +81,19 @@ class FilterDialog(BaseChannelDialog):
         self.window_spin.setToolTip("Number of samples in the filter window")
         layout.addWidget(self.window_spin, row, 1)
 
-        # Time constant (for low pass)
+        # Time constant (for low pass) - uses TimeDelaySpinBox for 2 decimal precision
         self.time_const_label = QLabel("Time Constant:")
         layout.addWidget(self.time_const_label, row, 2)
-        self.time_const_spin = QDoubleSpinBox()
-        self.time_const_spin.setRange(0.001, 100.0)
-        self.time_const_spin.setDecimals(3)
-        self.time_const_spin.setValue(0.1)
-        self.time_const_spin.setSuffix(" s")
+        self.time_const_spin = TimeDelaySpinBox()
+        self.time_const_spin.setRange(0.01, 100.0)
+        self.time_const_spin.setValue(0.10)
         self.time_const_spin.setToolTip("Filter time constant in seconds")
         layout.addWidget(self.time_const_spin, row, 3)
         row += 1
 
         # Info labels
         self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: #666; font-style: italic;")
+        self.info_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         self.info_label.setWordWrap(True)
         layout.addWidget(self.info_label, row, 0, 1, 4)
 
@@ -129,8 +132,8 @@ class FilterDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Input channel
-        self.input_edit.setText(config.get("input_channel", ""))
+        # Input channel - show name instead of ID
+        self._set_channel_edit_value(self.input_edit, config.get("input_channel"))
 
         # Filter type
         filter_type = config.get("filter_type", "moving_avg")
@@ -156,8 +159,11 @@ class FilterDialog(BaseChannelDialog):
         """Get full configuration"""
         config = self.get_base_config()
 
+        # Get channel ID using helper method
+        input_channel_id = self._get_channel_id_from_edit(self.input_edit)
+
         config.update({
-            "input_channel": self.input_edit.text().strip(),
+            "input_channel": input_channel_id if input_channel_id else "",
             "filter_type": self.filter_type_combo.currentData(),
             "window_size": self.window_spin.value(),
             "time_constant": self.time_const_spin.value()

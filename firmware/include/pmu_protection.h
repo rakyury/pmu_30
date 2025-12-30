@@ -77,7 +77,8 @@ typedef struct {
  * @brief Temperature monitoring data
  */
 typedef struct {
-    int16_t board_temp_C;           /* Board temperature in °C */
+    int16_t board_temp_L_C;         /* Board temperature Left in °C (ECUMaster: boardTemperatureL) */
+    int16_t board_temp_R_C;         /* Board temperature Right in °C (ECUMaster: boardTemperatureR) */
     int16_t mcu_temp_C;             /* MCU die temperature in °C */
     int16_t temp_warn_C;            /* Warning threshold */
     int16_t temp_critical_C;        /* Critical threshold */
@@ -106,6 +107,11 @@ typedef struct {
     uint32_t uptime_seconds;
     uint32_t fault_count_total;
     uint8_t load_shedding_active;
+    uint16_t output_5v_mV;          /* 5V output voltage in mV */
+    uint16_t output_3v3_mV;         /* 3.3V output voltage in mV */
+    uint8_t user_error;             /* User error flag (ECUMaster: userError) */
+    uint8_t is_turning_off;         /* Shutdown in progress flag */
+    uint16_t system_status;         /* System status bits (ECUMaster: status) */
 } PMU_Protection_State_t;
 
 /* Exported constants --------------------------------------------------------*/
@@ -188,6 +194,74 @@ int16_t PMU_Protection_GetTemperature(void);
  * @retval Current in milliamperes
  */
 uint32_t PMU_Protection_GetTotalCurrent(void);
+
+/**
+ * @brief Get board temperature Left (primary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempL(void);
+
+/**
+ * @brief Get board temperature Right (secondary sensor)
+ * @retval Temperature in degrees Celsius
+ */
+int16_t PMU_Protection_GetBoardTempR(void);
+
+/**
+ * @brief Get system status bits (ECUMaster compatible)
+ * @retval Status bits
+ */
+uint16_t PMU_Protection_GetStatus(void);
+
+/**
+ * @brief Get user error flag
+ * @retval 1 if user error, 0 otherwise
+ */
+uint8_t PMU_Protection_GetUserError(void);
+
+/**
+ * @brief Get 5V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get5VOutput(void);
+
+/**
+ * @brief Get 3.3V output voltage
+ * @retval Voltage in millivolts
+ */
+uint16_t PMU_Protection_Get3V3Output(void);
+
+/**
+ * @brief Check if system is in shutdown sequence
+ * @retval 1 if turning off, 0 otherwise
+ */
+uint8_t PMU_Protection_IsTurningOff(void);
+
+/**
+ * @brief Activate load shedding - disable lowest priority outputs
+ * @param target_reduction_mA Target current reduction in mA
+ * @retval Number of outputs shed
+ * @note Outputs with shed_priority=0 are never shed (critical loads)
+ */
+uint8_t PMU_Protection_ActivateLoadShedding(uint32_t target_reduction_mA);
+
+/**
+ * @brief Deactivate load shedding - restore all shed outputs
+ * @retval Number of outputs restored
+ */
+uint8_t PMU_Protection_DeactivateLoadShedding(void);
+
+/**
+ * @brief Check if load shedding is active
+ * @retval 1 if active, 0 otherwise
+ */
+uint8_t PMU_Protection_IsLoadSheddingActive(void);
+
+/**
+ * @brief Get number of outputs currently shed
+ * @retval Count of shed outputs
+ */
+uint8_t PMU_Protection_GetShedOutputCount(void);
 
 #ifdef __cplusplus
 }

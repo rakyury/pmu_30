@@ -1,9 +1,9 @@
 # Logic Function Examples
 
-**Version:** 1.0
-**Date:** December 2024
+**Version:** 2.0
+**Date:** December 2025
 
-Practical examples for using logic functions in the PMU-30.
+Practical examples for using logic functions in the PMU-30 with JSON configuration v3.0 format.
 
 ---
 
@@ -20,26 +20,56 @@ Practical examples for using logic functions in the PMU-30.
 
 ---
 
+## Channel ID Reference
+
+| Range | Type | Description |
+|-------|------|-------------|
+| 0-49 | Digital Inputs | d1-d20 physical digital inputs |
+| 50-99 | Analog Inputs | a1-a20 physical analog inputs |
+| 100-199 | Physical Outputs | o1-o30 power outputs, hb1-hb4 H-bridges |
+| 200-999 | Virtual Channels | Logic, numbers, tables, CAN RX/TX, timers |
+| 1000-1023 | System Channels | Battery voltage, temperatures, status |
+
+---
+
 ## 1. Simple Function Execution
 
 ### Basic Math: Add Two Channels
 
+**C Code:**
 ```c
-// Result = Channel 0 + Channel 1
+// Result = Channel 50 + Channel 51 (two analog inputs)
 void example_add(void) {
     uint16_t func_id = PMU_LogicFunctions_CreateMath(
         PMU_FUNC_ADD,
-        200,    // Output channel
-        0,      // Input A
-        1       // Input B
+        200,    // Output channel (virtual)
+        50,     // Input A (analog 1)
+        51      // Input B (analog 2)
     );
 
     printf("Created ADD function ID: %d\n", func_id);
 }
 ```
 
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 200,
+      "channel_name": "SumAnalog",
+      "operator": "add",
+      "input_a_channel_id": 50,
+      "input_b_channel_id": 51
+    }
+  ]
+}
+```
+
 ### Scale and Offset
 
+**C Code:**
 ```c
 // Convert ADC (0-4095) to Temperature (-40 to 120 C)
 // Formula: temp = adc * 0.039 - 40
@@ -48,7 +78,7 @@ void example_scale(void) {
         .function_id = 0,
         .type = PMU_FUNC_SCALE,
         .output_channel = 200,
-        .input_channels = {0},
+        .input_channels = {50},
         .input_count = 1,
         .enabled = 1,
         .params.scale = {
@@ -60,24 +90,41 @@ void example_scale(void) {
 }
 ```
 
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "analog_input",
+      "channel_id": 50,
+      "channel_name": "CoolantTemp",
+      "pin": 1,
+      "sensor_type": "ntc_10k",
+      "scaling": {
+        "factor": 39,
+        "offset": -400
+      }
+    }
+  ]
+}
+```
+
 ### Clamp Value to Range
 
-```c
-// Clamp throttle to 0-100%
-void example_clamp(void) {
-    PMU_LogicFunction_t clamp = {
-        .function_id = 1,
-        .type = PMU_FUNC_CLAMP,
-        .output_channel = 201,
-        .input_channels = {200},
-        .input_count = 1,
-        .enabled = 1,
-        .params.clamp = {
-            .min = 0,
-            .max = 1000
-        }
-    };
-    PMU_LogicFunctions_Register(&clamp);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 201,
+      "channel_name": "ThrottleClamped",
+      "filter_type": "clamp",
+      "source_channel_id": 200,
+      "min_value": 0,
+      "max_value": 1000
+    }
+  ]
 }
 ```
 
@@ -87,71 +134,68 @@ void example_clamp(void) {
 
 ### Sensor Processing Pipeline
 
-```c
-/*
- * Pipeline: ADC -> Scale -> Filter -> Clamp -> Output
- *
- * Function 0: Scale ADC to engineering units
- * Function 1: Apply moving average filter
- * Function 2: Clamp to valid range
- */
-void example_pipeline(void) {
-    // Function 0: Scale
-    PMU_LogicFunction_t f0 = {
-        .function_id = 0,
-        .type = PMU_FUNC_SCALE,
-        .output_channel = 200,
-        .input_channels = {0},
-        .input_count = 1,
-        .enabled = 1,
-        .params.scale = {.scale = 244, .offset = -400}
-    };
-    PMU_LogicFunctions_Register(&f0);
+Pipeline: ADC -> Scale -> Filter -> Clamp -> Output
 
-    // Function 1: Moving average (8 samples)
-    static int32_t filter_buffer[8];
-    PMU_LogicFunction_t f1 = {
-        .function_id = 1,
-        .type = PMU_FUNC_MOVING_AVG,
-        .output_channel = 201,
-        .input_channels = {200},
-        .input_count = 1,
-        .enabled = 1,
-        .params.moving_avg = {
-            .window_size = 8,
-            .buffer = filter_buffer
-        }
-    };
-    PMU_LogicFunctions_Register(&f1);
-
-    // Function 2: Clamp
-    PMU_LogicFunction_t f2 = {
-        .function_id = 2,
-        .type = PMU_FUNC_CLAMP,
-        .output_channel = 202,
-        .input_channels = {201},
-        .input_count = 1,
-        .enabled = 1,
-        .params.clamp = {.min = -400, .max = 1200}
-    };
-    PMU_LogicFunctions_Register(&f2);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "analog_input",
+      "channel_id": 50,
+      "channel_name": "TempRaw",
+      "pin": 1,
+      "sensor_type": "voltage"
+    },
+    {
+      "type": "logic",
+      "channel_id": 200,
+      "channel_name": "TempScaled",
+      "operator": "scale",
+      "input_a_channel_id": 50,
+      "scale_factor": 244,
+      "scale_offset": -400
+    },
+    {
+      "type": "filter",
+      "channel_id": 201,
+      "channel_name": "TempFiltered",
+      "filter_type": "moving_average",
+      "source_channel_id": 200,
+      "window_size": 8
+    },
+    {
+      "type": "filter",
+      "channel_id": 202,
+      "channel_name": "TempFinal",
+      "filter_type": "clamp",
+      "source_channel_id": 201,
+      "min_value": -400,
+      "max_value": 1200
+    }
+  ]
 }
 ```
 
 ### Multi-Sensor Maximum
 
-```c
-// Take maximum of 4 temperature sensors
-void example_max_sensors(void) {
-    PMU_LogicFunction_t max_func = {
-        .function_id = 0,
-        .type = PMU_FUNC_MAX,
-        .output_channel = 210,
-        .input_channels = {0, 1, 2, 3},  // 4 temp sensors
-        .input_count = 4,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&max_func);
+Take maximum of 4 temperature sensors:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 210,
+      "channel_name": "MaxTemp",
+      "operator": "max",
+      "input_a_channel_id": 50,
+      "input_b_channel_id": 51,
+      "input_c_channel_id": 52,
+      "input_d_channel_id": 53
+    }
+  ]
 }
 ```
 
@@ -161,109 +205,150 @@ void example_max_sensors(void) {
 
 ### Simple Comparison
 
-```c
-// Output = 1 if temperature > 85 C
-void example_compare(void) {
-    // First create threshold constant channel
-    PMU_Channel_t threshold = {
-        .channel_id = 250,
-        .type = PMU_CHANNEL_OUTPUT_NUMBER,
-        .value = 850  // 85.0 C
-    };
-    PMU_Channel_Register(&threshold);
+Output = 1 if temperature > 85 C:
 
-    // Then create comparison
-    PMU_LogicFunctions_CreateComparison(
-        PMU_FUNC_GREATER,
-        201,    // Output
-        200,    // Temperature channel
-        250     // Threshold channel
-    );
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "number",
+      "channel_id": 250,
+      "channel_name": "TempThreshold",
+      "value": 850
+    },
+    {
+      "type": "logic",
+      "channel_id": 201,
+      "channel_name": "OverheatFlag",
+      "operator": "greater_than",
+      "input_a_channel_id": 200,
+      "input_b_channel_id": 250
+    }
+  ]
 }
 ```
 
 ### AND Gate: Multiple Conditions
 
-```c
-// Fuel pump ON if: ignition AND (running OR priming) AND safety
-void example_and_gate(void) {
-    PMU_LogicFunction_t and_func = {
-        .function_id = 10,
-        .type = PMU_FUNC_AND,
-        .output_channel = 100,  // Fuel pump
-        .input_channels = {
-            20,   // Ignition switch
-            201,  // Engine running OR priming
-            22,   // Safety switch OK
-            23    // Oil pressure OK
-        },
-        .input_count = 4,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&and_func);
+Fuel pump ON if: ignition AND (running OR priming) AND safety:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 220,
+      "channel_name": "EngineRunning",
+      "operator": "greater_than",
+      "input_a_channel_id": 300,
+      "threshold": 300
+    },
+    {
+      "type": "timer",
+      "channel_id": 221,
+      "channel_name": "PrimePulse",
+      "timer_mode": "pulse",
+      "trigger_channel_id": 0,
+      "duration_ms": 3000
+    },
+    {
+      "type": "logic",
+      "channel_id": 222,
+      "channel_name": "RunOrPrime",
+      "operator": "or",
+      "input_a_channel_id": 220,
+      "input_b_channel_id": 221
+    },
+    {
+      "type": "logic",
+      "channel_id": 223,
+      "channel_name": "FuelPumpEnable",
+      "operator": "and",
+      "input_a_channel_id": 0,
+      "input_b_channel_id": 222,
+      "input_c_channel_id": 1,
+      "input_d_channel_id": 2
+    },
+    {
+      "type": "power_output",
+      "channel_id": 104,
+      "channel_name": "FuelPump",
+      "pins": [5],
+      "source_channel_id": 223
+    }
+  ]
 }
 ```
 
 ### OR Gate: Any Condition
 
-```c
-// Warning light if: overheat OR low oil OR low fuel
-void example_or_gate(void) {
-    PMU_LogicFunction_t or_func = {
-        .function_id = 11,
-        .type = PMU_FUNC_OR,
-        .output_channel = 101,  // Warning light
-        .input_channels = {
-            210,  // Overheat flag
-            211,  // Low oil flag
-            212   // Low fuel flag
-        },
-        .input_count = 3,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&or_func);
+Warning light if: overheat OR low oil OR low fuel:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 230,
+      "channel_name": "WarningAny",
+      "operator": "or",
+      "input_a_channel_id": 210,
+      "input_b_channel_id": 211,
+      "input_c_channel_id": 212
+    },
+    {
+      "type": "power_output",
+      "channel_id": 101,
+      "channel_name": "WarningLight",
+      "pins": [2],
+      "source_channel_id": 230
+    }
+  ]
 }
 ```
 
 ### Ternary/Conditional
 
-```c
-// Speed = (gear == reverse) ? -speed : speed
-void example_conditional(void) {
-    PMU_LogicFunction_t cond = {
-        .function_id = 12,
-        .type = PMU_FUNC_CONDITIONAL,
-        .output_channel = 220,
-        .input_channels = {
-            215,  // Condition: reverse gear active
-            216,  // True value: negative speed
-            217   // False value: positive speed
-        },
-        .input_count = 3,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&cond);
+Speed = (gear == reverse) ? -speed : speed:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 220,
+      "channel_name": "SignedSpeed",
+      "operator": "conditional",
+      "condition_channel_id": 215,
+      "true_channel_id": 216,
+      "false_channel_id": 217
+    }
+  ]
 }
 ```
 
 ### In-Range Check
 
-```c
-// Valid = 1 if 500 <= RPM <= 7000
-void example_in_range(void) {
-    PMU_LogicFunction_t range = {
-        .function_id = 13,
-        .type = PMU_FUNC_IN_RANGE,
-        .output_channel = 225,
-        .input_channels = {
-            200,  // RPM value
-            251,  // Min (500)
-            252   // Max (7000)
-        },
-        .input_count = 3,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&range);
+Valid = 1 if 500 <= RPM <= 7000:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 225,
+      "channel_name": "RPMValid",
+      "operator": "in_range",
+      "input_a_channel_id": 300,
+      "min_value": 500,
+      "max_value": 7000
+    }
+  ]
 }
 ```
 
@@ -273,55 +358,109 @@ void example_in_range(void) {
 
 ### Hysteresis (On/Off with Dead Band)
 
-```c
-// Fan: ON above 85 C, OFF below 75 C
-void example_hysteresis(void) {
-    PMU_LogicFunctions_CreateHysteresis(
-        100,    // Fan output
-        200,    // Temperature input
-        850,    // ON threshold (85 C)
-        750     // OFF threshold (75 C)
-    );
+Fan: ON above 85 C, OFF below 75 C:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 230,
+      "channel_name": "FanControl",
+      "operator": "hysteresis",
+      "input_a_channel_id": 200,
+      "threshold_on": 850,
+      "threshold_off": 750
+    },
+    {
+      "type": "power_output",
+      "channel_id": 105,
+      "channel_name": "RadiatorFan",
+      "pins": [6],
+      "source_channel_id": 230,
+      "current_limit_a": 25
+    }
+  ]
 }
 ```
 
 ### Debounce Filter
 
-```c
-// Debounce switch for 50ms
-void example_debounce(void) {
-    PMU_LogicFunction_t debounce = {
-        .function_id = 20,
-        .type = PMU_FUNC_DEBOUNCE,
-        .output_channel = 230,
-        .input_channels = {20},
-        .input_count = 1,
-        .enabled = 1,
-        .params.debounce = {
-            .debounce_ms = 50
-        }
-    };
-    PMU_LogicFunctions_Register(&debounce);
+Debounce switch for 50ms:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "digital_input",
+      "channel_id": 0,
+      "channel_name": "StartButton",
+      "pin": 1,
+      "debounce_ms": 50
+    }
+  ]
 }
 ```
 
 ### Rate Limiter
 
-```c
-// Limit throttle change rate to 500/second
-void example_rate_limit(void) {
-    PMU_LogicFunction_t rate = {
-        .function_id = 21,
-        .type = PMU_FUNC_RATE_LIMIT,
-        .output_channel = 231,
-        .input_channels = {200},
-        .input_count = 1,
-        .enabled = 1,
-        .params.rate_limit = {
-            .max_rate = 500  // units per second
-        }
-    };
-    PMU_LogicFunctions_Register(&rate);
+Limit throttle change rate to 500/second:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 231,
+      "channel_name": "ThrottleRateLimited",
+      "filter_type": "rate_limit",
+      "source_channel_id": 200,
+      "max_rate": 500
+    }
+  ]
+}
+```
+
+### Timer: Delayed On
+
+Turn on after 500ms:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "timer",
+      "channel_id": 240,
+      "channel_name": "DelayedStart",
+      "timer_mode": "delay_on",
+      "trigger_channel_id": 0,
+      "delay_ms": 500
+    }
+  ]
+}
+```
+
+### Timer: Pulse Generator
+
+Generate 2-second pulse:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "timer",
+      "channel_id": 241,
+      "channel_name": "PrimePulse",
+      "timer_mode": "pulse",
+      "trigger_channel_id": 0,
+      "duration_ms": 2000
+    }
+  ]
 }
 ```
 
@@ -331,62 +470,55 @@ void example_rate_limit(void) {
 
 ### Moving Average (Noise Reduction)
 
-```c
-static int32_t avg_buffer[16];
-
-void example_moving_avg(void) {
-    PMU_LogicFunction_t avg = {
-        .function_id = 30,
-        .type = PMU_FUNC_MOVING_AVG,
-        .output_channel = 240,
-        .input_channels = {0},
-        .input_count = 1,
-        .enabled = 1,
-        .params.moving_avg = {
-            .window_size = 16,
-            .buffer = avg_buffer
-        }
-    };
-    PMU_LogicFunctions_Register(&avg);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 240,
+      "channel_name": "TempSmoothed",
+      "filter_type": "moving_average",
+      "source_channel_id": 50,
+      "window_size": 16
+    }
+  ]
 }
 ```
 
 ### Low-Pass Filter (RC)
 
-```c
-void example_lowpass(void) {
-    PMU_LogicFunction_t lpf = {
-        .function_id = 31,
-        .type = PMU_FUNC_LOW_PASS,
-        .output_channel = 241,
-        .input_channels = {0},
-        .input_count = 1,
-        .enabled = 1,
-        // Time constant set via params
-    };
-    PMU_LogicFunctions_Register(&lpf);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 241,
+      "channel_name": "PressureFiltered",
+      "filter_type": "low_pass",
+      "source_channel_id": 51,
+      "time_constant_ms": 100
+    }
+  ]
 }
 ```
 
-### Peak Hold (Max Window)
+### Peak Hold (Max over Window)
 
-```c
-static int32_t max_buffer[32];
-
-void example_peak_hold(void) {
-    PMU_LogicFunction_t peak = {
-        .function_id = 32,
-        .type = PMU_FUNC_MAX_WINDOW,
-        .output_channel = 242,
-        .input_channels = {0},
-        .input_count = 1,
-        .enabled = 1,
-        .params.moving_avg = {  // Same structure
-            .window_size = 32,
-            .buffer = max_buffer
-        }
-    };
-    PMU_LogicFunctions_Register(&peak);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 242,
+      "channel_name": "RPMPeak",
+      "filter_type": "peak_hold",
+      "source_channel_id": 300,
+      "hold_time_ms": 5000
+    }
+  ]
 }
 ```
 
@@ -396,90 +528,130 @@ void example_peak_hold(void) {
 
 ### PID Controller
 
-```c
-// Temperature control with PID
-void example_pid(void) {
-    uint16_t pid_id = PMU_LogicFunctions_CreatePID(
-        100,        // Heater PWM output
-        200,        // Temperature input
-        750.0f,     // Setpoint: 75.0 C
-        2.0f,       // Kp
-        0.1f,       // Ki
-        0.5f        // Kd
-    );
+Temperature control with PID for heater:
 
-    // Set output limits after creation
-    PMU_LogicFunction_t* pid = PMU_LogicFunctions_GetByID(pid_id);
-    if (pid) {
-        pid->params.pid.output_min = 0;
-        pid->params.pid.output_max = 1000;
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "number",
+      "channel_id": 260,
+      "channel_name": "TempSetpoint",
+      "value": 750
+    },
+    {
+      "type": "pid",
+      "channel_id": 261,
+      "channel_name": "HeaterPID",
+      "input_channel_id": 200,
+      "setpoint_channel_id": 260,
+      "output_channel_id": 100,
+      "kp": 2000,
+      "ki": 100,
+      "kd": 500,
+      "output_min": 0,
+      "output_max": 1000,
+      "sample_time_ms": 50
     }
+  ]
 }
 ```
 
-### Lookup Table Control
+### 2D Lookup Table
 
-```c
-// Fan speed from temperature lookup table
-static int32_t temp_points[] = {500, 600, 700, 800, 900, 1000};
-static int32_t speed_points[] = {0, 100, 300, 600, 850, 1000};
+Fan speed from temperature lookup table:
 
-void example_lookup(void) {
-    PMU_LogicFunction_t table = {
-        .function_id = 40,
-        .type = PMU_FUNC_TABLE_1D,
-        .output_channel = 100,  // Fan PWM
-        .input_channels = {200},  // Temperature
-        .input_count = 1,
-        .enabled = 1,
-        .params.table_1d = {
-            .size = 6,
-            .x_values = temp_points,
-            .y_values = speed_points
-        }
-    };
-    PMU_LogicFunctions_Register(&table);
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "table_2d",
+      "channel_id": 262,
+      "channel_name": "FanSpeedTable",
+      "input_channel_id": 200,
+      "x_axis": [500, 600, 700, 800, 900, 1000],
+      "values": [0, 100, 300, 600, 850, 1000]
+    },
+    {
+      "type": "power_output",
+      "channel_id": 105,
+      "channel_name": "RadiatorFan",
+      "pins": [6],
+      "source_channel_id": 262,
+      "pwm_enabled": true,
+      "pwm_frequency": 100
+    }
+  ]
+}
+```
+
+### 3D Lookup Table
+
+Fuel enrichment from RPM and TPS:
+
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "table_3d",
+      "channel_id": 263,
+      "channel_name": "FuelEnrichment",
+      "input_x_channel_id": 300,
+      "input_y_channel_id": 301,
+      "x_axis": [1000, 2000, 3000, 4000, 5000, 6000, 7000],
+      "y_axis": [0, 250, 500, 750, 1000],
+      "values": [
+        [100, 100, 100, 100, 100],
+        [100, 105, 110, 115, 120],
+        [100, 108, 116, 124, 130],
+        [100, 110, 120, 130, 140],
+        [100, 112, 124, 136, 150],
+        [100, 115, 130, 145, 160],
+        [100, 118, 136, 154, 170]
+      ]
+    }
+  ]
 }
 ```
 
 ### Closed-Loop Idle Control
 
-```c
-/*
- * Idle RPM Control:
- * - Target: 800 RPM
- * - Actuator: Idle air valve (PWM)
- * - Feedback: RPM from CAN
- */
-void example_idle_control(void) {
-    // Constant for target RPM
-    PMU_Channel_t target = {
-        .channel_id = 260,
-        .type = PMU_CHANNEL_OUTPUT_NUMBER,
-        .value = 800
-    };
-    PMU_Channel_Register(&target);
-
-    // Error = Target - Actual
-    PMU_LogicFunction_t error = {
-        .function_id = 50,
-        .type = PMU_FUNC_SUBTRACT,
-        .output_channel = 261,
-        .input_channels = {260, 200},  // target - actual
-        .input_count = 2,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&error);
-
-    // PID on error
-    PMU_LogicFunctions_CreatePID(
-        101,        // IAC valve output
-        200,        // RPM input
-        800.0f,     // Target RPM
-        0.5f,       // Kp (gentle)
-        0.02f,      // Ki
-        0.1f        // Kd
-    );
+**JSON Configuration (v3.0):**
+```json
+{
+  "channels": [
+    {
+      "type": "number",
+      "channel_id": 260,
+      "channel_name": "TargetRPM",
+      "value": 800
+    },
+    {
+      "type": "pid",
+      "channel_id": 261,
+      "channel_name": "IdlePID",
+      "input_channel_id": 300,
+      "setpoint_channel_id": 260,
+      "output_channel_id": 101,
+      "kp": 500,
+      "ki": 20,
+      "kd": 100,
+      "output_min": 0,
+      "output_max": 1000,
+      "sample_time_ms": 20
+    },
+    {
+      "type": "power_output",
+      "channel_id": 101,
+      "channel_name": "IdleValve",
+      "pins": [2],
+      "pwm_enabled": true,
+      "pwm_frequency": 500
+    }
+  ]
 }
 ```
 
@@ -487,7 +659,7 @@ void example_idle_control(void) {
 
 ## 7. Error Handling
 
-### Safe Function Creation
+### Safe Function Creation (C Code)
 
 ```c
 void safe_create_function(PMU_LogicFunction_t* func) {
@@ -516,7 +688,7 @@ void safe_create_function(PMU_LogicFunction_t* func) {
 }
 ```
 
-### Function Status Check
+### Function Status Check (C Code)
 
 ```c
 void check_function_health(uint16_t func_id) {
@@ -531,11 +703,6 @@ void check_function_health(uint16_t func_id) {
     printf("  Type: 0x%02X\n", func->type);
     printf("  Enabled: %s\n", func->enabled ? "YES" : "NO");
     printf("  Output: %d\n", func->output_channel);
-    printf("  Inputs: ");
-    for (int i = 0; i < func->input_count; i++) {
-        printf("%d ", func->input_channels[i]);
-    }
-    printf("\n");
 
     // Check output channel
     const PMU_Channel_t* out = PMU_Channel_GetInfo(func->output_channel);
@@ -554,54 +721,80 @@ void check_function_health(uint16_t func_id) {
 
 ### Minimal Function Count
 
-```c
-// BAD: 4 separate functions
-void bad_example(void) {
-    PMU_LogicFunctions_CreateMath(PMU_FUNC_ADD, 200, 0, 1);
-    PMU_LogicFunctions_CreateMath(PMU_FUNC_ADD, 201, 200, 2);
-    PMU_LogicFunctions_CreateMath(PMU_FUNC_ADD, 202, 201, 3);
-    PMU_LogicFunctions_CreateMath(PMU_FUNC_DIVIDE, 203, 202, 254);  // /4
+**BAD: 4 separate functions**
+```json
+{
+  "channels": [
+    {"type": "logic", "channel_id": 200, "operator": "add", "input_a_channel_id": 50, "input_b_channel_id": 51},
+    {"type": "logic", "channel_id": 201, "operator": "add", "input_a_channel_id": 200, "input_b_channel_id": 52},
+    {"type": "logic", "channel_id": 202, "operator": "add", "input_a_channel_id": 201, "input_b_channel_id": 53},
+    {"type": "logic", "channel_id": 203, "operator": "divide", "input_a_channel_id": 202, "input_b_channel_id": 254}
+  ]
 }
+```
 
-// GOOD: Single average function
-void good_example(void) {
-    PMU_LogicFunction_t avg = {
-        .function_id = 0,
-        .type = PMU_FUNC_AVERAGE,
-        .output_channel = 200,
-        .input_channels = {0, 1, 2, 3},
-        .input_count = 4,
-        .enabled = 1
-    };
-    PMU_LogicFunctions_Register(&avg);
+**GOOD: Single average function**
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 200,
+      "channel_name": "AverageTemp",
+      "operator": "average",
+      "input_a_channel_id": 50,
+      "input_b_channel_id": 51,
+      "input_c_channel_id": 52,
+      "input_d_channel_id": 53
+    }
+  ]
 }
 ```
 
 ### Appropriate Filter Size
 
-```c
-// Small filter = fast response, more noise
-// Large filter = slow response, less noise
-
-// For fast-changing signals (throttle):
-.params.moving_avg.window_size = 4;
-
-// For slow-changing signals (temperature):
-.params.moving_avg.window_size = 32;
+```json
+{
+  "channels": [
+    {
+      "type": "filter",
+      "channel_id": 240,
+      "channel_name": "ThrottleFiltered",
+      "filter_type": "moving_average",
+      "source_channel_id": 54,
+      "window_size": 4
+    },
+    {
+      "type": "filter",
+      "channel_id": 241,
+      "channel_name": "TempFiltered",
+      "filter_type": "moving_average",
+      "source_channel_id": 50,
+      "window_size": 32
+    }
+  ]
+}
 ```
 
-### Disable Unused Functions
+Notes:
+- Small filter (4) = fast response, more noise (for throttle)
+- Large filter (32) = slow response, less noise (for temperature)
 
-```c
-void optimization_example(void) {
-    // Disable functions when not needed
-    if (engine_off) {
-        PMU_LogicFunctions_SetEnabled(10, false);  // Disable idle control
-        PMU_LogicFunctions_SetEnabled(11, false);  // Disable fuel calc
-    } else {
-        PMU_LogicFunctions_SetEnabled(10, true);
-        PMU_LogicFunctions_SetEnabled(11, true);
+### Disable Unused Channels
+
+Logic channels can be enabled/disabled via JSON:
+
+```json
+{
+  "channels": [
+    {
+      "type": "logic",
+      "channel_id": 230,
+      "channel_name": "IdleControl",
+      "operator": "pid",
+      "enabled": false
     }
+  ]
 }
 ```
 
@@ -609,11 +802,11 @@ void optimization_example(void) {
 
 ## See Also
 
-- [Logic Functions API Reference](../api/logic-functions-reference.md)
 - [Channel Examples](channel-examples.md)
 - [Real-World Scenarios](real-world-scenarios.md)
+- [JSON Configuration](../../firmware/JSON_CONFIG.md) - Configuration format v3.0
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** December 2024
+**Document Version:** 2.0
+**Last Updated:** December 2025

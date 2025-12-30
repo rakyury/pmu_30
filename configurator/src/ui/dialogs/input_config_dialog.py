@@ -5,11 +5,14 @@ Configures one of 20 universal analog/digital inputs
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+    QPushButton, QLineEdit, QComboBox, QSpinBox,
     QCheckBox, QLabel, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional
+
+from ui.widgets.time_input import SecondsSpinBox
+from ui.widgets.constant_spinbox import VoltageSpinBox, ScalingFactorSpinBox, ConstantSpinBox
 
 
 class InputConfigDialog(QDialog):
@@ -130,11 +133,8 @@ class InputConfigDialog(QDialog):
             # Voltage thresholds with time parameters
             # "1 if voltage >"
             threshold_high_layout = QHBoxLayout()
-            self.threshold_high_spin = QDoubleSpinBox()
-            self.threshold_high_spin.setRange(0.0, 30.0)
+            self.threshold_high_spin = VoltageSpinBox()
             self.threshold_high_spin.setValue(2.5)
-            self.threshold_high_spin.setSuffix(" V")
-            self.threshold_high_spin.setDecimals(2)
             self.threshold_high_spin.setSingleStep(0.1)
             threshold_high_layout.addWidget(self.threshold_high_spin)
             threshold_high_layout.addWidget(QLabel("for"))
@@ -148,11 +148,8 @@ class InputConfigDialog(QDialog):
 
             # "0 if voltage <"
             threshold_low_layout = QHBoxLayout()
-            self.threshold_low_spin = QDoubleSpinBox()
-            self.threshold_low_spin.setRange(0.0, 30.0)
+            self.threshold_low_spin = VoltageSpinBox()
             self.threshold_low_spin.setValue(1.5)
-            self.threshold_low_spin.setSuffix(" V")
-            self.threshold_low_spin.setDecimals(2)
             self.threshold_low_spin.setSingleStep(0.1)
             threshold_low_layout.addWidget(self.threshold_low_spin)
             threshold_low_layout.addWidget(QLabel("for"))
@@ -171,26 +168,18 @@ class InputConfigDialog(QDialog):
             self.positions_spin.setToolTip("Number of switch positions")
             self.type_layout.addRow("Positions:", self.positions_spin)
 
-            self.debounce_spin = QSpinBox()
-            self.debounce_spin.setRange(0, 1000)
-            self.debounce_spin.setValue(50)
-            self.debounce_spin.setSuffix(" ms")
+            self.debounce_spin = SecondsSpinBox(min_ms=0, max_ms=1000)
+            self.debounce_spin.setValueMs(50)
             self.type_layout.addRow("Debounce:", self.debounce_spin)
 
         elif input_type == "linear analog sensor":
-            self.min_voltage_spin = QDoubleSpinBox()
-            self.min_voltage_spin.setRange(0.0, 30.0)
+            self.min_voltage_spin = VoltageSpinBox()
             self.min_voltage_spin.setValue(0.0)
-            self.min_voltage_spin.setSuffix(" V")
-            self.min_voltage_spin.setDecimals(2)
             self.min_voltage_spin.setSingleStep(0.1)
             self.type_layout.addRow("Min Voltage:", self.min_voltage_spin)
 
-            self.max_voltage_spin = QDoubleSpinBox()
-            self.max_voltage_spin.setRange(0.0, 30.0)
+            self.max_voltage_spin = VoltageSpinBox()
             self.max_voltage_spin.setValue(5.0)
-            self.max_voltage_spin.setSuffix(" V")
-            self.max_voltage_spin.setDecimals(2)
             self.max_voltage_spin.setSingleStep(0.1)
             self.type_layout.addRow("Max Voltage:", self.max_voltage_spin)
 
@@ -233,18 +222,16 @@ class InputConfigDialog(QDialog):
             self.type_layout.addRow(self.calibration_table)
 
         elif input_type == "frequency input":
-            self.min_freq_spin = QDoubleSpinBox()
+            self.min_freq_spin = ConstantSpinBox()
             self.min_freq_spin.setRange(0.0, 10000.0)
             self.min_freq_spin.setValue(0.0)
             self.min_freq_spin.setSuffix(" Hz")
-            self.min_freq_spin.setDecimals(1)
             self.type_layout.addRow("Min Frequency:", self.min_freq_spin)
 
-            self.max_freq_spin = QDoubleSpinBox()
+            self.max_freq_spin = ConstantSpinBox()
             self.max_freq_spin.setRange(0.0, 10000.0)
             self.max_freq_spin.setValue(1000.0)
             self.max_freq_spin.setSuffix(" Hz")
-            self.max_freq_spin.setDecimals(1)
             self.type_layout.addRow("Max Frequency:", self.max_freq_spin)
 
             self.timeout_spin = QSpinBox()
@@ -369,7 +356,7 @@ class InputConfigDialog(QDialog):
             self.threshold_low_spin.setValue(params.get("threshold_low", 1.5))
             self.threshold_low_time_spin.setValue(params.get("threshold_low_time_ms", 50))
         if hasattr(self, 'debounce_spin'):
-            self.debounce_spin.setValue(params.get("debounce_ms", 50))
+            self.debounce_spin.setValueMs(params.get("debounce_ms", 50))
         if hasattr(self, 'positions_spin'):
             self.positions_spin.setValue(params.get("positions", 4))
         if hasattr(self, 'min_voltage_spin'):
@@ -415,7 +402,7 @@ class InputConfigDialog(QDialog):
 
         elif input_type == "rotary switch":
             params["positions"] = self.positions_spin.value()
-            params["debounce_ms"] = self.debounce_spin.value()
+            params["debounce_ms"] = self.debounce_spin.valueMs()
 
         elif input_type == "linear analog sensor":
             params["min_voltage"] = self.min_voltage_spin.value()

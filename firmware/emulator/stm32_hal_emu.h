@@ -49,6 +49,12 @@ typedef enum {
     HAL_LOCKED   = 0x01U
 } HAL_LockTypeDef;
 
+/**
+ * @brief Enable/Disable macros
+ */
+#define ENABLE                     1U
+#define DISABLE                    0U
+
 /* ============================================================================
  * GPIO Definitions
  * ============================================================================ */
@@ -435,9 +441,18 @@ typedef struct {
     uint32_t DataSyncJumpWidth;
     uint32_t DataTimeSeg1;
     uint32_t DataTimeSeg2;
+    uint32_t MessageRAMOffset;
     uint32_t StdFiltersNbr;
     uint32_t ExtFiltersNbr;
+    uint32_t RxFifo0ElmtsNbr;
+    uint32_t RxFifo0ElmtSize;
+    uint32_t RxFifo1ElmtsNbr;
+    uint32_t RxBuffersNbr;
+    uint32_t TxEventsNbr;
+    uint32_t TxBuffersNbr;
+    uint32_t TxFifoQueueElmtsNbr;
     uint32_t TxFifoQueueMode;
+    uint32_t TxElmtSize;
 } FDCAN_InitTypeDef;
 
 typedef struct {
@@ -534,6 +549,44 @@ typedef struct {
 #define FDCAN_FILTER_TO_RXFIFO0    0x00000001U
 #define FDCAN_FILTER_TO_RXFIFO1    0x00000002U
 #define FDCAN_FILTER_REJECT        0x00000003U
+#define FDCAN_REJECT               0x00000003U
+#define FDCAN_FILTER_REMOTE        0x00000004U
+
+/* FDCAN Data Bytes (Element Size) */
+#define FDCAN_DATA_BYTES_8         0x00000000U
+#define FDCAN_DATA_BYTES_12        0x00000001U
+#define FDCAN_DATA_BYTES_16        0x00000002U
+#define FDCAN_DATA_BYTES_20        0x00000003U
+#define FDCAN_DATA_BYTES_24        0x00000004U
+#define FDCAN_DATA_BYTES_32        0x00000005U
+#define FDCAN_DATA_BYTES_48        0x00000006U
+#define FDCAN_DATA_BYTES_64        0x00000007U
+
+/* FDCAN TX FIFO Mode */
+#define FDCAN_TX_FIFO_OPERATION    0x00000000U
+#define FDCAN_TX_QUEUE_OPERATION   0x00000001U
+
+/* FDCAN TX Event Control */
+#define FDCAN_NO_TX_EVENTS         0x00000000U
+#define FDCAN_STORE_TX_EVENTS      0x00000001U
+
+/* FDCAN Error State Indicator */
+#define FDCAN_ESI_ACTIVE           0x00000000U
+#define FDCAN_ESI_PASSIVE          0x80000000U
+
+/* FDCAN Bit Rate Switch */
+#define FDCAN_BRS_OFF              0x00000000U
+#define FDCAN_BRS_ON               0x00100000U
+
+/* FDCAN FD Format */
+#define FDCAN_CLASSIC_CAN          0x00000000U
+#define FDCAN_FD_CAN               0x00200000U
+
+/* FDCAN Interrupts */
+#define FDCAN_IT_RX_FIFO0_NEW_MESSAGE  0x00000001U
+#define FDCAN_IT_RX_FIFO1_NEW_MESSAGE  0x00000002U
+#define FDCAN_IT_TX_COMPLETE           0x00000004U
+#define FDCAN_IT_TX_FIFO_EMPTY         0x00000008U
 
 /* FDCAN Instances */
 extern FDCAN_GlobalTypeDef FDCAN1_inst, FDCAN2_inst, FDCAN3_inst;
@@ -633,6 +686,9 @@ uint32_t HAL_GetTick(void);
 void HAL_Delay(uint32_t Delay);
 void HAL_IncTick(void);
 
+/* Device UID */
+uint32_t HAL_GetUIDw0(void);
+
 /* Initialization */
 HAL_StatusTypeDef HAL_Init(void);
 HAL_StatusTypeDef HAL_DeInit(void);
@@ -690,6 +746,7 @@ HAL_StatusTypeDef HAL_FDCAN_DeInit(FDCAN_HandleTypeDef* hfdcan);
 HAL_StatusTypeDef HAL_FDCAN_Start(FDCAN_HandleTypeDef* hfdcan);
 HAL_StatusTypeDef HAL_FDCAN_Stop(FDCAN_HandleTypeDef* hfdcan);
 HAL_StatusTypeDef HAL_FDCAN_ConfigFilter(FDCAN_HandleTypeDef* hfdcan, FDCAN_FilterTypeDef* sFilterConfig);
+HAL_StatusTypeDef HAL_FDCAN_ConfigGlobalFilter(FDCAN_HandleTypeDef* hfdcan, uint32_t NonMatchingStd, uint32_t NonMatchingExt, uint32_t RejectRemoteStd, uint32_t RejectRemoteExt);
 HAL_StatusTypeDef HAL_FDCAN_AddMessageToTxFifoQ(FDCAN_HandleTypeDef* hfdcan, FDCAN_TxHeaderTypeDef* pTxHeader, uint8_t* pTxData);
 HAL_StatusTypeDef HAL_FDCAN_GetRxMessage(FDCAN_HandleTypeDef* hfdcan, uint32_t RxLocation, FDCAN_RxHeaderTypeDef* pRxHeader, uint8_t* pRxData);
 uint32_t HAL_FDCAN_GetRxFifoFillLevel(FDCAN_HandleTypeDef* hfdcan, uint32_t RxFifo);

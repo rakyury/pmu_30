@@ -23,8 +23,10 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_adc.h"
+#include "pmu_channel.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
+#include <stdio.h>
 
 /* Private typedef -----------------------------------------------------------*/
 
@@ -39,7 +41,14 @@
 /* Private variables ---------------------------------------------------------*/
 static PMU_ADC_Input_t inputs[PMU30_NUM_ADC_INPUTS];
 static PMU_InputConfig_t* input_configs[PMU30_NUM_ADC_INPUTS];
+
+/* ADC DMA buffer - needs to be accessible from emulator */
+#ifdef PMU_EMULATOR
+uint16_t adc_dma_buffer[ADC_DMA_BUFFER_SIZE];
+#else
 static uint16_t adc_dma_buffer[ADC_DMA_BUFFER_SIZE];
+#endif
+
 static ADC_HandleTypeDef* hadc_inputs;
 
 #ifndef UNIT_TEST
@@ -85,6 +94,7 @@ HAL_StatusTypeDef PMU_ADC_Init(void)
         inputs[i].filter_index = 0;
         inputs[i].last_edge_time = 0;
         inputs[i].edge_count = 0;
+        inputs[i].channel_id = 0;  /* No channel sync until set */
     }
 
     /* Initialize ADC peripheral for analog inputs
@@ -303,27 +313,27 @@ void PMU_ADC_Update(void)
         /* Process based on configured input type */
         if (input_configs[i] != NULL) {
             switch (input_configs[i]->type) {
-                case PMU_INPUT_SWITCH_ACTIVE_LOW:
+                case PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW:
                     ADC_ProcessSwitchActiveLow(i);
                     break;
 
-                case PMU_INPUT_SWITCH_ACTIVE_HIGH:
+                case PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH:
                     ADC_ProcessSwitchActiveHigh(i);
                     break;
 
-                case PMU_INPUT_ROTARY_SWITCH:
+                case PMU_LEGACY_INPUT_ROTARY_SWITCH:
                     ADC_ProcessRotarySwitch(i);
                     break;
 
-                case PMU_INPUT_LINEAR_ANALOG:
+                case PMU_LEGACY_INPUT_LINEAR_ANALOG:
                     ADC_ProcessLinearAnalog(i);
                     break;
 
-                case PMU_INPUT_CALIBRATED_ANALOG:
+                case PMU_LEGACY_INPUT_CALIBRATED_ANALOG:
                     ADC_ProcessCalibratedAnalog(i);
                     break;
 
-                case PMU_INPUT_FREQUENCY:
+                case PMU_LEGACY_INPUT_FREQUENCY:
                     ADC_ProcessFrequencyInput(i);
                     break;
 
@@ -376,6 +386,38 @@ uint8_t PMU_ADC_GetDigitalState(uint8_t channel)
 }
 
 /**
+ * @brief Set digital state (for emulator/testing)
+ * @param channel Input channel (0-19)
+ * @param state Digital state (0 or 1)
+ * @note Also syncs to channel system
+ */
+void PMU_ADC_SetDigitalState(uint8_t channel, uint8_t state)
+{
+    if (!IS_VALID_INPUT(channel)) {
+        return;
+    }
+    inputs[channel].digital_state = state ? 1 : 0;
+
+    /* Sync to channel system so power outputs can read current value */
+    if (inputs[channel].channel_id > 0) {
+        PMU_Channel_UpdateValue(inputs[channel].channel_id, inputs[channel].digital_state);
+    }
+}
+
+/**
+ * @brief Get input type (for emulator to determine voltage logic)
+ * @param channel Input channel (0-19)
+ * @retval Input type (PMU_LegacyInputType_t) or -1 if not configured
+ */
+int PMU_ADC_GetInputType(uint8_t channel)
+{
+    if (!IS_VALID_INPUT(channel) || input_configs[channel] == NULL) {
+        return -1;
+    }
+    return (int)input_configs[channel]->type;
+}
+
+/**
  * @brief Get frequency (for frequency inputs)
  * @param channel Input channel (0-19)
  * @retval Frequency in Hz
@@ -422,27 +464,66 @@ HAL_StatusTypeDef PMU_ADC_SetConfig(uint8_t channel, PMU_InputConfig_t* config)
     return HAL_OK;
 }
 
+/**
+ * @brief Set channel system ID for input
+ * @param channel Input channel (0-19)
+ * @param channel_id Channel system ID for PMU_Channel_SetValue
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_ADC_SetChannelId(uint8_t channel, uint16_t channel_id)
+{
+    if (!IS_VALID_INPUT(channel)) {
+        return HAL_ERROR;
+    }
+
+    inputs[channel].channel_id = channel_id;
+
+    /* Sync initial state to channel system immediately */
+    PMU_Channel_UpdateValue(channel_id, inputs[channel].digital_state);
+
+    return HAL_OK;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
  * @brief Process Switch Active Low input
  * @param channel Input channel
  * @retval None
+ *
+ * Active LOW switch: connected between input and GND with pull-up
+ * - When switch OPEN (released): voltage is HIGH (pulled up) → output 0
+ * - When switch CLOSED (pressed): voltage is LOW (grounded) → output 1
  */
 static void ADC_ProcessSwitchActiveLow(uint8_t channel)
 {
     PMU_InputConfig_t* cfg = input_configs[channel];
     uint16_t voltage_mv = VOLTAGE_FROM_ADC(inputs[channel].raw_value);
 
-    /* Active low: LOW = pressed (1), HIGH = released (0) */
-    uint8_t new_state = (voltage_mv < cfg->threshold_low_mv) ? 1 : 0;
+    /* Active LOW with hysteresis (inverted logic):
+     * - State 1 (active/pressed) when voltage goes BELOW threshold_low
+     * - State 0 (inactive/released) when voltage goes ABOVE threshold_high
+     * - State stays the same when voltage is between thresholds */
+    uint8_t current_state = inputs[channel].digital_state;
+    uint8_t new_state = current_state;
+
+    if (voltage_mv < cfg->threshold_low_mv) {
+        new_state = 1;  /* LOW voltage = pressed (active) */
+    } else if (voltage_mv > cfg->threshold_high_mv) {
+        new_state = 0;  /* HIGH voltage = released (inactive) */
+    }
+    /* else: keep current state (hysteresis zone) */
 
     /* Debouncing */
-    if (new_state != inputs[channel].digital_state) {
+    if (new_state != current_state) {
         inputs[channel].debounce_counter++;
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
             inputs[channel].debounce_counter = 0;
+            /* Sync to channel system so power outputs can read current value */
+            if (inputs[channel].channel_id > 0) {
+                PMU_Channel_UpdateValue(inputs[channel].channel_id, new_state);
+            }
         }
     } else {
         inputs[channel].debounce_counter = 0;
@@ -461,15 +542,30 @@ static void ADC_ProcessSwitchActiveHigh(uint8_t channel)
     PMU_InputConfig_t* cfg = input_configs[channel];
     uint16_t voltage_mv = VOLTAGE_FROM_ADC(inputs[channel].raw_value);
 
-    /* Active high: HIGH = pressed (1), LOW = released (0) */
-    uint8_t new_state = (voltage_mv > cfg->threshold_high_mv) ? 1 : 0;
+    /* Active high with hysteresis:
+     * - State changes to 1 (pressed) when voltage goes ABOVE threshold_high
+     * - State changes to 0 (released) when voltage goes BELOW threshold_low
+     * - State stays the same when voltage is between thresholds */
+    uint8_t current_state = inputs[channel].digital_state;
+    uint8_t new_state = current_state;
+
+    if (voltage_mv > cfg->threshold_high_mv) {
+        new_state = 1;  /* HIGH voltage = pressed */
+    } else if (voltage_mv < cfg->threshold_low_mv) {
+        new_state = 0;  /* LOW voltage = released */
+    }
+    /* else: keep current state (hysteresis zone) */
 
     /* Debouncing */
-    if (new_state != inputs[channel].digital_state) {
+    if (new_state != current_state) {
         inputs[channel].debounce_counter++;
         if (inputs[channel].debounce_counter >= cfg->debounce_ms) {
             inputs[channel].digital_state = new_state;
             inputs[channel].debounce_counter = 0;
+            /* Sync to channel system so power outputs can read current value */
+            if (inputs[channel].channel_id > 0) {
+                PMU_Channel_UpdateValue(inputs[channel].channel_id, new_state);
+            }
         }
     } else {
         inputs[channel].debounce_counter = 0;
@@ -598,20 +694,45 @@ static uint16_t ADC_ApplyFilter(uint8_t channel, uint16_t new_value)
 }
 
 /**
- * @brief Apply calibration curve to raw value
- * @param config Input configuration
+ * @brief Apply calibration curve to raw value using piecewise linear interpolation
+ * @param config Input configuration with calibration table
  * @param raw Raw ADC value
  * @retval Calibrated value
  */
 static float ADC_ApplyCalibration(PMU_InputConfig_t* config, uint16_t raw)
 {
-    /* For now, use simple linear calibration
-     * In full implementation, this could use lookup table with interpolation
-     * for non-linear sensors (temp sensors, pressure sensors, etc.)
-     */
-
     float voltage_v = VOLTAGE_FROM_ADC(raw) / 1000.0f;
-    return (voltage_v * config->multiplier) + config->offset;
+
+    /* If no calibration points, fall back to linear scaling */
+    if (config->calibration_count < 2) {
+        return (voltage_v * config->multiplier) + config->offset;
+    }
+
+    /* Find the interpolation segment */
+    /* Note: calibration points should be sorted by voltage (ascending) */
+    for (uint8_t i = 0; i < config->calibration_count - 1; i++) {
+        float v1 = config->calibration[i].voltage;
+        float v2 = config->calibration[i + 1].voltage;
+
+        if (voltage_v >= v1 && voltage_v <= v2) {
+            /* Interpolate between points i and i+1 */
+            float val1 = config->calibration[i].value;
+            float val2 = config->calibration[i + 1].value;
+
+            if (v2 != v1) {
+                return val1 + (voltage_v - v1) * (val2 - val1) / (v2 - v1);
+            } else {
+                return val1;
+            }
+        }
+    }
+
+    /* Outside calibration range - clamp to nearest endpoint */
+    if (voltage_v < config->calibration[0].voltage) {
+        return config->calibration[0].value;
+    } else {
+        return config->calibration[config->calibration_count - 1].value;
+    }
 }
 
 /**
@@ -637,8 +758,8 @@ static uint16_t ADC_ReadChannel(uint8_t channel)
         return adc_dma_buffer[channel] >> 2;  /* 12-bit to 10-bit */
     }
 
-#ifdef UNIT_TEST
-    /* For unit tests, return mid-scale dummy value */
+#if defined(UNIT_TEST) && !defined(PMU_EMULATOR)
+    /* For unit tests (but not emulator), return mid-scale dummy value */
     return 512;
 #else
     /* Out of range channel */
@@ -656,7 +777,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     /* Determine which input channel triggered the interrupt */
     for (uint8_t i = 0; i < PMU30_NUM_ADC_INPUTS; i++) {
         if (input_configs[i] != NULL &&
-            input_configs[i]->type == PMU_INPUT_FREQUENCY) {
+            input_configs[i]->type == PMU_LEGACY_INPUT_FREQUENCY) {
 
             /* Increment edge counter */
             inputs[i].edge_count++;

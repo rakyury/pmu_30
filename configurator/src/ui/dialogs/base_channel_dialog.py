@@ -1,37 +1,109 @@
 """
 Base Channel Dialog
 Common base class for all Channel configuration dialogs
+
+Architecture:
+- channel_id: Numeric, auto-generated, unique across ALL channels (0-65535), NOT editable
+- name: User-defined string, editable
 """
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QPushButton, QLineEdit, QComboBox, QLabel,
-    QScrollArea, QWidget, QMessageBox
+    QWidget, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
+from models.channel_display_service import ChannelDisplayService, ChannelIdGenerator
+
+
+def get_next_channel_id(existing_channels: List[Dict[str, Any]] = None) -> int:
+    """Get next available channel ID based on existing channels.
+
+    Delegates to ChannelIdGenerator for centralized, stateless ID generation.
+    Kept for backward compatibility with existing code.
+    """
+    return ChannelIdGenerator.get_next_channel_id(existing_channels)
 
 
 class BaseChannelDialog(QDialog):
     """Base dialog for configuring channels"""
 
+    # ID prefixes for channel identifiers (used in references)
+    ID_PREFIXES = {
+        ChannelType.ANALOG_INPUT: "ai_",
+        ChannelType.DIGITAL_INPUT: "di_",
+        ChannelType.POWER_OUTPUT: "o_",
+        ChannelType.HBRIDGE: "hb_",
+        ChannelType.LOGIC: "l_",
+        ChannelType.NUMBER: "n_",
+        ChannelType.TIMER: "t_",
+        ChannelType.SWITCH: "sw_",
+        ChannelType.TABLE_2D: "t2d_",
+        ChannelType.TABLE_3D: "t3d_",
+        ChannelType.FILTER: "f_",
+        ChannelType.CAN_RX: "can_rx_",
+        ChannelType.CAN_TX: "can_tx_",
+        ChannelType.LUA_SCRIPT: "lua_",
+        ChannelType.PID: "pid_",
+        ChannelType.HANDLER: "h_",
+        ChannelType.BLINKMARINE_KEYPAD: "bm_",
+    }
+
+    # Human-readable name prefixes for display names
+    NAME_PREFIXES = {
+        ChannelType.ANALOG_INPUT: "Analog ",
+        ChannelType.DIGITAL_INPUT: "Digital ",
+        ChannelType.POWER_OUTPUT: "Output ",
+        ChannelType.HBRIDGE: "H-Bridge ",
+        ChannelType.LOGIC: "Logic ",
+        ChannelType.NUMBER: "Number ",
+        ChannelType.TIMER: "Timer ",
+        ChannelType.SWITCH: "Switch ",
+        ChannelType.TABLE_2D: "Table2D ",
+        ChannelType.TABLE_3D: "Table3D ",
+        ChannelType.FILTER: "Filter ",
+        ChannelType.CAN_RX: "CAN RX ",
+        ChannelType.CAN_TX: "CAN TX ",
+        ChannelType.LUA_SCRIPT: "Script ",
+        ChannelType.PID: "PID ",
+        ChannelType.HANDLER: "Handler ",
+        ChannelType.BLINKMARINE_KEYPAD: "BlinkMarine ",
+    }
+
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
                  available_channels: Optional[Dict[str, List[str]]] = None,
-                 channel_type: ChannelType = None):
+                 channel_type: ChannelType = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
         super().__init__(parent)
 
         self.config = config or {}
         self.available_channels = available_channels or {}
         self.channel_type = channel_type
-        self.is_edit_mode = bool(config and config.get("id"))
+        self.existing_channels = existing_channels or []
+
+        # channel_id must be positive integer (0 means not assigned)
+        existing_ch_id = config.get("channel_id") if config else None
+        has_valid_channel_id = isinstance(existing_ch_id, int) and existing_ch_id > 0
+        self.is_edit_mode = bool(config and has_valid_channel_id)
+
+        # Store or generate channel_id
+        if has_valid_channel_id:
+            self._channel_id = existing_ch_id
+        else:
+            self._channel_id = get_next_channel_id(existing_channels)
 
         self._init_base_ui()
 
         if config:
             self._load_base_config(config)
+
+        if not self.is_edit_mode and not self.name_edit.text().strip():
+            # Auto-generate name for new channels (only if not already set from config)
+            self._auto_generate_name()
 
     def _init_base_ui(self):
         """Initialize base UI components"""
@@ -39,39 +111,59 @@ class BaseChannelDialog(QDialog):
         type_name = get_channel_display_name(self.channel_type) if self.channel_type else "Channel"
         self.setWindowTitle(f"{title} {type_name}")
         self.setModal(True)
-        self.setMinimumWidth(550)
-        self.setMinimumHeight(350)
-        self.resize(600, 400)
+        self.setSizeGripEnabled(True)  # Allow resize if needed
 
         self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(12, 12, 12, 12)
+        self.main_layout.setSpacing(8)
 
-        # Create scroll area for content
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.scroll_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.scroll_widget)
+        # Content layout - directly in dialog, no scroll area
+        self.content_layout = QVBoxLayout()
+        self.content_layout.setSpacing(8)
+        self.main_layout.addLayout(self.content_layout)
 
         # Basic settings group (common for all channel types)
         self._create_basic_group()
 
-        self.scroll.setWidget(self.scroll_widget)
-        self.main_layout.addWidget(self.scroll)
+        # Add stretch to push buttons to bottom
+        self.main_layout.addStretch()
 
         # Buttons
         self._create_buttons()
+
+    def _finalize_ui(self):
+        """Call after subclass has added all content to adjust size"""
+        # Ensure dialog fits its content
+        self.adjustSize()
+
+        # Apply size adjustments:
+        # - Width: scale by 1.8x for better readability
+        # - Height: 0.7x (30% reduction for compact forms)
+        current_size = self.sizeHint()
+        new_width = int(current_size.width() * 1.8)
+        new_height = int(current_size.height() * 0.7)
+        self.resize(new_width, new_height)
 
     def _create_basic_group(self):
         """Create basic settings group"""
         basic_group = QGroupBox("Basic Settings")
         basic_layout = QFormLayout()
 
-        # ID field
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("Unique identifier (e.g., ignition_switch)")
-        if self.is_edit_mode:
-            self.id_edit.setEnabled(False)  # Cannot change ID in edit mode
-        basic_layout.addRow("ID: *", self.id_edit)
+        # Channel ID field (read-only, numeric, auto-generated)
+        self.channel_id_label = QLabel(str(self._channel_id))
+        self.channel_id_label.setStyleSheet("font-weight: bold; color: #b0b0b0;")
+        basic_layout.addRow("Channel ID:", self.channel_id_label)
+
+        # Name field - the ONLY user-editable identifier
+        # Must be unique across all channels, used for references in logic
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("e.g., CoolantTemp, FanOutput, IgnitionSwitch")
+        self.name_edit.setToolTip(
+            "Unique channel name.\n"
+            "Used in UI and for references in logic.\n"
+            "Must be unique across all channels."
+        )
+        basic_layout.addRow("Name: *", self.name_edit)
 
         basic_group.setLayout(basic_layout)
         self.content_layout.addWidget(basic_group)
@@ -94,19 +186,45 @@ class BaseChannelDialog(QDialog):
 
     def _load_base_config(self, config: Dict[str, Any]):
         """Load base configuration fields"""
-        self.id_edit.setText(config.get("id", ""))
+        # Name is the primary identifier - try 'channel_name' first, then 'name', then 'id'
+        name = config.get("channel_name", "") or config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
+
+    def _auto_generate_name(self):
+        """Auto-generate name for new channel based on type"""
+        # Generate human-readable name (e.g., Analog1, Output2, Timer3)
+        name_prefix = self.NAME_PREFIXES.get(self.channel_type, "Channel")
+        # Remove spaces for cleaner names that work better as identifiers
+        clean_prefix = name_prefix.strip().replace(" ", "")
+        self.name_edit.setText(f"{clean_prefix}{self._channel_id}")
 
     def _validate_base(self) -> List[str]:
         """Validate base fields, return list of errors"""
         errors = []
 
-        channel_id = self.id_edit.text().strip()
-        if not channel_id:
-            errors.append("ID is required")
-        elif not channel_id[0].isalpha():
-            errors.append("ID must start with a letter")
-        elif not all(c.isalnum() or c == '_' for c in channel_id):
-            errors.append("ID can only contain letters, numbers, and underscores")
+        name = self.name_edit.text().strip()
+        if not name:
+            errors.append("Name is required")
+        # Allow letters, numbers, spaces, underscores, hyphens, parentheses, slashes, dots
+        # Only restriction: must start with a letter or underscore
+        elif not name[0].isalpha() and name[0] != '_':
+            errors.append("Name must start with a letter or underscore")
+        # Allow most printable characters for descriptive names
+        # Forbidden: only characters that could cause issues in JSON/firmware: " ' \\ ; { } [ ]
+        elif any(c in name for c in '"\'\\;{}[]'):
+            errors.append("Name cannot contain: \" ' \\ ; { } [ ]")
+
+        # Check for duplicate names (excluding current channel in edit mode)
+        if name and self.existing_channels:
+            for ch in self.existing_channels:
+                # Check both 'name' and 'id' for backwards compatibility
+                ch_name = ch.get("name", "") or ch.get("id", "")
+                if ch_name == name:
+                    # In edit mode, skip self
+                    if self.is_edit_mode and ch.get("channel_id") == self._channel_id:
+                        continue
+                    errors.append(f"Name '{name}' is already used by another channel")
+                    break
 
         return errors
 
@@ -131,8 +249,11 @@ class BaseChannelDialog(QDialog):
 
     def get_base_config(self) -> Dict[str, Any]:
         """Get base configuration fields"""
+        name = self.name_edit.text().strip()
         return {
-            "id": self.id_edit.text().strip(),
+            "channel_id": self._channel_id,
+            "channel_name": name,  # Primary identifier - used by firmware
+            "name": name,  # Alias for backwards compatibility
             "channel_type": self.channel_type.value if self.channel_type else ""
         }
 
@@ -142,7 +263,7 @@ class BaseChannelDialog(QDialog):
 
     def _create_channel_selector(self, placeholder: str = "Select channel...") -> tuple:
         """
-        Create channel selector widget with browse button.
+        Create channel selector widget with browse and clear buttons.
 
         Returns:
             tuple: (container_widget, line_edit)
@@ -150,12 +271,44 @@ class BaseChannelDialog(QDialog):
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
 
         edit = QLineEdit()
         edit.setReadOnly(True)
         edit.setPlaceholderText(placeholder)
         layout.addWidget(edit, stretch=1)
 
+        # Clear button (hidden when empty)
+        clear_btn = QPushButton("×")
+        clear_btn.setMaximumWidth(24)
+        clear_btn.setToolTip("Clear selection")
+        clear_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                color: #888;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #ff4444;
+            }
+        """)
+        clear_btn.setVisible(False)
+
+        def update_clear_button_visibility():
+            clear_btn.setVisible(bool(edit.text()))
+
+        def clear_selection():
+            edit.setText("")
+            edit.setProperty("channel_id", None)
+            clear_btn.setVisible(False)
+
+        clear_btn.clicked.connect(clear_selection)
+        edit.textChanged.connect(update_clear_button_visibility)
+        layout.addWidget(clear_btn)
+
+        # Browse button
         btn = QPushButton("...")
         btn.setMaximumWidth(30)
         btn.setToolTip("Browse channels")
@@ -169,19 +322,67 @@ class BaseChannelDialog(QDialog):
         from .channel_selector_dialog import ChannelSelectorDialog
 
         current = target_edit.text()
-        channel = ChannelSelectorDialog.select_channel(
-            self, current, self.available_channels
+        # Exclude current channel from selection to prevent self-reference
+        exclude_id = self._channel_id if hasattr(self, '_channel_id') else None
+        accepted, channel_id = ChannelSelectorDialog.select_channel(
+            self, current, self.available_channels,
+            show_tree=True, exclude_channel=exclude_id
         )
-        if channel:
-            target_edit.setText(channel)
+        if accepted:
+            if channel_id is not None:
+                # Find display name for the channel_id
+                display_name = self._get_channel_display_name(channel_id)
+                target_edit.setText(display_name)
+                # Store numeric ID in property for later use
+                target_edit.setProperty("channel_id", channel_id)
+            else:
+                target_edit.setText("")
+                target_edit.setProperty("channel_id", None)
 
-    def _create_edge_combo(self, include_both: bool = True) -> QComboBox:
+    def _get_channel_display_name(self, channel_id) -> str:
+        """Get display name for a channel by its numeric channel_id.
+
+        Delegates to ChannelDisplayService for centralized lookup.
+
+        Returns channel_name (user-friendly) for display in the input field.
+        """
+        return ChannelDisplayService.get_display_name(channel_id, self.available_channels)
+
+    def _get_channel_id_from_edit(self, edit: QLineEdit):
+        """Get channel ID from edit field (from property or text fallback)."""
+        channel_id = edit.property("channel_id")
+        if channel_id is None:
+            # Fallback to text (for backwards compatibility)
+            text = edit.text().strip()
+            return text if text else None
+        return channel_id
+
+    def _set_channel_edit_value(self, edit: QLineEdit, channel_id):
+        """Set channel edit field value with display name lookup.
+
+        Args:
+            edit: The QLineEdit to set
+            channel_id: Channel ID (numeric int or string)
+        """
+        if channel_id is None or channel_id == "" or channel_id == 0:
+            edit.setText("")
+            edit.setProperty("channel_id", None)
+            return
+
+        # Find display name for the channel_id
+        display_name = self._get_channel_display_name(channel_id)
+        edit.setText(display_name)
+        edit.setProperty("channel_id", channel_id)
+
+    def _create_edge_combo(self, include_both: bool = True, include_level: bool = False) -> QComboBox:
         """Create edge selection combobox"""
         combo = QComboBox()
         combo.addItem("Rising", "rising")
         combo.addItem("Falling", "falling")
         if include_both:
             combo.addItem("Both", "both")
+        if include_level:
+            combo.addItem("Level (High)", "level")
         return combo
 
     def _set_edge_combo_value(self, combo: QComboBox, value: str):
@@ -240,10 +441,10 @@ class ChannelListWidget(QWidget):
             return
 
         from .channel_selector_dialog import ChannelSelectorDialog
-        channel = ChannelSelectorDialog.select_channel(
+        accepted, channel = ChannelSelectorDialog.select_channel(
             self, "", self.available_channels
         )
-        if channel:
+        if accepted and channel:
             # Check for duplicates
             for i in range(self.list_widget.count()):
                 if self.list_widget.item(i).text() == channel:
@@ -272,7 +473,3 @@ class ChannelListWidget(QWidget):
         self.list_widget.clear()
         for ch in channels:
             self.list_widget.addItem(ch)
-
-
-# Backwards compatibility alias
-BaseGPIODialog = BaseChannelDialog

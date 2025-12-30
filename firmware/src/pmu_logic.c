@@ -204,6 +204,10 @@ void PMU_Logic_ApplyOutputs(void)
         switch (vchan->type) {
             case VCHAN_TYPE_PROFET_OUTPUT:
                 if (vchan->index < PMU30_NUM_OUTPUTS) {
+                    /* Skip if channel has manual override (WebUI control) */
+                    if (PMU_PROFET_HasManualOverride(vchan->index)) {
+                        break;
+                    }
                     /* Set PROFET output state (0/1 or PWM duty 0-1000) */
                     uint16_t duty = (uint16_t)(vchan->value * 1000.0f);
                     if (duty > 0 && duty < 1000) {

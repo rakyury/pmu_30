@@ -1,4 +1,4 @@
-/**
+﻿/**
  ******************************************************************************
  * @file           : pmu_config.h
  * @brief          : PMU-30 Configuration Header
@@ -22,47 +22,15 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "pmu_types.h"
 #include "pmu_can_stream.h"
 
 /* Exported types ------------------------------------------------------------*/
 
-/* ============================================================================
- * Channel Type Enumeration (v2.0)
- * Unified channel architecture
- * ============================================================================ */
-typedef enum {
-    PMU_CHANNEL_TYPE_DIGITAL_INPUT = 0,
-    PMU_CHANNEL_TYPE_ANALOG_INPUT,
-    PMU_CHANNEL_TYPE_POWER_OUTPUT,
-    PMU_CHANNEL_TYPE_CAN_RX,
-    PMU_CHANNEL_TYPE_CAN_TX,
-    PMU_CHANNEL_TYPE_LOGIC,
-    PMU_CHANNEL_TYPE_NUMBER,
-    PMU_CHANNEL_TYPE_TABLE_2D,
-    PMU_CHANNEL_TYPE_TABLE_3D,
-    PMU_CHANNEL_TYPE_SWITCH,
-    PMU_CHANNEL_TYPE_TIMER,
-    PMU_CHANNEL_TYPE_FILTER,
-    PMU_CHANNEL_TYPE_ENUM,
-    PMU_CHANNEL_TYPE_COUNT
-} PMU_ChannelType_t;
-
-/* Backwards compatibility alias */
-typedef PMU_ChannelType_t PMU_GPIOType_t;
-#define PMU_GPIO_TYPE_DIGITAL_INPUT  PMU_CHANNEL_TYPE_DIGITAL_INPUT
-#define PMU_GPIO_TYPE_ANALOG_INPUT   PMU_CHANNEL_TYPE_ANALOG_INPUT
-#define PMU_GPIO_TYPE_POWER_OUTPUT   PMU_CHANNEL_TYPE_POWER_OUTPUT
-#define PMU_GPIO_TYPE_CAN_RX         PMU_CHANNEL_TYPE_CAN_RX
-#define PMU_GPIO_TYPE_CAN_TX         PMU_CHANNEL_TYPE_CAN_TX
-#define PMU_GPIO_TYPE_LOGIC          PMU_CHANNEL_TYPE_LOGIC
-#define PMU_GPIO_TYPE_NUMBER         PMU_CHANNEL_TYPE_NUMBER
-#define PMU_GPIO_TYPE_TABLE_2D       PMU_CHANNEL_TYPE_TABLE_2D
-#define PMU_GPIO_TYPE_TABLE_3D       PMU_CHANNEL_TYPE_TABLE_3D
-#define PMU_GPIO_TYPE_SWITCH         PMU_CHANNEL_TYPE_SWITCH
-#define PMU_GPIO_TYPE_TIMER          PMU_CHANNEL_TYPE_TIMER
-#define PMU_GPIO_TYPE_FILTER         PMU_CHANNEL_TYPE_FILTER
-#define PMU_GPIO_TYPE_ENUM           PMU_CHANNEL_TYPE_ENUM
-#define PMU_GPIO_TYPE_COUNT          PMU_CHANNEL_TYPE_COUNT
+/* Channel types are defined in pmu_types.h:
+ * - PMU_ChannelType_t (PMU_CHANNEL_TYPE_DIGITAL_INPUT, etc.)
+ * - CAN types (PMU_CAN_MessageType_t, etc.)
+ */
 
 /* Digital Input Subtypes */
 typedef enum {
@@ -88,7 +56,8 @@ typedef enum {
 typedef enum {
     PMU_EDGE_RISING = 0,
     PMU_EDGE_FALLING,
-    PMU_EDGE_BOTH
+    PMU_EDGE_BOTH,
+    PMU_EDGE_LEVEL        /**< Level trigger - fires when signal is high (> 0) */
 } PMU_EdgeType_t;
 
 /* Timer Modes */
@@ -119,15 +88,21 @@ typedef enum {
     PMU_LOGIC_AND,
     PMU_LOGIC_OR,
     PMU_LOGIC_XOR,
+    PMU_LOGIC_NOT,
+    PMU_LOGIC_NAND,
+    PMU_LOGIC_NOR,
+    PMU_LOGIC_IN_RANGE,
     PMU_LOGIC_CHANGED,
     PMU_LOGIC_HYSTERESIS,
     PMU_LOGIC_SET_RESET_LATCH,
     PMU_LOGIC_TOGGLE,
     PMU_LOGIC_PULSE,
-    PMU_LOGIC_FLASH
+    PMU_LOGIC_FLASH,
+    PMU_LOGIC_EDGE_RISING,
+    PMU_LOGIC_EDGE_FALLING
 } PMU_LogicOp_t;
 
-/* Math Operations for Number GPIO */
+/* Math Operations for Number Channel */
 typedef enum {
     PMU_MATH_CONSTANT = 0,
     PMU_MATH_CHANNEL,
@@ -174,11 +149,10 @@ typedef enum {
 /* Maximum calibration points */
 #define PMU_MAX_CALIBRATION_POINTS  16
 #define PMU_MAX_TABLE_SIZE          16
-#define PMU_MAX_ENUM_ITEMS          16
 #define PMU_MAX_CAN_TX_SIGNALS      8
 #define PMU_MAX_NUMBER_INPUTS       5
 #define PMU_MAX_OUTPUT_PINS         4
-#define PMU_CHANNEL_ID_LEN          32
+/* PMU_CHANNEL_ID_LEN is defined in pmu_types.h (32) */
 #define PMU_MAX_CAN_MESSAGES        32  /**< Max CAN message objects (Level 1) */
 
 /* Calibration Point */
@@ -186,23 +160,6 @@ typedef struct {
     float voltage;
     float value;
 } PMU_CalibrationPoint_t;
-
-/* Enum Item */
-typedef struct {
-    int16_t value;
-    char text[16];
-    uint32_t color;  /* RGB color */
-} PMU_EnumItem_t;
-
-/* CAN TX Signal */
-typedef struct {
-    char source_channel[PMU_CHANNEL_ID_LEN];
-    uint8_t start_bit;
-    uint8_t length;
-    bool little_endian;
-    float factor;
-    float offset;
-} PMU_CanTxSignal_t;
 
 /* ============================================================================
  * Digital Input Channel
@@ -212,6 +169,7 @@ typedef struct {
     PMU_DigitalInputSubtype_t subtype;
     uint8_t input_pin;              /* D1-D8 -> 0-7 */
     bool enable_pullup;
+    bool invert;                    /* Invert input logic */
     uint16_t threshold_mv;          /* Threshold in mV */
     uint16_t debounce_ms;
     /* Frequency/RPM specific */
@@ -220,6 +178,15 @@ typedef struct {
     float divider;
     uint16_t timeout_ms;
     uint16_t number_of_teeth;       /* RPM specific */
+    /* Button function mode (ECUMaster compatible) */
+    PMU_ButtonMode_t button_mode;
+    uint16_t long_press_ms;         /* Long press threshold */
+    uint16_t long_press_output_id;  /* Separate long press output (channel_id, 0 = none) */
+    uint16_t double_click_ms;       /* Double click window */
+    uint16_t double_click_output_id; /* Separate double click output (channel_id, 0 = none) */
+    uint16_t hold_start_ms;         /* Press and hold start time */
+    uint16_t hold_full_ms;          /* Press and hold full time */
+    uint16_t reset_channel_id;      /* Reset channel for latch/toggle (channel_id, 0 = none) */
 } PMU_DigitalInputConfig_t;
 
 /* ============================================================================
@@ -256,11 +223,12 @@ typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     uint8_t output_pins[PMU_MAX_OUTPUT_PINS];
     uint8_t output_pin_count;
-    char source_channel[PMU_CHANNEL_ID_LEN];
+    bool enabled;                             /* Output enabled for runtime control */
+    uint16_t source_channel_id;               /* Source channel (0 = none) */
     /* PWM */
     bool pwm_enabled;
     uint16_t pwm_frequency_hz;
-    char duty_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t duty_channel_id;                 /* Duty channel (0 = none) */
     float duty_fixed;               /* Fixed duty if no channel (0-100) */
     uint16_t soft_start_ms;
     /* Protection */
@@ -269,6 +237,8 @@ typedef struct {
     uint16_t inrush_time_ms;
     uint8_t retry_count;
     bool retry_forever;
+    /* Load shedding priority (0=critical/never shed, 1-10=shed order, higher=shed first) */
+    uint8_t shed_priority;
 } PMU_PowerOutputConfig_t;
 
 /* ============================================================================
@@ -277,9 +247,9 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_LogicOp_t operation;
-    /* Common: channel input */
-    char channel[PMU_CHANNEL_ID_LEN];
-    char channel_2[PMU_CHANNEL_ID_LEN];
+    /* Common: channel input (by ID, 0 = none) */
+    uint16_t channel_id;
+    uint16_t channel_2_id;
     /* Delays */
     float true_delay_s;
     float false_delay_s;
@@ -293,12 +263,12 @@ typedef struct {
     float upper_value;
     float lower_value;
     /* For SET_RESET_LATCH */
-    char set_channel[PMU_CHANNEL_ID_LEN];
-    char reset_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t set_channel_id;
+    uint16_t reset_channel_id;
     PMU_DefaultState_t default_state;
     /* For TOGGLE/PULSE operation */
     PMU_EdgeType_t edge;
-    char toggle_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t toggle_channel_id;
     uint8_t pulse_count;
     bool retrigger;
     /* For FLASH operation */
@@ -311,7 +281,7 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_MathOp_t operation;
-    char inputs[PMU_MAX_NUMBER_INPUTS][PMU_CHANNEL_ID_LEN];
+    uint16_t input_ids[PMU_MAX_NUMBER_INPUTS];  /* Channel IDs, 0 = none */
     uint8_t input_count;
     float constant_value;
     float clamp_min;
@@ -325,9 +295,9 @@ typedef struct {
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char start_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t start_channel_id;  /* Channel ID, 0 = none */
     PMU_EdgeType_t start_edge;
-    char stop_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t stop_channel_id;   /* Channel ID, 0 = none */
     PMU_EdgeType_t stop_edge;
     PMU_TimerMode_t mode;
     uint16_t limit_hours;
@@ -341,27 +311,17 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     PMU_FilterType_t filter_type;
-    char input_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_channel_id;  /* Channel ID, 0 = none */
     uint16_t window_size;
     float time_constant;
 } PMU_FilterConfig_t;
-
-/* ============================================================================
- * Enum Channel
- * ============================================================================ */
-typedef struct {
-    char id[PMU_CHANNEL_ID_LEN];
-    bool is_bitfield;
-    uint8_t item_count;
-    PMU_EnumItem_t items[PMU_MAX_ENUM_ITEMS];
-} PMU_EnumConfig_t;
 
 /* ============================================================================
  * 2D Table Channel
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char x_axis_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t x_axis_channel_id;  /* Channel ID, 0 = none */
     float x_min;
     float x_max;
     float x_step;
@@ -376,8 +336,8 @@ typedef struct {
  * ============================================================================ */
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
-    char x_axis_channel[PMU_CHANNEL_ID_LEN];
-    char y_axis_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t x_axis_channel_id;  /* Channel ID, 0 = none */
+    uint16_t y_axis_channel_id;  /* Channel ID, 0 = none */
     float x_min, x_max, x_step;
     float y_min, y_max, y_step;
     uint8_t x_count, y_count;
@@ -393,9 +353,9 @@ typedef struct {
 typedef struct {
     char id[PMU_CHANNEL_ID_LEN];
     char switch_type[16];           /* "latching", "press_hold" */
-    char input_up_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_up_channel_id;   /* Channel ID, 0 = none */
     PMU_EdgeType_t input_up_edge;
-    char input_down_channel[PMU_CHANNEL_ID_LEN];
+    uint16_t input_down_channel_id; /* Channel ID, 0 = none */
     PMU_EdgeType_t input_down_edge;
     int16_t state_first;
     int16_t state_last;
@@ -406,14 +366,7 @@ typedef struct {
  * CAN Message Object (Level 1 - v3.0)
  * ============================================================================ */
 
-/** CAN Message Types */
-typedef enum {
-    PMU_CAN_MSG_TYPE_NORMAL = 0,      /**< Standard single-frame message */
-    PMU_CAN_MSG_TYPE_COMPOUND,         /**< Multi-frame compound message */
-    PMU_CAN_MSG_TYPE_PMU1_RX,          /**< Ecumaster PMU 1 RX protocol */
-    PMU_CAN_MSG_TYPE_PMU2_RX,          /**< Ecumaster PMU 2 RX protocol */
-    PMU_CAN_MSG_TYPE_PMU3_RX           /**< Ecumaster PMU 3 RX protocol */
-} PMU_CanMessageType_t;
+/* CAN Message Types are defined in pmu_types.h (PMU_CAN_MessageType_t) */
 
 /** CAN Message Object Configuration */
 typedef struct {
@@ -422,7 +375,7 @@ typedef struct {
     uint8_t can_bus;                    /**< CAN bus (1-4) */
     uint32_t base_id;                   /**< Base CAN ID */
     bool is_extended;                   /**< Use 29-bit extended ID */
-    PMU_CanMessageType_t message_type;  /**< Message type */
+    PMU_CAN_MessageType_t message_type; /**< Message type */
     uint8_t frame_count;                /**< Number of frames (for compound) */
     uint8_t dlc;                        /**< Data length code */
     uint16_t timeout_ms;                /**< Reception timeout */
@@ -433,27 +386,11 @@ typedef struct {
  * CAN RX Channel (Level 2 - v3.0)
  * ============================================================================ */
 
-/** CAN Data Types */
-typedef enum {
-    PMU_CAN_DATA_TYPE_UNSIGNED = 0,
-    PMU_CAN_DATA_TYPE_SIGNED,
-    PMU_CAN_DATA_TYPE_FLOAT
-} PMU_CanDataType_t;
-
-/** CAN Data Formats */
-typedef enum {
-    PMU_CAN_DATA_FORMAT_8BIT = 0,
-    PMU_CAN_DATA_FORMAT_16BIT,
-    PMU_CAN_DATA_FORMAT_32BIT,
-    PMU_CAN_DATA_FORMAT_CUSTOM
-} PMU_CanDataFormat_t;
-
-/** CAN Timeout Behavior */
-typedef enum {
-    PMU_CAN_TIMEOUT_USE_DEFAULT = 0,   /**< Use default_value on timeout */
-    PMU_CAN_TIMEOUT_HOLD_LAST,         /**< Hold last received value */
-    PMU_CAN_TIMEOUT_SET_ZERO           /**< Set to zero on timeout */
-} PMU_CanTimeoutBehavior_t;
+/* CAN Data Types, Formats, and Timeout Behavior are defined in pmu_types.h:
+ * - PMU_CAN_DataType_t (PMU_CanDataType_t alias)
+ * - PMU_CAN_DataFormat_t (PMU_CanDataFormat_t alias)
+ * - PMU_CAN_TimeoutBehavior_t (PMU_CanTimeoutBehavior_t alias)
+ */
 
 /** CAN RX Channel Configuration (v3.0) */
 typedef struct {
@@ -499,7 +436,7 @@ typedef struct {
     PMU_CanDataType_t data_type;        /**< Data type */
     PMU_CanDataFormat_t data_format;    /**< Data format */
     bool little_endian;                 /**< Byte order */
-    char source_channel[PMU_CHANNEL_ID_LEN];  /**< Source channel ID */
+    uint16_t source_channel_id;              /**< Source channel ID (0 = none) */
     float multiplier;                   /**< Scale multiplier */
 } PMU_CanTxSignalV3_t;
 
@@ -514,14 +451,11 @@ typedef struct {
     /* Transmission mode */
     PMU_CanTxMode_t transmit_mode;      /**< Cycle or Triggered */
     uint16_t cycle_frequency_hz;        /**< Cycle frequency (cycle mode) */
-    char trigger_channel[PMU_CHANNEL_ID_LEN];  /**< Trigger channel (triggered mode) */
+    uint16_t trigger_channel_id;               /**< Trigger channel ID (triggered mode, 0 = none) */
     PMU_EdgeType_t trigger_edge;        /**< Trigger edge */
     /* Signals */
     uint8_t signal_count;
     PMU_CanTxSignalV3_t signals_v3[PMU_MAX_CAN_TX_SIGNALS];
-    /* Legacy (v2.0 compatibility) */
-    uint16_t cycle_time_ms;             /**< Deprecated: use cycle_frequency_hz */
-    PMU_CanTxSignal_t signals[PMU_MAX_CAN_TX_SIGNALS];  /**< Deprecated: use signals_v3 */
 } PMU_CanTxConfig_t;
 
 /* ============================================================================
@@ -543,36 +477,117 @@ typedef struct {
     bool overtemp_enabled;          /* Overtemperature protection enabled */
     bool open_load_detect_enabled;  /* Open load detection enabled */
     bool short_circuit_enabled;     /* Short circuit protection enabled */
+    /* Load shedding priority (0=critical/never shed, 1-10=shed order, higher=shed first) */
+    uint8_t shed_priority;
 } PMU_OutputConfig_t;
 
 /**
- * @brief PMU H-Bridge Configuration
+ * @brief H-Bridge PWM source mode
+ */
+typedef enum {
+    PMU_HBRIDGE_PWM_FIXED = 0,      /* Fixed PWM value */
+    PMU_HBRIDGE_PWM_CHANNEL,        /* PWM from channel (0-100%) */
+    PMU_HBRIDGE_PWM_BIDIRECTIONAL   /* Bidirectional: 0-50%=Rev, 50-100%=Fwd */
+} PMU_HBridge_PwmMode_t;
+
+/**
+ * @brief H-Bridge failsafe mode
+ */
+typedef enum {
+    PMU_HBRIDGE_FAILSAFE_PARK = 0,  /* Move to park position */
+    PMU_HBRIDGE_FAILSAFE_BRAKE,     /* Active brake (hold) */
+    PMU_HBRIDGE_FAILSAFE_COAST,     /* Coast (free spin) */
+    PMU_HBRIDGE_FAILSAFE_CUSTOM     /* Move to custom position */
+} PMU_HBridge_FailsafeMode_t;
+
+/**
+ * @brief PMU H-Bridge Configuration (ECUMaster-style)
  */
 typedef struct {
-    uint8_t bridge;                 /* Bridge number (1-4) */
+    /* Basic settings */
+    char name[32];                  /* Channel name */
+    uint8_t bridge;                 /* Bridge number (0-3) */
     bool enabled;                   /* Bridge enabled */
-    uint16_t current_limit_mA;      /* Current limit in mA (0-30000) */
-    uint16_t pwm_frequency_hz;      /* PWM frequency in Hz (10-20000) */
-    bool brake_on_stop;             /* Enable active braking */
-    bool wiper_park_enabled;        /* Wiper park function enabled */
-    uint8_t park_input_channel;     /* Input channel for park sensor */
+    uint8_t mode;                   /* Operating mode (coast/forward/reverse/brake/wiper_park/pid_position) */
+    char motor_preset[16];          /* Motor preset (wiper/window/seat/valve/pump/custom) */
+
+    /* Control sources */
+    uint16_t source_channel_id;             /* Activation source channel (0 = none) */
+    uint16_t direction_source_channel_id;   /* Direction source channel (0 = none) */
+    bool invert_direction;          /* Invert direction logic */
+
+    /* PWM control */
+    PMU_HBridge_PwmMode_t pwm_mode; /* PWM source mode */
+    uint16_t pwm_frequency;         /* PWM frequency in Hz (1000/4000/10000/20000) */
+    uint8_t pwm_value;              /* Fixed PWM value (0-255) */
+    uint16_t pwm_source_channel_id;         /* PWM source channel (0 = none) */
+    uint8_t duty_limit_percent;     /* Max duty cycle (0-100%) */
+
+    /* Position control */
+    bool position_feedback_enabled; /* Enable position feedback */
+    uint16_t position_source_channel_id;    /* Position feedback source (0 = none) */
+    uint16_t target_position;       /* Fixed target position */
+    uint16_t target_source_channel_id;      /* Target position source (0 = none) */
+    uint16_t position_min;          /* Minimum position value */
+    uint16_t position_max;          /* Maximum position value */
+    uint16_t position_deadband;     /* Position tolerance */
+    float position_park;            /* Park position for wiper mode */
+
+    /* Valid voltage range (ECUMaster feature) */
+    float valid_voltage_min;        /* Min valid feedback voltage (V) */
+    float valid_voltage_max;        /* Max valid feedback voltage (V) */
+
+    /* Position margins (ECUMaster feature) */
+    uint16_t lower_margin;          /* Lower position margin */
+    uint16_t upper_margin;          /* Upper position margin */
+
+    /* PID control */
+    float pid_kp;                   /* Proportional gain */
+    float pid_ki;                   /* Integral gain */
+    float pid_kd;                   /* Derivative gain */
+    float pid_kd_filter;            /* Derivative filter (0-1) */
+    int16_t pid_output_min;         /* PID output min */
+    int16_t pid_output_max;         /* PID output max */
+
+    /* Current protection */
+    float current_limit_a;          /* Continuous current limit (A) */
+    float inrush_current_a;         /* Inrush current limit (A) */
+    uint16_t inrush_time_ms;        /* Inrush time period (ms) */
+    uint8_t retry_count;            /* Retry count before lockout */
+    uint16_t retry_delay_ms;        /* Delay between retries (ms) */
+
+    /* Stall detection */
+    bool stall_detection_enabled;   /* Enable stall detection */
+    float stall_current_threshold_a; /* Stall current threshold (A) */
+    uint16_t stall_time_threshold_ms; /* Stall time threshold (ms) */
+    int16_t overtemperature_threshold_c; /* Over-temperature limit (C) */
+
+    /* Signal loss failsafe */
+    bool failsafe_enabled;          /* Enable signal loss protection */
+    uint16_t signal_timeout_ms;     /* Signal timeout (ms) */
+    PMU_HBridge_FailsafeMode_t failsafe_mode; /* Failsafe action */
+    uint16_t failsafe_position;     /* Failsafe target position */
+    uint8_t failsafe_pwm;           /* Failsafe PWM value */
+    bool auto_recovery;             /* Auto-recover on signal return */
 } PMU_HBridgeConfig_t;
 
 /**
  * @brief PMU Input Channel Configuration (Legacy v1.0)
+ * Note: PMU_InputType_t is defined in pmu_types.h for current use.
+ * This legacy enum is renamed to avoid conflict.
  */
 typedef enum {
-    PMU_INPUT_SWITCH_ACTIVE_LOW = 0,
-    PMU_INPUT_SWITCH_ACTIVE_HIGH,
-    PMU_INPUT_ROTARY_SWITCH,
-    PMU_INPUT_LINEAR_ANALOG,
-    PMU_INPUT_CALIBRATED_ANALOG,
-    PMU_INPUT_FREQUENCY
-} PMU_InputType_t;
+    PMU_LEGACY_INPUT_SWITCH_ACTIVE_LOW = 0,
+    PMU_LEGACY_INPUT_SWITCH_ACTIVE_HIGH,
+    PMU_LEGACY_INPUT_ROTARY_SWITCH,
+    PMU_LEGACY_INPUT_LINEAR_ANALOG,
+    PMU_LEGACY_INPUT_CALIBRATED_ANALOG,
+    PMU_LEGACY_INPUT_FREQUENCY
+} PMU_LegacyInputType_t;
 
 typedef struct {
     uint8_t channel;                /* Channel number (1-20) */
-    PMU_InputType_t type;           /* Input type */
+    PMU_LegacyInputType_t type;     /* Input type (legacy) */
     char name[32];                  /* Input name */
     bool pullup_enabled;            /* Internal pull-up enabled */
     bool pulldown_enabled;          /* Internal pull-down enabled */
@@ -584,6 +599,9 @@ typedef struct {
     char unit[16];                  /* Measurement unit */
     uint8_t decimal_places;         /* Display decimal places (0-3) */
     uint8_t filter_samples;         /* Moving average filter samples */
+    /* Calibration table for CALIBRATED_ANALOG type */
+    uint8_t calibration_count;      /* Number of calibration points (0-16) */
+    PMU_CalibrationPoint_t calibration[PMU_MAX_CALIBRATION_POINTS];
 } PMU_InputConfig_t;
 
 /**

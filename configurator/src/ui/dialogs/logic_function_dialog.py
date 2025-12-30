@@ -6,11 +6,14 @@ Supports all 64 function types from firmware
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QPushButton, QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox,
+    QPushButton, QLineEdit, QComboBox, QSpinBox,
     QListWidget, QLabel, QListWidgetItem, QMessageBox, QScrollArea, QWidget
 )
 from PyQt6.QtCore import Qt
 from typing import Dict, Any, Optional, List
+
+from ui.widgets.time_input import SecondsSpinBox
+from ui.widgets.constant_spinbox import ConstantSpinBox, ScalingFactorSpinBox
 
 
 class LogicFunctionDialog(QDialog):
@@ -105,7 +108,7 @@ class LogicFunctionDialog(QDialog):
 
         self.setWindowTitle("Logic Function Configuration - PMU-30")
         self.setModal(True)
-        self.resize(700, 650)
+        self.resize(292, 650)  # very compact width
 
         self._init_ui()
 
@@ -194,28 +197,24 @@ class LogicFunctionDialog(QDialog):
         self.pid_group = QGroupBox("PID Parameters")
         pid_layout = QFormLayout()
 
-        self.pid_setpoint_spin = QDoubleSpinBox()
+        self.pid_setpoint_spin = ConstantSpinBox()
         self.pid_setpoint_spin.setRange(-100000, 100000)
-        self.pid_setpoint_spin.setDecimals(2)
         self.pid_setpoint_spin.setToolTip("Target setpoint value")
         pid_layout.addRow("Setpoint:", self.pid_setpoint_spin)
 
-        self.pid_kp_spin = QDoubleSpinBox()
+        self.pid_kp_spin = ScalingFactorSpinBox()
         self.pid_kp_spin.setRange(0, 1000)
-        self.pid_kp_spin.setDecimals(3)
         self.pid_kp_spin.setValue(1.0)
         self.pid_kp_spin.setToolTip("Proportional gain")
         pid_layout.addRow("Kp (Proportional):", self.pid_kp_spin)
 
-        self.pid_ki_spin = QDoubleSpinBox()
+        self.pid_ki_spin = ScalingFactorSpinBox()
         self.pid_ki_spin.setRange(0, 1000)
-        self.pid_ki_spin.setDecimals(3)
         self.pid_ki_spin.setToolTip("Integral gain")
         pid_layout.addRow("Ki (Integral):", self.pid_ki_spin)
 
-        self.pid_kd_spin = QDoubleSpinBox()
+        self.pid_kd_spin = ScalingFactorSpinBox()
         self.pid_kd_spin.setRange(0, 1000)
-        self.pid_kd_spin.setDecimals(3)
         self.pid_kd_spin.setToolTip("Derivative gain")
         pid_layout.addRow("Kd (Derivative):", self.pid_kd_spin)
 
@@ -247,16 +246,14 @@ class LogicFunctionDialog(QDialog):
         self.scale_group = QGroupBox("Scale Parameters")
         scale_layout = QFormLayout()
 
-        self.scale_mult_spin = QDoubleSpinBox()
+        self.scale_mult_spin = ScalingFactorSpinBox()
         self.scale_mult_spin.setRange(-1000, 1000)
-        self.scale_mult_spin.setDecimals(4)
         self.scale_mult_spin.setValue(1.0)
         self.scale_mult_spin.setToolTip("Multiplier (output = input * multiplier + offset)")
         scale_layout.addRow("Multiplier:", self.scale_mult_spin)
 
-        self.scale_offset_spin = QDoubleSpinBox()
+        self.scale_offset_spin = ConstantSpinBox()
         self.scale_offset_spin.setRange(-100000, 100000)
-        self.scale_offset_spin.setDecimals(2)
         self.scale_offset_spin.setToolTip("Offset value")
         scale_layout.addRow("Offset:", self.scale_offset_spin)
 
@@ -294,12 +291,12 @@ class LogicFunctionDialog(QDialog):
         self.filter_window_spin.setToolTip("Window size for moving average/min/max filters")
         filter_layout.addRow("Window Size:", self.filter_window_spin)
 
-        self.filter_tc_spin = QDoubleSpinBox()
+        self.filter_tc_spin = ScalingFactorSpinBox()
         self.filter_tc_spin.setRange(0.001, 10.0)
-        self.filter_tc_spin.setDecimals(3)
         self.filter_tc_spin.setValue(0.1)
+        self.filter_tc_spin.setSuffix(" s")
         self.filter_tc_spin.setToolTip("Time constant for low-pass filter (seconds)")
-        filter_layout.addRow("Time Constant (s):", self.filter_tc_spin)
+        filter_layout.addRow("Time Constant:", self.filter_tc_spin)
 
         self.filter_group.setLayout(filter_layout)
         self.filter_group.setVisible(False)
@@ -323,11 +320,9 @@ class LogicFunctionDialog(QDialog):
         self.debounce_group = QGroupBox("Debounce Parameters")
         debounce_layout = QFormLayout()
 
-        self.debounce_ms_spin = QSpinBox()
-        self.debounce_ms_spin.setRange(1, 10000)
-        self.debounce_ms_spin.setValue(50)
-        self.debounce_ms_spin.setSuffix(" ms")
-        self.debounce_ms_spin.setToolTip("Debounce time in milliseconds")
+        self.debounce_ms_spin = SecondsSpinBox(min_ms=1, max_ms=10000)
+        self.debounce_ms_spin.setValueMs(50)
+        self.debounce_ms_spin.setToolTip("Debounce time")
         debounce_layout.addRow("Debounce Time:", self.debounce_ms_spin)
 
         self.debounce_group.setLayout(debounce_layout)
@@ -780,7 +775,7 @@ class LogicFunctionDialog(QDialog):
         self.rate_max_spin.setValue(params.get("max_rate", 100))
 
         # Debounce
-        self.debounce_ms_spin.setValue(params.get("debounce_ms", 50))
+        self.debounce_ms_spin.setValueMs(params.get("debounce_ms", 50))
 
         # Range
         self.range_min_spin.setValue(params.get("range_min", 0))
@@ -879,7 +874,7 @@ class LogicFunctionDialog(QDialog):
             }
         elif op_base == "debounce":
             parameters = {
-                "debounce_ms": self.debounce_ms_spin.value()
+                "debounce_ms": self.debounce_ms_spin.valueMs()
             }
         elif op_base in ["in_range", "out_of_range"]:
             parameters = {

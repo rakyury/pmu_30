@@ -91,9 +91,15 @@ typedef struct {
     uint32_t tables_2d;           /**< Number of 2D tables */
     uint32_t tables_3d;           /**< Number of 3D tables */
     uint32_t switches;            /**< Number of switches */
-    uint32_t enums;               /**< Number of enumerations */
     uint32_t can_rx;              /**< Number of CAN RX channels (Level 2) */
     uint32_t can_tx;              /**< Number of CAN TX channels */
+    uint32_t lin_frame_objects;   /**< Number of LIN frame objects (Level 1) */
+    uint32_t lin_rx;              /**< Number of LIN RX inputs (Level 2) */
+    uint32_t lin_tx;              /**< Number of LIN TX outputs (Level 2) */
+    uint32_t lua_scripts;         /**< Number of Lua scripts loaded */
+    uint32_t pid_controllers;     /**< Number of PID controllers loaded */
+    uint32_t blinkmarine_keypads; /**< Number of BlinkMarine keypads loaded */
+    uint32_t handlers;            /**< Number of event handlers loaded */
     uint32_t can_buses_loaded;    /**< Number of CAN buses loaded */
     uint32_t parse_time_ms;       /**< Parse time in milliseconds */
     bool stream_enabled;          /**< Standard CAN Stream enabled */
@@ -179,6 +185,140 @@ const char* PMU_JSON_GetLastError(void);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_JSON_ClearConfig(void);
+
+/**
+ * @brief Update power outputs based on their source channels
+ * Call this function at 100Hz or faster in the control loop
+ */
+void PMU_PowerOutput_Update(void);
+
+/**
+ * @brief Clear power output storage (call before reloading config)
+ */
+void PMU_PowerOutput_ClearConfig(void);
+
+/**
+ * @brief Get power output configuration count
+ */
+uint8_t PMU_PowerOutput_GetCount(void);
+
+/**
+ * @brief Update all logic channels - call from main loop at ~100-500Hz
+ * Evaluates all configured logic functions and updates their output values
+ */
+void PMU_LogicChannel_Update(void);
+
+/**
+ * @brief Clear logic channel storage (call before reloading config)
+ */
+void PMU_LogicChannel_ClearConfig(void);
+
+/**
+ * @brief Get logic channel configuration count
+ */
+uint8_t PMU_LogicChannel_GetCount(void);
+
+/**
+ * @brief Update all number/math channels
+ */
+void PMU_NumberChannel_Update(void);
+
+/**
+ * @brief Clear number channel storage
+ */
+void PMU_NumberChannel_ClearConfig(void);
+
+/**
+ * @brief Get number channel count
+ */
+uint8_t PMU_NumberChannel_GetCount(void);
+
+/**
+ * @brief Update all switch channels
+ */
+void PMU_SwitchChannel_Update(void);
+
+/**
+ * @brief Clear switch channel storage
+ */
+void PMU_SwitchChannel_ClearConfig(void);
+
+/**
+ * @brief Get switch channel count
+ */
+uint8_t PMU_SwitchChannel_GetCount(void);
+
+/**
+ * @brief Update all filter channels
+ */
+void PMU_FilterChannel_Update(void);
+
+/**
+ * @brief Clear filter channel storage
+ */
+void PMU_FilterChannel_ClearConfig(void);
+
+/**
+ * @brief Get filter channel count
+ */
+uint8_t PMU_FilterChannel_GetCount(void);
+
+/**
+ * @brief Update all timer channels
+ */
+void PMU_TimerChannel_Update(void);
+
+/**
+ * @brief Clear timer channel storage
+ */
+void PMU_TimerChannel_ClearConfig(void);
+
+/**
+ * @brief Get timer channel count
+ */
+uint8_t PMU_TimerChannel_GetCount(void);
+
+/**
+ * @brief Get filter channel value by index
+ */
+int32_t PMU_FilterChannel_GetValue(uint8_t index);
+
+/**
+ * @brief Get filter channel ID by index
+ */
+uint16_t PMU_FilterChannel_GetChannelID(uint8_t index);
+
+/**
+ * @brief Atomic channel type discriminators for SET_CHANNEL_CONFIG command
+ */
+typedef enum {
+    PMU_ATOMIC_TYPE_POWER_OUTPUT  = 0x01,
+    PMU_ATOMIC_TYPE_HBRIDGE       = 0x02,
+    PMU_ATOMIC_TYPE_DIGITAL_INPUT = 0x03,
+    PMU_ATOMIC_TYPE_ANALOG_INPUT  = 0x04,
+    PMU_ATOMIC_TYPE_LOGIC         = 0x05,
+    PMU_ATOMIC_TYPE_NUMBER        = 0x06,
+    PMU_ATOMIC_TYPE_TIMER         = 0x07,
+    PMU_ATOMIC_TYPE_FILTER        = 0x08,
+    PMU_ATOMIC_TYPE_SWITCH        = 0x09,
+    PMU_ATOMIC_TYPE_TABLE_2D      = 0x0A,
+    PMU_ATOMIC_TYPE_TABLE_3D      = 0x0B,
+    PMU_ATOMIC_TYPE_CAN_RX        = 0x0C,
+    PMU_ATOMIC_TYPE_CAN_TX        = 0x0D,
+    PMU_ATOMIC_TYPE_PID           = 0x0E,
+    PMU_ATOMIC_TYPE_LUA_SCRIPT    = 0x0F,
+    PMU_ATOMIC_TYPE_HANDLER       = 0x10,
+    PMU_ATOMIC_TYPE_BLINKMARINE   = 0x11,
+} PMU_AtomicChannelType_t;
+
+/**
+ * @brief Update a single channel configuration (atomic update)
+ * @param channel_type Channel type discriminator (PMU_AtomicChannelType_t)
+ * @param channel_id Channel ID to update (for locating existing config)
+ * @param json_str JSON configuration string (null-terminated)
+ * @retval true if successful, false on error (call PMU_JSON_GetLastError())
+ */
+bool PMU_JSON_UpdateChannel(uint8_t channel_type, uint16_t channel_id, const char* json_str);
 
 #ifdef __cplusplus
 }

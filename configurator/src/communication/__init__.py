@@ -36,6 +36,13 @@ from .serial_transport import SerialTransport
 from .emulator_transport import EmulatorTransport
 from .comm_manager import CommManager, ConnectionState
 from .telemetry import TelemetryPacket, ChannelState, FaultFlags
+from .telemetry_observer import (
+    TelemetryField,
+    TelemetryObserver,
+    TelemetrySubject,
+    TelemetryUpdate,
+    get_telemetry_subject,
+)
 
 __all__ = [
     # Protocol
@@ -56,6 +63,12 @@ __all__ = [
     "TelemetryPacket",
     "ChannelState",
     "FaultFlags",
+    # Observer pattern
+    "TelemetryField",
+    "TelemetryObserver",
+    "TelemetrySubject",
+    "TelemetryUpdate",
+    "get_telemetry_subject",
 ]
 
 __version__ = "1.0.0"

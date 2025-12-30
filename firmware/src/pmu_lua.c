@@ -22,6 +22,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_lua.h"
 #include "pmu_lua_api.h"
+#include "pmu_channel.h"
 #include "pmu_profet.h"
 #include "pmu_adc.h"
 #include "pmu_logic.h"
@@ -83,8 +84,8 @@ static HAL_StatusTypeDef Lua_AllocateScript(const char* name, PMU_Lua_Script_t**
 /* Lua API functions (exported to Lua) */
 static int lua_pmu_setOutput(lua_State* L);
 static int lua_pmu_getInput(lua_State* L);
-static int lua_pmu_getVirtual(lua_State* L);
-static int lua_pmu_setVirtual(lua_State* L);
+static int lua_pmu_getChannel(lua_State* L);
+static int lua_pmu_setChannel(lua_State* L);
 static int lua_pmu_delay(lua_State* L);
 static int lua_pmu_log(lua_State* L);
 static int lua_pmu_getVoltage(lua_State* L);
@@ -174,8 +175,8 @@ static void Lua_RegisterPMUAPI(void)
     /* Register basic functions */
     lua_register(lua_state.L, "setOutput", lua_pmu_setOutput);
     lua_register(lua_state.L, "getInput", lua_pmu_getInput);
-    lua_register(lua_state.L, "getVirtual", lua_pmu_getVirtual);
-    lua_register(lua_state.L, "setVirtual", lua_pmu_setVirtual);
+    lua_register(lua_state.L, "getChannel", lua_pmu_getChannel);
+    lua_register(lua_state.L, "setChannel", lua_pmu_setChannel);
     lua_register(lua_state.L, "delay", lua_pmu_delay);
     lua_register(lua_state.L, "log", lua_pmu_log);
     lua_register(lua_state.L, "getVoltage", lua_pmu_getVoltage);
@@ -596,27 +597,59 @@ static int lua_pmu_getInput(lua_State* L)
 }
 
 /**
- * @brief Lua API: Get virtual channel
- * Usage: value = getVirtual(channel)
+ * @brief Lua API: Get channel value (universal channel system)
+ * Usage: value = getChannel(channel_id)
+ *        value = getChannel("channel_name")
  */
-static int lua_pmu_getVirtual(lua_State* L)
+static int lua_pmu_getChannel(lua_State* L)
 {
-    int channel = (int)luaL_checkinteger(L, 1);
-    int32_t value = PMU_Logic_GetVirtualChannel(channel);
+    uint16_t channel_id;
+
+    if (lua_isstring(L, 1)) {
+        /* Find channel by name */
+        const char* name = lua_tostring(L, 1);
+        const PMU_Channel_t* ch = PMU_Channel_GetByName(name);
+        if (ch == NULL) {
+            lua_pushnil(L);
+            return 1;
+        }
+        channel_id = ch->channel_id;
+    } else {
+        channel_id = (uint16_t)luaL_checkinteger(L, 1);
+    }
+
+    int32_t value = PMU_Channel_GetValue(channel_id);
     lua_pushinteger(L, value);
     return 1;
 }
 
 /**
- * @brief Lua API: Set virtual channel
- * Usage: setVirtual(channel, value)
+ * @brief Lua API: Set channel value (universal channel system)
+ * Usage: setChannel(channel_id, value)
+ *        setChannel("channel_name", value)
  */
-static int lua_pmu_setVirtual(lua_State* L)
+static int lua_pmu_setChannel(lua_State* L)
 {
-    int channel = (int)luaL_checkinteger(L, 1);
+    uint16_t channel_id;
+
+    if (lua_isstring(L, 1)) {
+        /* Find channel by name */
+        const char* name = lua_tostring(L, 1);
+        const PMU_Channel_t* ch = PMU_Channel_GetByName(name);
+        if (ch == NULL) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+        channel_id = ch->channel_id;
+    } else {
+        channel_id = (uint16_t)luaL_checkinteger(L, 1);
+    }
+
     int32_t value = (int32_t)luaL_checkinteger(L, 2);
-    PMU_Logic_SetVirtualChannel(channel, value);
-    return 0;
+    HAL_StatusTypeDef status = PMU_Channel_SetValue(channel_id, value);
+
+    lua_pushboolean(L, status == HAL_OK);
+    return 1;
 }
 
 /**

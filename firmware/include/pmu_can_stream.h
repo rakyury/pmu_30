@@ -2,8 +2,8 @@
  * @file pmu_can_stream.h
  * @brief Standard CAN Stream - Predefined PMU parameter broadcast
  *
- * Implements Ecumaster-compatible Standard CAN Stream for real-time
- * monitoring of PMU parameters over CAN bus.
+ * Implements Standard CAN Stream for real-time monitoring of
+ * PMU parameters over CAN bus.
  *
  * Frame Structure:
  *   BaseID+0: System Status & Temperatures (20 Hz)
@@ -43,7 +43,7 @@ extern "C" {
  * Constants
  * ============================================================================ */
 
-/** Number of standard frames (Ecumaster compatible) */
+/** Number of standard frames */
 #define PMU_CAN_STREAM_STD_FRAME_COUNT      8
 
 /** Number of extended frames (PMU-30 specific) */

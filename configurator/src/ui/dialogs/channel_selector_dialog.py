@@ -1,7 +1,7 @@
 """
 Channel Selector Dialog
-Universal dialog for selecting any GPIO channel in the system
-Supports all GPIO types with categorization
+Universal dialog for selecting any channel in the system
+Supports all channel types with categorization
 """
 
 from PyQt6.QtWidgets import (
@@ -14,7 +14,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from typing import List, Dict, Any, Optional
 
-from models.channel import ChannelType, CHANNEL_PREFIX_MAP
+from models.channel import ChannelType
+from models.channel_display_service import ChannelDisplayService
 
 
 class ChannelSelectorDialog(QDialog):
@@ -34,6 +35,7 @@ class ChannelSelectorDialog(QDialog):
             "icon_color": "#ef4444",  # Red
             "types": [
                 (ChannelType.POWER_OUTPUT, "Power Outputs"),
+                (ChannelType.HBRIDGE, "H-Bridge Motors"),
                 (ChannelType.CAN_TX, "CAN TX"),
             ]
         },
@@ -43,6 +45,7 @@ class ChannelSelectorDialog(QDialog):
                 (ChannelType.LOGIC, "Logic Functions"),
                 (ChannelType.NUMBER, "Math Channels"),
                 (ChannelType.FILTER, "Filters"),
+                (ChannelType.PID, "PID Controllers"),
             ]
         },
         "Tables": {
@@ -59,19 +62,58 @@ class ChannelSelectorDialog(QDialog):
                 (ChannelType.TIMER, "Timers"),
             ]
         },
-        "Data": {
-            "icon_color": "#06b6d4",  # Cyan
+        "System": {
+            "icon_color": "#64748b",  # Slate gray
             "types": [
-                (ChannelType.ENUM, "Enumerations"),
+                (ChannelType.SYSTEM, "System Channels"),
+                (ChannelType.OUTPUT_STATUS, "Output States"),
             ]
         }
     }
+
+    # System channels are now defined in ChannelDisplayService (single source of truth)
+    # This property provides backward compatibility for existing code
+    SYSTEM_CHANNELS = ChannelDisplayService.SYSTEM_CHANNELS
+
+    # PMU Hardware analog input sub-properties
+    ANALOG_INPUT_SUBCHANNELS = [
+        ("voltage", "Voltage"),     # Raw voltage (mV)
+        ("raw", "Raw ADC"),         # Raw ADC value
+    ]
+
+    # PMU Hardware digital input sub-properties
+    DIGITAL_INPUT_SUBCHANNELS = [
+        ("state", "State"),         # Digital state (0/1)
+    ]
+
+    # Output sub-properties (ECUMaster compatible)
+    # These are available for each power output channel
+    OUTPUT_SUBCHANNELS = [
+        ("active", "Active"),           # Is output currently on
+        ("current", "Current"),         # Current draw (mA)
+        ("dc", "Duty Cycle"),           # PWM duty cycle (%)
+        ("fault", "Fault"),             # Fault detected
+        ("load", "Load"),               # Load detection
+        ("numRetries", "Retry Count"),  # Number of retries after fault
+        ("peakCurrent", "Peak Current"), # Peak current (mA)
+        ("status", "Status"),           # Output status code
+        ("timeAboveMax", "Time Above Max"), # Time above max threshold (ms)
+        ("trip", "Trip"),               # Trip/overcurrent flag
+        ("voltage", "Voltage"),         # Output voltage (mV)
+    ]
+
+    # Timer sub-properties
+    TIMER_SUBCHANNELS = [
+        ("elapsed", "Elapsed Time"),    # Elapsed time (ms)
+        ("running", "Is Running"),      # Timer is currently running
+    ]
 
     # Channel type to category key mapping
     CHANNEL_TYPE_CATEGORY_KEY = {
         ChannelType.DIGITAL_INPUT: "digital_inputs",
         ChannelType.ANALOG_INPUT: "analog_inputs",
         ChannelType.POWER_OUTPUT: "power_outputs",
+        ChannelType.HBRIDGE: "hbridges",
         ChannelType.CAN_RX: "can_rx",
         ChannelType.CAN_TX: "can_tx",
         ChannelType.LOGIC: "logic",
@@ -81,12 +123,15 @@ class ChannelSelectorDialog(QDialog):
         ChannelType.SWITCH: "switches",
         ChannelType.TIMER: "timers",
         ChannelType.FILTER: "filters",
-        ChannelType.ENUM: "enums",
+        ChannelType.PID: "pid_controllers",
+        ChannelType.SYSTEM: "system",
+        ChannelType.OUTPUT_STATUS: "output_status",
     }
 
     def __init__(self, parent=None, current_channel: str = "",
                  channels_data: Optional[Dict[str, List[str]]] = None,
-                 show_tree: bool = True):
+                 show_tree: bool = True,
+                 exclude_channel: Any = None):
         """
         Initialize channel selector dialog.
 
@@ -95,11 +140,13 @@ class ChannelSelectorDialog(QDialog):
             current_channel: Currently selected channel (to highlight)
             channels_data: Dictionary with channel lists by type
             show_tree: If True, show tree view with categories; otherwise flat list
+            exclude_channel: Channel ID to exclude from selection (prevents self-reference)
         """
         super().__init__(parent)
         self.selected_channel = current_channel
         self.channels_data = channels_data or {}
         self.show_tree = show_tree
+        self.exclude_channel = exclude_channel
         self.all_channels: List[tuple] = []  # (channel_type, channel_id, display_name)
 
         self.setWindowTitle("Select Channel")
@@ -126,6 +173,12 @@ class ChannelSelectorDialog(QDialog):
 
         header_layout.addStretch()
 
+        # View toggle button
+        self.view_toggle_btn = QPushButton("Flat View" if self.show_tree else "Tree View")
+        self.view_toggle_btn.setFixedWidth(80)
+        self.view_toggle_btn.clicked.connect(self._toggle_view)
+        header_layout.addWidget(self.view_toggle_btn)
+
         # Category filter
         self.category_filter = QComboBox()
         self.category_filter.addItem("All Categories", None)
@@ -144,30 +197,33 @@ class ChannelSelectorDialog(QDialog):
         self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
 
-        # Main content
+        # Main content - create both but show one
+        self.tree = QTreeWidget()
+        self.tree.setHeaderLabels(["Channel", "Type"])
+        self.tree.setColumnWidth(0, 350)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree.itemSelectionChanged.connect(self._on_selection_changed)
+
+        self.channel_list = QListWidget()
+        self.channel_list.setAlternatingRowColors(False)
+        self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.channel_list.itemSelectionChanged.connect(self._on_selection_changed)
+
+        # Add both to layout, hide one
+        layout.addWidget(self.tree)
+        layout.addWidget(self.channel_list)
+
         if self.show_tree:
-            # Tree view with categories
-            self.tree = QTreeWidget()
-            self.tree.setHeaderLabels(["Channel", "Type"])
-            self.tree.setColumnWidth(0, 350)
-            self.tree.setAlternatingRowColors(True)
-            self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-            self.tree.itemSelectionChanged.connect(self._on_selection_changed)
-            layout.addWidget(self.tree)
-            self.channel_list = None
+            self.channel_list.hide()
         else:
-            # Flat list
-            self.channel_list = QListWidget()
-            self.channel_list.setAlternatingRowColors(True)
-            self.channel_list.itemDoubleClicked.connect(self._on_item_double_clicked)
-            layout.addWidget(self.channel_list)
-            self.tree = None
+            self.tree.hide()
 
         # Preview panel
         self.preview_label = QLabel("Select a channel to see details")
         self.preview_label.setStyleSheet(
-            "color: #666; font-style: italic; padding: 8px; "
-            "background-color: #f5f5f5; border-radius: 4px;"
+            "color: #b0b0b0; font-style: italic; padding: 8px; "
+            "background-color: #2d2d2d; border-radius: 4px;"
         )
         self.preview_label.setWordWrap(True)
         layout.addWidget(self.preview_label)
@@ -194,25 +250,16 @@ class ChannelSelectorDialog(QDialog):
         layout.addLayout(button_layout)
 
     def _populate_channels(self):
-        """Populate channel list with all available channels."""
+        """Populate channel list with all available channels.
+
+        Supports two formats:
+        - New format: lists of (channel_id: int, name: str) tuples
+        - Old format: lists of strings (for backwards compatibility)
+        """
         self.all_channels = []
 
-        # Map old keys to new channel types for backwards compatibility
+        # Map keys to channel types
         key_mapping = {
-            # Old format
-            "inputs_physical": ChannelType.ANALOG_INPUT,
-            "inputs_virtual": ChannelType.ANALOG_INPUT,
-            "outputs_physical": ChannelType.POWER_OUTPUT,
-            "outputs_virtual": ChannelType.POWER_OUTPUT,
-            "functions": ChannelType.LOGIC,
-            "tables": ChannelType.TABLE_2D,
-            "numbers": ChannelType.NUMBER,
-            "switches": ChannelType.SWITCH,
-            "timers": ChannelType.TIMER,
-            "enums": ChannelType.ENUM,
-            "can_signals": ChannelType.CAN_RX,
-            "pid_controllers": ChannelType.NUMBER,  # Map PID to number
-            "hbridge": ChannelType.POWER_OUTPUT,  # Map H-Bridge to output
             # New channel format keys
             "digital_inputs": ChannelType.DIGITAL_INPUT,
             "analog_inputs": ChannelType.ANALOG_INPUT,
@@ -220,42 +267,162 @@ class ChannelSelectorDialog(QDialog):
             "can_rx": ChannelType.CAN_RX,
             "can_tx": ChannelType.CAN_TX,
             "logic": ChannelType.LOGIC,
+            "numbers": ChannelType.NUMBER,
             "tables_2d": ChannelType.TABLE_2D,
             "tables_3d": ChannelType.TABLE_3D,
             "filters": ChannelType.FILTER,
+            "switches": ChannelType.SWITCH,
+            "timers": ChannelType.TIMER,
+            "lua_scripts": ChannelType.LUA_SCRIPT,
+            "pid_controllers": ChannelType.PID,
         }
 
         # Process channels from data
+        # New format: (string_id, display_name, units, decimal_places)
+        # Tuple format: (channel_type, channel_id, display_name, units, decimal_places)
         for key, channels in self.channels_data.items():
             channel_type = key_mapping.get(key)
             if channel_type and channels:
-                prefix = CHANNEL_PREFIX_MAP.get(channel_type, "")
                 for ch in channels:
-                    # Ensure channel has prefix
-                    if prefix and not ch.startswith(prefix):
-                        channel_id = f"{prefix}{ch}"
-                    else:
-                        channel_id = ch
-                    self.all_channels.append((channel_type, channel_id, ch))
+                    if isinstance(ch, tuple) and len(ch) >= 4:
+                        # New format: (string_id, display_name, units, decimal_places)
+                        channel_id, display_name, units, decimal_places = ch[0], ch[1], ch[2], ch[3]
+                        self.all_channels.append((channel_type, channel_id, display_name, units, decimal_places))
+                    elif isinstance(ch, tuple) and len(ch) == 2:
+                        # Old format: (string_id, display_name) - backwards compat
+                        channel_id, display_name = ch
+                        self.all_channels.append((channel_type, channel_id, display_name, "", None))
+                    elif isinstance(ch, str):
+                        # Old format: string name (backwards compat, use string as ID)
+                        self.all_channels.append((channel_type, ch, ch, "", None))
+
+        # Add predefined system channels (now with numeric IDs)
+        for ch_num_id, ch_str_id, ch_name in self.SYSTEM_CHANNELS:
+            # System channels: display name is the string ID (pmu.xxx), numeric ID is ch_num_id
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_str_id, "", None))
+
+        # Add hardware analog input channels (a1 through a20)
+        # Analog voltage base: 1220 + (input_index - 1)
+        for i in range(1, 21):
+            ch_num_id = 1220 + (i - 1)  # 1220-1239
+            ch_name = f"pmu.a{i}.voltage"  # String ID format as display name
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_name, "", None))
+
+        # Add hardware digital input channels (d1 through d20)
+        # Digital input base: 0-19 (physical inputs)
+        for i in range(1, 21):
+            ch_num_id = i - 1  # 0-19
+            ch_name = f"pmu.d{i}.state"  # String ID format as display name
+            self.all_channels.append((ChannelType.SYSTEM, ch_num_id, ch_name, "", None))
+
+        # Add hardware output sub-channels (o1 through o30)
+        # Output status: 1100 + output_index, current: 1130 + output_index, etc.
+        for i in range(1, 31):
+            idx = i - 1
+            # Status sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1100 + idx, f"pmu.o{i}.status", "", None))
+            # Current sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1130 + idx, f"pmu.o{i}.current", "", None))
+            # Voltage sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1160 + idx, f"pmu.o{i}.voltage", "", None))
+            # Active sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1190 + idx, f"pmu.o{i}.active", "", None))
+            # Duty cycle sub-channel
+            self.all_channels.append((ChannelType.OUTPUT_STATUS, 1250 + idx, f"pmu.o{i}.dutyCycle", "", None))
+
+        # Add sub-channels for user-created power outputs
+        user_outputs = self.channels_data.get("power_outputs", [])
+        for idx, output in enumerate(user_outputs):
+            if isinstance(output, tuple) and len(output) >= 2:
+                output_id, output_name = output[0], output[1]
+            else:
+                output_id = output_name = str(output)
+            # User outputs use their channel_id (first element) if it's numeric
+            base_id = output_id if isinstance(output_id, int) else (200 + idx)
+            for sub_id, sub_name in self.OUTPUT_SUBCHANNELS:
+                ch_name = f"{output_name} - {sub_name}"
+                # Generate sub-channel numeric ID based on base + offset
+                self.all_channels.append((ChannelType.OUTPUT_STATUS, base_id, ch_name, "", None))
+
+        # Add sub-channels for user-created timers
+        user_timers = self.channels_data.get("timers", [])
+        for idx, timer in enumerate(user_timers):
+            if isinstance(timer, tuple) and len(timer) >= 2:
+                timer_id, timer_name = timer[0], timer[1]
+            else:
+                timer_id = timer_name = str(timer)
+            base_id = timer_id if isinstance(timer_id, int) else (300 + idx)
+            for sub_id, sub_name in self.TIMER_SUBCHANNELS:
+                ch_name = f"{timer_name} - {sub_name}"
+                self.all_channels.append((ChannelType.SYSTEM, base_id, ch_name, "", None))
 
         self._update_display()
 
     def _update_display(self, filter_text: str = "", category_filter: str = None):
-        """Update display with optional filter."""
+        """Update display with optional filter.
+
+        Shows display_name to user but stores channel_id (numeric or string) in UserRole.
+        Tree view shows: Category -> Type -> Channels (two-level grouping)
+        """
         filter_lower = filter_text.lower()
         visible_count = 0
 
-        if self.show_tree and self.tree:
-            self.tree.clear()
-            category_items = {}
+        def format_channel_text(display_name: str, channel_id, units: str, decimal_places) -> str:
+            """Format channel display text with name, ID, units and decimal places."""
+            # Ensure we always have a display text
+            if not display_name:
+                if channel_id is not None:
+                    display_name = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                else:
+                    display_name = "unnamed"
 
-            for gpio_type, channel_id, display_name in self.all_channels:
+            # Show ID in brackets - numeric with #, string as-is
+            if channel_id is not None:
+                if isinstance(channel_id, int):
+                    text = f"{display_name}  [#{channel_id}]"
+                else:
+                    text = f"{display_name}  [{channel_id}]"
+            else:
+                text = display_name
+
+            # Add units and decimal places if available
+            extra_info = []
+            if units:
+                extra_info.append(units)
+            if decimal_places is not None:
+                extra_info.append(f".{decimal_places}")
+            if extra_info:
+                text += f"  ({', '.join(extra_info)})"
+
+            return text
+
+        if self.show_tree and self.tree is not None:
+            self.tree.clear()
+            category_items = {}  # cat_name -> QTreeWidgetItem
+            type_items = {}  # (cat_name, type_name) -> QTreeWidgetItem
+
+            for ch_data in self.all_channels:
+                # Unpack tuple: (channel_type, channel_id, display_name, units, decimal_places)
+                gpio_type = ch_data[0]
+                channel_id = ch_data[1]  # Numeric int ID
+                display_name = ch_data[2]
+                units = ch_data[3] if len(ch_data) > 3 else ""
+                decimal_places = ch_data[4] if len(ch_data) > 4 else None
+
+                # Skip excluded channel (prevents self-reference)
+                if self.exclude_channel is not None and channel_id == self.exclude_channel:
+                    continue
+
+                # Convert to string for filtering
+                channel_id_str = str(channel_id) if channel_id is not None else ""
+                display_name_str = str(display_name) if display_name else ""
+
                 # Apply text filter
                 if filter_text:
-                    if filter_lower not in channel_id.lower() and filter_lower not in display_name.lower():
+                    if filter_lower not in channel_id_str.lower() and filter_lower not in display_name_str.lower():
                         continue
 
-                # Find category for this GPIO type
+                # Find category for this channel type
                 cat_name = None
                 type_name = None
                 for cat, info in self.CATEGORIES.items():
@@ -284,21 +451,57 @@ class ChannelSelectorDialog(QDialog):
                     cat_item.setData(0, Qt.ItemDataRole.UserRole, None)  # No channel data for categories
                     category_items[cat_name] = cat_item
 
-                # Add channel item
-                item = QTreeWidgetItem(category_items[cat_name])
-                item.setText(0, channel_id)
-                item.setText(1, type_name)
-                item.setData(0, Qt.ItemDataRole.UserRole, channel_id)
-                item.setToolTip(0, f"{type_name}: {channel_id}")
+                # Create type sub-item if needed (two-level grouping)
+                type_key = (cat_name, type_name)
+                if type_key not in type_items:
+                    type_item = QTreeWidgetItem(category_items[cat_name], [type_name, ""])
+                    type_item.setExpanded(True)
+                    type_item.setData(0, Qt.ItemDataRole.UserRole, None)  # No channel data for types
+                    type_item.setForeground(0, QColor("#888888"))
+                    type_items[type_key] = type_item
+
+                # Add channel item under type
+                item = QTreeWidgetItem(type_items[type_key])
+                item.setText(0, format_channel_text(display_name_str, channel_id, units, decimal_places))
+                item.setText(1, "")  # Type already shown in parent
+                item.setData(0, Qt.ItemDataRole.UserRole, channel_id)  # Store ID
+                id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                tooltip = f"{type_name}: {display_name_str}\nChannel ID: {id_display}"
+                if units:
+                    tooltip += f"\nUnits: {units}"
+                if decimal_places is not None:
+                    tooltip += f"\nDecimals: {decimal_places}"
+                item.setToolTip(0, tooltip)
                 visible_count += 1
 
-        elif self.channel_list:
+            # Update type counts and collapse large groups
+            for type_key, type_item in type_items.items():
+                child_count = type_item.childCount()
+                type_item.setText(1, f"({child_count})")
+                if child_count > 15:
+                    type_item.setExpanded(False)
+
+        elif self.channel_list is not None:
             self.channel_list.clear()
 
-            for gpio_type, channel_id, display_name in self.all_channels:
+            for ch_data in self.all_channels:
+                # Unpack tuple: (channel_type, channel_id, display_name, units, decimal_places)
+                gpio_type = ch_data[0]
+                channel_id = ch_data[1]  # Numeric int ID
+                display_name = ch_data[2]
+                units = ch_data[3] if len(ch_data) > 3 else ""
+                decimal_places = ch_data[4] if len(ch_data) > 4 else None
+                # Skip excluded channel (prevents self-reference)
+                if self.exclude_channel is not None and channel_id == self.exclude_channel:
+                    continue
+
+                # Convert to string for filtering
+                channel_id_str = str(channel_id) if channel_id is not None else ""
+                display_name_str = str(display_name) if display_name else ""
+
                 # Apply text filter
                 if filter_text:
-                    if filter_lower not in channel_id.lower() and filter_lower not in display_name.lower():
+                    if filter_lower not in channel_id_str.lower() and filter_lower not in display_name_str.lower():
                         continue
 
                 # Find type name
@@ -319,9 +522,16 @@ class ChannelSelectorDialog(QDialog):
                     if not cat_match:
                         continue
 
-                item = QListWidgetItem(channel_id)
-                item.setData(Qt.ItemDataRole.UserRole, channel_id)
-                item.setToolTip(f"{type_name}: {channel_id}")
+                # Create list item with formatted text
+                item = QListWidgetItem(format_channel_text(display_name_str, channel_id, units, decimal_places))
+                item.setData(Qt.ItemDataRole.UserRole, channel_id)  # Store ID
+                id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+                tooltip = f"{type_name}: {display_name_str}\nChannel ID: {id_display}"
+                if units:
+                    tooltip += f"\nUnits: {units}"
+                if decimal_places is not None:
+                    tooltip += f"\nDecimals: {decimal_places}"
+                item.setToolTip(tooltip)
                 self.channel_list.addItem(item)
                 visible_count += 1
 
@@ -342,88 +552,178 @@ class ChannelSelectorDialog(QDialog):
         category = self.category_filter.currentData()
         self._update_display(self.search_edit.text(), category)
 
+    def _toggle_view(self):
+        """Toggle between tree and flat list view."""
+        self.show_tree = not self.show_tree
+
+        if self.show_tree:
+            self.channel_list.hide()
+            self.tree.show()
+            self.view_toggle_btn.setText("Flat View")
+        else:
+            self.tree.hide()
+            self.channel_list.show()
+            self.view_toggle_btn.setText("Tree View")
+
+        # Remember selected channel
+        selected = self.get_selected_channel()
+
+        # Refresh display
+        self._update_display(self.search_edit.text(), self.category_filter.currentData())
+
+        # Restore selection
+        if selected:
+            self._select_channel(selected)
+
     def _on_item_double_clicked(self, item, column=0):
         """Handle item double-click."""
-        if self.tree:
-            channel = item.data(0, Qt.ItemDataRole.UserRole)
-            if channel:  # Not a category
-                self.accept()
-        else:
+        # Get channel data - works for both tree and list items
+        channel = item.data(0, Qt.ItemDataRole.UserRole) if self.show_tree else item.data(Qt.ItemDataRole.UserRole)
+        if channel:  # Valid channel selected (not a category header)
             self.accept()
 
     def _on_selection_changed(self):
         """Handle selection change - update preview."""
+        channel_id = None
+        display_text = None
+
         if self.tree:
             items = self.tree.selectedItems()
             if items:
                 item = items[0]
-                channel = item.data(0, Qt.ItemDataRole.UserRole)
-                if channel:
-                    type_name = item.text(1) or "Channel"
-                    self.preview_label.setText(f"<b>{type_name}</b><br>{channel}")
-                    self.preview_label.setStyleSheet(
-                        "color: #333; padding: 8px; "
-                        "background-color: #e8f4f8; border-radius: 4px; border: 1px solid #0078d4;"
-                    )
-                    return
+                channel_id = item.data(0, Qt.ItemDataRole.UserRole)
+                if channel_id is not None:
+                    # Find original display name from all_channels
+                    for ch_data in self.all_channels:
+                        if ch_data[1] == channel_id:
+                            display_text = ch_data[2]
+                            break
+        elif self.channel_list:
+            current = self.channel_list.currentItem()
+            if current:
+                channel_id = current.data(Qt.ItemDataRole.UserRole)
+                for ch_data in self.all_channels:
+                    if ch_data[1] == channel_id:
+                        display_text = ch_data[2]
+                        break
 
-        self.preview_label.setText("Select a channel to see details")
-        self.preview_label.setStyleSheet(
-            "color: #666; font-style: italic; padding: 8px; "
-            "background-color: #f5f5f5; border-radius: 4px;"
-        )
+        if channel_id is not None:
+            id_display = f"#{channel_id}" if isinstance(channel_id, int) else str(channel_id)
+            self.preview_label.setText(
+                f"<b>Name:</b> {display_text or 'unnamed'}<br>"
+                f"<b>Channel ID:</b> <code>{id_display}</code>"
+            )
+            self.preview_label.setStyleSheet(
+                "color: #fff; padding: 8px; "
+                "background-color: #1a3a4d; border-radius: 4px; border: 1px solid #0078d4;"
+            )
+        else:
+            self.preview_label.setText("Select a channel to see details")
+            self.preview_label.setStyleSheet(
+                "color: #b0b0b0; font-style: italic; padding: 8px; "
+                "background-color: #2d2d2d; border-radius: 4px;"
+            )
 
-    def _select_channel(self, channel: str):
-        """Select a channel in the list."""
+    def _select_channel(self, channel_id):
+        """Select a channel in the list by its channel_id (int or str)."""
         if self.tree:
-            # Iterate through all items
-            iterator = self.tree.itemIterator() if hasattr(self.tree, 'itemIterator') else None
-            # Manual iteration
+            # Manual iteration through three-level hierarchy: Category -> Type -> Channel
             for i in range(self.tree.topLevelItemCount()):
                 cat_item = self.tree.topLevelItem(i)
                 for j in range(cat_item.childCount()):
-                    child = cat_item.child(j)
-                    if child.data(0, Qt.ItemDataRole.UserRole) == channel:
-                        self.tree.setCurrentItem(child)
-                        self.tree.scrollToItem(child)
-                        return
+                    type_item = cat_item.child(j)
+                    for k in range(type_item.childCount()):
+                        channel_item = type_item.child(k)
+                        if channel_item.data(0, Qt.ItemDataRole.UserRole) == channel_id:
+                            # Expand parents
+                            cat_item.setExpanded(True)
+                            type_item.setExpanded(True)
+                            self.tree.setCurrentItem(channel_item)
+                            self.tree.scrollToItem(channel_item)
+                            return
         elif self.channel_list:
             for i in range(self.channel_list.count()):
                 item = self.channel_list.item(i)
-                if item.data(Qt.ItemDataRole.UserRole) == channel:
+                if item.data(Qt.ItemDataRole.UserRole) == channel_id:
                     self.channel_list.setCurrentItem(item)
                     self.channel_list.scrollToItem(item)
                     return
 
     def _clear_selection(self):
         """Clear current selection."""
-        self.selected_channel = ""
+        self.selected_channel = None
         if self.tree:
             self.tree.clearSelection()
         elif self.channel_list:
             self.channel_list.clearSelection()
         self._on_selection_changed()
 
-    def get_selected_channel(self) -> str:
-        """Get selected channel name."""
+    def get_selected_channel(self) -> Any:
+        """Get selected channel_id (string 'id' field for firmware references)."""
         if self.tree:
             items = self.tree.selectedItems()
             if items:
-                channel = items[0].data(0, Qt.ItemDataRole.UserRole)
-                if channel:
-                    return channel
+                channel_id = items[0].data(0, Qt.ItemDataRole.UserRole)
+                if channel_id is not None:
+                    return channel_id
         elif self.channel_list:
             current = self.channel_list.currentItem()
             if current:
                 return current.data(Qt.ItemDataRole.UserRole)
-        return ""
+        return None
 
     @staticmethod
-    def select_channel(parent=None, current_channel: str = "",
-                       channels_data: Optional[Dict[str, List[str]]] = None,
-                       show_tree: bool = True) -> Optional[str]:
-        """Static method to show dialog and return selected channel."""
-        dialog = ChannelSelectorDialog(parent, current_channel, channels_data, show_tree)
+    def get_system_channel_name(channel_id: int) -> Optional[str]:
+        """Get string_name for a system channel by its numeric ID.
+
+        Delegates to ChannelDisplayService for centralized lookup.
+        Kept for backward compatibility.
+
+        Args:
+            channel_id: Numeric channel ID
+
+        Returns:
+            String name (e.g., "pmu.status") or None if not a system channel
+        """
+        return ChannelDisplayService.get_system_channel_name(channel_id)
+
+    @staticmethod
+    def get_channel_display_name(channel_id, available_channels: Optional[Dict[str, List]] = None) -> str:
+        """Get display name for any channel (user or system).
+
+        Delegates to ChannelDisplayService for centralized lookup.
+        Kept for backward compatibility.
+
+        Args:
+            channel_id: Channel ID (numeric int or string)
+            available_channels: Dict of available channels for user channel lookup
+
+        Returns:
+            Display name string (e.g., "FuelLevel", "pmu.status") or "#{id}" fallback
+        """
+        return ChannelDisplayService.get_display_name(channel_id, available_channels)
+
+    @staticmethod
+    def select_channel(parent=None, current_channel=None,
+                       channels_data: Optional[Dict[str, List]] = None,
+                       show_tree: bool = True,
+                       exclude_channel: Any = None) -> tuple:
+        """Static method to show dialog and return selected channel_id.
+
+        Args:
+            parent: Parent widget
+            current_channel: Currently selected channel_id (string)
+            channels_data: Dict mapping category to list of (string_id, name) tuples
+            show_tree: Show tree view or flat list
+            exclude_channel: Channel ID to exclude from selection (prevents self-reference)
+
+        Returns:
+            Tuple of (accepted: bool, channel_id_or_none)
+            - (True, string_id) - User selected a channel (string 'id' for firmware)
+            - (True, None) - User cleared selection (pressed Clear + OK)
+            - (False, None) - User cancelled dialog
+        """
+        dialog = ChannelSelectorDialog(parent, current_channel, channels_data, show_tree, exclude_channel)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            return dialog.get_selected_channel()
-        return None
+            return (True, dialog.get_selected_channel())
+        return (False, None)

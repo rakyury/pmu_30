@@ -16,8 +16,10 @@ PMU-30 is a high-performance power distribution module designed for racing and h
   - 2x CAN FD interfaces (5Mbps)
   - 2x CAN 2.0 A/B interfaces
   - 1x LIN bus (LIN 2.2A)
-  - WiFi (Access Point mode)
-  - Bluetooth Low Energy
+  - **ESP32-C3 Module** for wireless connectivity:
+    - WiFi (AP mode, STA mode, or dual AP+STA)
+    - Bluetooth Low Energy (BLE 5.0)
+    - Web server for remote monitoring
   - USB-C (configuration & updates)
   - RAD-LOK connector (high-density automotive)
 - **Inputs**: 20x ADC channels (10-bit, protected), 10x DAC outputs
@@ -35,9 +37,11 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - PWM control with configurable frequency
 - Soft-start functionality
 - Duty cycle control (fixed value or mapped to input channel)
+- **Load Shedding Priority** (0=critical, never shed → 10=lowest, shed first)
+- Pin merging for high-current outputs (2x or 3x combined)
 - Individual channel protection:
-  - Overcurrent protection
-  - Overtemperature protection
+  - Overcurrent protection with configurable retry
+  - Overtemperature protection with thermal derating
   - Short circuit detection
   - Open load detection
 
@@ -60,7 +64,7 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - **PID Controllers**: Closed-loop control systems
 - **Wiper Control**: Dedicated wiper output with park/brake function
 - **Blinker Logic**: Built-in turn signal control
-- **CAN Keyboard Support**: Blinkmarine compatible
+- **CAN Keyboard Support**: BlinkMarine PKP keypads via CANopen
 - **Data Logging**: 500Hz high-speed logging to 512MB internal memory
 - **OTA Updates**: Over-the-air firmware updates
 - **Web Interface**: Full monitoring and configuration via WiFi
@@ -71,21 +75,24 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - [Quick Start Guide](docs/QUICKSTART.md) - Get running in 5 minutes
 
 ### Architecture
+- [Firmware Architecture](docs/firmware_architecture.md) - Complete firmware design
 - [Unified Channel System](docs/architecture/unified-channel-system.md) - Channel abstraction layer
 - [Logic Functions Framework](docs/architecture/logic-functions-framework.md) - 64 logic functions
 
-### API Reference
-- [Channel API](docs/api/channel-api.md) - Channel read/write operations
-- [Logic Functions API](docs/api/logic-functions-reference.md) - Logic function programming
+### Reference
+- [Configuration Reference](docs/reference/configuration.md) - JSON config schema
+- [Protocol Reference](docs/reference/protocol.md) - Binary protocol details
 - [Channel Types](docs/api/channel-types.md) - All channel type specifications
 
-### Guides
-- [Getting Started with Channels](docs/guides/getting-started-channels.md) - Channel basics
-- [Logic Functions Integration](docs/guides/logic-functions-integration.md) - Using logic functions
+### Configuration Guides
+- [Power Outputs](docs/configuration/power-outputs.md) - Output configuration
+- [Digital Inputs](docs/configuration/digital-inputs.md) - Digital input setup
+- [Analog Inputs](docs/configuration/analog-inputs.md) - ADC configuration
+- [CAN Messages](docs/configuration/can-messages.md) - CAN RX/TX setup
 
-### Examples
-- [Channel Examples](docs/examples/channel-examples.md) - Code examples for channels
-- [Logic Function Examples](docs/examples/logic-function-examples.md) - Logic function examples
+### Testing
+- [Emulator Guide](docs/testing/emulator-guide.md) - Desktop testing without hardware
+- [Integration Testing](docs/testing/integration-testing-guide.md) - Hardware-in-loop testing
 
 ### Hardware
 - [PCB Design Specification](docs/PCB_DESIGN_SPECIFICATION.md) - PCB engineering spec
@@ -96,104 +103,179 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 pmu_30/
 ├── docs/                           # Documentation
 │   ├── architecture/              # System architecture docs
-│   ├── api/                       # API reference docs
-│   ├── guides/                    # How-to guides
-│   ├── examples/                  # Code examples
-│   ├── technical_specification.md # Hardware TZ
-│   ├── reference_analysis.md      # Reference PDM analysis
-│   └── PCB_DESIGN_SPECIFICATION.md # PCB engineering spec
+│   ├── configuration/             # Channel configuration guides
+│   ├── reference/                 # Protocol & config schema
+│   ├── testing/                   # Testing guides (emulator, integration)
+│   └── firmware_architecture.md   # Complete firmware design
 ├── hardware/                      # Hardware design files
 │   ├── bom.md                    # Bill of Materials
 │   ├── schematic/                # Schematic files
 │   └── pcb/                      # PCB layout files
 ├── firmware/                      # STM32 firmware (C, PlatformIO)
-│   ├── platformio.ini
+│   ├── platformio.ini            # Build configuration
+│   ├── src/                      # Source files (pmu_*.c)
+│   ├── include/                  # Headers (pmu_*.h)
+│   ├── emulator/                 # Native emulator code
+│   └── lib/                      # Libraries
+├── configurator/                  # Python+Qt configuration software
+│   ├── requirements.txt
+│   ├── main.py                   # Application entry point
 │   ├── src/
-│   ├── include/
-│   └── lib/
-└── configurator/                  # Python+Qt configuration software
-    ├── requirements.txt
-    ├── launch.py                 # UI launcher
-    ├── src/
-    │   ├── main.py              # Classic UI entry point
-    │   ├── main_professional.py # Modern UI entry point
-    │   └── ui/
-    └── docs/
+│   │   ├── ui/                  # UI components
+│   │   ├── models/              # Data models
+│   │   ├── communication/       # Protocol handler
+│   │   └── controllers/         # Device controller
+│   └── tests/                   # Unit & integration tests
+└── releases/                      # Release builds
 ```
 
 ## Configurator Software
 
 ### Quick Start
 
-**Option 1: Use Launcher (Recommended)**
 ```bash
 cd configurator
-python launch.py
+pip install -r requirements.txt
+python main.py
 ```
-
-Select your preferred interface:
-1. **Modern Style** - Dock-based layout ⭐
-2. **Classic Style** - Traditional tab-based interface
-
-**Option 2: Direct Launch**
-
-Modern Style:
-```bash
-cd configurator
-python src/main_professional.py
-```
-
-Classic Style:
-```bash
-cd configurator
-python src/main.py
-```
-
-### UI Styles Comparison
-
-| Feature | Modern Style | Classic Style |
-|---------|--------------|---------------|
-| Layout | Dock widgets | Tabs |
-| Monitoring | Always visible | Separate tab |
-| Project tree | Hierarchical | By category |
-| Grouping | Yes (folders) | No |
-| Drag & Drop | Yes | No |
-| Real-time panels | 3 (dockable) | 1 (fixed) |
-| Screen space | Efficient | Standard |
-| Learning curve | Medium | Easy |
 
 ### Key Features
 
-**Both Styles:**
-- 30 output channels configuration
-- 20 input channels with multiple types
-- 4 H-Bridge motor control
-- Logic Engine (256 virtual channels, 16 operations)
-- PID Controllers with anti-windup
-- LUA 5.4 scripting engine
-- CAN Bus configuration with DBC import/export
-- Settings: CAN, Power, Safety, System
-- Dark/Light themes
-- Multiple Qt styles (Fluent, Windows11, Fusion, etc.)
-- Configuration save/load (JSON)
-- 28 unit tests ✅
+- **30 Power Outputs** with full configuration
+  - PWM frequency, soft-start, duty cycle
+  - Current limits, retry on fault
+  - Load shedding priority (0-10)
+  - Pin merging for high current
+- **20 Input Channels**
+  - Digital inputs (active high/low, pull-up/down)
+  - Analog inputs with scaling and filtering
+  - CAN inputs from any ECU signal
+- **4 H-Bridge Motor Outputs** for wipers, fans, actuators
+- **Logic Engine**: 64 functions, 25+ operation types
+- **PID Controllers** with anti-windup
+- **LUA 5.4 Scripting** for custom logic
+- **CAN Bus Integration**
+  - DBC import/export
+  - CAN message TX/RX configuration
+  - BlinkMarine PKP keypad support
+- **Real-time Monitoring**
+  - Output Monitor (states, currents, faults)
+  - Analog Monitor (live ADC values)
+  - Digital Monitor (input states)
+  - Variables Inspector (CAN signals)
+- **Emulator Support**: Connect to firmware emulator for development
+- **Dark/Light Themes** with multiple Qt styles
+- **Configuration Save/Load** (JSON format)
 
-**Modern Style Only:**
-- Project tree with hierarchy
-- Output Monitor (real-time)
-- Analog Monitor (real-time)
-- Variables Inspector (CAN + PMU status)
-- Drag & drop panel layout
-- Save/restore custom layouts
+### Desktop Emulator
+
+For development without hardware, use the firmware emulator:
+
+```bash
+# Build emulator
+cd firmware
+python -m platformio run -e pmu30_emulator
+
+# Run emulator (Windows)
+.pio/build/pmu30_emulator/program.exe
+```
+
+The Configurator connects to `localhost:9876` when emulator is running.
+
+See [Emulator Guide](docs/testing/emulator-guide.md) for details on what's emulated vs stubbed.
 
 ### Documentation
 
-- [docs/UI_IMPROVEMENTS.md](configurator/docs/UI_IMPROVEMENTS.md) - UI development history
-- [docs/QT_STYLES.md](configurator/docs/QT_STYLES.md) - Available Qt styles
+- [Configurator UI Guide](docs/configuration/configurator-ui.md) - UI overview
+- [Qt Styles Guide](configurator/docs/QT_STYLES.md) - Available themes
+
+## Firmware
+
+### Build Targets
+
+| Target | Platform | Description |
+|--------|----------|-------------|
+| `pmu30` | STM32H7 | Production firmware for hardware |
+| `pmu30_emulator` | Native (Windows/Linux) | Desktop emulator for development |
+
+### Build Commands
+
+```bash
+cd firmware
+
+# Build for hardware
+python -m platformio run -e pmu30
+
+# Build emulator
+python -m platformio run -e pmu30_emulator
+```
+
+### ESP32-C3 Communication
+
+The firmware communicates with the ESP32-C3 module via AT commands over UART3:
+- **WiFi**: AP mode, STA mode, or dual AP+STA
+- **Bluetooth**: BLE server with telemetry characteristics
+- **Web Server**: HTTP and WebSocket for remote monitoring
+
+See [Firmware Architecture](docs/firmware_architecture.md) for implementation details.
 
 ## Development Status
 
-Project is in active development. See [docs/project_plan.md](docs/project_plan.md) for current status.
+Project is in active development.
+
+### Current Version: v0.2.0
+
+| Component | Status |
+|-----------|--------|
+| Core Firmware | ✅ Complete |
+| Channel System | ✅ Complete |
+| Logic Engine | ✅ Complete |
+| Protocol Handler | ✅ Complete |
+| ESP32 Bridge | ✅ Implemented |
+| WiFi (AT Commands) | ✅ Implemented |
+| Bluetooth (AT Commands) | ✅ Implemented |
+| Load Shedding | ✅ Implemented |
+| Desktop Emulator | ✅ Functional |
+| Configurator UI | ✅ Functional |
+| Integration Tests | ✅ Added |
+
+### Quick Links
+- [Firmware Architecture](docs/firmware_architecture.md) - Complete firmware design
+- [Emulator Guide](docs/testing/emulator-guide.md) - Desktop testing
+- [Configuration Reference](docs/reference/configuration.md) - JSON schema
+
+## Testing
+
+### Unit Tests (Configurator)
+
+```bash
+cd configurator
+python -m pytest tests/ -v
+```
+
+### Integration Tests
+
+Requires running emulator:
+
+```bash
+# Terminal 1: Start emulator
+cd firmware
+.pio/build/pmu30_emulator/program.exe
+
+# Terminal 2: Run integration tests
+cd configurator
+python -m pytest tests/integration/ -v
+```
+
+### Test Coverage
+
+| Category | Tests |
+|----------|-------|
+| Channel Configuration | ✅ |
+| Logic Functions | ✅ |
+| Protocol Handler | ✅ |
+| WiFi/Bluetooth Config | ✅ |
+| Load Shedding Priority | ✅ |
 
 ## References
 

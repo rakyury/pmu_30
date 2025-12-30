@@ -32,7 +32,6 @@ def test_workflow():
     output_config = {
         "channel": 0,
         "name": "TestOutput1",
-        "enabled": True,
         "mode": "Normal",
         "pwm": {"enabled": False, "frequency": 1000, "duty_cycle": 50}
     }
@@ -43,7 +42,6 @@ def test_workflow():
     input_config = {
         "channel": 0,
         "name": "TestInput1",
-        "enabled": True,
         "type": "Switch Active High",
         "pullup": False
     }
@@ -53,7 +51,6 @@ def test_workflow():
     # Add test logic function
     logic_config = {
         "name": "TestLogic1",
-        "enabled": True,
         "operation": "AND",
         "conditions": []
     }
@@ -63,7 +60,6 @@ def test_workflow():
     # Add test H-Bridge
     hbridge_config = {
         "name": "TestHBridge1",
-        "enabled": True,
         "mode": "Bidirectional",
         "control": {},
         "pwm": {},
@@ -75,7 +71,6 @@ def test_workflow():
     # Add test PID controller
     pid_config = {
         "name": "TestPID1",
-        "enabled": True,
         "parameters": {"kp": 1.0, "ki": 0.5, "kd": 0.1}
     }
     project_tree.add_pid_controller(pid_config)
@@ -84,7 +79,6 @@ def test_workflow():
     # Add test LUA script
     lua_config = {
         "name": "TestLua1",
-        "enabled": True,
         "script": "-- Test script",
         "trigger": {"type": "Periodic"}
     }

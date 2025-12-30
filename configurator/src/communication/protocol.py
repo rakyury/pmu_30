@@ -36,6 +36,8 @@ class MessageType(IntEnum):
     CONFIG_DATA = 0x21
     SET_CONFIG = 0x22
     CONFIG_ACK = 0x23
+    SAVE_TO_FLASH = 0x24    # Save current config to flash
+    FLASH_ACK = 0x25        # Flash save acknowledgment
 
     # Telemetry streaming
     SUBSCRIBE_TELEMETRY = 0x30
@@ -45,17 +47,41 @@ class MessageType(IntEnum):
     # Channel control
     SET_CHANNEL = 0x40
     CHANNEL_ACK = 0x41
-    GET_CHANNEL = 0x42
-    CHANNEL_DATA = 0x43
+    SET_HBRIDGE = 0x42       # Set H-Bridge mode and PWM
+    GET_CHANNEL = 0x43       # Shifted from 0x42
+    CHANNEL_DATA = 0x44      # Shifted from 0x43
+
+    # Atomic channel configuration update
+    SET_CHANNEL_CONFIG = 0x66    # Update single channel config
+    CHANNEL_CONFIG_ACK = 0x67    # Channel config update response
 
     # Error handling
     ERROR = 0x50
+
+    # Log messages (from device/scripts)
+    LOG_MESSAGE = 0x55
 
     # Firmware update
     BOOTLOADER_ENTER = 0x60
     BOOTLOADER_DATA = 0x61
     BOOTLOADER_ACK = 0x62
     BOOTLOADER_EXIT = 0x63
+
+    # Device control
+    RESTART_DEVICE = 0x70
+    RESTART_ACK = 0x71
+    BOOT_COMPLETE = 0x72      # Sent by device after successful boot/restart
+
+    # Emulator control (0x80+)
+    EMU_INJECT_FAULT = 0x80
+    EMU_CLEAR_FAULT = 0x81
+    EMU_SET_VOLTAGE = 0x82
+    EMU_SET_TEMPERATURE = 0x83
+    EMU_SET_DIGITAL_INPUT = 0x84
+    EMU_SET_OUTPUT = 0x85
+    EMU_SET_ANALOG_INPUT = 0x86
+    EMU_INJECT_CAN = 0x88  # Inject CAN message for testing
+    EMU_ACK = 0x8F
 
 
 class ProtocolError(Exception):
@@ -260,6 +286,45 @@ class FrameBuilder:
         return ProtocolFrame(msg_type=MessageType.SET_CHANNEL, payload=payload)
 
     @staticmethod
+    def set_hbridge(bridge: int, mode: int, duty: int, target: int = 0) -> ProtocolFrame:
+        """
+        Create a SET_HBRIDGE frame.
+
+        Args:
+            bridge: Bridge number (0-3)
+            mode: Operating mode (0=COAST, 1=FORWARD, 2=REVERSE, 3=BRAKE, 4=WIPER_PARK, 5=PID)
+            duty: PWM duty cycle (0-1000 = 0-100%)
+            target: Target position for PID mode (0-1000)
+
+        Returns:
+            ProtocolFrame ready to send
+        """
+        # Pack: bridge(1) + mode(1) + duty(2) + target(2)
+        payload = struct.pack("<BBHH", bridge, mode, duty, target)
+        return ProtocolFrame(msg_type=MessageType.SET_HBRIDGE, payload=payload)
+
+    @staticmethod
+    def set_channel_config(channel_type: int, channel_id: int, config_json: bytes) -> ProtocolFrame:
+        """
+        Create a SET_CHANNEL_CONFIG frame for atomic channel updates.
+
+        Args:
+            channel_type: Channel type discriminator:
+                0x01=power_output, 0x02=hbridge, 0x03=digital_input, 0x04=analog_input,
+                0x05=logic, 0x06=number, 0x07=timer, 0x08=filter, 0x09=switch,
+                0x0A=table_2d, 0x0B=table_3d, 0x0C=can_rx, 0x0D=can_tx, 0x0E=pid
+            channel_id: Numeric channel ID
+            config_json: JSON configuration as bytes (UTF-8)
+
+        Returns:
+            ProtocolFrame ready to send
+        """
+        # Pack: channel_type(1) + channel_id(2) + json_len(2) + json_data
+        json_len = len(config_json)
+        payload = struct.pack("<BHH", channel_type, channel_id, json_len) + config_json
+        return ProtocolFrame(msg_type=MessageType.SET_CHANNEL_CONFIG, payload=payload)
+
+    @staticmethod
     def get_channel(channel_id: int) -> ProtocolFrame:
         """
         Create a GET_CHANNEL frame.
@@ -282,6 +347,113 @@ class FrameBuilder:
         msg_bytes = message.encode("utf-8")[:255]  # Limit message length
         payload = struct.pack("<HB", error_code, len(msg_bytes)) + msg_bytes
         return ProtocolFrame(msg_type=MessageType.ERROR, payload=payload)
+
+    @staticmethod
+    def restart_device() -> ProtocolFrame:
+        """Create a RESTART_DEVICE frame."""
+        return ProtocolFrame(msg_type=MessageType.RESTART_DEVICE, payload=b"")
+
+    # ===== Emulator Control Commands =====
+
+    @staticmethod
+    def emu_inject_fault(channel: int, fault_type: int) -> ProtocolFrame:
+        """
+        Inject a fault on an output channel (emulator only).
+
+        Args:
+            channel: Channel number (0-29)
+            fault_type: Fault type bitmask (1=OC, 2=OT, 4=SC, 8=OL)
+        """
+        payload = struct.pack("<BB", channel, fault_type)
+        return ProtocolFrame(msg_type=MessageType.EMU_INJECT_FAULT, payload=payload)
+
+    @staticmethod
+    def emu_clear_fault(channel: int) -> ProtocolFrame:
+        """
+        Clear fault on an output channel (emulator only).
+
+        Args:
+            channel: Channel number (0-29)
+        """
+        payload = struct.pack("<B", channel)
+        return ProtocolFrame(msg_type=MessageType.EMU_CLEAR_FAULT, payload=payload)
+
+    @staticmethod
+    def emu_set_voltage(voltage_mv: int) -> ProtocolFrame:
+        """
+        Set battery voltage (emulator only).
+
+        Args:
+            voltage_mv: Voltage in millivolts (6000-18000)
+        """
+        payload = struct.pack("<H", voltage_mv)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_VOLTAGE, payload=payload)
+
+    @staticmethod
+    def emu_set_temperature(temp_c: int) -> ProtocolFrame:
+        """
+        Set temperature (emulator only).
+
+        Args:
+            temp_c: Temperature in Celsius (-40 to 150)
+        """
+        payload = struct.pack("<h", temp_c)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_TEMPERATURE, payload=payload)
+
+    @staticmethod
+    def emu_set_digital_input(channel: int, state: bool) -> ProtocolFrame:
+        """
+        Set digital input state (emulator only).
+
+        Args:
+            channel: Digital input channel (0-19)
+            state: Input state (True=HIGH, False=LOW)
+        """
+        payload = struct.pack("<BB", channel, 1 if state else 0)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_DIGITAL_INPUT, payload=payload)
+
+    @staticmethod
+    def emu_set_output(channel: int, on: bool, pwm: int) -> ProtocolFrame:
+        """
+        Set output channel state (emulator only).
+
+        Args:
+            channel: Output channel (0-29)
+            on: Output state (True=ON, False=OFF)
+            pwm: PWM duty cycle (0-1000 = 0-100%)
+        """
+        payload = struct.pack("<BBH", channel, 1 if on else 0, pwm)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_OUTPUT, payload=payload)
+
+    @staticmethod
+    def emu_set_analog_input(channel: int, voltage_mv: int) -> ProtocolFrame:
+        """
+        Set analog input voltage (emulator only).
+
+        Args:
+            channel: Analog input channel (0-15)
+            voltage_mv: Voltage in millivolts (0-5000)
+        """
+        payload = struct.pack("<BH", channel, voltage_mv)
+        return ProtocolFrame(msg_type=MessageType.EMU_SET_ANALOG_INPUT, payload=payload)
+
+    @staticmethod
+    def emu_inject_can(bus_id: int, can_id: int, data: bytes) -> ProtocolFrame:
+        """
+        Inject CAN message for testing CAN input channels (emulator only).
+
+        Args:
+            bus_id: CAN bus index (0 or 1)
+            can_id: CAN message ID (11-bit or 29-bit)
+            data: CAN data bytes (up to 8 bytes)
+
+        Payload format: [bus_id:1][can_id:4][dlc:1][data:0-8]
+        """
+        dlc = min(len(data), 8)
+        # Pad data to 8 bytes
+        padded_data = data[:8].ljust(8, b'\x00')
+        payload = struct.pack("<BI", bus_id, can_id) + struct.pack("<B", dlc) + padded_data[:dlc]
+        return ProtocolFrame(msg_type=MessageType.EMU_INJECT_CAN, payload=payload)
 
 
 class FrameParser:
@@ -376,3 +548,23 @@ class FrameParser:
         message = payload[3:3 + msg_len].decode("utf-8", errors="replace")
 
         return error_code, message
+
+    @staticmethod
+    def parse_channel_config_ack(payload: bytes) -> tuple[int, bool, int, str]:
+        """
+        Parse CHANNEL_CONFIG_ACK payload.
+
+        Returns:
+            Tuple of (channel_id, success, error_code, error_message)
+        """
+        if len(payload) < 5:
+            raise ProtocolError("CHANNEL_CONFIG_ACK payload too short")
+
+        channel_id = struct.unpack("<H", payload[0:2])[0]
+        success = payload[2] != 0
+        error_code = struct.unpack("<H", payload[3:5])[0]
+        error_message = ""
+        if len(payload) > 5:
+            error_message = payload[5:].decode("utf-8", errors="replace")
+
+        return channel_id, success, error_code, error_message

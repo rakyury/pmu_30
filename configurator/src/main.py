@@ -1,36 +1,27 @@
-#!/usr/bin/env python3
 """
-PMU-30 Configurator - Main Entry Point
+PMU-30 Configurator - Modern Style
+Entry point for modern dock-based UI
 
 Owner: R2 m-sport
-Date: 2025-12-21
-License: Proprietary
-
 © 2025 R2 m-sport. All rights reserved.
 """
 
 import sys
 import logging
-from pathlib import Path
-
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
 
-# Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from ui.main_window_professional import MainWindowProfessional
+# Setup logging
 from utils.logger import setup_logger
+setup_logger()
+
+logger = logging.getLogger(__name__)
 
 
 def main():
-    """Main application entry point."""
+    """Main entry point for modern dock-based configurator."""
 
-    # Setup logging
-    setup_logger()
-    logger = logging.getLogger(__name__)
-    logger.info("Starting PMU-30 Configurator...")
+    logger.info("Starting PMU-30 Configurator (Modern Style)...")
 
     # Enable High DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -40,14 +31,15 @@ def main():
     # Create application
     app = QApplication(sys.argv)
     app.setApplicationName("PMU-30 Configurator")
-    app.setOrganizationName("R2 m-sport")
-    app.setApplicationVersion("1.0.0")
+    app.setOrganizationName("R2msport")
+    app.setOrganizationDomain("r2msport.com")
 
     # Create and show main window
+    from ui.main_window_professional import MainWindowProfessional
     window = MainWindowProfessional()
     window.show()
 
-    logger.info("Application started successfully")
+    logger.info("Application started successfully (Modern Style)")
 
     # Run event loop
     sys.exit(app.exec())

@@ -1,5 +1,8 @@
 # PMU-30 Standard CAN Stream
 
+**Version:** 2.0
+**Date:** 2025-12-29
+
 ## Overview
 
 Standard CAN Stream provides **real-time broadcast of key PMU parameters** over CAN bus for monitoring and data logging. The stream uses a **predefined set of CAN frames** with configurable Base ID and CAN bus selection.
@@ -14,9 +17,10 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 |----------|-------|-------------|
 | Power Outputs | 30 | o1-o30 (PROFET high-side switches) |
 | Analog Inputs | 20 | a1-a20 (0-5V, 12-bit ADC) |
-| Digital Inputs | 8 | d1-d8 (5-30V tolerant) |
+| Digital Inputs | 20 | d1-d20 (5-30V tolerant) |
 | H-Bridges | 4 | hb1-hb4 (dual H-bridge drivers) |
-| Low-Side Outputs | 6 | l1-l6 (ground switching) |
+
+> **Note:** PMU-30 has 20 dedicated analog input pins (A1-A20) and 20 separate dedicated digital input pins (D1-D20).
 
 ---
 
@@ -26,15 +30,36 @@ This feature allows external devices (dashboards, loggers, ECUs) to monitor PMU 
 |-----------|-------|---------|-------------|
 | **Enabled** | On/Off | Off | Enable Standard CAN Stream |
 | **CAN Bus** | CAN A / CAN B | CAN A | Which CAN bus to transmit on |
-| **Base ID** | 0x000 - 0x7F0 | 0x600 | Base CAN ID |
+| **Base ID** | 0x000 - 0x7F0 | 0x700 | Base CAN ID (0x700 = 1792) |
 | **Extended ID** | Yes/No | No | Use 29-bit extended CAN IDs |
 | **Include Extended** | Yes/No | No | Include PMU-30 extended frames (8-15) |
+| **Rate Hz** | 10-100 | 50 | Update rate in Hz |
+
+---
+
+## Channel System Integration
+
+CAN Stream values are also accessible via the channel abstraction layer using sub-channel IDs (see [Channel Abstraction](../firmware/CHANNEL_ABSTRACTION.md)):
+
+| Base ID | Range | Description | ECUMaster Alias |
+|---------|-------|-------------|-----------------|
+| 1000 | - | Battery Voltage | `pmu.batteryVoltage` |
+| 1001 | - | Total Current | `pmu.totalCurrent` |
+| 1002 | - | MCU Temperature | `pmu.mcuTemperature` |
+| 1003 | - | Board Temp Left | `pmu.boardTemperatureL` |
+| 1004 | - | Board Temp Right | `pmu.boardTemperatureR` |
+| 1100 | 1100-1129 | Output Status | `pmu.oY.status` |
+| 1130 | 1130-1159 | Output Current | `pmu.oY.current` |
+| 1160 | 1160-1189 | Output Voltage | `pmu.oY.voltage` |
+| 1190 | 1190-1219 | Output Active | `pmu.oY.active` |
+| 1220 | 1220-1239 | Analog Voltage | `pmu.aY.voltage` |
+| 1250 | 1250-1279 | Output Duty | `pmu.oY.dutyCycle` |
 
 ---
 
 ## Frame Structure
 
-### Standard Frames (Ecumaster Compatible)
+### Standard Frames (ECUMaster Compatible)
 
 8 frames covering first 16 outputs and 16 analog inputs:
 
@@ -80,10 +105,8 @@ General system health, power status, and board temperatures.
 | 3 | Board Temp Left | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
 | 4 | Board Temp Right | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
 | 5 | MCU Temperature | 0-7 | 0xFF | 0-255 °C | 1 °C/bit | °C = raw |
-| 6 | Low-Side Active | 0-5 | 0x3F | - | - | Bitfield (l1-l6) |
-| 6 | Reserved | 6-7 | 0xC0 | - | - | - |
-| 7 | Low-Side Error | 0-5 | 0x3F | - | - | Bitfield (l1-l6) |
-| 7 | Reserved | 6-7 | 0xC0 | - | - | - |
+| 6 | Reserved | 0-7 | 0xFF | - | - | - |
+| 7 | Reserved | 0-7 | 0xFF | - | - | - |
 
 ### PMU Status Codes (Byte 0, bits 0-2)
 
@@ -97,17 +120,6 @@ General system health, power status, and board temperatures.
 | 5 | OVERTEMP | Temperature warning |
 | 6 | CRITICAL | Critical fault |
 | 7 | THERMAL_SHUTDOWN | Thermal shutdown active |
-
-### Low-Side Bitfields (Bytes 6-7)
-
-| Bit | Mask | Low-Side Output |
-|-----|------|-----------------|
-| 0 | 0x01 | l1 |
-| 1 | 0x02 | l2 |
-| 2 | 0x04 | l3 |
-| 3 | 0x08 | l4 |
-| 4 | 0x10 | l5 |
-| 5 | 0x20 | l6 |
 
 ---
 
@@ -357,6 +369,8 @@ Status and active state for outputs 17-30. Same nibble format as Frame 1.
 
 Digital input states and frequency/pulse counters for inputs d1-d8.
 
+> **Note:** The PMU-30 has 20 digital inputs (d1-d20), but only the first 8 (d1-d8) are broadcast via the standard CAN stream due to 8-byte frame size limitations. For monitoring d9-d20, use the telemetry protocol or custom CAN TX channels.
+
 | Byte | Signal | Description |
 |------|--------|-------------|
 | 0 | Digital States | Bitfield for d1-d8 (bit 0 = d1) |
@@ -415,15 +429,16 @@ Status and current for all 4 H-Bridge motor drivers.
 
 ## Coverage Summary
 
-| Resource | Standard (0-7) | Extended (8-15) | Total |
-|----------|----------------|-----------------|-------|
+| Resource | Standard (0-7) | Extended (8-15) | Stream Coverage |
+|----------|----------------|-----------------|-----------------|
 | Outputs States | o1-o16 | o17-o30 | 30/30 |
 | Output Currents | o1-o16 | o17-o30 | 30/30 |
 | Output Voltages | o1-o16 | o17-o30 | 30/30 |
 | Analog Inputs | a1-a16 | a17-a20 | 20/20 |
-| Digital Inputs | - | d1-d8 | 8/8 |
+| Digital Inputs | - | d1-d8 | 8/20 * |
 | H-Bridges | - | hb1-hb4 | 4/4 |
-| Low-Side | l1-l6 | - | 6/6 |
+
+> \* **Digital Inputs:** Hardware has 20 digital inputs, but only d1-d8 are broadcast in the CAN stream. Use telemetry or custom CAN TX for d9-d20.
 
 ---
 
@@ -440,7 +455,7 @@ BS_:
 
 BU_: PMU30
 
-BO_ 1536 PMU_SystemStatus: 8 PMU30
+BO_ 1792 PMU_SystemStatus: 8 PMU30
  SG_ PMU_Status : 0|3@1+ (1,0) [0|7] "" Vector__XXX
  SG_ UserError : 3|1@1+ (1,0) [0|1] "" Vector__XXX
  SG_ TotalCurrent : 8|8@1+ (1,0) [0|255] "A" Vector__XXX
@@ -448,17 +463,15 @@ BO_ 1536 PMU_SystemStatus: 8 PMU30
  SG_ BoardTempLeft : 24|8@1+ (1,0) [0|255] "degC" Vector__XXX
  SG_ BoardTempRight : 32|8@1+ (1,0) [0|255] "degC" Vector__XXX
  SG_ MCUTemperature : 40|8@1+ (1,0) [0|255] "degC" Vector__XXX
- SG_ LowSideActive : 48|6@1+ (1,0) [0|63] "" Vector__XXX
- SG_ LowSideError : 56|6@1+ (1,0) [0|63] "" Vector__XXX
 
-BO_ 1537 PMU_OutputStates: 8 PMU30
+BO_ 1793 PMU_OutputStates: 8 PMU30
  SG_ O1_Status : 5|3@1+ (1,0) [0|7] "" Vector__XXX
  SG_ O1_Active : 4|1@1+ (1,0) [0|1] "" Vector__XXX
  SG_ O2_Status : 1|3@1+ (1,0) [0|7] "" Vector__XXX
  SG_ O2_Active : 0|1@1+ (1,0) [0|1] "" Vector__XXX
  ...
 
-BO_ 1538 PMU_AnalogInputs1: 8 PMU30
+BO_ 1794 PMU_AnalogInputs1: 8 PMU30
  SG_ A1_Voltage : 0|8@1+ (0.0196,0) [0|5] "V" Vector__XXX
  SG_ A2_Voltage : 8|8@1+ (0.0196,0) [0|5] "V" Vector__XXX
  ...
@@ -470,17 +483,32 @@ BO_ 1538 PMU_AnalogInputs1: 8 PMU30
 
 ```json
 {
+  "version": "3.0",
+  "device": {
+    "name": "My PMU"
+  },
   "settings": {
     "standard_can_stream": {
       "enabled": true,
       "can_bus": 1,
-      "base_id": 1536,
+      "base_id": 1792,
       "is_extended": false,
-      "include_extended_frames": true
+      "include_extended_frames": true,
+      "rate_hz": 50
     }
-  }
+  },
+  "channels": [...]
 }
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| enabled | boolean | false | Enable CAN stream transmission |
+| can_bus | integer | 1 | CAN bus (1 = CAN A, 2 = CAN B) |
+| base_id | integer | 0x700 | Base CAN ID (frames use base_id + 0..15) |
+| is_extended | boolean | false | Use 29-bit extended CAN IDs |
+| include_extended_frames | boolean | false | Transmit extended frames 8-15 |
+| rate_hz | integer | 50 | Update rate in Hz (10-100) |
 
 ---
 
@@ -502,9 +530,31 @@ BO_ 1538 PMU_AnalogInputs1: 8 PMU30
 ## Compatibility
 
 The Standard CAN Stream format (frames 0-7) is compatible with:
-- Ecumaster PMU series
+- ECUMaster PMU series
 - AiM data loggers
 - MoTeC systems
 - Generic CAN analyzers
 
 Extended frames (8-15) are PMU-30 specific.
+
+---
+
+## Changelog
+
+### Version 2.0 (2025-12-29)
+- Added channel system integration section with sub-channel IDs
+- Added rate_hz configuration option
+- Updated default base_id to 0x700 (1792)
+- Fixed DBC example to match default base_id
+- Updated JSON example to v3.0 format structure
+
+### Version 1.0 (2025-12-21)
+- Initial documentation
+
+---
+
+## See Also
+
+- [Channel Abstraction](../firmware/CHANNEL_ABSTRACTION.md) - Channel types and system channels
+- [JSON Configuration](../firmware/JSON_CONFIG.md) - Full JSON configuration format v3.0
+- [Protocol Documentation](../firmware/PROTOCOL_DOCUMENTATION.md) - Communication protocol

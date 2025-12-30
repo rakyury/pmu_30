@@ -1,6 +1,5 @@
 """
 CAN Output (TX) Configuration Dialog
-Based on Ecumaster PMU Client CANbus Export dialog design.
 
 Combines message properties with signal mapping in one dialog.
 """
@@ -119,7 +118,7 @@ class ChannelSlotWidget(QFrame):
 
 
 class CANOutputDialog(QDialog):
-    """Dialog for configuring CAN TX output (Ecumaster style)."""
+    """Dialog for configuring CAN TX output."""
 
     TRANSMIT_MODES = [
         ("Cycle", "cycle"),
@@ -148,9 +147,10 @@ class CANOutputDialog(QDialog):
         self.output_config = output_config
         self.existing_ids = existing_ids or []
         self.available_channels = available_channels or {}
-        self.editing_id = output_config.get("id", "") if output_config else ""
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        self.editing_name = (output_config.get("name", "") or output_config.get("id", "")) if output_config else ""
 
-        self.setWindowTitle("CAN Output" if not output_config else f"Edit CAN Output: {self.editing_id}")
+        self.setWindowTitle("CAN Output" if not output_config else f"Edit CAN Output: {self.editing_name}")
         self.setModal(True)
         self.resize(650, 550)
 
@@ -387,17 +387,25 @@ class CANOutputDialog(QDialog):
             self.name_edit.setFocus()
             return
 
-        # Check name format
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
+        # Check name format - allow most characters except problematic ones
+        forbidden_chars = '"\'\\;{}[]'
+        if not name[0].isalpha() and name[0] != '_':
             QMessageBox.warning(
                 self, "Validation Error",
-                "Name must start with a letter and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore!"
+            )
+            self.name_edit.setFocus()
+            return
+        if any(c in name for c in forbidden_chars):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Name cannot contain: \" ' \\ ; { } [ ]"
             )
             self.name_edit.setFocus()
             return
 
         # Check for duplicate ID
-        if name != self.editing_id and name in self.existing_ids:
+        if name != self.editing_name and name in self.existing_ids:
             QMessageBox.warning(
                 self, "Validation Error",
                 f"Name '{name}' already exists!"
@@ -430,7 +438,9 @@ class CANOutputDialog(QDialog):
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.name_edit.setText(config.get("id", ""))
+        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
         # CAN Bus (1/2 -> index 0/1)
         can_bus = config.get("can_bus", 1)
@@ -494,8 +504,9 @@ class CANOutputDialog(QDialog):
             if i < dlc:
                 signals.append(slot.get_config())
 
+        name = self.name_edit.text().strip()
         config = {
-            "id": self.name_edit.text().strip(),
+            "name": name,  # Primary identifier - unique, user-editable
             "channel_type": "can_tx",
             "can_bus": self.can_bus_combo.currentIndex() + 1,
             "message_id": can_id,

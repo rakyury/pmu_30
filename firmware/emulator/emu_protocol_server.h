@@ -26,6 +26,8 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "pmu_config_json.h"
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -70,6 +72,8 @@ typedef struct {
 #define EMU_MSG_CONFIG_DATA         0x21
 #define EMU_MSG_SET_CONFIG          0x22
 #define EMU_MSG_CONFIG_ACK          0x23
+#define EMU_MSG_SAVE_TO_FLASH       0x24
+#define EMU_MSG_FLASH_ACK           0x25
 #define EMU_MSG_SUBSCRIBE_TELEM     0x30
 #define EMU_MSG_UNSUBSCRIBE_TELEM   0x31
 #define EMU_MSG_TELEMETRY_DATA      0x32
@@ -78,6 +82,22 @@ typedef struct {
 #define EMU_MSG_GET_CHANNEL         0x42
 #define EMU_MSG_CHANNEL_DATA        0x43
 #define EMU_MSG_ERROR               0x50
+#define EMU_MSG_LOG                 0x55
+#define EMU_MSG_RESTART             0x70
+#define EMU_MSG_RESTART_ACK         0x71
+#define EMU_MSG_BOOT_COMPLETE       0x72  /* Sent after successful boot/restart */
+
+/* Emulator control messages (0x80+) */
+#define EMU_MSG_INJECT_FAULT        0x80
+#define EMU_MSG_CLEAR_FAULT         0x81
+#define EMU_MSG_SET_VOLTAGE         0x82
+#define EMU_MSG_SET_TEMPERATURE     0x83
+#define EMU_MSG_SET_DIGITAL_INPUT   0x84
+#define EMU_MSG_SET_OUTPUT          0x85
+#define EMU_MSG_SET_ANALOG_INPUT    0x86
+#define EMU_MSG_SET_BUTTON          0x87
+#define EMU_MSG_INJECT_CAN          0x88  /* Inject CAN message for testing */
+#define EMU_MSG_EMU_ACK             0x8F
 
 /* Exported functions --------------------------------------------------------*/
 
@@ -129,6 +149,14 @@ const EMU_ServerStats_t* EMU_Server_GetStats(void);
 void EMU_Server_SendTelemetry(void);
 
 /**
+ * @brief Send log message to all connected clients
+ * @param level Log level (0=debug, 1=info, 2=warning, 3=error)
+ * @param source Source identifier (e.g., "lua", "system")
+ * @param message Log message text
+ */
+void EMU_Server_SendLog(uint8_t level, const char* source, const char* message);
+
+/**
  * @brief Broadcast message to all clients
  * @param msg_type Message type
  * @param payload Payload data
@@ -136,6 +164,40 @@ void EMU_Server_SendTelemetry(void);
  * @retval Number of clients message was sent to
  */
 int EMU_Server_Broadcast(uint8_t msg_type, const uint8_t* payload, uint16_t len);
+
+/**
+ * @brief Send BOOT_COMPLETE message to all connected clients
+ * @note Called after successful initialization/restart to signal configurator
+ *       to re-read configuration
+ * @retval Number of clients message was sent to
+ */
+int EMU_Server_SendBootComplete(void);
+
+/**
+ * @brief Load last configuration from file
+ * @param filename Config file path (NULL for default "last_config.json")
+ * @retval 0 on success, -1 on error or file not found
+ */
+int EMU_Server_LoadConfig(const char* filename);
+
+/**
+ * @brief Check if configuration is loaded
+ * @retval true if config is loaded
+ */
+bool EMU_Server_IsConfigLoaded(void);
+
+/**
+ * @brief Get configuration load statistics
+ * @retval Pointer to stats or NULL if no config loaded
+ */
+const PMU_JSON_LoadStats_t* EMU_Server_GetConfigStats(void);
+
+/**
+ * @brief Get current configuration JSON
+ * @param out_size Pointer to receive JSON size (can be NULL)
+ * @retval Pointer to JSON string or NULL if no config loaded
+ */
+const char* EMU_Server_GetConfigJSON(size_t* out_size);
 
 #ifdef __cplusplus
 }

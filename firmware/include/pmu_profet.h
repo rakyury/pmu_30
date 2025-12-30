@@ -28,13 +28,22 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 
 /**
- * @brief PROFET 2 channel state
+ * @brief PROFET 2 channel state (ECUMaster compatible)
+ *
+ * State values must match ECUMaster PMU Client telemetry format:
+ * 0=OFF, 1=ON, 2=OC, 3=OT, 4=SC, 5=OL, 6=PWM, 7=DIS
  */
 typedef enum {
-    PMU_PROFET_STATE_OFF = 0,
-    PMU_PROFET_STATE_ON,
-    PMU_PROFET_STATE_PWM,
-    PMU_PROFET_STATE_FAULT
+    PMU_PROFET_STATE_OFF = 0,       /* Output is off */
+    PMU_PROFET_STATE_ON = 1,        /* Output is fully on (100%) */
+    PMU_PROFET_STATE_OC = 2,        /* Over Current fault */
+    PMU_PROFET_STATE_OT = 3,        /* Over Temperature fault */
+    PMU_PROFET_STATE_SC = 4,        /* Short Circuit fault */
+    PMU_PROFET_STATE_OL = 5,        /* Open Load fault */
+    PMU_PROFET_STATE_PWM = 6,       /* Output in PWM mode */
+    PMU_PROFET_STATE_DIS = 7,       /* Output disabled in config */
+    /* Legacy alias for backwards compatibility */
+    PMU_PROFET_STATE_FAULT = PMU_PROFET_STATE_OC
 } PMU_PROFET_State_t;
 
 /**
@@ -95,6 +104,34 @@ void PMU_PROFET_Update(void);
 HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state);
 
 /**
+ * @brief Set channel state with manual override (prevents logic from overwriting)
+ * @param channel Channel number (0-29)
+ * @param state 0=OFF, 1=ON
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_SetStateManual(uint8_t channel, uint8_t state);
+
+/**
+ * @brief Check if channel has manual override set
+ * @param channel Channel number (0-29)
+ * @retval 1 if override set, 0 otherwise
+ */
+uint8_t PMU_PROFET_HasManualOverride(uint8_t channel);
+
+/**
+ * @brief Clear manual override for channel
+ * @param channel Channel number (0-29)
+ * @retval None
+ */
+void PMU_PROFET_ClearManualOverride(uint8_t channel);
+
+/**
+ * @brief Clear all manual overrides
+ * @retval None
+ */
+void PMU_PROFET_ClearAllManualOverrides(void);
+
+/**
  * @brief Set channel PWM duty cycle
  * @param channel Channel number (0-29)
  * @param duty Duty cycle (0-1000 = 0-100%)
@@ -129,6 +166,14 @@ uint8_t PMU_PROFET_GetFaults(uint8_t channel);
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_PROFET_ClearFaults(uint8_t channel);
+
+/**
+ * @brief Inject fault into channel (for emulator/testing)
+ * @param channel Channel number (0-29)
+ * @param fault Fault flags to inject
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_PROFET_InjectFault(uint8_t channel, uint8_t fault);
 
 /**
  * @brief Get channel runtime data

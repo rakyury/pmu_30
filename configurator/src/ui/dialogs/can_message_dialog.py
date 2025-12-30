@@ -25,6 +25,75 @@ class CANMessageDialog(QDialog):
         ("PMU3 RX Format", "pmu3_rx"),
     ]
 
+    # CAN Message Templates
+    TEMPLATES = {
+        "Link ECU Generic Dashboard": {
+            "id": "msg_link_dash",
+            "name": "Link ECU Generic Dashboard",
+            "can_bus": 1,
+            "base_id": 0x3E8,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 200,
+            "enabled": True,
+            "description": "Link ECU Generic Dashboard stream (frames 0-7). Compound message with frame index in byte 0."
+        },
+        "Link ECU Generic Dashboard 2": {
+            "id": "msg_link_dash2",
+            "name": "Link ECU Generic Dashboard 2",
+            "can_bus": 1,
+            "base_id": 0x3E8,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 200,
+            "enabled": True,
+            "description": "Link ECU Generic Dashboard 2 stream (frames 8-15). Extended data including oil temp/press, wheel speeds, knock levels."
+        },
+        "ECUMaster PMU Status": {
+            "id": "msg_pmu_status",
+            "name": "ECUMaster PMU Status",
+            "can_bus": 1,
+            "base_id": 0x600,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 100,
+            "enabled": True,
+            "description": "ECUMaster PMU Standard CAN Stream - status, outputs, currents, voltages."
+        },
+        "AEM CD-7 Dash": {
+            "id": "msg_aem_cd7",
+            "name": "AEM CD-7 Dashboard",
+            "can_bus": 1,
+            "base_id": 0x1F0,
+            "is_extended": False,
+            "message_type": "normal",
+            "frame_count": 1,
+            "dlc": 8,
+            "timeout_ms": 100,
+            "enabled": True,
+            "description": "AEM CD-7 Dashboard input message."
+        },
+        "MoTeC M1 Series": {
+            "id": "msg_motec_m1",
+            "name": "MoTeC M1 Telemetry",
+            "can_bus": 1,
+            "base_id": 0x640,
+            "is_extended": False,
+            "message_type": "compound",
+            "frame_count": 8,
+            "dlc": 8,
+            "timeout_ms": 50,
+            "enabled": True,
+            "description": "MoTeC M1 Series ECU telemetry stream."
+        },
+    }
+
     def __init__(self, parent=None, message_config: Optional[Dict[str, Any]] = None,
                  existing_ids: Optional[List[str]] = None):
         """
@@ -38,9 +107,10 @@ class CANMessageDialog(QDialog):
         super().__init__(parent)
         self.message_config = message_config
         self.existing_ids = existing_ids or []
-        self.editing_id = message_config.get("id", "") if message_config else ""
+        # For backwards compatibility, try 'name' first, fall back to 'id'
+        self.editing_name = (message_config.get("name", "") or message_config.get("id", "")) if message_config else ""
 
-        self.setWindowTitle("CAN Message Object" if not message_config else f"Edit CAN Message: {self.editing_id}")
+        self.setWindowTitle("CAN Message Object" if not message_config else f"Edit CAN Message: {self.editing_name}")
         self.setModal(True)
         self.resize(500, 450)
 
@@ -53,19 +123,31 @@ class CANMessageDialog(QDialog):
         """Initialize UI components."""
         layout = QVBoxLayout()
 
+        # Template selection (only for new messages)
+        if not self.message_config:
+            template_group = QGroupBox("Quick Start from Template")
+            template_layout = QHBoxLayout()
+
+            template_layout.addWidget(QLabel("Template:"))
+
+            self.template_combo = QComboBox()
+            self.template_combo.addItem("-- Select Template --")
+            for name in self.TEMPLATES.keys():
+                self.template_combo.addItem(name)
+            self.template_combo.currentTextChanged.connect(self._on_template_selected)
+            template_layout.addWidget(self.template_combo, 1)
+
+            template_group.setLayout(template_layout)
+            layout.addWidget(template_group)
+
         # Identification group
         id_group = QGroupBox("Identification")
         id_layout = QFormLayout()
 
-        self.id_edit = QLineEdit()
-        self.id_edit.setPlaceholderText("e.g., msg_ecu_base")
-        self.id_edit.setToolTip("Unique identifier for this message (letters, numbers, underscores)")
-        id_layout.addRow("Message ID: *", self.id_edit)
-
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("e.g., ECU Base Data")
-        self.name_edit.setToolTip("Human-readable name for display")
-        id_layout.addRow("Name:", self.name_edit)
+        self.name_edit.setPlaceholderText("e.g., ECU_Base, LinkDash")
+        self.name_edit.setToolTip("Unique name for this message")
+        id_layout.addRow("Name: *", self.name_edit)
 
         id_group.setLayout(id_layout)
         layout.addWidget(id_group)
@@ -150,7 +232,7 @@ class CANMessageDialog(QDialog):
         info_label = QLabel(
             "<i>Note: Signals are configured separately using CAN Inputs.</i>"
         )
-        info_label.setStyleSheet("color: #888888;")
+        info_label.setStyleSheet("color: #b0b0b0;")
         layout.addWidget(info_label)
 
         layout.addStretch()
@@ -190,40 +272,68 @@ class CANMessageDialog(QDialog):
         if msg_type != "compound":
             self.frame_count_spin.setValue(1)
 
+    def _on_template_selected(self, template_name: str):
+        """Handle template selection."""
+        if template_name == "-- Select Template --":
+            return
+
+        if template_name in self.TEMPLATES:
+            template = self.TEMPLATES[template_name].copy()
+
+            # Check if name already exists and modify if needed
+            base_name = template.get("name", "") or template.get("id", "msg_template")
+            final_name = base_name
+            counter = 1
+            while final_name in self.existing_ids:
+                final_name = f"{base_name}_{counter}"
+                counter += 1
+            template["name"] = final_name
+
+            # Load the template configuration
+            self._load_config(template)
+
     def _on_accept(self):
         """Validate and accept dialog."""
-        # Validate ID
-        msg_id = self.id_edit.text().strip()
-        if not msg_id:
-            QMessageBox.warning(self, "Validation Error", "Message ID is required!")
-            self.id_edit.setFocus()
+        # Validate name
+        msg_name = self.name_edit.text().strip()
+        if not msg_name:
+            QMessageBox.warning(self, "Validation Error", "Message name is required!")
+            self.name_edit.setFocus()
             return
 
-        # Check ID format
-        import re
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', msg_id):
+        # Check name format - allow most characters except problematic ones
+        forbidden_chars = '"\'\\;{}[]'
+        if not msg_name[0].isalpha() and msg_name[0] != '_':
             QMessageBox.warning(
                 self, "Validation Error",
-                "Message ID must start with a letter and contain only letters, numbers, and underscores!"
+                "Name must start with a letter or underscore!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
+            return
+        if any(c in msg_name for c in forbidden_chars):
+            QMessageBox.warning(
+                self, "Validation Error",
+                "Name cannot contain: \" ' \\ ; { } [ ]"
+            )
+            self.name_edit.setFocus()
             return
 
-        # Check for duplicate ID (only if creating new or ID changed)
-        if msg_id != self.editing_id and msg_id in self.existing_ids:
+        # Check for duplicate name (only if creating new or name changed)
+        if msg_name != self.editing_name and msg_name in self.existing_ids:
             QMessageBox.warning(
                 self, "Validation Error",
-                f"Message ID '{msg_id}' already exists!"
+                f"Message name '{msg_name}' already exists!"
             )
-            self.id_edit.setFocus()
+            self.name_edit.setFocus()
             return
 
         self.accept()
 
     def _load_config(self, config: Dict[str, Any]):
         """Load configuration into dialog."""
-        self.id_edit.setText(config.get("id", ""))
-        self.name_edit.setText(config.get("name", ""))
+        # Name is the primary identifier - try 'name' first, fall back to 'id' for backwards compatibility
+        name = config.get("name", "") or config.get("id", "")
+        self.name_edit.setText(name)
 
         # CAN Bus (1-4 -> index 0-3)
         can_bus = config.get("can_bus", 1)
@@ -261,9 +371,9 @@ class CANMessageDialog(QDialog):
         msg_type_index = self.type_combo.currentIndex()
         msg_type = self.MESSAGE_TYPES[msg_type_index][1]
 
+        name = self.name_edit.text().strip()
         config = {
-            "id": self.id_edit.text().strip(),
-            "name": self.name_edit.text().strip(),
+            "name": name,  # Primary identifier - unique, user-editable
             "can_bus": self.can_bus_combo.currentIndex() + 1,  # 0-3 -> 1-4
             "base_id": self.base_id_spin.value(),
             "is_extended": self.extended_check.isChecked(),

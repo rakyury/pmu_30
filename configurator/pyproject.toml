@@ -1,0 +1,114 @@
+[project]
+name = "pmu30-configurator"
+version = "0.1.1"
+description = "PMU-30 Power Management Unit Configurator"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.5.0",
+    "pyserial>=3.5",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-qt>=4.2.0",
+    "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.2.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--timeout=60",
+]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/ui/resources/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E722",   # bare except (existing code pattern)
+    "F401",   # unused imports (may be intentional re-exports)
+    "F541",   # f-string without placeholders (harmless)
+    "F811",   # redefinition (existing code pattern)
+    "F841",   # unused variables (may be intentional)
+    "B007",   # unused loop variable (use _prefix convention)
+    "B008",   # function call in default argument
+    "B904",   # raise from in except (verbose)
+    "B905",   # zip strict
+    "C416",   # unnecessary comprehension
+    "UP006",  # use type instead of Type (compatibility)
+    "UP007",  # use X | Y instead of Union (compatibility)
+    "UP015",  # redundant open mode (style preference)
+    "UP035",  # import from collections.abc (compatibility)
+    "UP041",  # replace asyncio.TimeoutError (compatibility)
+    "UP045",  # use X | None instead of Optional (compatibility)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["B", "C4"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "tests/",
+    "build/",
+    "dist/",
+]
+
+[[tool.mypy.overrides]]
+module = "PyQt6.*"
+ignore_missing_imports = true

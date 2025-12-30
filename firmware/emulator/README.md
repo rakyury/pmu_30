@@ -1,414 +1,439 @@
 # PMU-30 Hardware Emulator
 
-Эмулятор аппаратного обеспечения для PMU-30, позволяющий запускать прошивку на ПК без реального железа.
+Hardware emulator for PMU-30 that allows running firmware logic on a PC without physical hardware. Designed for development, testing, and debugging of the PMU-30 configurator and firmware.
 
-## Содержание
+## Table of Contents
 
-- [Возможности](#возможности)
-- [Сборка и запуск](#сборка-и-запуск)
-- [Подключение конфигуратора](#подключение-конфигуратора)
-- [Интерактивный режим](#интерактивный-режим)
-- [UI визуализация](#ui-визуализация)
-- [Lua скрипты](#lua-скрипты)
-- [Сценарии тестирования](#сценарии-тестирования)
-- [API для программного использования](#api-для-программного-использования)
-- [Архитектура](#архитектура)
-
----
-
-## Возможности
-
-### Эмулируемые компоненты
-
-| Компонент | Описание | API |
-|-----------|----------|-----|
-| **ADC (20 каналов)** | Аналоговые/цифровые/частотные входы | `PMU_Emu_ADC_*` |
-| **CAN шина (4 шины)** | 2x CAN FD + 2x CAN 2.0 | `PMU_Emu_CAN_*` |
-| **PROFET (30 выходов)** | Силовые выходы с токовым контролем | `PMU_Emu_PROFET_*` |
-| **H-Bridge (4 моста)** | Мотор-контроллеры с PID | `PMU_Emu_HBridge_*` |
-| **Protection** | Защита по напряжению/температуре | `PMU_Emu_Protection_*` |
-| **TCP Server** | Подключение конфигуратора | Порт `9876` |
-| **Console UI** | Визуализация состояния каналов | Команда `ui` |
-| **Lua Scripting** | Программируемые тестовые сценарии | `pmu.*` API |
-
-### Ключевые функции
-
-- **Data Injection** - программное задание значений всех входов
-- **CAN Frame Injection** - инжекция CAN сообщений с периодическим повторением
-- **Fault Injection** - инжекция ошибок для тестирования защиты
-- **JSON Scenarios** - загрузка тестовых сценариев из файлов
-- **Real-time Simulation** - симуляция моторов и токовых нагрузок
-- **Configurator Connection** - полная совместимость с PMU-30 Configurator
-- **Lua Scripting** - автоматизация тестов с помощью Lua 5.4
+- [Features](#features)
+- [Current Status](#current-status)
+- [Build and Run](#build-and-run)
+- [Configurator Connection](#configurator-connection)
+- [Web UI (Browser Monitoring)](#web-ui-browser-monitoring)
+- [Interactive Mode](#interactive-mode)
+- [UI Visualization](#ui-visualization)
+- [Test Scenarios](#test-scenarios)
+- [API for Programmatic Use](#api-for-programmatic-use)
+- [Architecture](#architecture)
+- [Limitations](#limitations)
+- [TODO / Future Improvements](#todo--future-improvements)
 
 ---
 
-## Сборка и запуск
+## Features
 
-### Требования
+### Implemented Components
 
-- PlatformIO Core
-- GCC (Linux/macOS) или MinGW (Windows)
-- Lua 5.4 (опционально, для скриптов)
+| Component | Status | Description |
+|-----------|--------|-------------|
+| **ADC (20 channels)** | Working | Analog/digital/frequency input injection |
+| **CAN Bus (4 buses)** | Working | Message injection, periodic messages, online/offline simulation |
+| **PROFET (30 outputs)** | Working | State monitoring, current simulation, fault injection |
+| **H-Bridge (4 bridges)** | Working | Position simulation, motor parameters, fault injection |
+| **Protection System** | Working | Voltage/temperature/current monitoring, fault injection |
+| **TCP Server** | Working | Configurator connection on port 9876 |
+| **Web UI Server** | Working | Browser monitoring on port 8080 |
+| **JSON Config Parsing** | Working | Full v3.0 config format support |
+| **Telemetry** | Working | Real-time channel state streaming |
+| **Console UI** | Working | Channel state visualization |
+| **Lua Scripting** | Optional | Requires Lua 5.4 library (disabled by default on Windows) |
 
-### Установка зависимостей (Linux)
+### Key Capabilities
 
+- **Data Injection** - Set values for all ADC inputs via console or API
+- **CAN Frame Injection** - Inject CAN messages (one-shot or periodic)
+- **Fault Injection** - Inject faults for protection and output testing
+- **JSON Scenarios** - Load/save test scenarios from files
+- **Real-time Simulation** - Current calculation based on voltage and load resistance
+- **Motor Simulation** - H-Bridge position simulation with speed and inertia parameters
+- **Configurator Connection** - Full protocol compatibility with PMU-30 Configurator
+
+---
+
+## Current Status
+
+### What Works
+
+1. **Configurator Connection**
+   - TCP server accepts connections from configurator
+   - PING/PONG for connection check
+   - GET_INFO returns device information
+   - SET_CONFIG receives and parses JSON configuration
+   - Telemetry subscription and streaming
+
+2. **Configuration Parsing**
+   - Version detection (v1.0, v2.0, v3.0)
+   - Device info (name, serial, firmware version)
+   - All channel types: digital_input, analog_input, power_output, logic, timer, filter, table2d, table3d, can_rx, can_tx
+   - Protection settings (current limits, inrush, retry)
+   - PWM settings (frequency, duty, soft start)
+   - CAN messages (Level 1)
+   - Lua scripts (parsing only, execution requires Lua library)
+   - System settings (frequencies, baudrates)
+   - Settings (CAN stream enable, CAN bus configs)
+
+3. **HAL Emulation**
+   - GPIO read/write
+   - ADC with DMA buffer filling
+   - Timer PWM
+   - FDCAN TX/RX
+   - SPI (stub responses)
+   - UART (stdout output)
+
+4. **Interactive Console**
+   - All documented commands working
+   - Background tick thread for real-time operation
+   - Signal handling for graceful shutdown
+
+5. **Firmware Integration**
+   - PMU_Channel_Update() called at 1kHz tick rate
+   - PMU_Logic_Execute() called at 500Hz for logic functions
+   - PMU_CAN_Update() processes CAN RX queue from injected messages
+   - Real channel values from firmware used in telemetry
+
+6. **Configuration Persistence**
+   - Configuration saved to `last_config.json` on each upload
+   - Configuration automatically loaded on emulator startup
+
+7. **Web UI**
+   - HTTP server on port 8080
+   - WebSocket for real-time telemetry updates (100ms interval)
+   - Dark-themed responsive dashboard
+   - Channel toggle controls via WebSocket
+
+### What's Partially Working
+
+1. **Lua Scripting** - Script management infrastructure works, actual Lua execution requires linking Lua 5.4 library
+
+---
+
+## Build and Run
+
+### Requirements
+
+- PlatformIO Core (CLI)
+- GCC compiler:
+  - **Windows**: MinGW-w64 via MSYS2
+  - **Linux/macOS**: Native GCC
+- Lua 5.4 (optional, for scripting)
+
+### Installing Dependencies
+
+**Windows (MSYS2):**
 ```bash
-# Lua для скриптов (опционально)
+# Install MSYS2 from https://www.msys2.org/
+pacman -S mingw-w64-ucrt-x86_64-gcc
+# Add C:\msys64\ucrt64\bin to PATH
+```
+
+**Linux:**
+```bash
+sudo apt install build-essential
+# Optional: Lua for scripting
 sudo apt install liblua5.4-dev
 ```
 
-### Сборка
+### Building
 
 ```bash
 cd firmware
 
-# Сборка эмулятора
+# Build emulator
 pio run -e pmu30_emulator
 
-# Запуск
+# Run (Linux/macOS)
 .pio/build/pmu30_emulator/program
+
+# Run (Windows)
+.pio\build\pmu30_emulator\program.exe
 ```
 
-### Режимы запуска
+### Run Modes
 
 ```bash
-# Интерактивный режим (по умолчанию)
+# Interactive mode (default) - console with commands
 ./pmu30_emulator
 
-# Запуск сценария
-./pmu30_emulator --scenario scenarios/can_test.json
-
-# Headless режим (без консоли, только TCP сервер)
+# Headless mode - TCP server only, no console
 ./pmu30_emulator --headless
 
-# Справка
+# Run scenario file
+./pmu30_emulator --scenario scenarios/test.json
+
+# Show help
 ./pmu30_emulator --help
+
+# Show version
+./pmu30_emulator --version
 ```
 
 ---
 
-## Подключение конфигуратора
+## Configurator Connection
 
-Эмулятор автоматически запускает TCP сервер на порту **9876**, к которому может подключиться PMU-30 Configurator.
+The emulator starts a TCP server on port **9876** that accepts connections from the PMU-30 Configurator.
 
-### Шаги подключения
+### Connection Steps
 
-1. **Запустите эмулятор:**
+1. **Start the emulator:**
    ```bash
-   ./pmu30_emulator
+   .pio\build\pmu30_emulator\program.exe
    ```
 
-   В консоли появится сообщение:
+   Console output:
    ```
+   +===============================================================+
+   |               PMU-30 Firmware Emulator v1.0.0                 |
+   +===============================================================+
    >>> Configurator can connect to: localhost:9876
    ```
 
-2. **Откройте Configurator:**
+2. **Start Configurator:**
    ```bash
    cd configurator
    python launch.py
    ```
 
-3. **В Configurator:**
-   - Нажмите **Connect** или **File → Connect**
-   - Выберите тип подключения: **Emulator**
+3. **Connect from Configurator:**
+   - Click **Connect** or **File -> Connect**
+   - Select connection type: **Emulator**
    - Host: `localhost`
    - Port: `9876`
-   - Нажмите **Check Emulator** (должен показать "ONLINE")
-   - Нажмите **Connect**
+   - Click **Check Emulator** (should show "ONLINE")
+   - Click **Connect**
 
-### Что происходит при подключении
+### Configuration Loading
 
-```
-╔════════════════════════════════════════════════════════════╗
-║          PMU-30 Emulator - Configurator Connected          ║
-╚════════════════════════════════════════════════════════════╝
-
-[SRV] Client 0 connected from 127.0.0.1:54321
-[SRV] RX msg 0x10, len 0          <- GET_INFO
-[SRV] RX msg 0x30, len 2          <- SUBSCRIBE_TELEM
-[SRV] Telemetry enabled at 50 Hz
-```
-
-### Загрузка конфигурации
-
-Когда вы отправляете конфигурацию из Configurator:
+When you send configuration from Configurator (Write to Device):
 
 ```
-╔════════════════════════════════════════════════════════════╗
-║          CONFIGURATION LOADED FROM CONFIGURATOR            ║
-╠════════════════════════════════════════════════════════════╣
-║  Total Channels:    42                                     ║
-║  ├─ Digital Inputs: 8                                      ║
-║  ├─ Analog Inputs:  12                                     ║
-║  ├─ Power Outputs:  15                                     ║
-║  ├─ Logic Functions:5                                      ║
-║  ├─ CAN RX:         2                                      ║
-║  └─ CAN TX:         0                                      ║
-║  CAN Messages:      10                                     ║
-║  Config saved to:   last_config.json                       ║
-╚════════════════════════════════════════════════════════════╝
++============================================================+
+|          CONFIGURATION LOADED FROM CONFIGURATOR            |
++============================================================+
+|  Total Channels:    15                                     |
+|    - Digital Inputs: 4                                     |
+|    - Analog Inputs:  6                                     |
+|    - Power Outputs:  3                                     |
+|    - Logic Functions:2                                     |
+|    - CAN RX:         0                                     |
+|    - CAN TX:         0                                     |
+|  CAN Messages:      5                                      |
+|  Lua Scripts:       1                                      |
+|  CAN Stream:        ON                                     |
+|  Parse Time:        3 ms                                   |
+|  Config saved to:   last_config.json                       |
++============================================================+
 ```
 
-### Удалённое подключение
+Configuration is also saved to `last_config.json` for debugging.
 
-Эмулятор можно запустить на удалённой машине:
+### Remote Connection
+
+The emulator can run on a remote machine:
 
 ```bash
-# На сервере
+# On server
 ./pmu30_emulator --headless
 
-# В Configurator
+# In Configurator
 Host: 192.168.1.100
 Port: 9876
 ```
 
 ---
 
-## Интерактивный режим
+## Web UI (Browser Monitoring)
 
-### Полный список команд
+The emulator includes a built-in web server for real-time monitoring in a browser.
+
+### Accessing the Web UI
+
+1. **Start the emulator**
+2. **Open browser**: Navigate to `http://localhost:8080`
+3. **Or use console command**: Type `webui` or `web` to auto-open browser
+
+### Features
+
+The Web UI provides:
+
+- **Real-time Dashboard** - Dark-themed responsive UI
+- **PROFET Channel Status** - Shows 16 channels with ON/OFF/FAULT states and currents
+- **H-Bridge Status** - Shows 4 H-bridge channels with direction and PWM
+- **Analog Inputs** - Displays 8 ADC voltage readings
+- **System Status** - Battery voltage, temperature, uptime, tick counter
+- **Channel Controls** - Click buttons to toggle PROFET channels
+- **Log Panel** - Shows system messages in real-time
+- **WebSocket Updates** - Automatic 100ms refresh rate
+
+### Screenshot Preview
 
 ```
---- Emulator Commands ---
-
-  ADC Commands:
-    adc <ch> <value>      - Set ADC channel (0-19) raw value (0-1023)
-    adcv <ch> <voltage>   - Set ADC channel voltage (0.0-3.3V)
-    freq <ch> <hz>        - Set frequency input (Hz)
-
-  CAN Commands:
-    can <bus> <id> <d0> [d1-d7] - Inject CAN message
-    canp <bus> <id> <int> <d0-d7> - Add periodic CAN message
-    canoff <bus>          - Set CAN bus offline
-    canon <bus>           - Set CAN bus online
-
-  Protection Commands:
-    volt <mV>             - Set battery voltage (mV)
-    temp <C>              - Set temperature (C)
-    fault <flags>         - Inject protection fault
-    clear                 - Clear all faults
-
-  PROFET Commands:
-    load <ch> <ohm>       - Set PROFET load resistance
-    pfault <ch> <flags>   - Inject PROFET fault
-
-  H-Bridge Commands:
-    hpos <br> <pos>       - Set H-Bridge position (0-1000)
-    hmotor <br> <spd> <i> - Set motor params (speed, inertia)
-    hfault <br> <flags>   - Inject H-Bridge fault
-
-  Control Commands:
-    pause                 - Pause emulator
-    resume                - Resume emulator
-    speed <x>             - Set time scale (1.0 = real-time)
-    reset                 - Reset emulator
-    status                - Print full status
-    tick                  - Run single tick
-
-  Scenario Commands:
-    load <file>           - Load scenario from JSON file
-    save <file>           - Save current state to JSON
-
-  UI Visualization:
-    ui                    - Show channel state grid
-    ui <ch>               - Show detailed info for channel
-    ui on                 - Enable auto visualization
-    ui off                - Disable auto visualization
-
-  General:
-    help                  - Show this help
-    quit / exit           - Exit emulator
++---------------------------------------------------------------+
+|            PMU-30 Emulator Monitor              [●] Connected |
++---------------------------------------------------------------+
+|  PROFET Channels (1-16)    |  H-Bridge Channels (17-20)      |
+|  +-----+-----+-----+-----+ |  +------+------+------+------+  |
+|  | CH1 | CH2 | CH3 | CH4 | |  | HB1  | HB2  | HB3  | HB4  |  |
+|  | OFF | ON  | OFF | OFF | |  | OFF  | FWD  | REV  | OFF  |  |
+|  | 0.0A| 2.5A| 0.0A| 0.0A| |  |  0%  | 50%  | 75%  |  0%  |  |
+|  +-----+-----+-----+-----+ |  +------+------+------+------+  |
++---------------------------------------------------------------+
+|  Analog Inputs             |  System Status                  |
+|  AIN1: 2.45V  AIN2: 1.23V |  Voltage: 12.5V                 |
+|  AIN3: 0.50V  AIN4: 3.30V |  Temperature: 25.0°C            |
+|  AIN5: 0.00V  AIN6: 1.65V |  Uptime: 123s                   |
++---------------------------------------------------------------+
 ```
 
-### Примеры использования
+---
+
+## Interactive Mode
+
+### Command Reference
+
+```
+--- ADC Commands ---
+  adc <ch> <value>      Set ADC channel (0-19) raw value (0-1023)
+  adcv <ch> <voltage>   Set ADC channel voltage (0.0-3.3V)
+  freq <ch> <hz>        Set frequency input (Hz)
+
+--- CAN Commands ---
+  can <bus> <id> <d0> [d1-d7]   Inject single CAN message
+  canp <bus> <id> <int> <d0-d7> Add periodic CAN message (interval in ms)
+  canoff <bus>          Set CAN bus offline
+  canon <bus>           Set CAN bus online
+
+--- Protection Commands ---
+  volt <mV>             Set battery voltage (mV)
+  temp <C>              Set board temperature (C)
+  fault <flags>         Inject protection fault (hex)
+  clear                 Clear all faults
+
+--- PROFET Commands ---
+  load <ch> <ohm>       Set PROFET load resistance
+  pfault <ch> <flags>   Inject PROFET fault (hex)
+
+--- H-Bridge Commands ---
+  hpos <br> <pos>       Set H-Bridge position (0-1000)
+  hmotor <br> <spd> <i> Set motor params (speed, inertia)
+  hfault <br> <flags>   Inject H-Bridge fault (hex)
+
+--- Control Commands ---
+  pause                 Pause emulator tick
+  resume                Resume emulator tick
+  speed <x>             Set time scale (1.0 = real-time, 2.0 = 2x speed)
+  reset                 Reset emulator to defaults
+  status                Print full emulator status
+  tick                  Run single tick manually
+
+--- Scenario Commands ---
+  load <file>           Load scenario from JSON file
+  save <file>           Save current state to JSON
+
+--- UI Commands ---
+  ui                    Show channel state grid
+  ui <ch>               Show detailed info for channel (0-29)
+  ui on                 Enable automatic state updates
+  ui off                Disable automatic state updates
+
+--- General ---
+  help                  Show command help
+  quit / exit           Exit emulator
+```
+
+### Usage Examples
 
 ```bash
+# Set ADC input to mid-scale
 EMU> adc 0 512
 ADC[0] = 512
 
+# Set ADC voltage directly
 EMU> adcv 1 2.5
 ADC[1] = 2.500V
 
+# Set battery voltage to 14V
 EMU> volt 14000
 Voltage = 14000 mV
 
-EMU> temp 45
-Temperature = 45 C
-
+# Inject CAN message on bus 0
 EMU> can 0 0x100 01 02 03 04
 CAN[0] TX: ID=0x100, DLC=4
 
+# Set load resistance for current simulation
 EMU> load 5 4.7
 PROFET[5] load = 4.7 ohm
 
+# Inject overcurrent fault on channel 0
 EMU> pfault 0 0x01
 PROFET[0] fault: 0x01
 
+# View full status
 EMU> status
---- Emulator Status ---
-Time: 12345 ms
-Voltage: 14000 mV
-Temperature: 45 C
+=== PMU-30 Emulator State ===
+Uptime: 45 seconds
+Time scale: 1.0x
+Status: RUNNING
 ...
 ```
 
 ---
 
-## UI визуализация
+## UI Visualization
 
-Эмулятор поддерживает визуальный мониторинг состояния каналов в консоли.
+Console-based monitoring of channel states.
 
-### Команды UI
+### Commands
 
-| Команда | Описание |
-|---------|----------|
-| `ui` | Показать сетку состояний всех каналов |
-| `ui <ch>` | Детальная информация о канале (0-29) |
-| `ui on` | Включить автоматическое обновление |
-| `ui off` | Выключить автоматическое обновление |
+| Command | Description |
+|---------|-------------|
+| `ui` | Show state grid for all 30 channels |
+| `ui <ch>` | Detailed information for specific channel |
+| `ui on` | Enable automatic updates on state change |
+| `ui off` | Disable automatic updates |
 
-### Пример: сетка каналов
+### Channel Grid
 
 ```
 EMU> ui
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Status: RUNNING  |  ON: 5  |  PWM: 2  |  FAULT: 0
-┌─────────────────────────────────────────────────────────┐
-│                   CHANNEL STATUS                        │
-├─────────────────────────────────────────────────────────┤
-│  0  1  2  3  4  5  6  7  8  9     │
-│  ●  ○  ○  ●  ○  ◐  ○  ○  ○  ●     │
-│                                                         │
-│ 10 11 12 13 14 15 16 17 18 19     │
-│  ○  ○  ●  ○  ○  ○  ○  ○  ○  ○     │
-│                                                         │
-│ 20 21 22 23 24 25 26 27 28 29     │
-│  ○  ○  ○  ○  ◐  ○  ○  ○  ○  ●     │
-└─────────────────────────────────────────────────────────┘
-  Legend: ○=OFF  ●=ON  ◐=PWM  ●=FAULT
++---------------------------------------------------------+
+|                   CHANNEL STATUS                        |
++---------------------------------------------------------+
+|  0  1  2  3  4  5  6  7  8  9                          |
+|  *  o  o  *  o  ~  o  o  o  *                          |
+|                                                         |
+| 10 11 12 13 14 15 16 17 18 19                          |
+|  o  o  *  o  o  o  o  o  o  o                          |
+|                                                         |
+| 20 21 22 23 24 25 26 27 28 29                          |
+|  o  o  o  o  ~  o  o  o  o  *                          |
++---------------------------------------------------------+
+  Legend: o=OFF  *=ON  ~=PWM  !=FAULT
 ```
 
-### Пример: детали канала
+### Channel Details
 
 ```
 EMU> ui 5
 
-═══ Channel 5 Details ═══
+=== Channel 5 Details ===
   State:       PWM (75.5%)
   Current:     2340 mA
-  Temperature: 42 °C
+  Temperature: 42 C
   On time:     15230 ms
   Faults:      0x00 (0 total)
 ```
 
-### Автоматическое отображение изменений
-
-При изменении состояния канала выводится лог:
-
-```
-[OUT 05] OFF → ON
-[OUT 12] ON → PWM
-[OUT 03] ON → FAULT
-```
-
 ---
 
-## Lua скрипты
+## Test Scenarios
 
-Эмулятор поддерживает Lua 5.4 для автоматизации тестов.
-
-### Доступные функции
-
-```lua
--- Управление выходами
-pmu.setOutput(channel, state)         -- 0=OFF, 1=ON
-pmu.setOutput(channel, 1, pwm_duty)   -- PWM (0-1000 = 0-100%)
-
--- Чтение входов
-value = pmu.getInput(channel)         -- ADC raw value (0-1023)
-
--- Управление CAN
-pmu.canSend(bus, id, {d0, d1, ...})   -- Отправка CAN сообщения
-
--- Логирование
-pmu.log("message")                    -- Вывод в консоль
-
--- Пауза
-pmu.sleep(ms)                         -- Задержка в миллисекундах
-```
-
-### Пример скрипта
-
-```lua
--- test_outputs.lua
--- Тестирование всех выходов
-
-pmu.log("Starting output test...")
-
-for i = 0, 29 do
-    pmu.setOutput(i, 1)
-    pmu.sleep(100)
-    pmu.log("Channel " .. i .. " ON")
-end
-
-pmu.sleep(1000)
-
-for i = 0, 29 do
-    pmu.setOutput(i, 0)
-end
-
-pmu.log("Test complete!")
-```
-
-### Пример: PWM тест
-
-```lua
--- pwm_ramp.lua
--- Плавное изменение PWM
-
-local channel = 5
-
-for duty = 0, 1000, 50 do
-    pmu.setOutput(channel, 1, duty)
-    pmu.log("CH" .. channel .. " PWM: " .. (duty/10) .. "%")
-    pmu.sleep(100)
-end
-```
-
-### Пример: CAN тест
-
-```lua
--- can_test.lua
--- Отправка CAN сообщений
-
--- Отправляем сообщение на шину 0
-pmu.canSend(0, 0x100, {0x01, 0x02, 0x03, 0x04})
-
--- Читаем аналоговый вход
-local adc = pmu.getInput(0)
-pmu.log("ADC[0] = " .. adc)
-
--- Управляем выходом на основе входа
-if adc > 512 then
-    pmu.setOutput(0, 1)
-else
-    pmu.setOutput(0, 0)
-end
-```
-
----
-
-## Сценарии тестирования
-
-### Формат JSON
+### JSON Format
 
 ```json
 {
-    "name": "Test Name",
-    "description": "Test description",
+    "name": "Basic Test",
+    "description": "Test scenario with default values",
 
     "adc": [512, 512, 0, 0, 0, 0, 0, 0, 0, 0,
            0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -432,134 +457,216 @@ end
 }
 ```
 
-### Запуск сценария
+### Running Scenarios
 
 ```bash
-./pmu30_emulator --scenario scenarios/basic_test.json
+# Load at startup
+./pmu30_emulator --scenario test_can.json
+
+# Load from interactive mode
+EMU> load test_can.json
+Scenario loaded: test_can.json
 ```
 
 ---
 
-## API для программного использования
+## API for Programmatic Use
 
-### Инициализация
+### C API
 
 ```c
 #include "pmu_emulator.h"
 
-// Инициализация
+// Initialize
 PMU_Emu_Init();
 
-// Основной цикл
+// Main loop
 while (running) {
     PMU_Emu_Tick(1);  // 1ms tick
     usleep(1000);
 }
 
-// Завершение
+// Cleanup
 PMU_Emu_Deinit();
 ```
 
-### Инжекция данных
+### Data Injection
 
 ```c
 // ADC
-PMU_Emu_ADC_SetVoltage(0, 2.5f);     // Канал 0, 2.5V
-PMU_Emu_ADC_SetRaw(1, 512);           // Канал 1, raw
-PMU_Emu_ADC_SetFrequency(2, 1000);    // Канал 2, 1000 Hz
+PMU_Emu_ADC_SetVoltage(0, 2.5f);     // Channel 0, 2.5V
+PMU_Emu_ADC_SetRaw(1, 512);           // Channel 1, raw value
+PMU_Emu_ADC_SetFrequency(2, 1000);    // Channel 2, 1000 Hz
 
 // CAN
 uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
 PMU_Emu_CAN_InjectMessage(0, 0x100, data, 4);
+PMU_Emu_CAN_AddPeriodicMessage(0, 0x200, data, 8, 100); // 100ms interval
 
 // Protection
-PMU_Emu_Protection_SetVoltage(12000);
-PMU_Emu_Protection_SetTemperature(25);
+PMU_Emu_Protection_SetVoltage(12000);      // 12V
+PMU_Emu_Protection_SetTemperature(25);     // 25C
 
 // Fault injection
-PMU_Emu_Protection_InjectFault(0x0001);
-PMU_Emu_PROFET_InjectFault(0, 0x01);
+PMU_Emu_Protection_InjectFault(0x0001);    // Undervoltage
+PMU_Emu_PROFET_InjectFault(0, 0x01);       // Channel 0 overcurrent
 ```
 
-### Мониторинг
+### Callbacks
 
 ```c
-// Callback для CAN TX
+// CAN TX callback - called when firmware sends CAN message
 void OnCanTx(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len) {
     printf("CAN TX: bus=%d, id=0x%X\n", bus, id);
 }
 PMU_Emu_CAN_SetTxCallback(OnCanTx);
 
-// Получение состояния
+// Get PROFET state
 const PMU_Emu_PROFET_Channel_t* ch = PMU_Emu_PROFET_GetState(0);
 printf("PROFET[0]: state=%d, current=%d mA\n", ch->state, ch->current_mA);
 ```
 
 ---
 
-## Архитектура
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   PMU-30 Configurator                   │
-│                    (TCP client)                          │
-└──────────────────────────┬──────────────────────────────┘
-                           │ TCP:9876
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│                Protocol Server                           │
-│          (emu_protocol_server.c)                         │
-├─────────────────────────────────────────────────────────┤
-│                Interactive Console                       │
-│          (emu_main.c)                                    │
-├─────────────────────────────────────────────────────────┤
-│                  Console UI                              │
-│          (emu_ui.c) - channel visualization              │
-├─────────────────────────────────────────────────────────┤
-│                  Lua Engine                              │
-│          (pmu_lua.c) - scripting                         │
-├─────────────────────────────────────────────────────────┤
-│                PMU Emulator Core                         │
-│          (pmu_emulator.c)                                │
-├─────────────────────────────────────────────────────────┤
-│                HAL Emulation Layer                       │
-│          (stm32_hal_emu.c)                               │
-├─────────────────────────────────────────────────────────┤
-│                Firmware Sources                          │
-│     (pmu_adc.c, pmu_can.c, pmu_profet.c, ...)           │
-└─────────────────────────────────────────────────────────┘
++-----------------------------------------------------------+
+|                   PMU-30 Configurator                      |
+|                    (TCP Client)                            |
++-----------------------------+-----------------------------+
+                              | TCP:9876
+                              v
++-----------------------------------------------------------+
+|                  Protocol Server                           |
+|         (emu_protocol_server.c)                           |
+|  - Handles PING, GET_INFO, SET_CONFIG, TELEMETRY          |
++-----------------------------------------------------------+
+|                  Interactive Console                       |
+|         (emu_main.c)                                      |
+|  - Command parsing, tick thread, signal handling          |
++-----------------------------------------------------------+
+|                    Console UI                              |
+|         (emu_ui.c)                                        |
+|  - Channel state visualization                            |
++-----------------------------------------------------------+
+|                  PMU Emulator Core                         |
+|         (pmu_emulator.c)                                  |
+|  - ADC, CAN, PROFET, H-Bridge, Protection simulation      |
++-----------------------------------------------------------+
+|                  HAL Emulation Layer                       |
+|         (stm32_hal_emu.h + pmu_emulator.c)               |
+|  - GPIO, ADC, TIM, SPI, UART, FDCAN stubs                |
++-----------------------------------------------------------+
+|                  Firmware Stubs                            |
+|         (emu_stubs.c)                                     |
+|  - DMA buffers, weak function stubs                       |
++-----------------------------------------------------------+
+|                  Firmware Sources                          |
+|  (pmu_config_json.c, pmu_channel.c, pmu_can.c, ...)      |
++-----------------------------------------------------------+
 ```
 
-### Протокол коммуникации
+### Communication Protocol
 
-| Код | Сообщение | Описание |
-|-----|-----------|----------|
-| 0x01 | PING | Проверка связи |
-| 0x02 | PONG | Ответ на PING |
-| 0x10 | GET_INFO | Запрос информации об устройстве |
-| 0x11 | INFO_RESP | Ответ с информацией |
-| 0x20 | GET_CONFIG | Запрос конфигурации |
-| 0x21 | CONFIG_DATA | Данные конфигурации |
-| 0x22 | SET_CONFIG | Установка конфигурации |
-| 0x23 | CONFIG_ACK | Подтверждение |
-| 0x30 | SUBSCRIBE_TELEM | Подписка на телеметрию |
-| 0x31 | UNSUBSCRIBE_TELEM | Отписка от телеметрии |
-| 0x32 | TELEMETRY_DATA | Данные телеметрии |
-| 0x40 | SET_CHANNEL | Установка значения канала |
-| 0x41 | CHANNEL_ACK | Подтверждение |
-| 0x50 | ERROR | Ошибка |
+| Code | Message | Direction | Description |
+|------|---------|-----------|-------------|
+| 0x01 | PING | C->E | Connection check |
+| 0x02 | PONG | E->C | PING response |
+| 0x10 | GET_INFO | C->E | Request device info |
+| 0x11 | INFO_RESP | E->C | Device info response |
+| 0x20 | GET_CONFIG | C->E | Request current configuration |
+| 0x21 | CONFIG_DATA | E->C | Configuration data |
+| 0x22 | SET_CONFIG | C->E | Send new configuration (JSON) |
+| 0x23 | CONFIG_ACK | E->C | Configuration accepted |
+| 0x30 | SUBSCRIBE_TELEM | C->E | Start telemetry streaming |
+| 0x31 | UNSUBSCRIBE_TELEM | C->E | Stop telemetry streaming |
+| 0x32 | TELEMETRY_DATA | E->C | Telemetry packet |
+| 0x40 | SET_CHANNEL | C->E | Set channel output value |
+| 0x41 | CHANNEL_ACK | E->C | Channel set acknowledged |
+| 0x50 | ERROR | E->C | Error response |
+
+C = Configurator, E = Emulator
 
 ---
 
-## Ограничения
+## Limitations
 
-- FreeRTOS не эмулируется (single-threaded)
-- Timing не гарантирован (зависит от хост-системы)
-- SPI диагностика возвращает заглушки
-- Нет эмуляции флэш-памяти
+### Architectural Limitations
+
+- **Single-threaded execution** - No FreeRTOS task scheduling, all firmware runs in main tick loop
+- **No real-time guarantees** - Timing depends on host OS scheduler
+- **Simplified physics** - Current/temperature simulation is approximate
+
+### Not Emulated
+
+- **Flash memory** - No persistent storage, config is RAM-only
+- **SPI diagnostics** - Returns stub/zero values
+- **External EEPROM** - Not implemented
+- **RTC** - Uses host system time
+- **DMA transfers** - Simulated synchronously
+- **Interrupts** - Polling-based instead
+
+### Known Issues
+
+1. **PWM output state** - Visual state tracking works, but actual PWM generation is simulated
+2. **H-Bridge end stops** - No mechanical limit switch simulation
+3. **Lua execution disabled** - Lua library not linked by default; only script management works
 
 ---
 
-## Лицензия
+## TODO / Future Improvements
+
+### Recently Completed ✓
+
+- [x] **Integrate firmware logic execution** - PMU_Channel_Update and PMU_Logic_Execute now called in tick loop
+- [x] **CAN RX message processing** - Injected CAN messages are processed by firmware CAN handler
+- [x] **Telemetry with real data** - Uses PMU_Channel_GetValue() for actual channel states
+- [x] **Output state feedback** - SET_CHANNEL updates both firmware channel and emulator state
+- [x] **Lua scripting structure** - Lua files included in build (stub mode without Lua library)
+- [x] **Config persistence** - Auto-loads last_config.json on startup
+
+### High Priority
+
+- [ ] **Full Lua support** - Link Lua 5.4 library for actual script execution
+- [ ] **Web UI** - Browser-based monitoring interface
+- [ ] **Multiple client support** - Allow multiple configurator connections
+- [ ] **CAN bus logging** - Save CAN traffic to file for analysis
+
+### Medium Priority
+
+- [ ] **Flash memory emulation** - File-backed persistent storage
+- [ ] **SPI diagnostic simulation** - Return realistic PROFET diagnostic data
+- [ ] **Automated test framework** - JSON-based test assertions
+- [ ] **Performance profiling** - Measure tick execution time
+- [ ] **Docker support** - Containerized emulator for CI/CD
+
+### Configurator Integration
+
+- [ ] **Read config from device** - GET_CONFIG should return current parsed config
+- [ ] **Error reporting** - Send parsing errors back to configurator
+- [ ] **Firmware update simulation** - Accept firmware binary (no-op)
+
+---
+
+## Files Structure
+
+```
+firmware/emulator/
+├── emu_main.c              # Entry point, CLI parsing, interactive mode
+├── emu_protocol_server.c   # TCP server, protocol handling
+├── emu_protocol_server.h   # Server API
+├── emu_ui.c               # Console UI visualization
+├── emu_stubs.c            # DMA buffers, weak function stubs
+├── emu_flash.c            # Flash emulation (stub)
+├── pmu_emulator.c         # Core emulation: ADC, CAN, PROFET, H-Bridge
+├── pmu_emulator.h         # Emulator API
+├── stm32_hal_emu.h        # HAL type definitions and stubs
+└── README.md              # This file
+```
+
+---
+
+## License
 
 Copyright (c) 2025 R2 m-sport. All rights reserved.

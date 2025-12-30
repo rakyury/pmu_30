@@ -10,8 +10,8 @@
  * Copyright (c) 2025 R2 m-sport.
  * All rights reserved.
  *
- * Implements Ecumaster-compatible Standard CAN Stream for real-time
- * monitoring of PMU parameters over CAN bus.
+ * Implements Standard CAN Stream for real-time monitoring of
+ * PMU parameters over CAN bus.
  *
  * Frame Structure (8 standard + 8 extended):
  *   BaseID+0:  System Status & Temperatures (20 Hz)

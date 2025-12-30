@@ -246,7 +246,7 @@ class SettingsTab(QWidget):
         self.stream_enabled_check.setChecked(False)
         self.stream_enabled_check.setToolTip(
             "Broadcast predefined PMU parameters over CAN bus.\n"
-            "Compatible with Ecumaster Standard CAN Stream format."
+            "Standard CAN Stream format for real-time monitoring."
         )
         self.stream_enabled_check.toggled.connect(self._on_stream_enabled_changed)
         self.stream_enabled_check.toggled.connect(self._on_config_changed)
@@ -307,7 +307,7 @@ class SettingsTab(QWidget):
         # Stream info label
         stream_info = QLabel(
             "<i>Standard CAN Stream transmits PMU data at 20 Hz and 62.5 Hz rates.<br>"
-            "Ecumaster-compatible for real-time monitoring.</i>"
+            "Compatible with standard CAN loggers for real-time monitoring.</i>"
         )
         stream_info.setWordWrap(True)
         stream_info.setTextFormat(Qt.TextFormat.RichText)

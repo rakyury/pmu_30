@@ -27,6 +27,32 @@
  * func_id = logic.hysteresis(output_ch, input_ch, on_threshold, off_threshold)
  * logic.enable(func_id, true/false)
  *
+ * -- CAN Bus Functions
+ * can.send(bus, id, data)           -- Send CAN message
+ * value = can.get("msg_id", "signal")  -- Get signal from CAN frame
+ * can.set("msg_id", "signal", value)   -- Set signal in CAN TX frame
+ * can.on_receive(id, callback)      -- Register receive callback
+ * status = can.status(bus)          -- Get CAN bus status
+ *
+ * -- LIN Bus Functions
+ * lin.send(bus, frame_id, data)     -- Send LIN frame
+ * value = lin.get("frame_id", "signal") -- Get signal from LIN frame
+ * lin.set("frame_id", "signal", value)  -- Set signal in LIN TX frame
+ * lin.request(frame_id)             -- Master request frame
+ * lin.wakeup(bus)                   -- Send wakeup signal
+ * lin.sleep(bus)                    -- Go to sleep mode
+ * status = lin.status(bus)          -- Get LIN bus status
+ *
+ * -- PID Controller Functions
+ * id = pid.create("name", kp, ki, kd) -- Create PID controller
+ * pid.setpoint(id, value)           -- Set setpoint
+ * pid.configure(id, kp, ki, kd)     -- Configure gains
+ * pid.limits(id, min, max)          -- Set output limits
+ * output = pid.compute(id, input)   -- Compute PID output
+ * pid.reset(id)                     -- Reset controller state
+ * info = pid.get(id)                -- Get controller state
+ * pid.enable(id, enabled)           -- Enable/disable controller
+ *
  * -- System Functions
  * voltage = system.voltage()
  * current = system.current()
@@ -147,6 +173,50 @@ int lua_system_uptime(lua_State* L);        /* system.uptime() */
 int lua_util_print(lua_State* L);           /* print(msg) */
 int lua_util_millis(lua_State* L);          /* millis() */
 int lua_util_sleep(lua_State* L);           /* sleep(ms) */
+
+/* CAN API */
+int lua_can_send(lua_State* L);             /* can.send(bus, id, data) */
+int lua_can_get(lua_State* L);              /* can.get(frame_id, signal) */
+int lua_can_set(lua_State* L);              /* can.set(frame_id, signal, value) */
+int lua_can_on_receive(lua_State* L);       /* can.on_receive(id, callback) */
+int lua_can_status(lua_State* L);           /* can.status(bus) */
+
+/* LIN API */
+int lua_lin_send(lua_State* L);             /* lin.send(bus, frame_id, data) */
+int lua_lin_get(lua_State* L);              /* lin.get(frame_id, signal) */
+int lua_lin_set(lua_State* L);              /* lin.set(frame_id, signal, value) */
+int lua_lin_request(lua_State* L);          /* lin.request(frame_id) - master request */
+int lua_lin_wakeup(lua_State* L);           /* lin.wakeup(bus) */
+int lua_lin_sleep(lua_State* L);            /* lin.sleep(bus) */
+int lua_lin_status(lua_State* L);           /* lin.status(bus) */
+
+/* PID API */
+int lua_pid_create(lua_State* L);           /* pid.create(name, kp, ki, kd) */
+int lua_pid_setpoint(lua_State* L);         /* pid.setpoint(id, value) */
+int lua_pid_configure(lua_State* L);        /* pid.configure(id, kp, ki, kd) */
+int lua_pid_limits(lua_State* L);           /* pid.limits(id, min, max) */
+int lua_pid_compute(lua_State* L);          /* pid.compute(id, input) -> output */
+int lua_pid_reset(lua_State* L);            /* pid.reset(id) */
+int lua_pid_get(lua_State* L);              /* pid.get(id) -> {output, error, integral, etc} */
+int lua_pid_enable(lua_State* L);           /* pid.enable(id, enabled) */
+
+/**
+ * @brief Register CAN bus functions API
+ * @param L Lua state
+ */
+void PMU_Lua_RegisterCanAPI(lua_State* L);
+
+/**
+ * @brief Register LIN bus functions API
+ * @param L Lua state
+ */
+void PMU_Lua_RegisterLinAPI(lua_State* L);
+
+/**
+ * @brief Register PID controller functions API
+ * @param L Lua state
+ */
+void PMU_Lua_RegisterPidAPI(lua_State* L);
 
 #ifdef __cplusplus
 }

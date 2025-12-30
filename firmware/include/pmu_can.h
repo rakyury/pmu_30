@@ -22,74 +22,22 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "pmu_types.h"
 
 /* Exported types ------------------------------------------------------------*/
 
-/**
- * @brief CAN bus identifier
+/* CAN types are defined in pmu_types.h:
+ * - PMU_CAN_Bus_t
+ * - PMU_CAN_MessageType_t
+ * - PMU_CAN_TimeoutBehavior_t
+ * - PMU_CAN_DataType_t
+ * - PMU_CAN_DataFormat_t
+ * - PMU_CAN_FrameType_t
+ * - PMU_CAN_IdType_t
  */
-typedef enum {
-    PMU_CAN_BUS_1 = 0,      /* CAN FD 1 */
-    PMU_CAN_BUS_2,          /* CAN FD 2 */
-    PMU_CAN_BUS_3,          /* CAN 2.0 A/B */
-    PMU_CAN_BUS_4,          /* CAN 2.0 A/B */
-    PMU_CAN_BUS_COUNT
-} PMU_CAN_Bus_t;
 
-/**
- * @brief CAN Message type (Level 1)
- */
-typedef enum {
-    PMU_CAN_MSG_TYPE_NORMAL = 0,    /* Normal single-frame message */
-    PMU_CAN_MSG_TYPE_COMPOUND,      /* Compound/multiplexed message */
-    PMU_CAN_MSG_TYPE_PMU1_RX,       /* PMU1 RX format */
-    PMU_CAN_MSG_TYPE_PMU2_RX,       /* PMU2 RX format */
-    PMU_CAN_MSG_TYPE_PMU3_RX        /* PMU3 RX format */
-} PMU_CAN_MessageType_t;
-
-/**
- * @brief CAN Input timeout behavior (Level 2)
- */
-typedef enum {
-    PMU_CAN_TIMEOUT_USE_DEFAULT = 0,    /* Use configured default value */
-    PMU_CAN_TIMEOUT_HOLD_LAST,          /* Hold last received value */
-    PMU_CAN_TIMEOUT_SET_ZERO            /* Set value to zero */
-} PMU_CAN_TimeoutBehavior_t;
-
-/**
- * @brief CAN Input data type (Level 2)
- */
-typedef enum {
-    PMU_CAN_DATA_TYPE_UNSIGNED = 0,     /* Unsigned integer */
-    PMU_CAN_DATA_TYPE_SIGNED,           /* Signed integer */
-    PMU_CAN_DATA_TYPE_FLOAT             /* IEEE 754 float */
-} PMU_CAN_DataType_t;
-
-/**
- * @brief CAN Input data format (Level 2)
- */
-typedef enum {
-    PMU_CAN_DATA_FORMAT_8BIT = 0,       /* 8-bit value */
-    PMU_CAN_DATA_FORMAT_16BIT,          /* 16-bit value */
-    PMU_CAN_DATA_FORMAT_32BIT,          /* 32-bit value */
-    PMU_CAN_DATA_FORMAT_CUSTOM          /* Custom bit field */
-} PMU_CAN_DataFormat_t;
-
-/**
- * @brief CAN frame type
- */
-typedef enum {
-    PMU_CAN_FRAME_CLASSIC = 0,  /* CAN 2.0 frame */
-    PMU_CAN_FRAME_FD            /* CAN FD frame */
-} PMU_CAN_FrameType_t;
-
-/**
- * @brief CAN ID type
- */
-typedef enum {
-    PMU_CAN_ID_STANDARD = 0,    /* 11-bit ID */
-    PMU_CAN_ID_EXTENDED         /* 29-bit ID */
-} PMU_CAN_IDType_t;
+/* Alias for ID type compatibility */
+typedef PMU_CAN_IdType_t PMU_CAN_IDType_t;
 
 /**
  * @brief CAN message structure
@@ -289,6 +237,16 @@ HAL_StatusTypeDef PMU_CAN_SendMessage(PMU_CAN_Bus_t bus, PMU_CAN_Message_t* msg)
 HAL_StatusTypeDef PMU_CAN_Send(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len);
 
 /**
+ * @brief Send extended CAN message (29-bit ID)
+ * @param bus Bus identifier
+ * @param id 29-bit extended CAN ID
+ * @param data Data bytes
+ * @param len Data length
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_CAN_SendExtended(uint8_t bus, uint32_t id, uint8_t* data, uint8_t len);
+
+/**
  * @brief Add signal mapping for DBC support
  * @param bus Bus identifier
  * @param signal Signal mapping configuration
@@ -449,8 +407,23 @@ void PMU_CAN_ProcessInputs(void);
  * @param can_id CAN message ID
  * @param data Message data bytes
  * @param dlc Data length
+ * @param is_extended True if 29-bit extended CAN ID
  */
-void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc);
+void PMU_CAN_HandleRxMessage(PMU_CAN_Bus_t bus, uint32_t can_id, uint8_t* data, uint8_t dlc, uint8_t is_extended);
+
+/**
+ * @brief Inject CAN message for testing (emulator use)
+ *
+ * Simulates reception of a CAN message. Used for testing CAN input
+ * channel chains without real CAN hardware.
+ *
+ * @param bus_id Bus index (0 or 1)
+ * @param can_id CAN message ID (11-bit standard)
+ * @param data Data bytes (up to 8)
+ * @param dlc Data length (0-8)
+ * @retval HAL_OK on success
+ */
+HAL_StatusTypeDef PMU_CAN_InjectMessage(uint8_t bus_id, uint32_t can_id, uint8_t* data, uint8_t dlc);
 
 #ifdef __cplusplus
 }

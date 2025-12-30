@@ -52,7 +52,7 @@ class ConnectionDialog(QDialog):
 
         # Status label
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #888; font-style: italic;")
+        self.status_label.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(self.status_label)
 
         layout.addStretch()
@@ -140,14 +140,14 @@ class ConnectionDialog(QDialog):
 
         # Emulator status indicator
         self.emu_status_label = QLabel("Unknown")
-        self.emu_status_label.setStyleSheet("color: #888;")
+        self.emu_status_label.setStyleSheet("color: #b0b0b0;")
         self.params_layout.addRow("Emulator Status:", self.emu_status_label)
 
         check_btn = QPushButton("Check Emulator")
         check_btn.clicked.connect(self._check_emulator)
         self.params_layout.addRow("", check_btn)
 
-        self.status_label.setText("Connect to PMU-30 hardware emulator")
+        self.status_label.setText("Connect to PMU-30 firmware emulator")
 
         # Auto-check emulator status
         self._check_emulator()

@@ -407,6 +407,86 @@ class CommManager:
             logger.error(f"Set channel failed: {e}")
             return False
 
+    async def set_hbridge(self, bridge: int, mode: int, duty: int, target: int = 0) -> bool:
+        """
+        Set H-Bridge mode and PWM.
+
+        Args:
+            bridge: Bridge number (0-3)
+            mode: Operating mode (0=COAST, 1=FWD, 2=REV, 3=BRAKE, 4=WIPER_PARK, 5=PID)
+            duty: PWM duty cycle (0-1000)
+            target: Target position for PID mode (0-1000)
+
+        Returns:
+            True if successful
+        """
+        frame = FrameBuilder.set_hbridge(bridge, mode, duty, target)
+        try:
+            response = await self.send_and_wait(frame, MessageType.CHANNEL_ACK, timeout=1.0)
+            return True
+        except Exception as e:
+            logger.error(f"Set H-Bridge failed: {e}")
+            return False
+
+    async def set_digital_input(self, channel: int, state: bool) -> bool:
+        """
+        Set digital input state (emulator only).
+
+        Args:
+            channel: Digital input channel (0-19)
+            state: Input state (True=HIGH, False=LOW)
+
+        Returns:
+            True if successful
+        """
+        frame = FrameBuilder.emu_set_digital_input(channel, state)
+        try:
+            await self.send_frame(frame)
+            return True
+        except Exception as e:
+            logger.error(f"Set digital input failed: {e}")
+            return False
+
+    async def set_analog_input(self, channel: int, voltage: float) -> bool:
+        """
+        Set analog input voltage (emulator only).
+
+        Args:
+            channel: Analog input channel (0-19)
+            voltage: Voltage in volts (0.0-5.0)
+
+        Returns:
+            True if successful
+        """
+        voltage_mv = int(voltage * 1000)
+        frame = FrameBuilder.emu_set_analog_input(channel, voltage_mv)
+        try:
+            await self.send_frame(frame)
+            return True
+        except Exception as e:
+            logger.error(f"Set analog input failed: {e}")
+            return False
+
+    async def inject_can_message(self, bus_id: int, can_id: int, data: bytes) -> bool:
+        """
+        Inject CAN message for testing (emulator only).
+
+        Args:
+            bus_id: CAN bus index (0 or 1)
+            can_id: CAN message ID
+            data: CAN data bytes (up to 8)
+
+        Returns:
+            True if successful
+        """
+        frame = FrameBuilder.emu_inject_can(bus_id, can_id, data)
+        try:
+            await self.send_frame(frame)
+            return True
+        except Exception as e:
+            logger.error(f"Inject CAN message failed: {e}")
+            return False
+
     async def get_configuration(self) -> bytes:
         """
         Download configuration from device.

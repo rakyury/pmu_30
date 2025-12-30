@@ -4,7 +4,7 @@ Lookup table with X axis channel and auto-generated values
 """
 
 from PyQt6.QtWidgets import (
-    QGroupBox, QSpinBox, QDoubleSpinBox, QPushButton,
+    QGroupBox, QSpinBox, QPushButton,
     QLabel, QGridLayout, QTableWidget, QTableWidgetItem,
     QHeaderView, QVBoxLayout, QWidget, QMessageBox
 )
@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_channel_dialog import BaseChannelDialog
 from models.channel import ChannelType
+from ui.widgets.constant_spinbox import ConstantSpinBox
 
 
 class Table2DDialog(BaseChannelDialog):
@@ -21,11 +22,9 @@ class Table2DDialog(BaseChannelDialog):
 
     def __init__(self, parent=None,
                  config: Optional[Dict[str, Any]] = None,
-                 available_channels: Optional[Dict[str, List[str]]] = None):
-        super().__init__(parent, config, available_channels, ChannelType.TABLE_2D)
-
-        # Increase dialog size for table content
-        self.resize(650, 500)
+                 available_channels: Optional[Dict[str, List[str]]] = None,
+                 existing_channels: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(parent, config, available_channels, ChannelType.TABLE_2D, existing_channels)
 
         self._create_axis_group()
         self._create_table_group()
@@ -40,6 +39,9 @@ class Table2DDialog(BaseChannelDialog):
             self._load_specific_config(config)
 
         self._update_columns_label()
+
+        # Finalize UI sizing
+        self._finalize_ui()
 
     def _create_axis_group(self):
         """Create axis configuration group"""
@@ -65,26 +67,23 @@ class Table2DDialog(BaseChannelDialog):
         layout.addWidget(self.x_channel_widget, row, 1, 1, 3)
         row += 1
 
-        # X axis: min, max, step
+        # X axis: min, max, step (use ConstantSpinBox for integer storage)
         layout.addWidget(QLabel("min:"), row, 0)
-        self.x_min_spin = QDoubleSpinBox()
-        self.x_min_spin.setRange(-1000000, 1000000)
-        self.x_min_spin.setDecimals(2)
+        self.x_min_spin = ConstantSpinBox()
+        self.x_min_spin.setRange(-10000.00, 10000.00)
         self.x_min_spin.setValue(0)
         layout.addWidget(self.x_min_spin, row, 1)
 
         layout.addWidget(QLabel("max:"), row, 2)
-        self.x_max_spin = QDoubleSpinBox()
-        self.x_max_spin.setRange(-1000000, 1000000)
-        self.x_max_spin.setDecimals(2)
+        self.x_max_spin = ConstantSpinBox()
+        self.x_max_spin.setRange(-10000.00, 10000.00)
         self.x_max_spin.setValue(100)
         layout.addWidget(self.x_max_spin, row, 3)
         row += 1
 
         layout.addWidget(QLabel("step:"), row, 0)
-        self.x_step_spin = QDoubleSpinBox()
-        self.x_step_spin.setRange(0.001, 100000)
-        self.x_step_spin.setDecimals(2)
+        self.x_step_spin = ConstantSpinBox()
+        self.x_step_spin.setRange(0.01, 10000.00)
         self.x_step_spin.setValue(10)
         layout.addWidget(self.x_step_spin, row, 1)
 
@@ -123,7 +122,7 @@ class Table2DDialog(BaseChannelDialog):
 
         # Info label
         info = QLabel("Click 'Create Table' to generate axis values, then edit output values.")
-        info.setStyleSheet("color: #666; font-style: italic;")
+        info.setStyleSheet("color: #b0b0b0; font-style: italic;")
         layout.addWidget(info)
 
         table_group.setLayout(layout)
@@ -242,9 +241,8 @@ class Table2DDialog(BaseChannelDialog):
 
     def _load_specific_config(self, config: Dict[str, Any]):
         """Load type-specific configuration"""
-        # Axis configuration
-        x_channel = config.get("x_axis_channel", "")
-        self.x_channel_edit.setText(x_channel)
+        # Axis configuration - use helper to show channel name
+        self._set_channel_edit_value(self.x_channel_edit, config.get("x_axis_channel"))
         self.x_min_spin.setValue(config.get("x_min", 0.0))
         self.x_max_spin.setValue(config.get("x_max", 100.0))
         self.x_step_spin.setValue(config.get("x_step", 10.0))
@@ -259,8 +257,9 @@ class Table2DDialog(BaseChannelDialog):
             self.table_widget.setRowCount(1)
             self.table_widget.setColumnCount(len(x_values))
 
-            # Update axis label
-            self.x_axis_label.setText(f"X: {x_channel or '-'}")
+            # Update axis label with display name
+            x_channel_display = self.x_channel_edit.text() or "-"
+            self.x_axis_label.setText(f"X: {x_channel_display}")
 
             headers = [str(v) for v in x_values]
             self.table_widget.setHorizontalHeaderLabels(headers)
@@ -318,8 +317,11 @@ class Table2DDialog(BaseChannelDialog):
             else:
                 output_values.append(0.0)
 
+        # Get channel ID using helper method
+        x_axis_channel_id = self._get_channel_id_from_edit(self.x_channel_edit)
+
         config.update({
-            "x_axis_channel": self.x_channel_edit.text().strip(),
+            "x_axis_channel": x_axis_channel_id if x_axis_channel_id else "",
             "x_min": self.x_min_spin.value(),
             "x_max": self.x_max_spin.value(),
             "x_step": self.x_step_spin.value(),
