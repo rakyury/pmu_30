@@ -283,8 +283,7 @@ int main(void)
         /* Check if UART has received data (bare-metal polling) */
         if (USART2->SR & USART_SR_RXNE) {
             uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
-
-            /* Pass to protocol handler (NO echo - would break protocol!) */
+            /* Pass to protocol handler (echo removed - protocol sends responses) */
             PMU_Protocol_ProcessData(&rx_byte, 1);
         }
 

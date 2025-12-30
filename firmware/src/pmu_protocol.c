@@ -316,9 +316,9 @@ HAL_StatusTypeDef PMU_Protocol_ProcessData(const uint8_t* data, uint16_t length)
 
             /* Check if we have enough for header */
             if (protocol_buffer.rx_index >= 4) {
-                /* header: marker(1) + command(1) + length(2) */
-                uint16_t payload_len = protocol_buffer.rx_buffer[2] |
-                                      (protocol_buffer.rx_buffer[3] << 8);
+                /* Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE] */
+                uint16_t payload_len = protocol_buffer.rx_buffer[1] |
+                                      (protocol_buffer.rx_buffer[2] << 8);
 
                 /* Check if full packet received */
                 uint16_t total_len = 4 + payload_len + 2;  /* header + payload + CRC */
@@ -491,8 +491,8 @@ HAL_StatusTypeDef PMU_Protocol_SendResponse(PMU_CMD_Type_t command,
         memcpy(packet.data, data, length);
     }
 
-    /* Calculate CRC */
-    packet.crc16 = PMU_Protocol_CRC16((uint8_t*)&packet, 4 + length);
+    /* Calculate CRC over length(2) + command(1) + payload - excludes start marker */
+    packet.crc16 = PMU_Protocol_CRC16(((uint8_t*)&packet) + 1, 3 + length);
 
     Protocol_SendPacket(&packet);
 
@@ -590,9 +590,21 @@ static bool Protocol_ValidatePacket(const PMU_Protocol_Packet_t* packet)
         return false;
     }
 
-    /* Verify CRC */
-    uint16_t calculated_crc = PMU_Protocol_CRC16((const uint8_t*)packet, 4 + packet->length);
-    if (calculated_crc != packet->crc16) {
+    /* Verify CRC
+     * Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE]
+     * CRC is calculated over Length+MsgID+Payload (excludes start marker)
+     * CRC position in buffer: byte offset (4 + payload_length)
+     */
+    const uint8_t* raw_bytes = (const uint8_t*)packet;
+
+    /* CRC calculated over bytes 1 to (3 + length): length(2) + command(1) + payload */
+    uint16_t calculated_crc = PMU_Protocol_CRC16(&raw_bytes[1], 3 + packet->length);
+
+    /* Read received CRC from correct position (after payload) */
+    uint16_t received_crc = raw_bytes[4 + packet->length] |
+                           (raw_bytes[5 + packet->length] << 8);
+
+    if (calculated_crc != received_crc) {
         return false;
     }
 
@@ -630,15 +642,58 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
     }
 
 #ifndef UNIT_TEST
-    uint16_t total_len = 4 + packet->length + 2;  /* header + payload + CRC */
+    /* Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE]
+     * CRC is stored in packet->crc16 at fixed struct offset,
+     * but must be transmitted at position (4 + length)
+     */
+    uint16_t header_len = 4;  /* marker(1) + length(2) + command(1) */
+    uint16_t payload_len = packet->length;
+    const uint8_t* header_ptr = (const uint8_t*)packet;  /* first 4 bytes */
+    const uint8_t* payload_ptr = packet->data;
+    uint8_t crc_bytes[2] = {
+        (uint8_t)(packet->crc16 & 0xFF),
+        (uint8_t)(packet->crc16 >> 8)
+    };
 
     if (active_transport == PMU_TRANSPORT_UART || active_transport == PMU_TRANSPORT_WIFI) {
         /* Send via UART */
-        HAL_UART_Transmit(&PROTOCOL_UART, (uint8_t*)packet, total_len, 100);
+#ifdef NUCLEO_F446RE
+        /* Bare-metal TX - SysTick is disabled so HAL timeout doesn't work */
+        /* Send header (4 bytes) */
+        for (uint16_t i = 0; i < header_len; i++) {
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            PROTOCOL_UART.Instance->DR = header_ptr[i];
+        }
+        /* Send payload */
+        for (uint16_t i = 0; i < payload_len; i++) {
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            PROTOCOL_UART.Instance->DR = payload_ptr[i];
+        }
+        /* Send CRC (2 bytes) */
+        for (uint16_t i = 0; i < 2; i++) {
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            PROTOCOL_UART.Instance->DR = crc_bytes[i];
+        }
+        while (!(PROTOCOL_UART.Instance->SR & USART_SR_TC));
+#else
+        /* Build linear TX buffer for HAL */
+        static uint8_t tx_buffer[4 + 256 + 2];  /* max frame size */
+        memcpy(tx_buffer, header_ptr, header_len);
+        memcpy(tx_buffer + header_len, payload_ptr, payload_len);
+        memcpy(tx_buffer + header_len + payload_len, crc_bytes, 2);
+        HAL_UART_Transmit(&PROTOCOL_UART, tx_buffer, header_len + payload_len + 2, 100);
+#endif
         protocol_stats.tx_packets++;
-        protocol_stats.last_tx_time_ms = HAL_GetTick();
+        protocol_stats.last_tx_time_ms = 0;  /* HAL_GetTick disabled */
     } else if (active_transport == PMU_TRANSPORT_CAN) {
         /* Send via CAN (chunked if needed) */
+        /* Build linear TX buffer first */
+        static uint8_t can_tx_buffer[4 + 256 + 2];
+        uint16_t total_len = header_len + payload_len + 2;
+        memcpy(can_tx_buffer, header_ptr, header_len);
+        memcpy(can_tx_buffer + header_len, payload_ptr, payload_len);
+        memcpy(can_tx_buffer + header_len + payload_len, crc_bytes, 2);
+
         PMU_CAN_Message_t can_msg;
         can_msg.id = PMU_PROTOCOL_CAN_ID_BASE;
         can_msg.id_type = PMU_CAN_ID_STANDARD;
@@ -648,7 +703,7 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
         uint16_t offset = 0;
         while (offset < total_len) {
             uint8_t chunk_len = (total_len - offset > 8) ? 8 : (total_len - offset);
-            memcpy(can_msg.data, (uint8_t*)packet + offset, chunk_len);
+            memcpy(can_msg.data, can_tx_buffer + offset, chunk_len);
             can_msg.dlc = chunk_len;
 
             PMU_CAN_SendMessage(PMU_CAN_BUS_1, &can_msg);
@@ -700,7 +755,7 @@ static void Protocol_SendData(uint8_t command, const uint8_t* data, uint16_t len
 static void Protocol_HandlePing(const PMU_Protocol_Packet_t* packet)
 {
     /* Echo back ping data */
-    Protocol_SendData(PMU_CMD_PING, packet->data, packet->length);
+    Protocol_SendData(PMU_CMD_PONG, packet->data, packet->length);
 }
 
 static void Protocol_HandleGetVersion(const PMU_Protocol_Packet_t* packet)
