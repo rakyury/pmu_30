@@ -137,6 +137,7 @@ int main(void)
     Debug_Print("║  Logic Engine:     ENABLED                                    ║\r\n");
     Debug_Print("║  CAN:              CAN1 (PA11/PA12) @ 500kbit                 ║\r\n");
     Debug_Print("║  Debug UART:       USART2 (115200 baud)                       ║\r\n");
+    Debug_Print("║  Protocol:         UART (Configurator support)               ║\r\n");
     Debug_Print("╚═══════════════════════════════════════════════════════════════╝\r\n");
     Debug_Print("\r\n");
 
@@ -193,6 +194,11 @@ int main(void)
 
     Debug_Print("[INIT] PMU_Protocol_Init (UART)...\r\n");
     PMU_Protocol_Init(PMU_TRANSPORT_UART);
+
+    /* Start UART reception for protocol */
+    extern void Protocol_StartUartReception(void);
+    Protocol_StartUartReception();
+    Debug_Print("[OK] Protocol UART RX enabled\r\n");
 
     /* Initialize CAN Stream */
     PMU_CanStreamConfig_t stream_config = {
@@ -474,6 +480,10 @@ static void USART2_Init(void)
     huart2.Init.OverSampling = UART_OVERSAMPLING_16;
 
     HAL_UART_Init(&huart2);
+
+    /* Enable USART2 interrupt for protocol RX */
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
 }
 
 static void CAN1_Init(void)
@@ -722,6 +732,41 @@ void HardFault_Handler(void)
     while (1) {
         LED_Set(1);
     }
+}
+
+/* UART interrupt handlers ---------------------------------------------------*/
+
+/**
+ * @brief USART2 IRQ handler
+ */
+void USART2_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&huart2);
+}
+
+/* Protocol RX buffer for interrupt reception */
+static uint8_t uart_rx_byte;
+
+/**
+ * @brief UART RX complete callback - called when a byte is received
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2) {
+        /* Pass received byte to protocol handler */
+        PMU_Protocol_ProcessData(&uart_rx_byte, 1);
+
+        /* Re-enable RX interrupt for next byte */
+        HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
+    }
+}
+
+/**
+ * @brief Start protocol UART reception (called after protocol init)
+ */
+void Protocol_StartUartReception(void)
+{
+    HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
 }
 
 #endif /* NUCLEO_F446RE */

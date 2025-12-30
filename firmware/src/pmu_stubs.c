@@ -18,7 +18,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "stm32h7xx_hal.h"
+#include "board_config.h"
 
 /* ============================================================================
  * PROFET Stubs (when PMU_DISABLE_PROFET is defined)
