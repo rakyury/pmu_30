@@ -131,11 +131,12 @@ int main(void)
     Debug_Print("╠═══════════════════════════════════════════════════════════════╣\r\n");
     Debug_Print("║  MCU:              STM32F446RE @ 180 MHz                      ║\r\n");
     Debug_Print("║  Config Parsing:   ENABLED                                    ║\r\n");
-    Debug_Print("║  Channels:         6 outputs, 5 inputs                        ║\r\n");
+    Debug_Print("║  Outputs:          6 (PWM on GPIO)                            ║\r\n");
+    Debug_Print("║  Analog Inputs:    5 (ADC)                                    ║\r\n");
+    Debug_Print("║  Digital Inputs:   8 (GPIO)                                   ║\r\n");
     Debug_Print("║  Logic Engine:     ENABLED                                    ║\r\n");
-    Debug_Print("║  CAN:              CAN1 (PA11/PA12)                           ║\r\n");
+    Debug_Print("║  CAN:              CAN1 (PA11/PA12) @ 500kbit                 ║\r\n");
     Debug_Print("║  Debug UART:       USART2 (115200 baud)                       ║\r\n");
-    Debug_Print("║  Power Outputs:    SIMULATED (PWM on GPIO)                    ║\r\n");
     Debug_Print("╚═══════════════════════════════════════════════════════════════╝\r\n");
     Debug_Print("\r\n");
 
@@ -247,6 +248,9 @@ static void vControlTask(void *pvParameters)
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         g_tick_count++;
 
+        /* Read digital inputs */
+        DigitalInputs_Read();
+
         /* Read ADC inputs */
         PMU_ADC_Update();
 
@@ -341,7 +345,7 @@ static void Debug_PrintStatus(void)
 static void Debug_PrintChannelStates(void)
 {
     char buf[64];
-    Debug_Print("  Channels: ");
+    Debug_Print("  Outputs:  ");
 
     for (uint8_t i = 0; i < 6; i++) {
         PMU_PROFET_Channel_t* ch = PMU_PROFET_GetChannelData(i);
@@ -356,6 +360,14 @@ static void Debug_PrintChannelStates(void)
             snprintf(buf, sizeof(buf), "[%d:%s] ", i, state_str);
             Debug_Print(buf);
         }
+    }
+    Debug_Print("\r\n");
+
+    /* Print digital inputs */
+    Debug_Print("  DIN:      ");
+    for (uint8_t i = 0; i < 8; i++) {
+        snprintf(buf, sizeof(buf), "[%d:%c] ", i, g_digital_inputs[i] ? '1' : '0');
+        Debug_Print(buf);
     }
     Debug_Print("\r\n");
 }
@@ -392,11 +404,47 @@ static void GPIO_Init(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(USER_LED_PORT, &GPIO_InitStruct);
 
-    /* User Button (PC13) */
-    GPIO_InitStruct.Pin = USER_BTN_PIN;
+    /* Digital inputs configuration */
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;  /* Pull-down for active-high inputs */
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+
+    /* DIN0: PC13 - User Button (active-low, no pull needed) */
+    GPIO_InitStruct.Pin = GPIO_PIN_13;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(USER_BTN_PORT, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* DIN1-DIN2: PC10, PC12 */
+    GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_12;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /* DIN3-DIN7: PB2, PB12, PB13, PB14, PB15 */
+    GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+}
+
+/* Digital input reading */
+static uint8_t g_digital_inputs[8] = {0};
+
+static void DigitalInputs_Read(void)
+{
+    /* Read all digital inputs */
+    g_digital_inputs[0] = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);  /* Button active-low */
+    g_digital_inputs[1] = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10);
+    g_digital_inputs[2] = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12);
+    g_digital_inputs[3] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2);
+    g_digital_inputs[4] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15);
+    g_digital_inputs[5] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14);
+    g_digital_inputs[6] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13);
+    g_digital_inputs[7] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12);
+}
+
+uint8_t DigitalInput_Get(uint8_t channel)
+{
+    if (channel >= 8) return 0;
+    return g_digital_inputs[channel];
 }
 
 static void USART2_Init(void)

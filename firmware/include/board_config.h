@@ -91,6 +91,25 @@ extern "C" {
 #define ADC_CH4_PORT            GPIOC
 #define ADC_CH4_CHANNEL         ADC_CHANNEL_11
 
+/* Pin mapping - Digital inputs (directly usable pins) */
+#define PMU_DIGITAL_INPUTS      8
+#define DIN_CH0_PIN             GPIO_PIN_13     /* PC13 - User Button */
+#define DIN_CH0_PORT            GPIOC
+#define DIN_CH1_PIN             GPIO_PIN_10     /* PC10 - D2 */
+#define DIN_CH1_PORT            GPIOC
+#define DIN_CH2_PIN             GPIO_PIN_12     /* PC12 - D3 (directly near Morpho) */
+#define DIN_CH2_PORT            GPIOC
+#define DIN_CH3_PIN             GPIO_PIN_2      /* PB2 - D4 (Arduino D4) */
+#define DIN_CH3_PORT            GPIOB
+#define DIN_CH4_PIN             GPIO_PIN_15     /* PB15 - D5 */
+#define DIN_CH4_PORT            GPIOB
+#define DIN_CH5_PIN             GPIO_PIN_14     /* PB14 - D6 */
+#define DIN_CH5_PORT            GPIOB
+#define DIN_CH6_PIN             GPIO_PIN_13     /* PB13 - D7 */
+#define DIN_CH6_PORT            GPIOB
+#define DIN_CH7_PIN             GPIO_PIN_12     /* PB12 - D8 */
+#define DIN_CH7_PORT            GPIOB
+
 /* Pin mapping - PWM outputs (simulated power channels) */
 #define PWM_CH0_PIN             GPIO_PIN_8      /* TIM1_CH1 - PA8 */
 #define PWM_CH0_PORT            GPIOA

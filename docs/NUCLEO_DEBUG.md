@@ -6,7 +6,7 @@
 
 | Плата | MCU | Особенности |
 |-------|-----|-------------|
-| **Nucleo-F446RE** | STM32F446RE (Cortex-M4 @ 180MHz) | CAN 2.0, 6 выходов, 5 входов |
+| **Nucleo-F446RE** | STM32F446RE (Cortex-M4 @ 180MHz) | CAN 2.0, 6 выходов, 5 ADC, 8 DIN |
 | **Nucleo-H743ZI** | STM32H743ZI (Cortex-M7 @ 480MHz) | FDCAN, 30 выходов (стабы), 20 входов |
 
 ---
@@ -89,6 +89,21 @@ CAN трансивер (MCP2551, SN65HVD230 и т.д.) подключается 
 
 **Важно:** Терминатор 120 Ом требуется на концах CAN шины.
 
+### Цифровые входы (8 каналов)
+
+| DIN | Пин | Описание |
+|-----|-----|----------|
+| DIN0 | PC13 | User Button (active-low) |
+| DIN1 | PC10 | Digital input |
+| DIN2 | PC12 | Digital input |
+| DIN3 | PB2 | Digital input |
+| DIN4 | PB15 | Digital input |
+| DIN5 | PB14 | Digital input |
+| DIN6 | PB13 | Digital input |
+| DIN7 | PB12 | Digital input |
+
+Все цифровые входы (кроме DIN0) имеют внутренний pull-down. Для активации подать 3.3V.
+
 ### Что тестируется на F446RE
 
 | Функционал | Статус | Примечания |
@@ -99,6 +114,7 @@ CAN трансивер (MCP2551, SN65HVD230 и т.д.) подключается 
 | ✅ CAN RX/TX | Работает | Требует внешний трансивер |
 | ✅ CAN Stream | Работает | Телеметрия по CAN |
 | ✅ ADC inputs | Работает | 5 каналов (PA0, PA1, PA4, PB0, PC1) |
+| ✅ Digital inputs | Работает | 8 каналов (PC13, PC10, PC12, PB2, PB12-15) |
 | ✅ PWM outputs | Работает | 6 каналов (TIM1, TIM3) |
 | ✅ Debug UART | Работает | 115200 через ST-LINK VCP |
 | ❌ PROFET outputs | Стабы | Нет реального железа |
@@ -114,11 +130,12 @@ CAN трансивер (MCP2551, SN65HVD230 и т.д.) подключается 
 ╠═══════════════════════════════════════════════════════════════╣
 ║  MCU:              STM32F446RE @ 180 MHz                      ║
 ║  Config Parsing:   ENABLED                                    ║
-║  Channels:         6 outputs, 5 inputs                        ║
+║  Outputs:          6 (PWM on GPIO)                            ║
+║  Analog Inputs:    5 (ADC)                                    ║
+║  Digital Inputs:   8 (GPIO)                                   ║
 ║  Logic Engine:     ENABLED                                    ║
-║  CAN:              CAN1 (PA11/PA12)                           ║
+║  CAN:              CAN1 (PA11/PA12) @ 500kbit                 ║
 ║  Debug UART:       USART2 (115200 baud)                       ║
-║  Power Outputs:    SIMULATED (PWM on GPIO)                    ║
 ╚═══════════════════════════════════════════════════════════════╝
 
 [INIT] CAN1_Init...
@@ -131,9 +148,11 @@ CAN трансивер (MCP2551, SN65HVD230 и т.д.) подключается 
 [READY] All subsystems initialized. Starting FreeRTOS...
 
 [1] Ticks: 1000 | Logic: 500 | CAN RX: 0 TX: 5
-  Channels: [0:OFF] [1:OFF] [2:OFF] [3:OFF] [4:OFF] [5:OFF]
+  Outputs:  [0:OFF] [1:OFF] [2:OFF] [3:OFF] [4:OFF] [5:OFF]
+  DIN:      [0:0] [1:0] [2:0] [3:0] [4:0] [5:0] [6:0] [7:0]
 [2] Ticks: 2000 | Logic: 1000 | CAN RX: 3 TX: 10
-  Channels: [0:ON] [1:OFF] [2:PWM] [3:OFF] [4:OFF] [5:OFF]
+  Outputs:  [0:ON] [1:OFF] [2:PWM] [3:OFF] [4:OFF] [5:OFF]
+  DIN:      [0:1] [1:0] [2:0] [3:1] [4:0] [5:0] [6:0] [7:0]
 ```
 
 ---
