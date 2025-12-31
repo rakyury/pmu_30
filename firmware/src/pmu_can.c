@@ -25,7 +25,7 @@
 #include "pmu_can.h"
 #include "pmu_logic.h"
 #include "pmu_blinkmarine.h"
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include <string.h>
 #include <math.h>
 

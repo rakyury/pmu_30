@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include "pmu_types.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -135,7 +135,9 @@ typedef struct {
 #define PMU_CHANNEL_ID_SYSTEM_START     1000    /**< System channels: 1000-1023 */
 #define PMU_CHANNEL_ID_SYSTEM_END       1023
 
+#ifndef PMU_CHANNEL_MAX_CHANNELS
 #define PMU_CHANNEL_MAX_CHANNELS        1024    /**< Maximum channels */
+#endif
 
 /* Channel flags */
 #define PMU_CHANNEL_FLAG_ENABLED        0x01    /**< Channel enabled */

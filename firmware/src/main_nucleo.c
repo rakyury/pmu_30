@@ -291,7 +291,7 @@ static void vCANTask(void *pvParameters)
 
     for (;;) {
         PMU_CAN_Update();
-        PMU_CanStream_Update();
+        PMU_CanStream_Process();
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }

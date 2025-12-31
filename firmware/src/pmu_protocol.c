@@ -57,7 +57,7 @@ static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
 /* Config storage buffer - stores received config for GET_CONFIG response */
-#define CONFIG_BUFFER_SIZE 512
+#define CONFIG_BUFFER_SIZE 4096
 static char config_buffer[CONFIG_BUFFER_SIZE];
 static uint16_t config_buffer_len = 0;
 static bool config_received = false;
@@ -260,8 +260,10 @@ HAL_StatusTypeDef PMU_Protocol_Init(PMU_Transport_t transport)
     if (transport == PMU_TRANSPORT_UART || transport == PMU_TRANSPORT_WIFI) {
   #ifdef NUCLEO_F446RE
         /* USART2 is already initialized in main_nucleo_f446.c */
-        /* Just enable RX interrupt for protocol */
-        HAL_UART_Receive_IT(&PROTOCOL_UART, protocol_buffer.rx_buffer, 1);
+        /* RX interrupt is started by Protocol_StartUartReception() in main */
+        /* which uses uart_rx_byte buffer defined in main_nucleo_f446.c */
+        extern void Protocol_StartUartReception(void);
+        Protocol_StartUartReception();
   #else
         /* Initialize USART1 for WiFi module (ESP32-C3) on PMU-30/H7 */
         huart1.Instance = USART1;
@@ -978,9 +980,21 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
                 config_buffer_len = chunked_config_len;
                 config_received = true;
 
-                /* Load JSON */
-                PMU_JSON_LoadStats_t stats;
-                PMU_JSON_LoadFromString(chunked_config_buffer, chunked_config_len, &stats);
+                /* Load JSON and send final status */
+                PMU_JSON_LoadStats_t stats = {0};
+                PMU_JSON_Status_t status = PMU_JSON_LoadFromString(chunked_config_buffer, chunked_config_len, &stats);
+
+                /* Send final CONFIG_ACK with actual parsing result and channel counts */
+                uint8_t final_response[8] = {0};
+                final_response[0] = (status == PMU_JSON_OK) ? 1 : 0;  /* success */
+                final_response[1] = (uint8_t)status;                  /* status code */
+                final_response[2] = (uint8_t)stats.digital_inputs;
+                final_response[3] = (uint8_t)stats.analog_inputs;
+                final_response[4] = (uint8_t)stats.power_outputs;
+                final_response[5] = (uint8_t)stats.logic_functions;
+                final_response[6] = (uint8_t)stats.numbers;           /* use numbers as debug */
+                final_response[7] = (uint8_t)PMU_PowerOutput_GetCount();
+                Protocol_SendData(PMU_CMD_CONFIG_ACK, final_response, 8);
             }
             return;
         }

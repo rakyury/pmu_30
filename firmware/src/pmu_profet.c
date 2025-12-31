@@ -139,7 +139,15 @@ static uint16_t PROFET_ReadStatusADC(uint8_t channel);
 static inline bool PROFET_IsInFaultState(PMU_PROFET_State_t state);
 
 /* Helper to set GPIO for a channel */
-#ifndef PMU_EMULATOR
+#ifdef NUCLEO_F446RE
+/* Nucleo-F446RE uses TIM1/TIM3 PWM outputs */
+extern void NucleoOutput_SetState(uint8_t channel, uint8_t state);
+extern void NucleoOutput_SetPWM(uint8_t channel, uint16_t duty);
+static inline void PROFET_SetGPIO(uint8_t channel, GPIO_PinState state)
+{
+    NucleoOutput_SetState(channel, state == GPIO_PIN_SET ? 1 : 0);
+}
+#elif !defined(PMU_EMULATOR)
 static inline void PROFET_SetGPIO(uint8_t channel, GPIO_PinState state)
 {
     HAL_GPIO_WritePin(profet_gpio[channel].port, profet_gpio[channel].pin, state);
@@ -453,7 +461,10 @@ HAL_StatusTypeDef PMU_PROFET_SetPWM(uint8_t channel, uint16_t duty)
         /* PWM mode */
         channels[channel].state = PMU_PROFET_STATE_PWM;
 
-#ifndef UNIT_TEST
+#ifdef NUCLEO_F446RE
+        /* Nucleo-F446RE: Use dedicated PWM function */
+        NucleoOutput_SetPWM(channel, duty);
+#elif !defined(UNIT_TEST)
         /* Configure timer PWM duty cycle
          * duty is in range 0-1000 (PMU_PROFET_PWM_RESOLUTION)
          * Timer ARR = 999, so pulse = (duty * 1000) / 1000 = duty

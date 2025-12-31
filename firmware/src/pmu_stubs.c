@@ -35,7 +35,7 @@ extern void NucleoOutput_SetPWM(uint8_t channel, uint16_t duty);
 #include "pmu_profet.h"
 
 /* Stub channel data */
-static PMU_PROFET_Channel_t stub_channels[PMU30_NUM_OUTPUTS];
+static PMU_PROFET_Channel_t stub_channels[PMU30_NUM_OUTPUTS] = {0};
 
 HAL_StatusTypeDef PMU_PROFET_Init(void)
 {

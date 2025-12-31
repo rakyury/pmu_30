@@ -132,6 +132,54 @@ static uint16_t filter_channel_id_next = PMU_CHID_FILTER_BASE;
 static uint16_t switch_channel_id_next = PMU_CHID_SWITCH_BASE;
 static uint16_t pid_channel_id_next = PMU_CHID_PID_BASE;
 
+/* Virtual channel allocation - shared pool for reduced-RAM platforms */
+#if PMU_CHANNEL_MAX_CHANNELS <= 128
+static uint16_t virtual_channel_pool_next = 30;  /* Shared pool 30-63 */
+#define VIRTUAL_POOL_MAX (PMU_CHANNEL_MAX_CHANNELS - 1)
+
+static uint16_t AllocateLogicChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateNumberChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateTimerChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateFilterChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateSwitchChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocatePIDChannelID(void) {
+    if (virtual_channel_pool_next <= VIRTUAL_POOL_MAX) {
+        return virtual_channel_pool_next++;
+    }
+    return 0;
+}
+#else
+/* Standard type-specific allocation for full-RAM platforms */
 static uint16_t AllocateLogicChannelID(void) {
     if (logic_channel_id_next <= PMU_CHID_LOGIC_MAX) {
         return logic_channel_id_next++;
@@ -173,6 +221,7 @@ static uint16_t AllocatePIDChannelID(void) {
     }
     return 0;
 }
+#endif
 
 /* Mapping from JSON channel_id to runtime channel_id */
 #define PMU_CHANNEL_ID_MAP_SIZE 256
@@ -354,17 +403,31 @@ HAL_StatusTypeDef PMU_JSON_Init(void)
     memset(timer_storage, 0, sizeof(timer_storage));
     timer_count = 0;
 
+    /* Clear power output storage */
+    memset(power_output_storage, 0, sizeof(power_output_storage));
+    power_output_count = 0;
+
     /* Clear channel ID mapping */
     memset(channel_id_map, 0, sizeof(channel_id_map));
     channel_id_map_count = 0;
 
-    /* Reset type-specific channel ID allocators */
+    /* Reset type-specific channel ID allocators.
+     * For platforms with small PMU_CHANNEL_MAX_CHANNELS (like Nucleo-F446RE with 64),
+     * we use a shared pool of sequential IDs (30-63) instead of the standard
+     * type-specific ranges (400+, 500+, etc.) which would be out of bounds.
+     */
+#if PMU_CHANNEL_MAX_CHANNELS <= 128
+    /* Reset shared pool for reduced-RAM platforms */
+    virtual_channel_pool_next = 30;  /* After system channels (0-29), before DIN (50+) */
+#else
+    /* Standard allocation for full-RAM platforms */
     logic_channel_id_next = PMU_CHID_LOGIC_BASE;
     number_channel_id_next = PMU_CHID_NUMBER_BASE;
     timer_channel_id_next = PMU_CHID_TIMER_BASE;
     filter_channel_id_next = PMU_CHID_FILTER_BASE;
     switch_channel_id_next = PMU_CHID_SWITCH_BASE;
     pid_channel_id_next = PMU_CHID_PID_BASE;
+#endif
 
     return HAL_OK;
 }
@@ -389,6 +452,13 @@ PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json_string,
         JSON_SetError("Invalid JSON string");
         return PMU_JSON_ERROR_PARSE;
     }
+
+    /* Reset all channel storage and allocators before loading new config.
+     * This is CRITICAL: Without this, sending multiple configs would cause
+     * channel ID mappings to accumulate and allocators to continue from
+     * their previous state, leading to broken source_channel linking.
+     */
+    PMU_JSON_Init();
 
     /* Record start time */
     load_start_time = HAL_GetTick();
@@ -2046,6 +2116,10 @@ static PMU_FunctionType_t JSON_ParseFunctionType(const char* type_str)
 
 /**
  * @brief Resolve channel from JSON (supports number or name lookup)
+ *
+ * For numeric IDs, maps JSON channel_id to runtime channel_id using the
+ * mapping table. This is critical for cross-references between channels
+ * (e.g., power output source_channel -> logic channel).
  */
 static uint16_t JSON_ResolveChannel(cJSON* channel_obj)
 {
@@ -2053,9 +2127,14 @@ static uint16_t JSON_ResolveChannel(cJSON* channel_obj)
         return 0;
     }
 
-    /* If it's a number, use it directly as channel ID */
+    /* If it's a number, map JSON ID to runtime ID */
     if (cJSON_IsNumber(channel_obj)) {
-        return (uint16_t)channel_obj->valueint;
+        uint16_t json_id = (uint16_t)channel_obj->valueint;
+        uint16_t runtime_id = MapJsonIdToRuntimeId(json_id);
+        if (runtime_id != json_id) {
+            printf("[RESOLVE] JSON %d -> Runtime %d\n", json_id, runtime_id);
+        }
+        return runtime_id;
     }
 
     /* If it's a string, look up channel by name */

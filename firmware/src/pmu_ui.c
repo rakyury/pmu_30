@@ -269,32 +269,32 @@ static void UI_SetLEDHardware(uint8_t channel, PMU_LED_Color_t color, uint8_t br
 void PMU_UI_SetStatusLED(PMU_Status_LED_t status)
 {
     switch (status) {
-        case PMU_STATUS_POWER_ON:
+        case PMU_LED_STATUS_POWER_ON:
             status_led.color = PMU_LED_GREEN;
             status_led.pattern = PMU_LED_PATTERN_SOLID;
             break;
 
-        case PMU_STATUS_RUNNING:
+        case PMU_LED_STATUS_RUNNING:
             status_led.color = PMU_LED_GREEN;
             status_led.pattern = PMU_LED_PATTERN_PULSE;
             break;
 
-        case PMU_STATUS_WARNING:
+        case PMU_LED_STATUS_WARNING:
             status_led.color = PMU_LED_ORANGE;
             status_led.pattern = PMU_LED_PATTERN_BLINK_SLOW;
             break;
 
-        case PMU_STATUS_FAULT:
+        case PMU_LED_STATUS_FAULT:
             status_led.color = PMU_LED_RED;
             status_led.pattern = PMU_LED_PATTERN_BLINK_FAST;
             break;
 
-        case PMU_STATUS_CRITICAL:
+        case PMU_LED_STATUS_CRITICAL:
             status_led.color = PMU_LED_RED;
             status_led.pattern = PMU_LED_PATTERN_SOLID;
             break;
 
-        case PMU_STATUS_BOOTLOADER:
+        case PMU_LED_STATUS_BOOTLOADER:
             status_led.color = PMU_LED_ORANGE;
             status_led.pattern = PMU_LED_PATTERN_PULSE;
             break;
@@ -370,13 +370,13 @@ void PMU_UI_UpdateChannelStatus(void)
     PMU_Protection_State_t* prot = PMU_Protection_GetState();
     if (prot != NULL) {
         if (prot->status == PMU_PROT_STATUS_CRITICAL) {
-            PMU_UI_SetStatusLED(PMU_STATUS_CRITICAL);
+            PMU_UI_SetStatusLED(PMU_LED_STATUS_CRITICAL);
         } else if (prot->status == PMU_PROT_STATUS_FAULT) {
-            PMU_UI_SetStatusLED(PMU_STATUS_FAULT);
+            PMU_UI_SetStatusLED(PMU_LED_STATUS_FAULT);
         } else if (prot->status == PMU_PROT_STATUS_WARNING) {
-            PMU_UI_SetStatusLED(PMU_STATUS_WARNING);
+            PMU_UI_SetStatusLED(PMU_LED_STATUS_WARNING);
         } else {
-            PMU_UI_SetStatusLED(PMU_STATUS_RUNNING);
+            PMU_UI_SetStatusLED(PMU_LED_STATUS_RUNNING);
         }
     }
 }

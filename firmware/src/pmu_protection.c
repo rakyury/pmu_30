@@ -27,7 +27,7 @@
 #include "pmu_hbridge.h"
 #include "pmu_adc.h"
 #include "pmu_handler.h"
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include <string.h>
 
 /* Private typedef -----------------------------------------------------------*/
@@ -124,9 +124,12 @@ HAL_StatusTypeDef PMU_Protection_Init(void)
     hadc_temp = &hadc3;
 #endif
 
-    /* Read initial values */
+    /* Read initial values - skip on F446RE because HAL ADC uses SysTick timeouts
+     * and SysTick is disabled during startup to avoid FreeRTOS handler conflicts */
+#ifndef NUCLEO_F446RE
     Protection_UpdateVoltage();
     Protection_UpdateTemperature();
+#endif
 
     return HAL_OK;
 }

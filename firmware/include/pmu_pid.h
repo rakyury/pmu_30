@@ -28,7 +28,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include "pmu_types.h"
 #include <stdint.h>
 #include <stdbool.h>

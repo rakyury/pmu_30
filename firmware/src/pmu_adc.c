@@ -24,7 +24,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "pmu_adc.h"
 #include "pmu_channel.h"
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include <string.h>
 #include <stdio.h>
 

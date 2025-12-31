@@ -26,7 +26,7 @@
 #include "pmu_hbridge.h"
 #include "pmu_adc.h"
 #include "pmu_can.h"
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 #include <string.h>
 #include <math.h>
 

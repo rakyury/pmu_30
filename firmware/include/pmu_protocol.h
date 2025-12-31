@@ -142,7 +142,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  start_marker;      /**< Start marker (0xAA) */
     uint16_t length;            /**< Payload length (little-endian) */
     uint8_t  command;           /**< Command/message type */
-    uint8_t  data[256];         /**< Payload data */
+    uint8_t  data[2048];         /**< Payload data */
     uint16_t crc16;             /**< CRC16 checksum (little-endian) */
 } PMU_Protocol_Packet_t;
 
@@ -184,7 +184,7 @@ typedef enum {
 
 #define PMU_PROTOCOL_START_MARKER     0xAA   /**< Packet start marker */
 #define PMU_PROTOCOL_VERSION          0x01   /**< Protocol version */
-#define PMU_PROTOCOL_MAX_PAYLOAD      256    /**< Maximum payload size */
+#define PMU_PROTOCOL_MAX_PAYLOAD      2048    /**< Maximum payload size */
 #define PMU_PROTOCOL_UART_BAUD        115200 /**< UART baud rate */
 #define PMU_PROTOCOL_CAN_ID_BASE      0x600  /**< CAN base ID */
 

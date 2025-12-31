@@ -181,7 +181,7 @@ extern "C" {
 #define USER_BTN_PORT           GPIOC
 
 /* HAL include for H7 series */
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 
 /* ============================================================================
  * PMU-30 Production Board Configuration
@@ -219,7 +219,7 @@ extern "C" {
 #define DEBUG_BAUDRATE          115200
 
 /* HAL include for H7 series */
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 
 #endif /* Board selection */
 

@@ -51,12 +51,12 @@ typedef enum {
  * @brief System status LED states
  */
 typedef enum {
-    PMU_STATUS_POWER_ON = 0,        /* Green solid */
-    PMU_STATUS_RUNNING,             /* Green pulse */
-    PMU_STATUS_WARNING,             /* Orange blink */
-    PMU_STATUS_FAULT,               /* Red blink fast */
-    PMU_STATUS_CRITICAL,            /* Red solid */
-    PMU_STATUS_BOOTLOADER           /* Orange pulse */
+    PMU_LED_STATUS_POWER_ON = 0,    /* Green solid */
+    PMU_LED_STATUS_RUNNING,         /* Green pulse */
+    PMU_LED_STATUS_WARNING,         /* Orange blink */
+    PMU_LED_STATUS_FAULT,           /* Red blink fast */
+    PMU_LED_STATUS_CRITICAL,        /* Red solid */
+    PMU_LED_STATUS_BOOTLOADER       /* Orange pulse */
 } PMU_Status_LED_t;
 
 /**

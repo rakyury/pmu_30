@@ -117,166 +117,88 @@ uint8_t DigitalInput_Get(uint8_t channel);
 /* Digital inputs storage */
 static uint8_t g_digital_inputs[8] = {0};
 
+/* PWM output state (used by LED indicator and NucleoOutput functions) */
+static uint16_t output_duty[6] = {0};  /* 0-1000 = 0-100% */
+static uint8_t output_state[6] = {0};  /* 0=OFF, 1=ON */
+
 /* Main function -------------------------------------------------------------*/
 
 int main(void)
 {
-    /* ================================================================== */
-    /* DIAGNOSTIC INIT - Find where crash happens                          */
-    /* ================================================================== */
-
     /* Disable SysTick and interrupts */
     __disable_irq();
     SysTick->CTRL = 0;
 
-    /* Bare-metal LED setup for diagnostics */
+    /* Bare-metal LED setup */
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
     for (volatile int i = 0; i < 1000; i++);
     GPIOA->MODER &= ~(3 << (5 * 2));
     GPIOA->MODER |= (1 << (5 * 2));
-
-    /* Blink 1 = Start */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+    GPIOA->ODR &= ~(1 << 5);  /* LED off at start */
 
     /* HAL_Init */
     HAL_Init();
     SysTick->CTRL = 0;
 
-    /* Blink 2 = HAL OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
     /* SystemClock_Config */
     SystemClock_Config();
     SysTick->CTRL = 0;
 
-    /* Blink 3 = Clock OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* GPIO_Init */
+    /* Peripheral initialization */
     GPIO_Init();
-
-    /* Blink 4 = GPIO OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* USART2_Init */
     USART2_Init();
-
-    /* Blink 5 = UART OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* ===== STEP-BY-STEP DIAGNOSTIC INIT ===== */
-    /* Each blink means one more step passed */
-
-    /* Skip CAN1_Init for now */
-    /* Blink 6 = (CAN skipped) */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* ADC1_Init */
     ADC1_Init();
-    /* Blink 7 = ADC OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* TIM_PWM_Init */
     TIM_PWM_Init();
-    /* Blink 8 = PWM OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* PMU_Config_Init */
+    /* PMU modules initialization */
     PMU_Config_Init();
-    /* Blink 9 = Config OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* PMU_CAN_Init (stub) */
     PMU_CAN_Init();
-    /* Blink 9a = PMU_CAN OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 150000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 150000; d++);
-
-    /* PMU_ADC_Init (stub) */
     PMU_ADC_Init();
-    /* Blink 9b = PMU_ADC OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 150000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 150000; d++);
-
-    /* PMU_Protection_Init */
     PMU_Protection_Init();
-    /* Blink 10 = Protection OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* PMU_Channel_Init */
+    /* Channel system */
     PMU_Channel_Init();
-    /* Blink 11 = Channel OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
+    PMU_PROFET_Init(); /* Output stubs */
 
-    /* PMU_LogicFunctions_Init */
+    /* Register digital input channels (channel_id 50-57) */
+    for (uint8_t i = 0; i < 8; i++) {
+        PMU_Channel_t din_channel = {0};
+        din_channel.channel_id = 50 + i;
+        snprintf(din_channel.name, sizeof(din_channel.name), "DIN%d", i);
+        din_channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SWITCH;
+        din_channel.min_value = 0;
+        din_channel.max_value = 1;
+        din_channel.physical_index = i;
+        din_channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+        PMU_Channel_Register(&din_channel);
+    }
+
+    /* Logic engine */
     PMU_LogicFunctions_Init();
-
-    /* PMU_Logic_Init */
     PMU_Logic_Init();
-    /* Blink 12 = Logic OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
-    /* PMU_Logging_Init */
+    /* Logging and JSON */
     PMU_Logging_Init();
-
-    /* PMU_JSON_Init */
     PMU_JSON_Init();
 
-    /* PMU_Protocol_Init */
+    /* Protocol */
     PMU_Protocol_Init(PMU_TRANSPORT_UART);
-    /* Blink 13 = Protocol OK */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
-
-    /* Blink 14 = Ready for main loop */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
     /* Enable interrupts but keep SysTick disabled */
     __enable_irq();
-    SysTick->CTRL = 0;  /* Re-disable SysTick after enable_irq */
+    SysTick->CTRL = 0;
 
-    /* TEST: Send "READY" to verify UART TX works (bare-metal, no HAL timeout) */
+    /* Send "READY" to verify UART TX works */
     {
         const char* msg = "PMU30-READY\r\n";
         while (*msg) {
-            while (!(USART2->SR & USART_SR_TXE));  /* Wait for TX empty */
+            while (!(USART2->SR & USART_SR_TXE));
             USART2->DR = *msg++;
         }
-        while (!(USART2->SR & USART_SR_TC));  /* Wait for transmission complete */
+        while (!(USART2->SR & USART_SR_TC));
     }
 
-    /* Start UART reception for protocol (without HAL_Delay) */
-    /* NOTE: Using bare-metal polling in main loop instead of interrupt RX
-     * because SysTick is disabled and HAL_UART_Receive_IT may not work properly.
-     */
-    // extern void Protocol_StartUartReception(void);
-    // Protocol_StartUartReception();
-
-    /* Make sure SysTick stays off */
     SysTick->CTRL = 0;
-
-    /* ===== ALL INIT DONE - FAST BLINK 5x ===== */
-    for (int i = 0; i < 5; i++) {
-        GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 100000; d++);
-        GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 100000; d++);
-    }
-
-    /* Blink 15 = Entering main loop */
-    GPIOA->ODR |= (1 << 5); for (volatile int d = 0; d < 300000; d++);
-    GPIOA->ODR &= ~(1 << 5); for (volatile int d = 0; d < 300000; d++);
 
     /* Main loop - poll UART RX and process protocol */
     while (1) {
@@ -301,24 +223,25 @@ int main(void)
             input_count = 0;
             DigitalInputs_Read();
             PMU_ADC_Update();
+            PMU_LogicChannel_Update(); /* Evaluate logic channels */
+
+            /* Update power outputs based on source_channel linking */
+            PMU_PowerOutput_Update();
+
+            /* LED (PA5) = state of power output 1 */
+            if (output_state[1]) {
+                GPIOA->ODR |= (1 << 5);
+            } else {
+                GPIOA->ODR &= ~(1 << 5);
+            }
         }
 
         /* Telemetry at ~10Hz (every 40000 loops) */
         if (++telemetry_count >= 40000) {
             telemetry_count = 0;
-            /* Send telemetry if stream is active
-             * Note: PMU_Protocol_Update uses HAL_GetTick which is 0 (SysTick disabled),
-             * so we call SendTelemetry directly with counter-based timing
-             */
             if (PMU_Protocol_IsStreamActive()) {
                 PMU_Protocol_SendTelemetry();
             }
-        }
-
-        /* Slow blink every ~1s to show main loop running */
-        if (loop_count >= 200000) {
-            loop_count = 0;
-            GPIOA->ODR ^= (1 << 5);
         }
     }
 }
@@ -342,6 +265,7 @@ static void vControlTask(void *pvParameters)
 
         /* Read ADC inputs */
         PMU_ADC_Update();
+            PMU_LogicChannel_Update(); /* Evaluate logic channels */
 
         /* Update channel abstraction */
         PMU_Channel_Update();
@@ -351,6 +275,15 @@ static void vControlTask(void *pvParameters)
             logic_counter = 0;
             PMU_Logic_Execute();
             PMU_LogicFunctions_Update();
+
+            /* Update channel-based functions (source_channel -> output linking) */
+            PMU_LogicChannel_Update();
+            PMU_NumberChannel_Update();
+            PMU_SwitchChannel_Update();
+            PMU_FilterChannel_Update();
+            PMU_TimerChannel_Update();
+            PMU_PowerOutput_Update();  /* Apply source_channel to power outputs */
+
             g_logic_exec_count++;
 
 #ifndef PMU_DISABLE_LUA
@@ -473,6 +406,79 @@ static void Debug_PrintChannelStates(void)
     Debug_Print("\r\n");
 }
 
+/* PWM Output control --------------------------------------------------------*/
+/* Nucleo-F446RE PWM mapping:
+ * Output 0 -> TIM1_CH1 (PA8)
+ * Output 1 -> TIM1_CH2 (PA9)
+ * Output 2 -> (not connected)
+ * Output 3 -> (not connected)
+ * Output 4 -> TIM3_CH1 (PB4)
+ * Output 5 -> TIM3_CH2 (PB5)
+ */
+/* Note: output_duty[] and output_state[] declared at top of file */
+
+/**
+ * @brief Set PWM duty cycle for output channel
+ * @param channel Output channel (0-5)
+ * @param duty Duty cycle (0-1000 = 0-100%)
+ */
+void NucleoOutput_SetPWM(uint8_t channel, uint16_t duty)
+{
+    if (channel >= 6) return;
+    if (duty > 1000) duty = 1000;
+
+    output_duty[channel] = duty;
+
+    /* Apply to hardware */
+    switch (channel) {
+        case 0: __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, duty); break;
+        case 1: __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, duty); break;
+        case 4: __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, duty); break;
+        case 5: __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, duty); break;
+        default: break;  /* Channels 2, 3 not connected */
+    }
+}
+
+/**
+ * @brief Set output state (ON/OFF)
+ * @param channel Output channel (0-5)
+ * @param state 0=OFF, 1=ON (100% duty)
+ */
+void NucleoOutput_SetState(uint8_t channel, uint8_t state)
+{
+    if (channel >= 6) return;
+
+    output_state[channel] = state;
+
+    if (state) {
+        NucleoOutput_SetPWM(channel, 1000);  /* 100% duty */
+    } else {
+        NucleoOutput_SetPWM(channel, 0);     /* 0% duty */
+    }
+}
+
+/**
+ * @brief Get output state
+ * @param channel Output channel (0-5)
+ * @return 0=OFF, 1=ON
+ */
+uint8_t NucleoOutput_GetState(uint8_t channel)
+{
+    if (channel >= 6) return 0;
+    return output_state[channel];
+}
+
+/**
+ * @brief Get output duty cycle
+ * @param channel Output channel (0-5)
+ * @return Duty cycle (0-1000)
+ */
+uint16_t NucleoOutput_GetDuty(uint8_t channel)
+{
+    if (channel >= 6) return 0;
+    return output_duty[channel];
+}
+
 /* LED control ---------------------------------------------------------------*/
 
 static void LED_Toggle(void)
@@ -539,6 +545,12 @@ static void DigitalInputs_Read(void)
     g_digital_inputs[5] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_14);
     g_digital_inputs[6] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13);
     g_digital_inputs[7] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12);
+
+    /* Sync to channel system for source_channel linking
+     * Digital inputs use channel_id 50-57 (50 + pin) */
+    for (uint8_t i = 0; i < 8; i++) {
+        PMU_Channel_UpdateValue(50 + i, g_digital_inputs[i]);
+    }
 }
 
 uint8_t DigitalInput_Get(uint8_t channel)

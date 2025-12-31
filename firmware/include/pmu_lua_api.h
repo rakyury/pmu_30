@@ -75,7 +75,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32h7xx_hal.h"
+#include "pmu_hal.h"
 
 /* Optional Lua support - only include if Lua library is available */
 #ifdef USE_LUA

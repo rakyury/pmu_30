@@ -277,28 +277,32 @@ HAL_StatusTypeDef PMU_Channel_Register(const PMU_Channel_t* channel)
         return HAL_ERROR;
     }
 
-    /* Check if already registered */
-    if (channel_registry[channel->channel_id].registered) {
-        return HAL_ERROR;
-    }
+    /* Allow re-registration (update) of existing channels.
+     * This is needed when reloading config without device reset.
+     * Previously this returned HAL_ERROR which caused logic channels
+     * to fail silently on config reload.
+     */
+    bool was_registered = channel_registry[channel->channel_id].registered;
 
     /* Copy channel data */
     memcpy(&channel_registry[channel->channel_id].channel, channel, sizeof(PMU_Channel_t));
     channel_registry[channel->channel_id].registered = true;
 
-    /* Update statistics */
-    channel_stats.total_channels++;
+    /* Update statistics (only for new registrations, not re-registrations) */
+    if (!was_registered) {
+        channel_stats.total_channels++;
 
-    if (PMU_Channel_IsInput(channel->hw_class)) {
-        channel_stats.input_channels++;
-    } else {
-        channel_stats.output_channels++;
-    }
+        if (PMU_Channel_IsInput(channel->hw_class)) {
+            channel_stats.input_channels++;
+        } else {
+            channel_stats.output_channels++;
+        }
 
-    if (PMU_Channel_IsVirtual(channel->hw_class)) {
-        channel_stats.virtual_channels++;
-    } else {
-        channel_stats.physical_channels++;
+        if (PMU_Channel_IsVirtual(channel->hw_class)) {
+            channel_stats.virtual_channels++;
+        } else {
+            channel_stats.physical_channels++;
+        }
     }
 
     return HAL_OK;
@@ -756,16 +760,16 @@ static int32_t Channel_ReadVirtualInput(const PMU_Channel_t* channel)
 {
 #ifndef UNIT_TEST
     switch (channel->hw_class) {
-        case PMU_CHANNEL_INPUT_CAN:
+        case PMU_CHANNEL_CLASS_INPUT_CAN:
             /* Read from CAN module */
             /* TODO: Implement CAN input reading */
             return 0;
 
-        case PMU_CHANNEL_INPUT_CALCULATED:
+        case PMU_CHANNEL_CLASS_INPUT_CALCULATED:
             /* Read from logic module */
             return PMU_Logic_GetVChannel(channel->physical_index);
 
-        case PMU_CHANNEL_INPUT_SYSTEM:
+        case PMU_CHANNEL_CLASS_INPUT_SYSTEM:
             /* System values handled in PMU_Channel_Update() */
             return channel->value;
 
@@ -788,8 +792,8 @@ static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channe
 {
 #ifndef UNIT_TEST
     switch (channel->hw_class) {
-        case PMU_CHANNEL_OUTPUT_POWER:
-        case PMU_CHANNEL_OUTPUT_PWM:
+        case PMU_CHANNEL_CLASS_OUTPUT_POWER:
+        case PMU_CHANNEL_CLASS_OUTPUT_PWM:
             /* Write to PROFET module */
             if (value > 0) {
                 PMU_PROFET_SetState(channel->physical_index, 1);
@@ -799,7 +803,7 @@ static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channe
             }
             return HAL_OK;
 
-        case PMU_CHANNEL_OUTPUT_HBRIDGE:
+        case PMU_CHANNEL_CLASS_OUTPUT_HBRIDGE:
             /* Write to H-bridge module */
             /* value format: direction in sign, magnitude in abs value */
             {
@@ -816,7 +820,7 @@ static HAL_StatusTypeDef Channel_WritePhysicalOutput(const PMU_Channel_t* channe
             }
             return HAL_OK;
 
-        case PMU_CHANNEL_OUTPUT_ANALOG:
+        case PMU_CHANNEL_CLASS_OUTPUT_ANALOG:
             /* Write to DAC */
             /* TODO: Implement DAC output */
             return HAL_OK;
@@ -841,20 +845,20 @@ static HAL_StatusTypeDef Channel_WriteVirtualOutput(const PMU_Channel_t* channel
 {
 #ifndef UNIT_TEST
     switch (channel->hw_class) {
-        case PMU_CHANNEL_OUTPUT_FUNCTION:
-        case PMU_CHANNEL_OUTPUT_TABLE:
-        case PMU_CHANNEL_OUTPUT_ENUM:
-        case PMU_CHANNEL_OUTPUT_NUMBER:
+        case PMU_CHANNEL_CLASS_OUTPUT_FUNCTION:
+        case PMU_CHANNEL_CLASS_OUTPUT_TABLE:
+        case PMU_CHANNEL_CLASS_OUTPUT_ENUM:
+        case PMU_CHANNEL_CLASS_OUTPUT_NUMBER:
             /* Write to logic module */
             PMU_Logic_SetVChannel(channel->physical_index, value);
             return HAL_OK;
 
-        case PMU_CHANNEL_OUTPUT_CAN:
+        case PMU_CHANNEL_CLASS_OUTPUT_CAN:
             /* Write to CAN module */
             /* TODO: Implement CAN output writing */
             return HAL_OK;
 
-        case PMU_CHANNEL_OUTPUT_PID:
+        case PMU_CHANNEL_CLASS_OUTPUT_PID:
             /* PID outputs are read-only (controlled by PID loop) */
             return HAL_ERROR;
 
