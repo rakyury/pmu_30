@@ -124,12 +124,52 @@ typedef struct {
 static PMU_TimerRuntime_t timer_storage[PMU_MAX_TIMER_CHANNELS];
 static uint8_t timer_count = 0;
 
-/* Virtual channel ID allocator */
-static uint16_t virtual_channel_id_next = PMU_CHANNEL_ID_VIRTUAL_START;
+/* Type-specific channel ID allocators (using fixed ranges from pmu_channel_ids.h) */
+static uint16_t logic_channel_id_next = PMU_CHID_LOGIC_BASE;
+static uint16_t number_channel_id_next = PMU_CHID_NUMBER_BASE;
+static uint16_t timer_channel_id_next = PMU_CHID_TIMER_BASE;
+static uint16_t filter_channel_id_next = PMU_CHID_FILTER_BASE;
+static uint16_t switch_channel_id_next = PMU_CHID_SWITCH_BASE;
+static uint16_t pid_channel_id_next = PMU_CHID_PID_BASE;
 
-static uint16_t AllocateVirtualChannelID(void) {
-    if (virtual_channel_id_next <= PMU_CHANNEL_ID_VIRTUAL_END) {
-        return virtual_channel_id_next++;
+static uint16_t AllocateLogicChannelID(void) {
+    if (logic_channel_id_next <= PMU_CHID_LOGIC_MAX) {
+        return logic_channel_id_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateNumberChannelID(void) {
+    if (number_channel_id_next <= PMU_CHID_NUMBER_MAX) {
+        return number_channel_id_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateTimerChannelID(void) {
+    if (timer_channel_id_next <= PMU_CHID_TIMER_MAX) {
+        return timer_channel_id_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateFilterChannelID(void) {
+    if (filter_channel_id_next <= PMU_CHID_FILTER_MAX) {
+        return filter_channel_id_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocateSwitchChannelID(void) {
+    if (switch_channel_id_next <= PMU_CHID_SWITCH_MAX) {
+        return switch_channel_id_next++;
+    }
+    return 0;
+}
+
+static uint16_t AllocatePIDChannelID(void) {
+    if (pid_channel_id_next <= PMU_CHID_PID_MAX) {
+        return pid_channel_id_next++;
     }
     return 0;
 }
@@ -318,8 +358,13 @@ HAL_StatusTypeDef PMU_JSON_Init(void)
     memset(channel_id_map, 0, sizeof(channel_id_map));
     channel_id_map_count = 0;
 
-    /* Reset virtual channel ID allocator */
-    virtual_channel_id_next = PMU_CHANNEL_ID_VIRTUAL_START;
+    /* Reset type-specific channel ID allocators */
+    logic_channel_id_next = PMU_CHID_LOGIC_BASE;
+    number_channel_id_next = PMU_CHID_NUMBER_BASE;
+    timer_channel_id_next = PMU_CHID_TIMER_BASE;
+    filter_channel_id_next = PMU_CHID_FILTER_BASE;
+    switch_channel_id_next = PMU_CHID_SWITCH_BASE;
+    pid_channel_id_next = PMU_CHID_PID_BASE;
 
     return HAL_OK;
 }
@@ -2802,7 +2847,7 @@ static bool JSON_ParseLogic(cJSON* channel_obj)
     rt->flash_state = false;
 
     /* Allocate virtual channel ID */
-    rt->channel_id = AllocateVirtualChannelID();
+    rt->channel_id = AllocateLogicChannelID();
     if (rt->channel_id == 0) {
         JSON_SetError("Failed to allocate channel ID for logic '%s'", id);
         return false;
@@ -2897,7 +2942,7 @@ static bool JSON_ParseNumber(cJSON* channel_obj)
     rt->output_value = 0;
 
     /* Allocate virtual channel ID */
-    rt->channel_id = AllocateVirtualChannelID();
+    rt->channel_id = AllocateNumberChannelID();
     if (rt->channel_id == 0) {
         JSON_SetError("Failed to allocate channel ID for number '%s'", id);
         return false;
@@ -2968,13 +3013,13 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     }
     PMU_TimerRuntime_t* rt = &timer_storage[timer_count];
     memcpy(&rt->config, &config, sizeof(PMU_TimerConfig_t));
-    rt->channel_id = AllocateVirtualChannelID();
+    rt->channel_id = AllocateTimerChannelID();
     if (rt->channel_id == 0) {
         JSON_SetError("Failed to allocate virtual channel ID for timer '%s'", id);
         return false;
     }
     /* Allocate elapsed channel ID */
-    rt->elapsed_channel_id = AllocateVirtualChannelID();
+    rt->elapsed_channel_id = AllocateTimerChannelID();
     if (rt->elapsed_channel_id == 0) {
         JSON_SetError("Failed to allocate elapsed channel ID for timer '%s'", id);
         return false;
@@ -3057,7 +3102,7 @@ static bool JSON_ParseFilter(cJSON* channel_obj)
     }
     PMU_FilterRuntime_t* rt = &filter_storage[filter_count];
     memcpy(&rt->config, &config, sizeof(PMU_FilterConfig_t));
-    rt->channel_id = AllocateVirtualChannelID();
+    rt->channel_id = AllocateFilterChannelID();
     if (rt->channel_id == 0) {
         JSON_SetError("Failed to allocate virtual channel ID for filter '%s'", id);
         return false;
@@ -3262,7 +3307,7 @@ static bool JSON_ParseSwitch(cJSON* channel_obj)
     }
     PMU_SwitchRuntime_t* rt = &switch_storage[switch_count];
     memcpy(&rt->config, &config, sizeof(PMU_SwitchConfig_t));
-    rt->channel_id = AllocateVirtualChannelID();
+    rt->channel_id = AllocateSwitchChannelID();
     if (rt->channel_id == 0) {
         JSON_SetError("Failed to allocate virtual channel ID for switch '%s'", id);
         return false;
