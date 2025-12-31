@@ -124,6 +124,17 @@ typedef struct {
 static PMU_TimerRuntime_t timer_storage[PMU_MAX_TIMER_CHANNELS];
 static uint8_t timer_count = 0;
 
+/* Global tick counter for timer synchronization (HAL_GetTick returns 0 on bare-metal) */
+static volatile uint32_t g_current_tick_ms = 0;
+
+void PMU_SetCurrentTick(uint32_t tick_ms) {
+    g_current_tick_ms = tick_ms;
+}
+
+uint32_t PMU_GetCurrentTick(void) {
+    return g_current_tick_ms;
+}
+
 /* Type-specific channel ID allocators (using fixed ranges from pmu_channel_ids.h) */
 static uint16_t logic_channel_id_next = PMU_CHID_LOGIC_BASE;
 static uint16_t number_channel_id_next = PMU_CHID_NUMBER_BASE;
@@ -3107,8 +3118,8 @@ static bool JSON_ParseTimer(cJSON* channel_obj)
     rt->output_value = 0;
     rt->start_time_ms = 0;
     rt->running = false;
-    rt->prev_start_value = 0;
-    rt->prev_stop_value = 0;
+    rt->prev_start_value = -1;
+    rt->prev_stop_value = -1;
 
     /* Add mapping from JSON channel_id to runtime channel_id */
     if (json_channel_id != 0) {
@@ -3824,7 +3835,7 @@ void PMU_LogicChannel_Update(void)
 
         bool result = false;
 
-        uint32_t now = HAL_GetTick();
+        uint32_t now = g_current_tick_ms;
 
         switch (cfg->operation) {
             /* Basic boolean operations - C-style cast: value > 0 = true */
@@ -4280,7 +4291,8 @@ void PMU_TimerChannel_Update(void)
 {
     g_timer_update_calls++;  /* Debug: always count calls */
 #ifdef JSON_PARSING_ENABLED
-    uint32_t now = HAL_GetTick();
+    /* Use update_calls / 2 as approximate ms (~2000Hz update rate = 0.5ms per call) */
+    uint32_t now = g_timer_update_calls / 2;
 
     for (uint8_t i = 0; i < timer_count; i++) {
         PMU_TimerRuntime_t* rt = &timer_storage[i];
@@ -4289,6 +4301,15 @@ void PMU_TimerChannel_Update(void)
         /* Get start trigger value */
         int32_t start_val = GetInputChannelValueById(cfg->start_channel_id);
         int32_t stop_val = GetInputChannelValueById(cfg->stop_channel_id);
+
+        /* First run: initialize prev values without triggering edge detection */
+        if (rt->prev_start_value == -1) {
+            rt->prev_start_value = start_val;
+            rt->prev_stop_value = stop_val;
+            PMU_Channel_SetValue(rt->channel_id, 0);
+            PMU_Channel_SetValue(rt->elapsed_channel_id, 0);
+            continue;
+        }
 
         /* Edge detection for start */
         bool start_edge = false;
@@ -4415,6 +4436,45 @@ uint8_t Debug_Timer0_GetRunning(void) {
 #else
     return 0xFF;
 #endif
+}
+
+uint8_t Debug_Timer0_GetLimitSec(void) {
+#ifdef JSON_PARSING_ENABLED
+    return (timer_count > 0) ? timer_storage[0].config.limit_seconds : 0xFF;
+#else
+    return 0xFF;
+#endif
+}
+
+uint8_t Debug_Timer0_GetMode(void) {
+#ifdef JSON_PARSING_ENABLED
+    return (timer_count > 0) ? (uint8_t)timer_storage[0].config.mode : 0xFF;
+#else
+    return 0xFF;
+#endif
+}
+
+uint32_t Debug_Timer0_GetElapsedMs(void) {
+#ifdef JSON_PARSING_ENABLED
+    if (timer_count > 0 && timer_storage[0].running) {
+        uint32_t now = g_timer_update_calls / 2;
+        return now - timer_storage[0].start_time_ms;
+    }
+#endif
+    return 0;
+}
+
+uint32_t Debug_GetCurrentTickMs(void) {
+    return g_timer_update_calls / 2;
+}
+
+uint32_t Debug_Timer0_GetStartTimeMs(void) {
+#ifdef JSON_PARSING_ENABLED
+    if (timer_count > 0) {
+        return timer_storage[0].start_time_ms;
+    }
+#endif
+    return 0xFFFFFFFF;
 }
 
 /* ============================================================================

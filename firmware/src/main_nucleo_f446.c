@@ -251,6 +251,9 @@ int main(void)
             telemetry_count = 0;
             if (PMU_Protocol_IsStreamActive()) {
                 PMU_Protocol_SendTelemetry();
+                /* Process any commands received during TX (buffered to prevent loss) */
+                extern void PMU_Protocol_ProcessPendingRx(void);
+                PMU_Protocol_ProcessPendingRx();
             }
         }
     }
@@ -269,6 +272,8 @@ static void vControlTask(void *pvParameters)
     for (;;) {
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
         g_tick_count++;
+        extern void PMU_SetCurrentTick(uint32_t);
+        PMU_SetCurrentTick(g_tick_count);
 
         /* Read digital inputs */
         DigitalInputs_Read();

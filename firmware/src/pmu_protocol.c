@@ -58,6 +58,12 @@ static uint32_t stream_counter = 0;
 static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
+/* RX buffer for bytes received during TX (to prevent data loss) */
+#define RX_PENDING_BUFFER_SIZE 64
+static uint8_t rx_pending_buffer[RX_PENDING_BUFFER_SIZE];
+static volatile uint8_t rx_pending_head = 0;
+static volatile uint8_t rx_pending_tail = 0;
+
 /* Config storage buffer - stores received config for GET_CONFIG response */
 #define CONFIG_BUFFER_SIZE 4096
 static char config_buffer[CONFIG_BUFFER_SIZE];
@@ -716,6 +722,37 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
     Protocol_SendNACK(packet->command, "Unknown command");
 }
 
+#ifdef NUCLEO_F446RE
+/**
+ * @brief Check for RX data and buffer it (called during TX waits)
+ * This prevents data loss when the main loop is blocked during TX
+ */
+static inline void Protocol_CheckRxDuringTx(void)
+{
+    if (PROTOCOL_UART.Instance->SR & USART_SR_RXNE) {
+        uint8_t rx_byte = (uint8_t)(PROTOCOL_UART.Instance->DR & 0xFF);
+        uint8_t next_head = (rx_pending_head + 1) % RX_PENDING_BUFFER_SIZE;
+        if (next_head != rx_pending_tail) {
+            rx_pending_buffer[rx_pending_head] = rx_byte;
+            rx_pending_head = next_head;
+        }
+        /* If buffer full, byte is lost - but this is still better than no buffering */
+    }
+}
+
+/**
+ * @brief Process any pending RX bytes buffered during TX
+ */
+void PMU_Protocol_ProcessPendingRx(void)
+{
+    while (rx_pending_tail != rx_pending_head) {
+        uint8_t byte = rx_pending_buffer[rx_pending_tail];
+        rx_pending_tail = (rx_pending_tail + 1) % RX_PENDING_BUFFER_SIZE;
+        PMU_Protocol_ProcessData(&byte, 1);
+    }
+}
+#endif
+
 /**
  * @brief Send packet via active transport
  */
@@ -742,23 +779,34 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
     if (active_transport == PMU_TRANSPORT_UART || active_transport == PMU_TRANSPORT_WIFI) {
         /* Send via UART */
 #ifdef NUCLEO_F446RE
-        /* Bare-metal TX - SysTick is disabled so HAL timeout doesn't work */
+        /* Bare-metal TX with RX buffering - prevents command loss during telemetry TX
+         * At 115200 baud, ~80 byte telemetry packet takes ~7ms to send.
+         * Without RX check, incoming STOP_STREAM command would be lost!
+         */
         /* Send header (4 bytes) */
         for (uint16_t i = 0; i < header_len; i++) {
-            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE)) {
+                Protocol_CheckRxDuringTx();  /* Buffer any incoming bytes */
+            }
             PROTOCOL_UART.Instance->DR = header_ptr[i];
         }
         /* Send payload */
         for (uint16_t i = 0; i < payload_len; i++) {
-            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE)) {
+                Protocol_CheckRxDuringTx();  /* Buffer any incoming bytes */
+            }
             PROTOCOL_UART.Instance->DR = payload_ptr[i];
         }
         /* Send CRC (2 bytes) */
         for (uint16_t i = 0; i < 2; i++) {
-            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE));
+            while (!(PROTOCOL_UART.Instance->SR & USART_SR_TXE)) {
+                Protocol_CheckRxDuringTx();  /* Buffer any incoming bytes */
+            }
             PROTOCOL_UART.Instance->DR = crc_bytes[i];
         }
-        while (!(PROTOCOL_UART.Instance->SR & USART_SR_TC));
+        while (!(PROTOCOL_UART.Instance->SR & USART_SR_TC)) {
+            Protocol_CheckRxDuringTx();  /* Buffer any incoming bytes */
+        }
 #else
         /* Build linear TX buffer for HAL */
         static uint8_t tx_buffer[4 + 256 + 2];  /* max frame size */
