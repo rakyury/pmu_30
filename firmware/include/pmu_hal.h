@@ -28,17 +28,8 @@ extern "C" {
     /* STM32F446RE - Nucleo development board */
     #include "stm32f4xx_hal.h"
 #elif defined(PMU_EMULATOR) || defined(UNIT_TEST)
-    /* Emulator/test build - no real HAL */
-    #include <stdint.h>
-    #include <stdbool.h>
-    /* Define HAL types for compatibility */
-    typedef enum {
-        HAL_OK       = 0x00U,
-        HAL_ERROR    = 0x01U,
-        HAL_BUSY     = 0x02U,
-        HAL_TIMEOUT  = 0x03U
-    } HAL_StatusTypeDef;
-    #define HAL_MAX_DELAY      0xFFFFFFFFU
+    /* Emulator/test build - use emulator's HAL definitions */
+    #include "stm32_hal_emu.h"
 #else
     /* Default: STM32H7 (PMU-30 production hardware) */
     #include "stm32h7xx_hal.h"

@@ -20,6 +20,8 @@
 #include "pmu_logic.h"
 #include "pmu_logging.h"
 #include "pmu_config_json.h"
+#include "pmu_channel.h"
+#include "pmu_lua.h"
 #include "board_config.h"
 #include <string.h>
 #include <stdio.h>
@@ -422,6 +424,60 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
             }
         }
         telemetry_data[index++] = din_byte;
+
+        /* Debug: Timer debug info for telemetry */
+        {
+            extern uint16_t Debug_Timer0_GetStartChannelId(void);
+            extern int32_t Debug_Timer0_GetStartVal(void);
+            extern int32_t Debug_Timer0_GetPrevStartVal(void);
+            extern uint8_t Debug_Timer0_GetRunning(void);
+            extern uint8_t PMU_TimerChannel_GetCount(void);
+
+            const PMU_Channel_t* ch50 = PMU_Channel_GetInfo(50);
+            const PMU_Channel_t* ch30 = PMU_Channel_GetInfo(30);
+            uint8_t ch50_val = (ch50 && ch50->value > 0) ? 1 : 0;
+            uint8_t ch30_val = (ch30 && ch30->value > 0) ? 1 : 0;
+            uint8_t ch50_exists = ch50 ? 1 : 0;
+            uint8_t ch30_exists = ch30 ? 1 : 0;
+
+            /* Byte 79: channel exists/value flags */
+            telemetry_data[index++] = (ch50_exists << 7) | (ch50_val << 4) | (ch30_exists << 3) | ch30_val;
+
+            /* Byte 80: timer_count */
+            telemetry_data[index++] = PMU_TimerChannel_GetCount();
+
+            /* Bytes 81-82: start_channel_id (16-bit LE) */
+            uint16_t start_ch_id = Debug_Timer0_GetStartChannelId();
+            telemetry_data[index++] = start_ch_id & 0xFF;
+            telemetry_data[index++] = (start_ch_id >> 8) & 0xFF;
+
+            /* Byte 83: start_val (clamped to 0-255) */
+            int32_t start_val = Debug_Timer0_GetStartVal();
+            telemetry_data[index++] = (start_val < 0) ? 0 : ((start_val > 255) ? 255 : (uint8_t)start_val);
+
+            /* Byte 84: prev_start_val (clamped to 0-255) */
+            int32_t prev_val = Debug_Timer0_GetPrevStartVal();
+            telemetry_data[index++] = (prev_val < 0) ? 0 : ((prev_val > 255) ? 255 : (uint8_t)prev_val);
+
+            /* Byte 85: running state */
+            telemetry_data[index++] = Debug_Timer0_GetRunning();
+
+            /* Bytes 86-89: timer update calls (32-bit LE) */
+            extern uint32_t Debug_Timer_GetUpdateCalls(void);
+            uint32_t update_calls = Debug_Timer_GetUpdateCalls();
+            telemetry_data[index++] = update_calls & 0xFF;
+            telemetry_data[index++] = (update_calls >> 8) & 0xFF;
+            telemetry_data[index++] = (update_calls >> 16) & 0xFF;
+            telemetry_data[index++] = (update_calls >> 24) & 0xFF;
+
+            /* Bytes 90-93: logic exec count from main (32-bit LE) */
+            extern uint32_t Debug_GetLogicExecCount(void);
+            uint32_t logic_cnt = Debug_GetLogicExecCount();
+            telemetry_data[index++] = logic_cnt & 0xFF;
+            telemetry_data[index++] = (logic_cnt >> 8) & 0xFF;
+            telemetry_data[index++] = (logic_cnt >> 16) & 0xFF;
+            telemetry_data[index++] = (logic_cnt >> 24) & 0xFF;
+        }
 #else
         telemetry_data[index++] = 0;  /* Placeholder for non-Nucleo */
 #endif
@@ -985,16 +1041,18 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
                 PMU_JSON_Status_t status = PMU_JSON_LoadFromString(chunked_config_buffer, chunked_config_len, &stats);
 
                 /* Send final CONFIG_ACK with actual parsing result and channel counts */
-                uint8_t final_response[8] = {0};
+                uint8_t final_response[10] = {0};
                 final_response[0] = (status == PMU_JSON_OK) ? 1 : 0;  /* success */
                 final_response[1] = (uint8_t)status;                  /* status code */
                 final_response[2] = (uint8_t)stats.digital_inputs;
                 final_response[3] = (uint8_t)stats.analog_inputs;
                 final_response[4] = (uint8_t)stats.power_outputs;
                 final_response[5] = (uint8_t)stats.logic_functions;
-                final_response[6] = (uint8_t)stats.numbers;           /* use numbers as debug */
+                final_response[6] = (uint8_t)stats.numbers;
                 final_response[7] = (uint8_t)PMU_PowerOutput_GetCount();
-                Protocol_SendData(PMU_CMD_CONFIG_ACK, final_response, 8);
+                final_response[8] = (uint8_t)stats.timers;            /* timer count */
+                final_response[9] = (uint8_t)PMU_TimerChannel_GetCount();  /* runtime timer count */
+                Protocol_SendData(PMU_CMD_CONFIG_ACK, final_response, 10);
             }
             return;
         }

@@ -93,6 +93,11 @@ static volatile uint32_t g_can_rx_count = 0;
 static volatile uint32_t g_can_tx_count = 0;
 static volatile uint32_t g_logic_exec_count = 0;
 
+/* Getter for telemetry debug */
+uint32_t Debug_GetLogicExecCount(void) {
+    return g_logic_exec_count;
+}
+
 /* Private function prototypes -----------------------------------------------*/
 static void SystemClock_Config(void);
 static void GPIO_Init(void);
@@ -225,8 +230,13 @@ int main(void)
             PMU_ADC_Update();
             PMU_LogicChannel_Update(); /* Evaluate logic channels */
 
+            /* Update timer channels (edge detection, timer logic) */
+            PMU_TimerChannel_Update();
+
             /* Update power outputs based on source_channel linking */
             PMU_PowerOutput_Update();
+
+            g_logic_exec_count++;  /* Debug: count loop iterations */
 
             /* LED (PA5) = state of power output 1 */
             if (output_state[1]) {
@@ -534,6 +544,12 @@ static void GPIO_Init(void)
 
 /* Digital input reading (g_digital_inputs declared at top of file) */
 
+/* Debug counter for channel 50 updates */
+static volatile uint32_t g_ch50_update_ok = 0;
+static volatile uint32_t g_ch50_update_fail = 0;
+uint32_t Debug_GetCh50UpdateOk(void) { return g_ch50_update_ok; }
+uint32_t Debug_GetCh50UpdateFail(void) { return g_ch50_update_fail; }
+
 static void DigitalInputs_Read(void)
 {
     /* Read all digital inputs */
@@ -549,7 +565,12 @@ static void DigitalInputs_Read(void)
     /* Sync to channel system for source_channel linking
      * Digital inputs use channel_id 50-57 (50 + pin) */
     for (uint8_t i = 0; i < 8; i++) {
-        PMU_Channel_UpdateValue(50 + i, g_digital_inputs[i]);
+        HAL_StatusTypeDef result = PMU_Channel_UpdateValue(50 + i, g_digital_inputs[i]);
+        /* Track channel 50 updates */
+        if (i == 0) {
+            if (result == HAL_OK) g_ch50_update_ok++;
+            else g_ch50_update_fail++;
+        }
     }
 }
 

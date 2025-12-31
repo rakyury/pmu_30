@@ -4270,8 +4270,15 @@ void PMU_FilterChannel_Update(void)
 /**
  * @brief Update all timer channels - call from main loop at ~100-500Hz
  */
+static volatile uint32_t g_timer_update_calls = 0;
+
+uint32_t Debug_Timer_GetUpdateCalls(void) {
+    return g_timer_update_calls;
+}
+
 void PMU_TimerChannel_Update(void)
 {
+    g_timer_update_calls++;  /* Debug: always count calls */
 #ifdef JSON_PARSING_ENABLED
     uint32_t now = HAL_GetTick();
 
@@ -4374,6 +4381,40 @@ void PMU_TimerChannel_ClearConfig(void)
 uint8_t PMU_TimerChannel_GetCount(void)
 {
     return timer_count;
+}
+
+/* Debug functions for timer troubleshooting - telemetry accessible */
+uint16_t Debug_Timer0_GetStartChannelId(void) {
+#ifdef JSON_PARSING_ENABLED
+    return (timer_count > 0) ? timer_storage[0].config.start_channel_id : 0xFFFF;
+#else
+    return 0xFFFF;
+#endif
+}
+
+int32_t Debug_Timer0_GetStartVal(void) {
+#ifdef JSON_PARSING_ENABLED
+    if (timer_count > 0) {
+        return GetInputChannelValueById(timer_storage[0].config.start_channel_id);
+    }
+#endif
+    return -9999;
+}
+
+int32_t Debug_Timer0_GetPrevStartVal(void) {
+#ifdef JSON_PARSING_ENABLED
+    return (timer_count > 0) ? timer_storage[0].prev_start_value : -9999;
+#else
+    return -9999;
+#endif
+}
+
+uint8_t Debug_Timer0_GetRunning(void) {
+#ifdef JSON_PARSING_ENABLED
+    return (timer_count > 0) ? (timer_storage[0].running ? 1 : 0) : 0xFF;
+#else
+    return 0xFF;
+#endif
 }
 
 /* ============================================================================
