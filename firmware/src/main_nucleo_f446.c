@@ -514,6 +514,18 @@ uint16_t NucleoOutput_GetDuty(uint8_t channel)
     return output_duty[channel];
 }
 
+/**
+ * @brief Reset all outputs to OFF (for config reload)
+ */
+void NucleoOutput_Reset(void)
+{
+    for (uint8_t i = 0; i < 6; i++) {
+        output_state[i] = 0;
+        output_duty[i] = 0;
+        NucleoOutput_SetPWM(i, 0);
+    }
+}
+
 /* LED control ---------------------------------------------------------------*/
 
 static void LED_Toggle(void)

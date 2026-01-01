@@ -583,6 +583,10 @@ HAL_StatusTypeDef PMU_Protocol_StartStream(void)
     stream_active = true;
     stream_counter = 0;
     last_stream_time = HAL_GetTick();
+
+    /* Send first telemetry packet immediately (don't wait for period) */
+    PMU_Protocol_SendTelemetry();
+
     return HAL_OK;
 }
 
@@ -1253,8 +1257,9 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
             const uint8_t* chunk_data = packet->data + 4;
             uint16_t chunk_len = packet->length - 4;
 
-            /* First chunk - reset buffer */
+            /* First chunk - reset buffer and stop telemetry */
             if (chunk_idx == 0) {
+                PMU_Protocol_StopStream();  /* Stop telemetry during config load */
                 binary_config_len = 0;
                 binary_total_chunks = total_chunks;
                 binary_received_chunks = 0;

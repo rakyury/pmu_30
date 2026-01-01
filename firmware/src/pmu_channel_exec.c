@@ -75,6 +75,7 @@ static uint16_t config_storage_used = 0;
 /* External functions (platform-specific) ------------------------------------*/
 
 extern void NucleoOutput_SetState(uint8_t channel, uint8_t state);
+extern void NucleoOutput_Reset(void);
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -143,6 +144,9 @@ HAL_StatusTypeDef PMU_ChannelExec_AddChannel(
         case CH_TYPE_SWITCH:
             config_size = sizeof(CfgSwitch_t);
             break;
+        case CH_TYPE_NUMBER:
+            config_size = sizeof(CfgNumber_t);
+            break;
         case CH_TYPE_COUNTER:
             config_size = sizeof(CfgCounter_t);
             break;
@@ -203,12 +207,22 @@ HAL_StatusTypeDef PMU_ChannelExec_RemoveChannel(uint16_t channel_id)
 }
 
 /**
- * @brief Clear all channels from executor
+ * @brief Clear all channels from executor (full reset for config reload)
  */
 void PMU_ChannelExec_Clear(void)
 {
+    /* Full cleanup of channel and output link arrays */
+    memset(exec_state.channels, 0, sizeof(exec_state.channels));
+    memset(exec_state.output_links, 0, sizeof(exec_state.output_links));
+
+    /* Reset counters */
     exec_state.channel_count = 0;
     exec_state.output_link_count = 0;
+    exec_state.exec_count = 0;
+    exec_state.last_exec_us = 0;
+
+    /* Clear config storage buffer */
+    memset(config_storage, 0, sizeof(config_storage));
     config_storage_used = 0;
 }
 
@@ -341,8 +355,9 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
         return -1;
     }
 
-    /* Clear existing channels */
+    /* Clear existing channels and reset outputs */
     PMU_ChannelExec_Clear();
+    NucleoOutput_Reset();
 
     /* Read channel count */
     uint16_t count = data[0] | (data[1] << 8);
