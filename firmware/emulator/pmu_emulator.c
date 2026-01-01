@@ -32,6 +32,7 @@
 #include "pmu_timer.h"
 #include "pmu_blinkmarine.h"
 #include "pmu_config_json.h"
+#include "pmu_channel_exec.h"
 #include "pmu_adc.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -111,6 +112,9 @@ int PMU_Emu_Init(void)
 
     /* Initialize channel abstraction layer (registers system channels like "one", "zero") */
     PMU_Channel_Init();
+
+    /* Initialize shared library channel executor */
+    PMU_ChannelExec_Init();
 
     /* Set defaults */
     emulator.time_scale = 1.0f;
@@ -367,6 +371,7 @@ void PMU_Emu_Tick(uint32_t delta_ms)
     /* Logic update at 500Hz (every 2ms) */
     if (logic_update_accum >= 2) {
         PMU_Logic_Execute();
+        PMU_ChannelExec_Update();   /* Shared library executor */
         PMU_LogicChannel_Update();  /* JSON-config logic channels */
         PMU_NumberChannel_Update(); /* JSON-config math channels */
         PMU_SwitchChannel_Update(); /* JSON-config switch channels */
