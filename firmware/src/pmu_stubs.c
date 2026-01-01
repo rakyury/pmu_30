@@ -746,3 +746,101 @@ HAL_StatusTypeDef PMU_Lua_RegisterFunction(const char* name, void* func)
 }
 
 #endif /* PMU_DISABLE_LUA */
+
+/* ============================================================================
+ * Logic Functions Stubs (when pmu_logic_functions.c is excluded from build)
+ * DEPRECATED: Replaced by shared/channel_executor.c
+ * These stubs allow pmu_config_json.c and pmu_lua_api.c to compile
+ * NOTE: We don't include pmu_logic_functions.h here to avoid type conflicts
+ * ============================================================================ */
+
+/* Forward declarations from pmu_logic_functions.h */
+typedef struct PMU_LogicFunction_s PMU_LogicFunction_t;
+/* Note: PMU_FunctionType_t replaced with int in stub functions - enums can't be forward-declared in C */
+
+HAL_StatusTypeDef PMU_LogicFunctions_Init(void)
+{
+    return HAL_OK;  /* Channel Executor handles this now */
+}
+
+void PMU_LogicFunctions_Update(void)
+{
+    /* No-op: Channel Executor handles logic execution */
+}
+
+HAL_StatusTypeDef PMU_LogicFunctions_Register(PMU_LogicFunction_t* func)
+{
+    (void)func;
+    return HAL_OK;  /* Silently accept - Channel Executor handles this */
+}
+
+HAL_StatusTypeDef PMU_LogicFunctions_Unregister(uint16_t function_id)
+{
+    (void)function_id;
+    return HAL_OK;
+}
+
+PMU_LogicFunction_t* PMU_LogicFunctions_GetByID(uint16_t function_id)
+{
+    (void)function_id;
+    return NULL;
+}
+
+HAL_StatusTypeDef PMU_LogicFunctions_SetEnabled(uint16_t function_id, bool enabled)
+{
+    (void)function_id;
+    (void)enabled;
+    return HAL_OK;
+}
+
+uint16_t PMU_LogicFunctions_CreateMath(int type,
+                                        uint16_t output_ch,
+                                        uint16_t input_a,
+                                        uint16_t input_b)
+{
+    (void)type;
+    (void)output_ch;
+    (void)input_a;
+    (void)input_b;
+    return 0;  /* Return 0 as function ID */
+}
+
+uint16_t PMU_LogicFunctions_CreateComparison(int type,
+                                              uint16_t output_ch,
+                                              uint16_t input_a,
+                                              uint16_t input_b)
+{
+    (void)type;
+    (void)output_ch;
+    (void)input_a;
+    (void)input_b;
+    return 0;
+}
+
+uint16_t PMU_LogicFunctions_CreatePID(uint16_t output_ch,
+                                       uint16_t input_ch,
+                                       float setpoint,
+                                       float kp,
+                                       float ki,
+                                       float kd)
+{
+    (void)output_ch;
+    (void)input_ch;
+    (void)setpoint;
+    (void)kp;
+    (void)ki;
+    (void)kd;
+    return 0;
+}
+
+uint16_t PMU_LogicFunctions_CreateHysteresis(uint16_t output_ch,
+                                              uint16_t input_ch,
+                                              int32_t threshold_on,
+                                              int32_t threshold_off)
+{
+    (void)output_ch;
+    (void)input_ch;
+    (void)threshold_on;
+    (void)threshold_off;
+    return 0;
+}

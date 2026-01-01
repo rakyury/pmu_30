@@ -48,7 +48,7 @@
 #include "pmu_protocol.h"
 #include "pmu_config_json.h"
 #include "pmu_channel.h"
-#include "pmu_logic_functions.h"
+// #include "pmu_logic_functions.h"  // DEPRECATED: replaced by channel_executor
 #include "pmu_can_stream.h"
 #include "pmu_channel_exec.h"
 #include "pmu_led.h"
@@ -193,11 +193,10 @@ int main(void)
         PMU_Channel_Register(&din_channel);
     }
 
-    /* Logic engine */
-    PMU_LogicFunctions_Init();
+    /* Logic engine (virtual channel storage only) */
     PMU_Logic_Init();
 
-    /* Channel Executor (shared library integration) */
+    /* Channel Executor (shared library integration - replaces PMU_LogicFunctions) */
     PMU_ChannelExec_Init();
 
     /* Status LED (visual feedback) */
@@ -320,11 +319,11 @@ static void vControlTask(void *pvParameters)
         if (++logic_counter >= 2) {
             logic_counter = 0;
             PMU_Logic_Execute();
-            PMU_LogicFunctions_Update();
+            // PMU_LogicFunctions_Update();  // DEPRECATED: Channel Executor handles this
 
             /* Update channel-based functions (source_channel -> output linking) */
             PMU_LogicChannel_Update();
-            PMU_ChannelExec_Update();  /* Shared library executor */
+            PMU_ChannelExec_Update();  /* Shared library executor - handles all virtual channels */
             PMU_NumberChannel_Update();
             PMU_SwitchChannel_Update();
             PMU_FilterChannel_Update();

@@ -165,12 +165,13 @@ typedef struct {
 
 /* Exported constants --------------------------------------------------------*/
 
-#define PMU_LOGIC_MAX_FUNCTIONS     100
-#define PMU_LOGIC_MAX_OPERATIONS    250
-#define PMU_LOGIC_MAX_VCHANNELS     256
-#define PMU_LOGIC_MAX_TIMERS        32
-#define PMU_LOGIC_MAX_COUNTERS      32
-#define PMU_LOGIC_MAX_HYSTERESIS    32
+/* Reduced limits - Channel Executor handles most logic now */
+#define PMU_LOGIC_MAX_FUNCTIONS     8     /* Legacy JSON logic (35KB → 2.8KB) */
+#define PMU_LOGIC_MAX_OPERATIONS    20    /* Reduced from 250 */
+#define PMU_LOGIC_MAX_VCHANNELS     128   /* Virtual channel storage (3KB → 1.5KB) */
+#define PMU_LOGIC_MAX_TIMERS        8     /* Reduced from 32 */
+#define PMU_LOGIC_MAX_COUNTERS      8     /* Reduced from 32 */
+#define PMU_LOGIC_MAX_HYSTERESIS    8     /* Reduced from 32 */
 
 /* Exported macro ------------------------------------------------------------*/
 

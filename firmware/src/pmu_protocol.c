@@ -1063,8 +1063,7 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_GET_INPUTS, data, index);
 }
 
-/* Chunked config receive buffer */
-static char chunked_config_buffer[CONFIG_BUFFER_SIZE];
+/* Chunked config receive - uses config_buffer directly to save 4KB RAM */
 static uint16_t chunked_config_len = 0;
 static uint16_t chunked_total_chunks = 0;
 static uint16_t chunked_received_chunks = 0;
@@ -1088,9 +1087,9 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
                 chunked_received_chunks = 0;
             }
 
-            /* Accumulate chunk data */
+            /* Accumulate chunk data directly into config_buffer */
             if (chunked_config_len + chunk_len < CONFIG_BUFFER_SIZE) {
-                memcpy(chunked_config_buffer + chunked_config_len, chunk_data, chunk_len);
+                memcpy(config_buffer + chunked_config_len, chunk_data, chunk_len);
                 chunked_config_len += chunk_len;
                 chunked_received_chunks++;
             }
@@ -1101,16 +1100,13 @@ static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
 
             /* All chunks received - process config */
             if (chunked_received_chunks >= chunked_total_chunks) {
-                chunked_config_buffer[chunked_config_len] = '\0';
-
-                /* Store for GET_CONFIG */
-                memcpy(config_buffer, chunked_config_buffer, chunked_config_len + 1);
+                config_buffer[chunked_config_len] = '\0';
                 config_buffer_len = chunked_config_len;
                 config_received = true;
 
                 /* Load JSON and send final status */
                 PMU_JSON_LoadStats_t stats = {0};
-                PMU_JSON_Status_t status = PMU_JSON_LoadFromString(chunked_config_buffer, chunked_config_len, &stats);
+                PMU_JSON_Status_t status = PMU_JSON_LoadFromString(config_buffer, chunked_config_len, &stats);
 
                 /* Send final CONFIG_ACK with actual parsing result and channel counts */
                 uint8_t final_response[10] = {0};
