@@ -77,6 +77,28 @@ The LED on PA5 is shared between:
 
 For chunked config upload, send only ONE final ACK when all chunks received, not intermediate ACKs per chunk (for single-chunk uploads this caused double-ACK issue).
 
+### SysTick and Timing
+
+SysTick is **disabled** in bare-metal mode (`SysTick->CTRL = 0`). A custom `HAL_GetTick()` returns `g_soft_tick_ms`:
+
+```c
+// main_nucleo_f446.c
+static volatile uint32_t g_soft_tick_ms = 0;
+
+uint32_t HAL_GetTick(void) {
+    return g_soft_tick_ms;
+}
+
+// Incremented every 200 loop iterations (~1ms)
+if (++input_count >= 200) {
+    input_count = 0;
+    g_soft_tick_ms++;
+    // ...
+}
+```
+
+**Timer accuracy**: ~10% faster than real time (10000ms ≈ 9 real seconds). This is because 200 loop iterations complete slightly faster than 1ms.
+
 ## Deprecated (removed)
 
 - `pmu_config_json.c` - JSON config parsing
