@@ -12,7 +12,7 @@ import struct
 import threading
 import time
 from typing import List, Optional, Dict, Any
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 import serial.tools.list_ports
 
@@ -59,6 +59,10 @@ class DeviceController(QObject):
         self._receive_thread = None
         self._stop_thread = threading.Event()
         self._telemetry_enabled = False
+
+        # Serial telemetry polling timer
+        self._serial_poll_timer = QTimer()
+        self._serial_poll_timer.timeout.connect(self._poll_serial_telemetry)
 
         # Config receive state
         self._config_event = threading.Event()
@@ -178,6 +182,7 @@ class DeviceController(QObject):
             self.connected.emit()
 
             # Subscribe to telemetry after connection is established
+            # Note: For Serial, telemetry starts after config is loaded (see _post_connection_setup)
             if connection_type == "Emulator":
                 self.subscribe_telemetry()
 
@@ -198,6 +203,11 @@ class DeviceController(QObject):
 
         # Stop any ongoing reconnection attempts
         self.stop_reconnect()
+
+        # Stop serial polling timer if running
+        if self._serial_poll_timer.isActive():
+            self._serial_poll_timer.stop()
+            logger.debug("Stopped serial polling timer")
 
         # Stop receive thread first
         self._stop_receive_thread()
@@ -267,6 +277,18 @@ class DeviceController(QObject):
             return None
 
         logger.info("Reading configuration from device...")
+
+        # Stop telemetry stream first to avoid interference
+        stop_frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
+        self._send_frame(stop_frame)
+        time.sleep(0.2)  # Give device time to stop stream
+
+        # Clear any pending data from transport buffer
+        if hasattr(self._transport, 'receive'):
+            try:
+                self._transport.receive(4096, timeout=0.1)  # Flush buffer
+            except Exception:
+                pass
 
         # Reset config assembler
         self._config_assembler.reset()
@@ -487,6 +509,11 @@ class DeviceController(QObject):
         """Handle unexpected connection loss."""
         self._is_connected = False
         self._telemetry_enabled = False
+
+        # Stop serial polling timer if running
+        if self._serial_poll_timer.isActive():
+            self._serial_poll_timer.stop()
+
         if self._transport:
             try:
                 self._transport.disconnect()
@@ -670,13 +697,38 @@ class DeviceController(QObject):
             self._telemetry_enabled = True
             logger.info(f"Subscribed to telemetry at {rate_hz}Hz")
 
+            # For Serial connections, start polling timer (async transports use receive thread)
+            if self._connection_type == "USB Serial":
+                poll_interval = max(50, 1000 // rate_hz)  # Convert rate to interval, min 50ms
+                self._serial_poll_timer.start(poll_interval)
+                logger.info(f"Started serial polling at {poll_interval}ms interval")
+
     def unsubscribe_telemetry(self):
         """Unsubscribe from telemetry streaming."""
+        # Stop serial polling timer if running
+        if self._serial_poll_timer.isActive():
+            self._serial_poll_timer.stop()
+            logger.info("Stopped serial polling")
+
         frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
 
         if self._send_frame(frame):
             self._telemetry_enabled = False
             logger.info("Unsubscribed from telemetry")
+
+    def _poll_serial_telemetry(self):
+        """Poll serial port for telemetry data (called by timer)."""
+        if not self._is_connected or not self._transport:
+            return
+
+        try:
+            data = self._transport.receive(1024, timeout=0.01)
+            if data:
+                messages = self._protocol.feed_data(data)
+                for msg in messages:
+                    self._handle_message(msg.msg_type, msg.payload)
+        except Exception as e:
+            logger.debug(f"Serial poll error: {e}")
 
     def set_channel(self, channel_id: int, value: float) -> bool:
         """Set channel value (live, not saved to flash)."""

@@ -189,6 +189,11 @@ class MainWindowDeviceMixin:
             self.status_message.setText(f"Configuration loaded: {len(channels)} channels")
             logger.info(f"Loaded configuration with {len(channels)} channels")
 
+            # Start telemetry streaming after config is loaded
+            if self.device_controller.is_connected():
+                self.device_controller.subscribe_telemetry(rate_hz=10)
+                logger.info("Telemetry subscription started")
+
         except Exception as e:
             logger.error(f"Error loading config: {e}")
             self.status_message.setText(f"Error loading config: {e}")

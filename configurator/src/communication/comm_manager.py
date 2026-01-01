@@ -494,6 +494,14 @@ class CommManager:
         Returns:
             Configuration data as bytes (JSON)
         """
+        # Stop telemetry stream first to avoid interference
+        stop_frame = FrameBuilder.unsubscribe_telemetry()
+        await self.send_frame(stop_frame)
+        await asyncio.sleep(0.1)  # Give device time to stop stream
+
+        # Clear any pending telemetry data
+        self._pending_requests.clear()
+
         frame = FrameBuilder.get_config()
         await self.send_frame(frame)
 

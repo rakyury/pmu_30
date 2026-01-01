@@ -277,14 +277,19 @@ TELEMETRY_FORMAT = "<" + "".join([
 ])
 
 TELEMETRY_PACKET_SIZE = 174
+TELEMETRY_NUCLEO_MIN_SIZE = 80  # Minimum size for Nucleo F446RE format
 
 
 def parse_telemetry(data: bytes) -> TelemetryPacket:
     """
     Parse telemetry data from raw bytes.
 
+    Supports two formats:
+    - Full PMU-30 format: 174 bytes
+    - Nucleo F446RE format: ~104 bytes (reduced hardware)
+
     Args:
-        data: Raw telemetry packet bytes (154 bytes)
+        data: Raw telemetry packet bytes
 
     Returns:
         Parsed TelemetryPacket
@@ -292,6 +297,10 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
     Raises:
         ValueError: If data is invalid
     """
+    # Try Nucleo format first if packet is smaller than full format
+    if len(data) < TELEMETRY_PACKET_SIZE and len(data) >= TELEMETRY_NUCLEO_MIN_SIZE:
+        return _parse_telemetry_nucleo(data)
+
     if len(data) < TELEMETRY_PACKET_SIZE:
         raise ValueError(f"Telemetry packet too short: {len(data)} < {TELEMETRY_PACKET_SIZE}")
 
@@ -385,6 +394,115 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
         fault_flags=FaultFlags(fault_flags_raw),
         digital_inputs=digital_inputs,
         virtual_channels=virtual_channels,
+    )
+
+
+def _parse_telemetry_nucleo(data: bytes) -> TelemetryPacket:
+    """
+    Parse Nucleo F446RE telemetry format (~104 bytes).
+
+    Nucleo format (reduced hardware):
+    - stream_counter: 4 bytes
+    - timestamp: 4 bytes
+    - output_states: 30 bytes (1 byte per output)
+    - adc_values: 40 bytes (20 x uint16)
+    - digital_inputs: 1 byte (packed)
+    - debug_flags: 1 byte
+    - timer_debug: ~15 bytes
+    - voltage_mv: 2 bytes
+    - current_ma: 2 bytes
+    - mcu_temp: 2 bytes
+    - board_temp: 2 bytes
+    - fault_status: 2 bytes
+    """
+    idx = 0
+
+    # Stream counter (4 bytes)
+    stream_counter = struct.unpack_from("<I", data, idx)[0]
+    idx += 4
+
+    # Timestamp (4 bytes)
+    timestamp_ms = struct.unpack_from("<I", data, idx)[0]
+    idx += 4
+
+    # Output states (30 bytes)
+    profet_states = []
+    for i in range(30):
+        if idx < len(data):
+            state_val = data[idx]
+            profet_states.append(ChannelState(min(state_val, 7)))
+            idx += 1
+        else:
+            profet_states.append(ChannelState.OFF)
+
+    # ADC values (40 bytes = 20 x uint16)
+    adc_values = []
+    for i in range(20):
+        if idx + 1 < len(data):
+            val = struct.unpack_from("<H", data, idx)[0]
+            adc_values.append(val)
+            idx += 2
+        else:
+            adc_values.append(0)
+
+    # Digital inputs byte (packed bitmask)
+    din_byte = data[idx] if idx < len(data) else 0
+    idx += 1
+    digital_inputs = [(din_byte >> i) & 1 for i in range(8)] + [0] * 12
+
+    # Debug flags byte
+    if idx < len(data):
+        idx += 1  # Skip debug flags
+
+    # Timer debug section (~15 bytes) - skip for basic parsing
+    timer_debug_size = 15
+    idx += min(timer_debug_size, len(data) - idx)
+
+    # Voltage and current (4 bytes)
+    voltage_mv = 0
+    current_ma = 0
+    if idx + 3 < len(data):
+        voltage_mv = struct.unpack_from("<H", data, idx)[0]
+        idx += 2
+        current_ma = struct.unpack_from("<H", data, idx)[0]
+        idx += 2
+
+    # Temperature (4 bytes)
+    mcu_temp = 0
+    board_temp = 0
+    if idx + 3 < len(data):
+        mcu_temp = struct.unpack_from("<h", data, idx)[0]
+        idx += 2
+        board_temp = struct.unpack_from("<h", data, idx)[0]
+        idx += 2
+
+    # Fault status (2 bytes)
+    fault_status = 0
+    fault_flags = 0
+    if idx + 1 < len(data):
+        fault_status = data[idx]
+        idx += 1
+        fault_flags = data[idx] if idx < len(data) else 0
+        idx += 1
+
+    return TelemetryPacket(
+        timestamp_ms=timestamp_ms,
+        input_voltage_mv=voltage_mv,
+        temperature_c=mcu_temp,
+        total_current_ma=current_ma,
+        adc_values=adc_values,
+        profet_states=profet_states,
+        profet_duties=[0] * 30,  # Not sent in Nucleo format
+        hbridge_states=[0, 0, 0, 0],
+        hbridge_positions=[0, 0, 0, 0],
+        board_temp_2=board_temp,
+        output_5v_mv=0,
+        output_3v3_mv=0,
+        flash_temp=0,
+        system_status=0,
+        fault_flags=FaultFlags(fault_flags),
+        digital_inputs=digital_inputs,
+        virtual_channels={},
     )
 
 
