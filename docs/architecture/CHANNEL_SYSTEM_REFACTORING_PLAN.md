@@ -986,6 +986,29 @@ int32_t Timer_Update(Timer_State_t* state, const Timer_Config_t* config,
 // Filter (needs state)
 int32_t Filter_Update(Filter_State_t* state, const Filter_Config_t* config,
                       int32_t input);
+
+// Switch/Selector (stateless - pure selection)
+int32_t Switch_Select(const int32_t* values, uint8_t count, int32_t selector);
+int32_t Switch_Case(int32_t input, const SwitchCase_t* cases, uint8_t count,
+                    int32_t default_value);
+
+// Counter (needs state)
+int32_t Counter_Update(Counter_State_t* state, const Counter_Config_t* config,
+                       int32_t increment_trigger, int32_t decrement_trigger,
+                       int32_t reset_trigger);
+
+// Flip-Flop / Latch (needs state)
+int32_t FlipFlop_Update(FlipFlop_State_t* state, int32_t set, int32_t reset);
+int32_t Latch_Update(Latch_State_t* state, int32_t input, int32_t enable);
+
+// Edge detection (needs state)
+int32_t Edge_Rising(Edge_State_t* state, int32_t input);
+int32_t Edge_Falling(Edge_State_t* state, int32_t input);
+int32_t Edge_Both(Edge_State_t* state, int32_t input);
+
+// Hysteresis comparator (needs state)
+int32_t Hysteresis_Update(Hyst_State_t* state, int32_t input,
+                          int32_t threshold_high, int32_t threshold_low);
 ```
 
 ### 14.2 Stateful Functions
@@ -1014,6 +1037,48 @@ typedef struct {
     uint8_t  index;        // Current index
     int32_t sum;           // Running sum (for moving average)
 } Filter_State_t;
+
+// Counter State
+typedef struct {
+    int32_t value;         // Current counter value
+    uint8_t  last_inc;     // Last increment trigger state
+    uint8_t  last_dec;     // Last decrement trigger state
+    uint8_t  last_reset;   // Last reset trigger state
+} Counter_State_t;
+
+// Counter Config
+typedef struct {
+    int32_t min_value;     // Minimum value (clamp)
+    int32_t max_value;     // Maximum value (clamp)
+    int32_t step;          // Increment/decrement step
+    uint8_t  wrap;         // Wrap around at limits
+} Counter_Config_t;
+
+// Switch Case definition
+typedef struct {
+    int32_t match_value;   // Value to match
+    int32_t output_value;  // Output when matched
+} SwitchCase_t;
+
+// Flip-Flop State
+typedef struct {
+    uint8_t  output;       // Current Q output (0 or 1)
+} FlipFlop_State_t;
+
+// Latch State
+typedef struct {
+    int32_t latched_value; // Latched value
+} Latch_State_t;
+
+// Edge Detection State
+typedef struct {
+    int32_t last_input;    // Previous input value
+} Edge_State_t;
+
+// Hysteresis State
+typedef struct {
+    uint8_t  output;       // Current output (0 or 1)
+} Hyst_State_t;
 ```
 
 ### 14.3 Использование в Firmware
@@ -1160,7 +1225,12 @@ shared/
 │   ├── table.h/.c           # Table lookup (2D, 3D interpolation)
 │   ├── pid.h/.c             # PID controller
 │   ├── timer.h/.c           # Timer functions
-│   └── filter.h/.c          # Signal filters (moving avg, low-pass, etc.)
+│   ├── filter.h/.c          # Signal filters (moving avg, low-pass, etc.)
+│   ├── switch.h/.c          # Switch/Selector, Case statements
+│   ├── counter.h/.c         # Counter with inc/dec/reset
+│   ├── flipflop.h/.c        # Flip-Flop, Latch, SR, Toggle
+│   ├── edge.h/.c            # Edge detection (rising, falling, both)
+│   └── hysteresis.h/.c      # Hysteresis comparator
 │
 └── python/
     ├── __init__.py          # Package exports (created)
@@ -1176,7 +1246,12 @@ shared/
         ├── table.py         # Table lookup
         ├── pid.py           # PID controller
         ├── timer.py         # Timer functions
-        └── filter.py        # Signal filters
+        ├── filter.py        # Signal filters
+        ├── switch.py        # Switch/Selector, Case
+        ├── counter.py       # Counter
+        ├── flipflop.py      # Flip-Flop, Latch
+        ├── edge.py          # Edge detection
+        └── hysteresis.py    # Hysteresis comparator
 ```
 
 ---
