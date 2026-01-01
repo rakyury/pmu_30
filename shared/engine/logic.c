@@ -50,7 +50,12 @@ int32_t Logic_NOR(const int32_t* inputs, uint8_t count)
     return Logic_OR(inputs, count) ? 0 : 1;
 }
 
-int32_t Logic_NOT(int32_t input)
+int32_t Logic_IsTrue(int32_t input)
+{
+    return (input != 0) ? 1 : 0;
+}
+
+int32_t Logic_IsFalse(int32_t input)
 {
     return (input == 0) ? 1 : 0;
 }
@@ -128,8 +133,11 @@ int32_t Logic_Evaluate(LogicOp_t op, const int32_t* inputs, uint8_t count)
         case LOGIC_OP_NOR:
             return Logic_NOR(inputs, count);
 
-        case LOGIC_OP_NOT:
-            return Logic_NOT(inputs[0]);
+        case LOGIC_OP_IS_TRUE:
+            return Logic_IsTrue(inputs[0]);
+
+        case LOGIC_OP_IS_FALSE:
+            return Logic_IsFalse(inputs[0]);
 
         /* Comparison operations (need 2 inputs) */
         case LOGIC_OP_GT:

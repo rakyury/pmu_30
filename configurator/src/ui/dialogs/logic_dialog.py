@@ -35,7 +35,6 @@ class LogicDialog(BaseChannelDialog):
         (LogicOperation.AND, "And", "Output = 1 if Channel1 AND Channel2"),
         (LogicOperation.OR, "Or", "Output = 1 if Channel1 OR Channel2"),
         (LogicOperation.XOR, "Xor", "Output = 1 if Channel1 XOR Channel2 (one but not both)"),
-        (LogicOperation.NOT, "Not", "Output = 1 if Channel == 0 (inverts input)"),
         (LogicOperation.NAND, "Nand", "Output = NOT (Channel1 AND Channel2)"),
         (LogicOperation.NOR, "Nor", "Output = NOT (Channel1 OR Channel2)"),
         # Edge detection
@@ -52,10 +51,9 @@ class LogicDialog(BaseChannelDialog):
 
     # Mapping operation to page index
     OPERATION_PAGE_MAP = {
-        # Page 0: Is True / Is False / NOT (single channel + delays)
+        # Page 0: Is True / Is False (single channel + delays)
         LogicOperation.IS_TRUE: 0,
         LogicOperation.IS_FALSE: 0,
-        LogicOperation.NOT: 0,
         # Page 1: Comparison (channel + constant + delays)
         LogicOperation.EQUAL: 1,
         LogicOperation.NOT_EQUAL: 1,

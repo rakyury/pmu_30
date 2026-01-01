@@ -95,8 +95,12 @@ int32_t Exec_Logic(
             result = Logic_NOR(inputs, config->input_count);
             break;
 
-        case LOGIC_OP_NOT:
-            result = Logic_NOT(inputs[0]);
+        case LOGIC_OP_IS_TRUE:
+            result = Logic_IsTrue(inputs[0]);
+            break;
+
+        case LOGIC_OP_IS_FALSE:
+            result = Logic_IsFalse(inputs[0]);
             break;
 
         case LOGIC_OP_GT:

@@ -99,12 +99,6 @@ class LogicChannel(ChannelBase):
             data["true_delay_s"] = self.true_delay_s
             data["false_delay_s"] = self.false_delay_s
 
-        # NOT: single channel + delays
-        elif op == LogicOperation.NOT:
-            data["channel"] = self.channel
-            data["true_delay_s"] = self.true_delay_s
-            data["false_delay_s"] = self.false_delay_s
-
         # AND, OR, XOR, NAND, NOR: two channels + delays
         elif op in [LogicOperation.AND, LogicOperation.OR, LogicOperation.XOR,
                     LogicOperation.NAND, LogicOperation.NOR]:
@@ -222,7 +216,6 @@ class LogicChannel(ChannelBase):
         channels = []
 
         if op in [LogicOperation.IS_TRUE, LogicOperation.IS_FALSE,
-                  LogicOperation.NOT,
                   LogicOperation.EQUAL, LogicOperation.NOT_EQUAL,
                   LogicOperation.LESS, LogicOperation.GREATER,
                   LogicOperation.LESS_EQUAL, LogicOperation.GREATER_EQUAL,
@@ -262,7 +255,6 @@ class LogicChannel(ChannelBase):
 
         # Check required fields based on operation
         if op in [LogicOperation.IS_TRUE, LogicOperation.IS_FALSE,
-                  LogicOperation.NOT,
                   LogicOperation.EQUAL, LogicOperation.NOT_EQUAL,
                   LogicOperation.LESS, LogicOperation.GREATER,
                   LogicOperation.LESS_EQUAL, LogicOperation.GREATER_EQUAL,

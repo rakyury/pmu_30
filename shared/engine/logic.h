@@ -29,7 +29,8 @@ typedef enum {
     LOGIC_OP_XOR       = 0x02,  /**< Odd number of true inputs */
     LOGIC_OP_NAND      = 0x03,  /**< NOT AND */
     LOGIC_OP_NOR       = 0x04,  /**< NOT OR */
-    LOGIC_OP_NOT       = 0x05,  /**< Invert single input */
+    LOGIC_OP_IS_TRUE   = 0x06,  /**< Returns 1 if input != 0 */
+    LOGIC_OP_IS_FALSE  = 0x07,  /**< Returns 1 if input == 0 (same as NOT) */
 
     LOGIC_OP_GT        = 0x10,  /**< a > b */
     LOGIC_OP_GTE       = 0x11,  /**< a >= b */
@@ -84,12 +85,20 @@ int32_t Logic_NAND(const int32_t* inputs, uint8_t count);
 int32_t Logic_NOR(const int32_t* inputs, uint8_t count);
 
 /**
- * Logical NOT - inverts single input.
+ * Is True - returns 1 if input is non-zero.
  *
  * @param input Input value
- * @return 1 if input is 0, 0 otherwise
+ * @return 1 if input != 0, 0 otherwise
  */
-int32_t Logic_NOT(int32_t input);
+int32_t Logic_IsTrue(int32_t input);
+
+/**
+ * Is False - returns 1 if input is zero.
+ *
+ * @param input Input value
+ * @return 1 if input == 0, 0 otherwise
+ */
+int32_t Logic_IsFalse(int32_t input);
 
 /*============================================================================
  * Comparison Functions

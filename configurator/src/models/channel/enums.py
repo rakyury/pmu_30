@@ -82,7 +82,6 @@ class LogicOperation(Enum):
     AND = "and"                   # Channel1 AND Channel2
     OR = "or"                     # Channel1 OR Channel2
     XOR = "xor"                   # Channel1 XOR Channel2
-    NOT = "not"                   # NOT Channel
     NAND = "nand"                 # NOT (Channel1 AND Channel2)
     NOR = "nor"                   # NOT (Channel1 OR Channel2)
     # Edge detection
