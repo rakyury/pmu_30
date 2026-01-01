@@ -15,8 +15,7 @@ Date: January 2026
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Any, Union
-from enum import IntEnum
+from typing import Callable, Optional, Any
 
 # Import Logic Engine modules
 from .engine.logic import *
@@ -30,7 +29,7 @@ from .engine.switch import *
 from .engine.hysteresis import *
 from .engine.flipflop import *
 
-# Import channel config types
+# Import channel config types (includes ChannelType)
 from .channel_config import *
 
 # =============================================================================
@@ -41,37 +40,7 @@ EXEC_MAX_CHANNELS = 256
 EXEC_MAX_INPUTS = 8
 CH_REF_NONE = 0xFFFF
 
-
-# =============================================================================
-# Channel Types (matching C enum)
-# =============================================================================
-
-class ChannelType(IntEnum):
-    """Channel types"""
-    NONE = 0
-    # Inputs (1-31)
-    ANALOG_INPUT = 1
-    DIGITAL_INPUT = 2
-    CAN_INPUT = 3
-    FREQUENCY_INPUT = 4
-    PWM_INPUT = 5
-    # Outputs (32-63)
-    OUTPUT = 32
-    CAN_OUTPUT = 33
-    PWM_OUTPUT = 34
-    # Virtual (64-127)
-    NUMBER = 64
-    LOGIC = 65
-    MATH = 66
-    TIMER = 67
-    TABLE_2D = 68
-    TABLE_3D = 69
-    SWITCH = 70
-    PID = 71
-    FILTER = 72
-    COUNTER = 73
-    HYSTERESIS = 74
-    FLIPFLOP = 75
+# ChannelType is imported from channel_config
 
 
 # =============================================================================

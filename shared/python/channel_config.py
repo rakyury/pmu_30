@@ -57,6 +57,9 @@ class ChannelType(IntEnum):
     NUMBER = 0x27
     SWITCH = 0x28
     ENUM = 0x29
+    COUNTER = 0x2A
+    HYSTERESIS = 0x2B
+    FLIPFLOP = 0x2C
 
     SYSTEM = 0xF0
 

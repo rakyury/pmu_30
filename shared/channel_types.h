@@ -64,6 +64,9 @@ typedef enum {
     CH_TYPE_NUMBER           = 0x27,  /**< Constant number */
     CH_TYPE_SWITCH           = 0x28,  /**< Multi-state switch */
     CH_TYPE_ENUM             = 0x29,  /**< Enumeration */
+    CH_TYPE_COUNTER          = 0x2A,  /**< Counter (inc/dec/reset) */
+    CH_TYPE_HYSTERESIS       = 0x2B,  /**< Hysteresis/Schmitt trigger */
+    CH_TYPE_FLIPFLOP         = 0x2C,  /**< Flip-flop (SR, D, T, JK) */
 
     /* System (builtin, readonly) */
     CH_TYPE_SYSTEM           = 0xF0,  /**< System value (battery, temp, etc.) */
