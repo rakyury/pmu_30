@@ -207,6 +207,38 @@ def _transform_pid_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _transform_table_2d_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform 2D table config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map x_axis_channel to input_id
+    x_channel = config.get('x_axis_channel')
+    if x_channel and isinstance(x_channel, int):
+        result['input_id'] = x_channel
+
+    # Get point count from x_values length
+    x_values = config.get('x_values', [])
+    result['point_count'] = len(x_values)
+
+    # Convert float values to integers for int16 storage
+    output_values = config.get('output_values', [])
+    result['x_values'] = [int(v) for v in x_values]
+    result['y_values'] = [int(v) for v in output_values]
+
+    return result
+
+
+def _transform_digital_input_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform digital input config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map UI field names to shared validation names
+    if 'debounce_time' in config:
+        result['debounce_ms'] = int(config['debounce_time'])
+
+    return result
+
+
 CONFIG_TRANSFORMERS = {
     "timer": _transform_timer_config,
     "logic": _transform_logic_config,
@@ -217,6 +249,8 @@ CONFIG_TRANSFORMERS = {
     "can_rx": _transform_can_input_config,
     "analog_input": _transform_analog_input_config,
     "pid": _transform_pid_config,
+    "table_2d": _transform_table_2d_config,
+    "digital_input": _transform_digital_input_config,
 }
 
 
