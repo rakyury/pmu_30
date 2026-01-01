@@ -8,6 +8,11 @@
 
 **Testing on real hardware only**. We don't use the emulator (`pmu30_emulator`) for testing. All tests run on the physical Nucleo-F446RE board connected via **COM11**.
 
+**Run telemetry tests after firmware changes**. After any modification to firmware code, run the comprehensive telemetry test suite:
+```bash
+python tests/test_firmware_telemetry.py COM11
+```
+
 ## Quick Commands
 
 ### Build & Upload Firmware (Nucleo-F446RE)
@@ -37,6 +42,40 @@ cmd //c "set PATH=C:\\msys64\\ucrt64\\bin;%PATH% && cd c:\\Projects\\pmu_30\\fir
 
 - RAM: ~38% (from 95%)
 - Flash: ~5% (from 15%)
+
+## Debugging Notes
+
+### Channel System Architecture
+
+There are **two separate systems** for digital inputs:
+1. **ADC Input System** (`pmu_adc.c`): `inputs[].digital_state` - for ADC-based inputs with thresholds
+2. **GPIO Digital Inputs** (`main_nucleo_f446.c`): `g_digital_inputs[]` - for direct GPIO buttons
+
+**IMPORTANT**: `PMU_Channel_GetValue()` for `INPUT_SWITCH` class must return cached `ch->value`, NOT `PMU_ADC_GetDigitalState()`. The cached value is updated by `DigitalInputs_Read()` via `PMU_Channel_UpdateValue()`.
+
+### Channel Linking Flow
+
+```
+DigitalInputs_Read() → g_digital_inputs[0] = 1 (button pressed)
+        ↓
+PMU_Channel_UpdateValue(50, 1) → ch->value = 1
+        ↓
+PMU_ChannelExec_Update() → PMU_Channel_GetValue(50) → ch->value (NOT ADC!)
+        ↓
+NucleoOutput_SetState(1, 1) → output_state[1] = 1, LED ON
+```
+
+### LED Control (PA5)
+
+The LED on PA5 is shared between:
+- Power Output 1 (`output_state[1]`)
+- Status LED patterns (`PMU_LED_Update()`)
+
+**Priority**: `output_state[1]` takes priority - if output is ON, status LED is skipped.
+
+### Protocol Single ACK
+
+For chunked config upload, send only ONE final ACK when all chunks received, not intermediate ACKs per chunk (for single-chunk uploads this caused double-ACK issue).
 
 ## Deprecated (removed)
 
