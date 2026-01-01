@@ -5,7 +5,6 @@ Handles device connection, read/write operations
 
 import logging
 import threading
-import json
 import struct
 
 from PyQt6.QtWidgets import QMessageBox
@@ -205,25 +204,31 @@ class MainWindowDeviceMixin:
         QMessageBox.warning(self, "Read Failed", "Failed to read configuration from device.")
 
     def write_to_device(self):
-        """Write configuration to device."""
+        """Write binary configuration to device."""
         if not self.device_controller.is_connected():
             QMessageBox.warning(self, "Not Connected", "Please connect to device first.")
             return
 
         try:
-            config = self._prepare_config_for_write()
-            config_json = json.dumps(config, indent=2).encode('utf-8')
+            channels = self.project_tree.get_all_channels()
+            binary_data = serialize_ui_channels_for_executor(channels)
 
-            self.status_message.setText(f"Writing configuration ({len(config_json)} bytes)...")
-            total_chunks = self._send_config_chunks(config_json)
+            self.status_message.setText(f"Writing configuration ({len(binary_data)} bytes)...")
+            total_chunks = self._send_binary_config_chunks(binary_data)
 
             import time
             time.sleep(0.5)
 
+            # Parse channel count from binary data
+            channel_count = struct.unpack('<H', binary_data[:2])[0] if len(binary_data) >= 2 else 0
+
             self.status_message.setText("Configuration written successfully")
             QMessageBox.information(
                 self, "Success",
-                f"Configuration written to device.\nSize: {len(config_json)} bytes\nChunks: {total_chunks}"
+                f"Configuration written to device.\n"
+                f"Channels: {channel_count}\n"
+                f"Size: {len(binary_data)} bytes\n"
+                f"Chunks: {total_chunks}"
             )
 
         except Exception as e:
@@ -231,112 +236,31 @@ class MainWindowDeviceMixin:
             self.status_message.setText("Write failed")
             QMessageBox.critical(self, "Write Failed", f"Failed to write configuration:\n{str(e)}")
 
-    def _prepare_config_for_write(self) -> dict:
-        """Prepare configuration dict for writing to device.
-
-        Converts all channel references from string names to numeric channel_ids
-        so firmware receives clean numeric IDs only.
-        """
-        config = self.config_manager.get_config()
-        config["channels"] = self.project_tree.get_all_channels()
-        config["can_messages"] = self.config_manager.get_all_can_messages()
-        # Convert string references to numeric channel_ids for firmware
-        config = ConfigMigration.convert_references_to_ids(config)
-        return config
-
-    def _send_config_chunks(self, config_json: bytes, silent: bool = False) -> int:
-        """Send config as chunks to device. Returns number of chunks."""
-        chunk_size = 1024
-        chunks = [config_json[i:i + chunk_size] for i in range(0, len(config_json), chunk_size)]
-        total_chunks = len(chunks)
-
-        for idx, chunk in enumerate(chunks):
-            frame = self._build_config_frame(idx, total_chunks, chunk)
-            self.device_controller.send_command(frame)
-
-            if not silent:
-                progress = int((idx + 1) / total_chunks * 100)
-                self.status_message.setText(f"Writing configuration... {progress}%")
-
-        return total_chunks
-
-    def _build_config_frame(self, chunk_idx: int, total_chunks: int, chunk: bytes) -> bytes:
-        """Build protocol frame for config chunk."""
-        header = struct.pack('<HH', chunk_idx, total_chunks)
-        payload = header + chunk
-        msg_type = 0x22  # SET_CONFIG
-
-        frame_data = struct.pack('<BHB', 0xAA, len(payload), msg_type) + payload
-
-        # CRC16-CCITT
-        crc = 0xFFFF
-        for byte in frame_data[1:]:
-            crc ^= byte << 8
-            for _ in range(8):
-                if crc & 0x8000:
-                    crc = (crc << 1) ^ 0x1021
-                else:
-                    crc <<= 1
-                crc &= 0xFFFF
-
-        return frame_data + struct.pack('<H', crc)
-
     def _send_config_to_device_silent(self):
-        """Send configuration to device silently (no dialogs).
+        """Send binary configuration to device silently (no dialogs).
 
-        Sends both JSON config (for legacy system) and binary config
-        (for Channel Executor virtual channels).
+        Sends binary config for Channel Executor virtual channels.
+        Called automatically when channel configuration changes.
         """
         if not self.device_controller.is_connected():
             return
 
         try:
-            # Send JSON config (for inputs, outputs, legacy system)
-            config = self._prepare_config_for_write()
-            config_json = json.dumps(config, indent=2).encode('utf-8')
-            self._send_config_chunks(config_json, silent=True)
-
-            # Also send binary config for virtual channels (Channel Executor)
             channels = self.project_tree.get_all_channels()
             binary_data = serialize_ui_channels_for_executor(channels)
+
             if len(binary_data) > 2:  # More than just channel count
                 self._send_binary_config_chunks(binary_data, silent=True)
-                self.status_message.setText(f"Config synced (JSON: {len(config_json)}B, Binary: {len(binary_data)}B)")
-                logger.debug(f"Config sent: JSON {len(config_json)} bytes, Binary {len(binary_data)} bytes")
+                channel_count = struct.unpack('<H', binary_data[:2])[0]
+                self.status_message.setText(f"Config synced ({channel_count} channels, {len(binary_data)} bytes)")
+                logger.debug(f"Binary config sent: {channel_count} channels, {len(binary_data)} bytes")
             else:
-                self.status_message.setText(f"Config synced ({len(config_json)} bytes)")
-                logger.debug(f"Config sent to device: {len(config_json)} bytes")
+                self.status_message.setText("Config synced (no virtual channels)")
+                logger.debug("No virtual channels to sync")
 
         except Exception as e:
             logger.error(f"Failed to send config silently: {e}")
             self.status_message.setText("Config sync failed")
-
-    def write_binary_to_device(self):
-        """Write binary configuration to device (for virtual channels)."""
-        if not self.device_controller.is_connected():
-            QMessageBox.warning(self, "Not Connected", "Please connect to device first.")
-            return
-
-        try:
-            channels = self.project_tree.get_all_channels()
-            binary_data = serialize_ui_channels_for_executor(channels)
-
-            self.status_message.setText(f"Writing binary config ({len(binary_data)} bytes)...")
-            total_chunks = self._send_binary_config_chunks(binary_data)
-
-            import time
-            time.sleep(0.5)
-
-            self.status_message.setText("Binary config written successfully")
-            QMessageBox.information(
-                self, "Success",
-                f"Binary configuration written to device.\nSize: {len(binary_data)} bytes\nChunks: {total_chunks}"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to write binary config: {e}")
-            self.status_message.setText("Write failed")
-            QMessageBox.critical(self, "Write Failed", f"Failed to write binary configuration:\n{str(e)}")
 
     def _send_binary_config_chunks(self, binary_data: bytes, silent: bool = False) -> int:
         """Send binary config as chunks to device. Returns number of chunks."""
@@ -374,23 +298,6 @@ class MainWindowDeviceMixin:
                 crc &= 0xFFFF
 
         return frame_data + struct.pack('<H', crc)
-
-    def _send_binary_config_to_device_silent(self):
-        """Send binary configuration to device silently (no dialogs)."""
-        if not self.device_controller.is_connected():
-            return
-
-        try:
-            channels = self.project_tree.get_all_channels()
-            binary_data = serialize_ui_channels_for_executor(channels)
-            self._send_binary_config_chunks(binary_data, silent=True)
-
-            self.status_message.setText(f"Binary config synced ({len(binary_data)} bytes)")
-            logger.debug(f"Binary config sent to device: {len(binary_data)} bytes")
-
-        except Exception as e:
-            logger.error(f"Failed to send binary config silently: {e}")
-            self.status_message.setText("Binary config sync failed")
 
     def _apply_output_to_device(self, output_config: dict):
         """Apply output channel state to device immediately."""
