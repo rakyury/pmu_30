@@ -521,13 +521,34 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         telemetry_data[index++] = prot->fault_flags;
     }
 
-#ifndef NUCLEO_F446RE
     /* Add virtual channels (Logic, Timer, Number, Switch, Filter, etc.) */
     /* Format: count (2 bytes) + [channel_id (2 bytes) + value (4 bytes)] * count */
     uint16_t virtual_count_offset = index;  /* Save offset for count */
     uint16_t virtual_count = 0;
     index += 2;  /* Reserve space for count */
 
+#ifdef NUCLEO_F446RE
+    /* Nucleo: scan all channels 0-(MAX-1), filter by hw_class for virtual types */
+    for (uint16_t ch_id = 0;
+         ch_id < PMU_CHANNEL_MAX_CHANNELS && index < TELEMETRY_BUFFER_SIZE - 6;
+         ch_id++) {
+        const PMU_Channel_t* ch = PMU_Channel_GetInfo(ch_id);
+        if (ch && (ch->flags & PMU_CHANNEL_FLAG_ENABLED) &&
+            ch->hw_class >= PMU_CHANNEL_CLASS_OUTPUT_FUNCTION) {
+            /* Add channel ID */
+            memcpy(&telemetry_data[index], &ch_id, sizeof(ch_id));
+            index += sizeof(ch_id);
+
+            /* Add channel value (4 bytes signed) */
+            int32_t value = ch->value;
+            memcpy(&telemetry_data[index], &value, sizeof(value));
+            index += sizeof(value);
+
+            virtual_count++;
+        }
+    }
+#else
+    /* Full PMU-30: scan dedicated virtual channel range 200-999 */
     for (uint16_t ch_id = PMU_CHANNEL_ID_VIRTUAL_START;
          ch_id <= PMU_CHANNEL_ID_VIRTUAL_END && index < TELEMETRY_BUFFER_SIZE - 6;
          ch_id++) {
@@ -545,10 +566,10 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
             virtual_count++;
         }
     }
+#endif
 
     /* Write virtual channel count at saved offset */
     memcpy(&telemetry_data[virtual_count_offset], &virtual_count, sizeof(virtual_count));
-#endif
 
     /* Send data packet */
     Protocol_SendData(PMU_CMD_DATA, telemetry_data, index);

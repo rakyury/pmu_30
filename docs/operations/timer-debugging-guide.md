@@ -335,3 +335,71 @@ Time    DIN0 OUT1 Run  | TickMs   ElapsMs  StartMs | Status
 
 **Document Version:** 1.0
 **Last Updated:** January 2025
+
+---
+
+## 9. HAL_GetTick Override (Final Solution - January 2026)
+
+### Root Cause
+
+SysTick is explicitly disabled in `main_nucleo_f446.c` to prevent HAL timeout issues during bare-metal initialization:
+
+```c
+// Multiple places in main_nucleo_f446.c
+SysTick->CTRL = 0;  // Disables SysTick interrupt
+```
+
+This breaks `HAL_GetTick()` which relies on SysTick to increment its counter.
+
+### The Solution
+
+Override the weak `HAL_GetTick()` function with a software counter:
+
+```c
+// In main_nucleo_f446.c
+
+/* Software tick counter for bare-metal mode (SysTick disabled) */
+static volatile uint32_t g_soft_tick_ms = 0;
+
+/**
+ * @brief Override weak HAL_GetTick to use software counter
+ */
+uint32_t HAL_GetTick(void)
+{
+    return g_soft_tick_ms;
+}
+
+// In the main loop (every ~200 iterations = ~1ms at 16MHz HSI):
+if (++input_count >= 200) {
+    input_count = 0;
+    g_soft_tick_ms++;  /* Increment software tick (~1ms resolution) */
+    DigitalInputs_Read();
+    // ... rest of updates
+}
+```
+
+### Why This Works
+
+1. **`HAL_GetTick()` is `__weak`** - HAL declares it as weak, allowing user override
+2. **Single point of change** - All code using HAL_GetTick() automatically works
+3. **No module changes needed** - Timers, protocol, and other modules use HAL_GetTick()
+4. **~1ms resolution** - Based on main loop timing (~200 iterations/ms at 16MHz)
+
+### Verification
+
+```
+Before fix: timestamp = 0ms (always!)
+After fix:  timestamp = 65400, 65800, 66200... (incrementing!)
+```
+
+### Key Insight
+
+**Never assume HAL functions work without their dependencies!**
+
+- `HAL_GetTick()` requires SysTick interrupt
+- `HAL_Delay()` requires HAL_GetTick()
+- On bare-metal without SysTick, you MUST provide your own tick source
+
+---
+
+**Document Updated:** January 2026

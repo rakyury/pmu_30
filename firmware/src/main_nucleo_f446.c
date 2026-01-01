@@ -93,6 +93,19 @@ static volatile uint32_t g_can_rx_count = 0;
 static volatile uint32_t g_can_tx_count = 0;
 static volatile uint32_t g_logic_exec_count = 0;
 
+/* Software tick counter for bare-metal mode (SysTick disabled) */
+static volatile uint32_t g_soft_tick_ms = 0;
+
+/**
+ * @brief Override weak HAL_GetTick to use software counter
+ * SysTick is disabled on Nucleo bare-metal, so we provide our own tick source.
+ * This is incremented every ~1ms in the main loop.
+ */
+uint32_t HAL_GetTick(void)
+{
+    return g_soft_tick_ms;
+}
+
 /* Getter for telemetry debug */
 uint32_t Debug_GetLogicExecCount(void) {
     return g_logic_exec_count;
@@ -223,9 +236,10 @@ int main(void)
         static uint32_t input_count = 0;
         loop_count++;
 
-        /* Read digital inputs at ~1kHz (every 200 loops) */
+        /* Read digital inputs at ~1kHz (every 200 loops = ~1ms) */
         if (++input_count >= 200) {
             input_count = 0;
+            g_soft_tick_ms++;  /* Increment software tick (~1ms resolution) */
             DigitalInputs_Read();
             PMU_ADC_Update();
             PMU_LogicChannel_Update(); /* Evaluate logic channels */

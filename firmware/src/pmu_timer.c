@@ -21,7 +21,11 @@
 
 /* Private defines -----------------------------------------------------------*/
 
-#define TIMER_CHANNEL_BASE_ID       400   /**< Base channel ID for timer runtime channels */
+#ifdef NUCLEO_F446RE
+#define TIMER_CHANNEL_BASE_ID       30    /* Nucleo: limited to 64 channels */
+#else
+#define TIMER_CHANNEL_BASE_ID       400
+#endif   /**< Base channel ID for timer runtime channels */
 #define TIMER_CHANNELS_PER_TIMER    3     /**< value, running, elapsed */
 
 /* Private variables ---------------------------------------------------------*/

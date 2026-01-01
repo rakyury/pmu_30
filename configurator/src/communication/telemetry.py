@@ -485,6 +485,22 @@ def _parse_telemetry_nucleo(data: bytes) -> TelemetryPacket:
         fault_flags = data[idx] if idx < len(data) else 0
         idx += 1
 
+    # Parse virtual channels if present
+    # Format: count (2 bytes) + [channel_id (2 bytes) + value (4 bytes)] * count
+    virtual_channels = {}
+    if idx + 2 <= len(data):
+        virtual_count = struct.unpack_from("<H", data, idx)[0]
+        idx += 2
+
+        # Parse each virtual channel: id (2 bytes) + value (4 bytes) = 6 bytes each
+        for _ in range(virtual_count):
+            if idx + 6 <= len(data):
+                ch_id, ch_value = struct.unpack_from("<Hi", data, idx)
+                virtual_channels[ch_id] = ch_value
+                idx += 6
+            else:
+                break
+
     return TelemetryPacket(
         timestamp_ms=timestamp_ms,
         input_voltage_mv=voltage_mv,
@@ -502,7 +518,7 @@ def _parse_telemetry_nucleo(data: bytes) -> TelemetryPacket:
         system_status=0,
         fault_flags=FaultFlags(fault_flags),
         digital_inputs=digital_inputs,
-        virtual_channels={},
+        virtual_channels=virtual_channels,
     )
 
 
