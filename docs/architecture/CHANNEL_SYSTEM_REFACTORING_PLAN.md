@@ -31,6 +31,37 @@
    - Конфигуратор отображает debug в реальном времени
    - Разные уровни детализации (ERROR → TRACE)
 
+5. **Logic Engine = Pure Functions (КРИТИЧНО!)**
+   - Логика, таблицы, PID, арифметика — полностью абстрагированы от железа
+   - Движок НЕ обращается к каналам напрямую
+   - Может работать в desktop-приложении без каналов вообще
+   - Чистые функции: `output = logic_evaluate(inputs)` — никаких side effects
+   - Firmware передаёт значения в движок и забирает результаты
+   - Это упрощает тестирование и отладку
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Firmware Architecture                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Channels                Logic Engine               Hardware   │
+│   ┌──────────┐           ┌──────────────┐          ┌─────────┐ │
+│   │ Timer 1  │──value───>│              │          │ ADC     │ │
+│   │ Logic 1  │           │  Pure        │          │ GPIO    │ │
+│   │ PID 1    │<──result──│  Functions   │          │ PROFET  │ │
+│   │ Table 2D │           │              │          │ H-Bridge│ │
+│   └──────────┘           │  No channel  │          └─────────┘ │
+│                          │  access!     │                │     │
+│   Channel Manager        │              │          HAL Layer   │
+│   ┌──────────────────┐   └──────────────┘          ┌─────────┐ │
+│   │ Read HW values   │←─────────────────────────── │ Read    │ │
+│   │ Feed to engine   │                             │ Write   │ │
+│   │ Apply results    │────────────────────────────>│ Control │ │
+│   └──────────────────┘                             └─────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Что определяется через Capabilities
 
 | Возможность | Если есть | Если нет |
@@ -909,7 +940,210 @@ typedef struct __attribute__((packed)) {
 
 ---
 
-## 14. Implementation Files (shared/)
+## 14. Logic Engine (Pure Functions)
+
+### 14.1 Принцип
+
+Logic Engine — это **чистая библиотека функций**, которая:
+- НЕ знает о каналах
+- НЕ обращается к железу
+- НЕ имеет состояния (stateless, кроме PID/Timer которым нужна память)
+- Может запускаться в любом контексте: firmware, desktop app, тесты
+
+```c
+// Logic Engine API - PURE FUNCTIONS
+
+// Logic operations
+int32_t Logic_AND(const int32_t* inputs, uint8_t count);
+int32_t Logic_OR(const int32_t* inputs, uint8_t count);
+int32_t Logic_XOR(const int32_t* inputs, uint8_t count);
+int32_t Logic_NOT(int32_t input);
+int32_t Logic_GT(int32_t a, int32_t b);    // a > b
+int32_t Logic_LT(int32_t a, int32_t b);    // a < b
+int32_t Logic_EQ(int32_t a, int32_t b);    // a == b
+int32_t Logic_RANGE(int32_t value, int32_t min, int32_t max);
+
+// Math operations
+int32_t Math_Add(const int32_t* inputs, uint8_t count);
+int32_t Math_Multiply(int32_t a, int32_t b);
+int32_t Math_Divide(int32_t a, int32_t b);
+int32_t Math_Clamp(int32_t value, int32_t min, int32_t max);
+int32_t Math_Map(int32_t value, int32_t in_min, int32_t in_max,
+                 int32_t out_min, int32_t out_max);
+
+// Table lookup (pure - table data passed as parameter)
+int32_t Table2D_Lookup(const Table2D_t* table, int32_t x);
+int32_t Table3D_Lookup(const Table3D_t* table, int32_t x, int32_t y);
+
+// PID controller (needs state, but state passed as parameter)
+int32_t PID_Update(PID_State_t* state, const PID_Config_t* config,
+                   int32_t input, int32_t setpoint, uint32_t dt_ms);
+
+// Timer (needs state, but state passed as parameter)
+int32_t Timer_Update(Timer_State_t* state, const Timer_Config_t* config,
+                     int32_t trigger, uint32_t now_ms);
+
+// Filter (needs state)
+int32_t Filter_Update(Filter_State_t* state, const Filter_Config_t* config,
+                      int32_t input);
+```
+
+### 14.2 Stateful Functions
+
+Некоторые функции требуют сохранения состояния между вызовами:
+
+```c
+// PID State (passed BY POINTER, modified by function)
+typedef struct {
+    int32_t integral;      // Accumulated integral term
+    int32_t last_error;    // Previous error (for derivative)
+    int32_t last_output;   // Previous output
+    uint32_t last_time_ms; // Last update time
+} PID_State_t;
+
+// Timer State
+typedef struct {
+    uint8_t  state;        // IDLE, RUNNING, EXPIRED
+    uint32_t start_time_ms;
+    uint32_t elapsed_ms;
+} Timer_State_t;
+
+// Filter State
+typedef struct {
+    int32_t buffer[8];     // Sample buffer
+    uint8_t  index;        // Current index
+    int32_t sum;           // Running sum (for moving average)
+} Filter_State_t;
+```
+
+### 14.3 Использование в Firmware
+
+```c
+// Channel Manager собирает значения, вызывает Logic Engine, применяет результаты
+
+void ChannelManager_Update(uint32_t now_ms) {
+    // 1. Read all hardware inputs
+    for (int i = 0; i < caps.adc_count; i++) {
+        channels[adc_ids[i]].value = HAL_ADC_Read(i);
+    }
+    for (int i = 0; i < caps.din_count; i++) {
+        channels[din_ids[i]].value = HAL_GPIO_Read(i);
+    }
+
+    // 2. Process all virtual channels (order by dependency)
+    for (int i = 0; i < virtual_channel_count; i++) {
+        Channel_t* ch = &channels[virtual_order[i]];
+
+        // Gather inputs
+        int32_t inputs[8];
+        for (int j = 0; j < ch->input_count; j++) {
+            inputs[j] = channels[ch->input_ids[j]].value;
+        }
+
+        // Call Logic Engine (PURE FUNCTION)
+        switch (ch->type) {
+            case CH_TYPE_LOGIC:
+                ch->value = Logic_Evaluate(ch->logic_op, inputs, ch->input_count);
+                break;
+            case CH_TYPE_TIMER:
+                ch->value = Timer_Update(&ch->state.timer, &ch->config.timer,
+                                         inputs[0], now_ms);
+                break;
+            case CH_TYPE_PID:
+                ch->value = PID_Update(&ch->state.pid, &ch->config.pid,
+                                       inputs[0], inputs[1], now_ms - last_update_ms);
+                break;
+            case CH_TYPE_TABLE_2D:
+                ch->value = Table2D_Lookup(&ch->config.table2d, inputs[0]);
+                break;
+            // ... etc
+        }
+    }
+
+    // 3. Apply outputs to hardware
+    for (int i = 0; i < caps.profet_count; i++) {
+        HAL_Profet_SetState(i, channels[output_ids[i]].value);
+    }
+}
+```
+
+### 14.4 Desktop Testing (без железа!)
+
+```python
+# Python desktop app может использовать тот же Logic Engine
+
+import ctypes
+from pmu_shared import logic_engine
+
+# Load the compiled logic engine library
+engine = ctypes.CDLL("./logic_engine.so")
+
+# Test logic functions without any hardware
+inputs = [1, 0, 1, 1]
+result = engine.Logic_AND(inputs, len(inputs))
+print(f"AND({inputs}) = {result}")  # 0
+
+# Test PID without hardware
+pid_state = PID_State()
+pid_config = PID_Config(kp=100, ki=10, kd=5)
+output = engine.PID_Update(ctypes.byref(pid_state), ctypes.byref(pid_config),
+                           input_value=1000, setpoint=2000, dt_ms=100)
+print(f"PID output: {output}")
+
+# Test 2D table lookup
+table = Table2D(points=[(0, 0), (1000, 100), (2000, 200)])
+result = engine.Table2D_Lookup(ctypes.byref(table), x=1500)
+print(f"Table lookup at 1500: {result}")  # 150 (interpolated)
+```
+
+### 14.5 Unit Testing
+
+```c
+// Pure functions = easy testing!
+
+void test_logic_and() {
+    int32_t inputs[] = {1, 1, 1};
+    assert(Logic_AND(inputs, 3) == 1);
+
+    inputs[1] = 0;
+    assert(Logic_AND(inputs, 3) == 0);
+}
+
+void test_pid_step_response() {
+    PID_State_t state = {0};
+    PID_Config_t config = {.kp = 100, .ki = 10, .kd = 0};
+
+    int32_t setpoint = 1000;
+    int32_t input = 0;
+
+    for (int i = 0; i < 100; i++) {
+        int32_t output = PID_Update(&state, &config, input, setpoint, 10);
+        input += output / 10;  // Simulated plant response
+    }
+
+    // Should converge to setpoint
+    assert(abs(input - setpoint) < 10);
+}
+
+void test_table2d_interpolation() {
+    Table2D_t table = {
+        .count = 3,
+        .x = {0, 1000, 2000},
+        .y = {0, 100, 200}
+    };
+
+    assert(Table2D_Lookup(&table, 0) == 0);
+    assert(Table2D_Lookup(&table, 500) == 50);   // Interpolated
+    assert(Table2D_Lookup(&table, 1000) == 100);
+    assert(Table2D_Lookup(&table, 1500) == 150); // Interpolated
+    assert(Table2D_Lookup(&table, 2000) == 200);
+    assert(Table2D_Lookup(&table, 3000) == 200); // Clamped
+}
+```
+
+---
+
+## 15. Implementation Files (shared/)
 
 ```
 shared/
@@ -919,12 +1153,30 @@ shared/
 ├── debug_protocol.h         # Debug protocol (created)
 ├── protocol.h               # Unified binary protocol (created)
 ├── telemetry_codec.h/.c     # Telemetry build/parse (created)
+│
+├── engine/                   # Logic Engine (PURE FUNCTIONS)
+│   ├── logic.h/.c           # Logic operations (AND, OR, NOT, GT, LT, etc.)
+│   ├── math.h/.c            # Math operations (Add, Multiply, Map, Clamp)
+│   ├── table.h/.c           # Table lookup (2D, 3D interpolation)
+│   ├── pid.h/.c             # PID controller
+│   ├── timer.h/.c           # Timer functions
+│   └── filter.h/.c          # Signal filters (moving avg, low-pass, etc.)
+│
 └── python/
     ├── __init__.py          # Package exports (created)
     ├── channel_types.py     # Type definitions (created)
     ├── crc.py               # CRC functions (created)
     ├── device_caps.py       # Device capabilities (created)
-    └── telemetry.py         # Telemetry parser (created)
+    ├── telemetry.py         # Telemetry parser (created)
+    │
+    └── engine/              # Python port of Logic Engine
+        ├── __init__.py
+        ├── logic.py         # Logic operations
+        ├── math.py          # Math operations
+        ├── table.py         # Table lookup
+        ├── pid.py           # PID controller
+        ├── timer.py         # Timer functions
+        └── filter.py        # Signal filters
 ```
 
 ---
