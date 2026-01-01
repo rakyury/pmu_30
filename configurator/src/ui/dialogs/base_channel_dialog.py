@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional, List
 
 from models.channel import ChannelBase, ChannelType, get_channel_display_name
 from models.channel_display_service import ChannelDisplayService, ChannelIdGenerator
+from utils.validation import validate_with_shared
 
 
 def get_next_channel_id(existing_channels: List[Dict[str, Any]] = None) -> int:
@@ -232,6 +233,12 @@ class BaseChannelDialog(QDialog):
         """Validate and accept dialog"""
         errors = self._validate_base()
         errors.extend(self._validate_specific())
+
+        # Run shared validation (consistent with firmware)
+        if self.channel_type:
+            config = self.get_config()
+            shared_errors = validate_with_shared(self.channel_type, config)
+            errors.extend(shared_errors)
 
         if errors:
             QMessageBox.warning(

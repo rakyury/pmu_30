@@ -50,6 +50,7 @@
 #include "pmu_channel.h"
 #include "pmu_logic_functions.h"
 #include "pmu_can_stream.h"
+#include "pmu_channel_exec.h"
 
 #ifndef PMU_DISABLE_LUA
 #include "pmu_lua.h"
@@ -195,6 +196,9 @@ int main(void)
     PMU_LogicFunctions_Init();
     PMU_Logic_Init();
 
+    /* Channel Executor (shared library integration) */
+    PMU_ChannelExec_Init();
+
     /* Logging and JSON */
     PMU_Logging_Init();
     PMU_JSON_Init();
@@ -243,6 +247,9 @@ int main(void)
             DigitalInputs_Read();
             PMU_ADC_Update();
             PMU_LogicChannel_Update(); /* Evaluate logic channels */
+
+            /* Shared library executor - processes virtual channels */
+            PMU_ChannelExec_Update();
 
             /* Update timer channels (edge detection, timer logic) */
             PMU_TimerChannel_Update();
@@ -307,6 +314,7 @@ static void vControlTask(void *pvParameters)
 
             /* Update channel-based functions (source_channel -> output linking) */
             PMU_LogicChannel_Update();
+            PMU_ChannelExec_Update();  /* Shared library executor */
             PMU_NumberChannel_Update();
             PMU_SwitchChannel_Update();
             PMU_FilterChannel_Update();
