@@ -6,6 +6,8 @@
 
 **No backwards compatibility**. We don't support legacy code, old formats, or deprecated features. Delete old code instead of keeping it around. No migration paths, no shims, no compatibility layers.
 
+**Testing on real hardware only**. We don't use the emulator (`pmu30_emulator`) for testing. All tests run on the physical Nucleo-F446RE board connected via **COM11**.
+
 ## Quick Commands
 
 ### Build & Upload Firmware (Nucleo-F446RE)

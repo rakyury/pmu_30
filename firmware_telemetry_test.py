@@ -151,10 +151,10 @@ def test_start_telemetry(port: serial.Serial, rate_hz: int = 10) -> bool:
 
     port.reset_input_buffer()
 
-    # Payload: flags (6 bytes) + rate_ms (2 bytes)
+    # Payload: flags (6 bytes) + rate_hz (2 bytes)
     # flags: outputs, inputs, can, temps, voltages, faults
-    rate_ms = 1000 // rate_hz
-    payload = struct.pack('<BBBBBBH', 1, 1, 0, 0, 0, 0, rate_ms)
+    # Firmware expects rate in Hz directly, not period in ms!
+    payload = struct.pack('<BBBBBBH', 1, 1, 0, 0, 0, 0, rate_hz)
     frame = build_frame(CMD_START_STREAM, payload)
     port.write(frame)
     port.flush()

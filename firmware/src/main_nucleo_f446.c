@@ -242,7 +242,6 @@ int main(void)
          * For 10Hz telemetry: call every ~20000 iterations
          */
         static uint32_t loop_count = 0;
-        static uint32_t telemetry_count = 0;
         static uint32_t input_count = 0;
         loop_count++;
 
@@ -269,15 +268,13 @@ int main(void)
             }
         }
 
-        /* Telemetry at ~10Hz (every 40000 loops) */
-        if (++telemetry_count >= 40000) {
-            telemetry_count = 0;
-            if (PMU_Protocol_IsStreamActive()) {
-                PMU_Protocol_SendTelemetry();
-                /* Process any commands received during TX (buffered to prevent loss) */
-                extern void PMU_Protocol_ProcessPendingRx(void);
-                PMU_Protocol_ProcessPendingRx();
-            }
+        /* Protocol update at ~1kHz (every 200 loops = ~1ms)
+         * This handles telemetry rate control using stream_period_ms */
+        if ((loop_count % 200) == 0) {
+            PMU_Protocol_Update();
+            /* Process any commands received during TX (buffered to prevent loss) */
+            extern void PMU_Protocol_ProcessPendingRx(void);
+            PMU_Protocol_ProcessPendingRx();
         }
     }
 }

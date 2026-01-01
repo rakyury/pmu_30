@@ -184,4 +184,91 @@ uint8_t PMU_SPI_GetFaultFlags(uint8_t channel)
     return 0;
 }
 
+/* ============================================================================
+ * Legacy JSON Config Stubs (DEPRECATED - use binary config)
+ * ============================================================================
+ * These functions were part of the old JSON-based config system.
+ * They are kept as stubs for emulator compatibility.
+ */
+
+typedef enum {
+    PMU_JSON_OK = 0,
+    PMU_JSON_ERROR_PARSE,
+    PMU_JSON_ERROR_MEMORY,
+    PMU_JSON_ERROR_INVALID
+} PMU_JSON_Status_t;
+
+typedef struct {
+    uint32_t channels_loaded;
+    uint32_t outputs_loaded;
+    uint32_t inputs_loaded;
+    uint32_t can_messages_loaded;
+} PMU_JSON_LoadStats_t;
+
+static PMU_JSON_LoadStats_t json_stub_stats = {0};
+static const char* json_stub_error = "JSON config deprecated - use binary config";
+
+void PMU_JSON_Init(void)
+{
+    /* Stub - JSON config deprecated */
+}
+
+PMU_JSON_Status_t PMU_JSON_LoadFromString(const char* json, uint32_t length, PMU_JSON_LoadStats_t* stats)
+{
+    (void)json;
+    (void)length;
+    if (stats) {
+        memset(stats, 0, sizeof(PMU_JSON_LoadStats_t));
+    }
+    /* Return OK to not break emulator - binary config is now used */
+    return PMU_JSON_OK;
+}
+
+const char* PMU_JSON_GetLastError(void)
+{
+    return json_stub_error;
+}
+
+PMU_JSON_LoadStats_t* PMU_JSON_GetStats(void)
+{
+    return &json_stub_stats;
+}
+
+/* ============================================================================
+ * Legacy Channel Update Stubs (DEPRECATED - use Channel Executor)
+ * ============================================================================
+ * These functions were part of the old per-type channel update system.
+ * Now replaced by unified PMU_ChannelExec_Update().
+ */
+
+void PMU_LogicChannel_Update(void)
+{
+    /* Stub - replaced by Channel Executor */
+}
+
+void PMU_NumberChannel_Update(void)
+{
+    /* Stub - replaced by Channel Executor */
+}
+
+void PMU_SwitchChannel_Update(void)
+{
+    /* Stub - replaced by Channel Executor */
+}
+
+void PMU_FilterChannel_Update(void)
+{
+    /* Stub - replaced by Channel Executor */
+}
+
+void PMU_TimerChannel_Update(void)
+{
+    /* Stub - replaced by Channel Executor */
+}
+
+void PMU_PowerOutput_Update(void)
+{
+    /* Stub - power output is handled by emulator directly */
+}
+
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
