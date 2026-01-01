@@ -1,6 +1,50 @@
 # Channel System Refactoring Plan
 
-**Version:** 1.0 | **Created:** January 2026
+**Version:** 2.0 | **Created:** January 2026
+
+---
+
+## 🚨 КРИТИЧЕСКИЕ ТРЕБОВАНИЯ
+
+> **НИКАКОЙ ОБРАТНОЙ СОВМЕСТИМОСТИ!** Всё с нуля.
+
+### Архитектурные принципы
+
+1. **Никакого хардкода под конкретные платы**
+   - Протоколы работают одинаково на dev-бордах и готовых устройствах
+   - Нет `#ifdef NUCLEO_F446RE` или подобных проверок
+   - Всё определяется через Device Capabilities
+
+2. **Device Capabilities определяют всё**
+   - При подключении устройство отправляет свои возможности
+   - Конфигуратор адаптирует UI под полученные capabilities
+   - То, чего нет — не отображается или показывается заблокированным
+
+3. **Максимальная производительность**
+   - Минимальное использование RAM
+   - Минимальное использование CPU
+   - Zero-copy где возможно
+   - Никаких динамических аллокаций в firmware
+
+4. **Поддержка Debug информации**
+   - Протокол должен передавать debug данные с устройства
+   - Конфигуратор отображает debug в реальном времени
+   - Разные уровни детализации (ERROR → TRACE)
+
+### Что определяется через Capabilities
+
+| Возможность | Если есть | Если нет |
+|-------------|-----------|----------|
+| Power Outputs (PROFET) | Показать Output Monitor | Скрыть полностью |
+| H-Bridge | Показать H-Bridge Monitor | Скрыть полностью |
+| PID Controllers | Показать PID Tuner | Заблокировать |
+| 2D/3D Tables | Показать Table Editor | Заблокировать |
+| CAN Bus | Показать CAN Monitor | Скрыть полностью |
+| WiFi | Показать WiFi настройки | Скрыть полностью |
+| Bluetooth | Показать BT настройки | Скрыть полностью |
+| GPS | Показать GPS данные | Скрыть полностью |
+| Data Logging | Показать Data Logger | Заблокировать |
+| Lua Scripting | Показать Lua Editor | Заблокировать |
 
 ---
 
@@ -10,6 +54,7 @@
 - **Унификация**: Все каналы виртуальные (нет разделения на physical/virtual)
 - **Бинарный формат**: JSON → Binary для конфигурации
 - **Shared Library**: Единая логика для конфигуратора и прошивки
+- **Capability-Driven**: Всё определяется возможностями устройства
 
 ---
 
@@ -605,5 +650,285 @@ print(f"Virtuals: {packet.virtual_channels}")
 
 ---
 
-**Document Status:** Draft
+## 11. Device Capabilities Protocol
+
+### 11.1 Получение Capabilities
+
+При подключении конфигуратор **ОБЯЗАН** запросить capabilities:
+
+```
+Configurator                    Device
+    |                              |
+    |--- CMD_GET_CAPS ------------>|
+    |                              |
+    |<-- CMD_CAPS_RESP (64 bytes) -|
+    |                              |
+    |  [Adapt UI based on caps]    |
+    |                              |
+```
+
+### 11.2 Структура DeviceCaps (64 bytes)
+
+```c
+typedef struct __attribute__((packed)) {
+    uint16_t magic;              // 0x4350 = "CP"
+    uint8_t  version;            // Structure version
+    uint8_t  device_type;        // PMU30, NUCLEO_F446, EMULATOR...
+
+    // Hardware revision and firmware version
+    uint8_t  hw_revision;
+    uint16_t fw_version[3];      // major, minor, patch
+    uint32_t serial_number;
+
+    // Capability flags (32-bit bitmask)
+    uint32_t hw_flags;           // HAS_PROFET, HAS_HBRIDGE, HAS_CAN1...
+    uint32_t sw_flags;           // PID, TABLES, LUA, DATALOG...
+
+    // Channel counts (determined by hardware)
+    uint8_t  profet_count;       // 0-30
+    uint8_t  hbridge_count;      // 0-4
+    uint8_t  adc_count;          // 0-20
+    uint8_t  din_count;          // 0-20
+    uint8_t  freq_count;         // 0-4
+    uint8_t  pwm_count;          // 0-8
+    uint8_t  can_count;          // 0-4
+    uint8_t  lin_count;          // 0-2
+
+    // Limits
+    uint16_t max_channels;       // Total channel limit
+    uint16_t max_logic;          // Logic channels limit
+    uint16_t max_timers;         // Timer channels limit
+    uint16_t max_tables;         // Table channels limit
+
+    // Memory
+    uint32_t flash_size_kb;
+    uint32_t ram_size_kb;
+
+    // Current limits
+    uint16_t max_current_ma;
+    uint16_t per_channel_ma;
+    uint16_t hbridge_current_ma;
+} DeviceCaps_t;
+```
+
+### 11.3 Hardware Capability Flags
+
+```c
+typedef enum {
+    // I/O Hardware
+    CAPS_HAS_PROFET     = (1 << 0),   // PROFET power outputs
+    CAPS_HAS_HBRIDGE    = (1 << 1),   // H-Bridge motor drivers
+    CAPS_HAS_ADC        = (1 << 2),   // Analog inputs
+    CAPS_HAS_DAC        = (1 << 3),   // Analog outputs
+    CAPS_HAS_DIN        = (1 << 4),   // Digital inputs
+    CAPS_HAS_DOUT       = (1 << 5),   // Digital outputs
+    CAPS_HAS_FREQ       = (1 << 6),   // Frequency inputs
+    CAPS_HAS_PWM        = (1 << 7),   // PWM outputs
+
+    // Communication
+    CAPS_HAS_CAN1       = (1 << 8),
+    CAPS_HAS_CAN2       = (1 << 9),
+    CAPS_HAS_CAN3       = (1 << 10),
+    CAPS_HAS_CAN4       = (1 << 11),
+    CAPS_HAS_LIN        = (1 << 12),
+
+    // Wireless
+    CAPS_HAS_WIFI       = (1 << 16),
+    CAPS_HAS_BLUETOOTH  = (1 << 17),
+    CAPS_HAS_GPS        = (1 << 18),
+    CAPS_HAS_GSM        = (1 << 19),
+
+    // Storage
+    CAPS_HAS_SDCARD     = (1 << 20),
+    CAPS_HAS_USB        = (1 << 21),
+    CAPS_HAS_ETHERNET   = (1 << 22),
+    CAPS_HAS_RTC        = (1 << 24),
+    CAPS_HAS_EEPROM     = (1 << 25),
+} DeviceCapsFlags_t;
+```
+
+### 11.4 Software Capability Flags
+
+```c
+typedef enum {
+    CAPS_SW_PID         = (1 << 0),   // PID controllers
+    CAPS_SW_TABLES_2D   = (1 << 1),   // 2D lookup tables
+    CAPS_SW_TABLES_3D   = (1 << 2),   // 3D lookup tables
+    CAPS_SW_LOGIC       = (1 << 3),   // Logic channels
+    CAPS_SW_TIMERS      = (1 << 4),   // Timer channels
+    CAPS_SW_FILTERS     = (1 << 5),   // Filter channels
+    CAPS_SW_MATH        = (1 << 6),   // Math channels
+    CAPS_SW_LUA         = (1 << 7),   // Lua scripting
+    CAPS_SW_DATALOG     = (1 << 8),   // Data logging
+    CAPS_SW_BLINKMARINE = (1 << 9),   // BlinkMarine keypad support
+    CAPS_SW_WIPER_PARK  = (1 << 10),  // Wiper park mode
+    CAPS_SW_CAN_STREAM  = (1 << 11),  // CAN streaming output
+} DeviceCapsSwFlags_t;
+```
+
+---
+
+## 12. Debug Protocol
+
+### 12.1 Debug Message Format
+
+```c
+typedef struct __attribute__((packed)) {
+    uint8_t  type;          // DebugMsgType_t
+    uint8_t  flags;
+    uint16_t seq;           // Sequence number
+    uint32_t timestamp_us;  // Microsecond timestamp
+    // Payload follows (type-specific)
+} DebugMsgHeader_t;
+```
+
+### 12.2 Debug Message Types
+
+```c
+typedef enum {
+    // Text messages
+    DEBUG_MSG_LOG          = 0x01,   // Log message
+    DEBUG_MSG_ERROR        = 0x02,   // Error message
+    DEBUG_MSG_WARNING      = 0x03,   // Warning message
+
+    // Variable monitoring
+    DEBUG_MSG_VAR_INT      = 0x10,   // Integer variable
+    DEBUG_MSG_VAR_FLOAT    = 0x11,   // Float variable
+
+    // Channel debug
+    DEBUG_MSG_CH_STATE     = 0x20,   // Channel state change
+    DEBUG_MSG_CH_VALUE     = 0x21,   // Channel value update
+
+    // Logic/Timer debug
+    DEBUG_MSG_LOGIC_EVAL   = 0x30,   // Logic evaluation
+    DEBUG_MSG_TIMER_STATE  = 0x40,   // Timer state change
+
+    // Protocol debug
+    DEBUG_MSG_PROTO_RX     = 0x50,   // Frame received
+    DEBUG_MSG_PROTO_TX     = 0x51,   // Frame sent
+
+    // Performance
+    DEBUG_MSG_PERF_CPU     = 0x60,   // CPU usage
+    DEBUG_MSG_PERF_MEM     = 0x61,   // Memory usage
+    DEBUG_MSG_PERF_LOOP    = 0x62,   // Main loop timing
+
+    // CAN debug
+    DEBUG_MSG_CAN_RX       = 0x80,   // CAN frame received
+    DEBUG_MSG_CAN_TX       = 0x81,   // CAN frame sent
+
+    // Lua debug
+    DEBUG_MSG_LUA_PRINT    = 0x90,   // Lua print()
+    DEBUG_MSG_LUA_ERROR    = 0x91,   // Lua error
+} DebugMsgType_t;
+```
+
+### 12.3 Debug Configuration
+
+Configurator отправляет `CMD_DEBUG_CONFIG` для настройки:
+
+```c
+typedef struct __attribute__((packed)) {
+    uint8_t  level;         // DEBUG_LEVEL_ERROR..TRACE
+    uint8_t  channel_mask;  // Which debug streams to enable
+    uint16_t rate_limit_ms; // Min interval between messages
+    uint32_t module_mask;   // Which modules to debug
+} DebugConfig_t;
+```
+
+### 12.4 Debug Levels
+
+```c
+typedef enum {
+    DEBUG_LEVEL_NONE     = 0,   // No output
+    DEBUG_LEVEL_ERROR    = 1,   // Errors only
+    DEBUG_LEVEL_WARNING  = 2,   // + warnings
+    DEBUG_LEVEL_INFO     = 3,   // + info
+    DEBUG_LEVEL_DEBUG    = 4,   // + debug
+    DEBUG_LEVEL_TRACE    = 5,   // Maximum verbosity
+} DebugLevel_t;
+```
+
+---
+
+## 13. Unified Telemetry Format
+
+### 13.1 Capability-Driven Telemetry
+
+Формат телеметрии **НЕ** зависит от платы. Он определяется capabilities:
+
+```c
+// Configurator requests telemetry with sections based on device caps
+TelemConfig_t config = {
+    .rate_ms = 100,
+    .sections = TELEM_SEC_HEADER;  // Always
+
+    if (caps.hw_flags & CAPS_HAS_PROFET)
+        config.sections |= TELEM_SEC_OUTPUTS | TELEM_SEC_CURRENTS;
+
+    if (caps.hw_flags & CAPS_HAS_HBRIDGE)
+        config.sections |= TELEM_SEC_HBRIDGE;
+
+    if (caps.hw_flags & CAPS_HAS_ADC)
+        config.sections |= TELEM_SEC_ADC;
+
+    if (caps.hw_flags & CAPS_HAS_DIN)
+        config.sections |= TELEM_SEC_DIN;
+
+    // Virtual channels always available
+    config.sections |= TELEM_SEC_VIRTUALS;
+};
+
+Proto_SendFrame(CMD_TELEM_CONFIG, &config, sizeof(config));
+```
+
+### 13.2 Telemetry Sections
+
+| Section | Size | Present if |
+|---------|------|------------|
+| Header | 16 bytes | Always |
+| Outputs | profet_count bytes | CAPS_HAS_PROFET |
+| Currents | profet_count × 2 bytes | CAPS_HAS_PROFET |
+| ADC | adc_count × 2 bytes | CAPS_HAS_ADC |
+| Digital In | 4 bytes (bitmask) | CAPS_HAS_DIN |
+| H-Bridge | hbridge_count × 8 bytes | CAPS_HAS_HBRIDGE |
+| Virtuals | 2 + count × 6 bytes | Always |
+| Faults | 4 bytes | On fault |
+
+### 13.3 Telemetry Header (16 bytes, always present)
+
+```c
+typedef struct __attribute__((packed)) {
+    uint32_t seq;               // Sequence number
+    uint32_t timestamp_ms;      // Uptime
+    uint16_t voltage_mv;        // Input voltage
+    int16_t  mcu_temp_c10;      // MCU temp × 10
+    uint16_t sections;          // Section flags
+    uint16_t reserved;
+} TelemHeader_t;
+```
+
+---
+
+## 14. Implementation Files (shared/)
+
+```
+shared/
+├── channel_types.h          # Type definitions (created)
+├── crc32.h/.c               # CRC-32 and CRC-16 (created)
+├── device_caps.h/.c         # Device capabilities (created)
+├── debug_protocol.h         # Debug protocol (created)
+├── protocol.h               # Unified binary protocol (created)
+├── telemetry_codec.h/.c     # Telemetry build/parse (created)
+└── python/
+    ├── __init__.py          # Package exports (created)
+    ├── channel_types.py     # Type definitions (created)
+    ├── crc.py               # CRC functions (created)
+    ├── device_caps.py       # Device capabilities (created)
+    └── telemetry.py         # Telemetry parser (created)
+```
+
+---
+
+**Document Status:** Active Development
 **Last Updated:** January 2026
+**Version:** 2.0 - Added critical requirements, Device Capabilities, Debug Protocol
