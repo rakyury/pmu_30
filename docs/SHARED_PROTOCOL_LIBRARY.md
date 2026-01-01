@@ -1,196 +1,210 @@
-# Shared Protocol Library Proposal
+# Shared Library Architecture
 
-## Problem Statement
+**Version:** 2.0 | **Date:** January 2026 | **Author:** R2 m-sport
 
-Current architecture has **two separate implementations** of critical logic:
+---
+
+## Overview
+
+The PMU-30 system uses a shared library architecture for configuration and channel execution. This ensures identical behavior between firmware (C) and configurator (Python).
+
+## Problem Solved
+
+Previous architecture had separate implementations:
 
 | Component | Firmware (C) | Configurator (Python) |
 |-----------|--------------|----------------------|
-| Protocol framing | `pmu_protocol.c` | `protocol.py` |
-| CRC-CCITT | `PMU_Protocol_CRC16()` | `calc_crc()` |
-| JSON parsing | `pmu_config_json.c` | `config_schema.py` |
-| Telemetry format | `Protocol_SendTelemetry()` | `telemetry.py` |
+| Config format | JSON parsing | JSON parsing |
+| Channel logic | pmu_logic.c | logic_engine.py |
+| Protocol | pmu_protocol.c | protocol.py |
 
 **Issues encountered:**
-1. CRC algorithm mismatch (Modbus vs CRC-CCITT)
-2. Length field interpretation (payload only vs payload+cmd)
-3. Telemetry format differences between platforms
-4. JSON schema drift between implementations
+- Format drift between implementations
+- Logic behavior differences
+- Maintenance burden of two codebases
 
-**Time lost:** 4+ hours debugging protocol mismatches
-
----
-
-## Proposed Solution: Shared C Library
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    pmu_protocol_shared                       │
-│  (Pure C library - no HAL/OS dependencies)                   │
-├─────────────────────────────────────────────────────────────┤
-│  protocol.h / protocol.c                                     │
-│  ├── PMU_Protocol_BuildFrame()                               │
-│  ├── PMU_Protocol_ParseFrame()                               │
-│  ├── PMU_Protocol_CRC16()                                    │
-│  └── PMU_Protocol_ValidateFrame()                            │
-├─────────────────────────────────────────────────────────────┤
-│  telemetry.h / telemetry.c                                   │
-│  ├── PMU_Telemetry_Pack()                                    │
-│  ├── PMU_Telemetry_Unpack()                                  │
-│  └── PMU_Telemetry_Format (struct definition)                │
-├─────────────────────────────────────────────────────────────┤
-│  config_json.h / config_json.c                               │
-│  ├── PMU_Config_ParseJSON()                                  │
-│  ├── PMU_Config_SerializeJSON()                              │
-│  └── PMU_Config_Validate()                                   │
-└─────────────────────────────────────────────────────────────┘
-          │                           │
-          ▼                           ▼
-┌─────────────────────┐    ┌─────────────────────────┐
-│   STM32 Firmware    │    │   Python Configurator   │
-│                     │    │                         │
-│  #include "proto.h" │    │  from ctypes import *   │
-│  Uses directly as   │    │  lib = CDLL("pmu.dll")  │
-│  static library     │    │  lib.PMU_Protocol_*     │
-└─────────────────────┘    └─────────────────────────┘
-```
-
-### Build Targets
+## Current Architecture
 
 ```
 shared/
-├── CMakeLists.txt
-├── include/
-│   ├── pmu_protocol.h
-│   ├── pmu_telemetry.h
-│   └── pmu_config.h
-├── src/
-│   ├── pmu_protocol.c
-│   ├── pmu_telemetry.c
-│   └── pmu_config.c
-├── bindings/
-│   └── python/
-│       └── pmu_protocol.py   # ctypes wrapper
-└── tests/
-    ├── test_protocol.c
-    └── test_protocol.py      # Same tests, both languages
+├── channel_config.h          # Binary structure definitions (C)
+├── channel_config.c          # Binary serialization (C)
+├── channel_executor.h        # Execution API (C)
+├── channel_executor.c        # Channel processing (C)
+├── channel_types.h           # Type enumerations (C)
+├── engine/                   # Logic Engine (C)
+│   ├── logic_engine.h
+│   ├── logic.c               # Boolean operations
+│   ├── math.c                # Arithmetic operations
+│   ├── timer.c               # Timing functions
+│   ├── filter.c              # Signal filtering
+│   ├── table.c               # Lookup tables
+│   ├── pid.c                 # PID controller
+│   ├── counter.c             # Counters
+│   ├── hysteresis.c          # Hysteresis function
+│   └── flipflop.c            # Latches
+└── python/
+    ├── channel_config.py     # Python port of binary structures
+    └── engine/               # Python port of Logic Engine
+        ├── __init__.py
+        └── logic_engine.py
 ```
 
-### Build Commands
+## Integration Points
 
-```bash
-# Build for desktop (Windows DLL)
-cmake -B build_desktop -DBUILD_SHARED=ON
-cmake --build build_desktop
+### Firmware
 
-# Build for embedded (static library)
-cmake -B build_stm32 -DCMAKE_TOOLCHAIN_FILE=arm-gcc.cmake
-cmake --build build_stm32
+```c
+// firmware/src/pmu_channel_exec.c
 
-# Run tests on desktop
-ctest --test-dir build_desktop
-python -m pytest tests/
+#include "channel_executor.h"
+#include "channel_config.h"
+
+// Initialize with HAL callbacks
+Exec_Init(&context,
+          ExecGetValue,   // PMU_Channel_GetValue wrapper
+          ExecSetValue,   // PMU_Channel_SetValue wrapper
+          NULL);
+
+// Add channel from binary config
+PMU_ChannelExec_AddChannel(channel_id, type, config);
+
+// Execute at 500Hz
+PMU_ChannelExec_Update();
 ```
 
----
+### Configurator
 
-## Implementation Plan
+```python
+# configurator/src/models/binary_config.py
 
-### Phase 1: Extract Protocol Core (2-3 hours)
+from shared.python.channel_config import (
+    ConfigFile, Channel, ChannelType
+)
 
-1. Create `shared/` directory
-2. Extract CRC, frame building, frame parsing from `pmu_protocol.c`
-3. Create minimal C API without HAL dependencies
-4. Build as static library for STM32
+# Load binary config
+config = ConfigFile.load("project.pmu30")
 
-### Phase 2: Python Bindings (1-2 hours)
+# Save binary config
+config.save("project.pmu30")
 
-1. Build shared library as DLL/SO for desktop
-2. Create ctypes wrapper in Python
-3. Replace Python protocol implementation with C calls
+# Send to device
+binary_data = config.serialize()
+```
 
-### Phase 3: Telemetry Format (2-3 hours)
+## Build Integration
 
-1. Define telemetry struct in C header
-2. Pack/unpack functions in C
-3. Python uses same C functions via bindings
+### Firmware (PlatformIO)
 
-### Phase 4: JSON Config (3-4 hours)
+```ini
+; platformio.ini
+[env:pmu30]
+build_src_filter =
+    +<src/>
+    +<../shared/>
+    +<../shared/engine/>
+```
 
-1. Extract JSON parsing logic
-2. Use cJSON for both platforms
-3. Schema validation in C
+### Configurator (Python)
 
----
+```python
+# Add shared library to path
+import sys
+from pathlib import Path
+
+shared_path = Path(__file__).parent.parent.parent / "shared" / "python"
+sys.path.insert(0, str(shared_path))
+
+from channel_config import ConfigFile
+```
+
+## Binary Format
+
+All configuration uses binary format (no JSON):
+
+| Component | Format | CRC |
+|-----------|--------|-----|
+| File header | 32 bytes, little-endian | CRC-32 of payload |
+| Channel header | 14 bytes | Included in file CRC |
+| Channel config | Type-specific size | Included in file CRC |
+
+## Logic Engine
+
+The Logic Engine processes virtual channels using pure functions:
+
+```c
+// Pure function - no side effects
+int32_t Logic_Evaluate(const CfgLogic_t* cfg,
+                       const int32_t* inputs)
+{
+    switch (cfg->operation) {
+        case LOGIC_OP_AND:
+            return Logic_And(inputs, cfg->input_count);
+        case LOGIC_OP_OR:
+            return Logic_Or(inputs, cfg->input_count);
+        case LOGIC_OP_GT:
+            return inputs[0] > cfg->compare_value ? 1 : 0;
+        // ...
+    }
+}
+```
+
+Python implementation mirrors C exactly:
+
+```python
+def logic_evaluate(cfg: CfgLogic, inputs: List[int]) -> int:
+    if cfg.operation == LogicOp.AND:
+        return logic_and(inputs, cfg.input_count)
+    elif cfg.operation == LogicOp.OR:
+        return logic_or(inputs, cfg.input_count)
+    elif cfg.operation == LogicOp.GT:
+        return 1 if inputs[0] > cfg.compare_value else 0
+    # ...
+```
 
 ## Benefits
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Protocol bugs | Common | Impossible (same code) |
-| Debug time | Hours | Minutes |
-| Test coverage | Separate tests | Unified tests |
+| Config bugs | Common | Impossible (same format) |
+| Logic differences | Frequent | None (same code) |
+| Test coverage | Separate | Unified |
 | Feature parity | Manual sync | Automatic |
 
----
+## Testing Strategy
 
-## Alternative: Code Generation
-
-If C library approach is complex, consider:
-
-1. **Protocol Buffers** - Define protocol in .proto, generate C and Python
-2. **FlatBuffers** - Zero-copy, efficient for embedded
-3. **Custom DSL** - Define protocol in YAML, generate both implementations
-
-### Proto Example
-
-```protobuf
-message TelemetryPacket {
-  uint32 timestamp_ms = 1;
-  uint32 voltage_mv = 2;
-  int32 temperature_c = 3;
-  repeated uint32 adc_values = 4;
-  repeated OutputState outputs = 5;
-}
-```
-
----
-
-## Recommendation
-
-**Start with Phase 1: Extract Protocol Core**
-
-This gives immediate benefits:
-- CRC guaranteed identical
-- Frame format guaranteed identical  
-- Can test protocol on desktop before deploying
-
-The cJSON library already exists in firmware - reusing it for Python (via ctypes) ensures JSON parsing is identical.
-
----
-
-## Quick Win: Shared Test Suite
-
-Even without shared library, create **unified test cases**:
+Both implementations tested against same vectors:
 
 ```python
-# tests/protocol_test_vectors.py
+# tests/test_vectors.py
 TEST_VECTORS = [
     {
-        "name": "PING command",
-        "frame": bytes([0xAA, 0x00, 0x00, 0x01, 0xE1, 0x1A]),
-        "cmd": 0x01,
-        "payload": b"",
+        "name": "Logic AND true",
+        "type": ChannelType.LOGIC,
+        "config": {"operation": 0, "inputs": [1, 1, 1]},
+        "expected": 1
     },
     {
-        "name": "START_STREAM",
-        "frame": bytes([0xAA, 0x02, 0x00, 0x30, 0x64, 0x00, 0xAB, 0xCD]),
-        "cmd": 0x30,
-        "payload": bytes([0x64, 0x00]),  # 100Hz
+        "name": "Logic AND false",
+        "type": ChannelType.LOGIC,
+        "config": {"operation": 0, "inputs": [1, 0, 1]},
+        "expected": 0
     },
 ]
 ```
 
-Run same vectors against both C and Python implementations to catch drift.
+Run tests on both platforms:
+- `pytest tests/` for Python
+- `pio test` for C firmware
+
+---
+
+## See Also
+
+- [Binary Configuration Architecture](BINARY_CONFIG_ARCHITECTURE.md)
+- [Configuration Reference](reference/configuration.md)
+- [Firmware Architecture](firmware_architecture.md)
+
+---
+
+**Copyright 2026 R2 m-sport. All rights reserved.**

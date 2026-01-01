@@ -1,19 +1,24 @@
 # PMU-30 Documentation
 
-**Version:** 3.0 | **Last Updated:** December 2025
+**Version:** 4.0 | **Last Updated:** January 2026
 
-Welcome to PMU-30 documentation - a professional power management unit for motorsport and automotive applications.
+---
+
+## Single Source of Truth
+
+**This `docs/` folder is the authoritative source for all PMU-30 project documentation.**
+
+All technical decisions, specifications, and architecture information should be documented here. If there is a discrepancy between code comments and documentation, the documentation takes precedence.
 
 ---
 
 ## Quick Links
 
-| Getting Started | Reference | Tools |
-|-----------------|-----------|-------|
-| [Quick Start](QUICKSTART.md) | [Channels](reference/channels.md) | [Configurator UI](configurator/README.md) |
-| [First Configuration](guides/getting-started.md) | [Logic Functions](reference/logic-functions.md) | [CAN Monitor](configurator/can-monitor.md) |
-| [Examples](examples/scenarios.md) | [Configuration](reference/configuration.md) | [Output Monitor](configurator/output-monitor.md) |
-| | [Protocol](reference/protocol.md) | |
+| Getting Started | Reference | Architecture |
+|-----------------|-----------|--------------|
+| [Quick Start](QUICKSTART.md) | [Channels](reference/channels.md) | [Firmware Architecture](firmware_architecture.md) |
+| [Configuration](reference/configuration.md) | [Logic Functions](reference/logic-functions.md) | [Binary Config Architecture](BINARY_CONFIG_ARCHITECTURE.md) |
+| [Examples](examples/real-world-scenarios.md) | [Protocol](reference/protocol.md) | [Shared Library](SHARED_PROTOCOL_LIBRARY.md) |
 
 ---
 
@@ -21,50 +26,97 @@ Welcome to PMU-30 documentation - a professional power management unit for motor
 
 ```
 docs/
-├── README.md              ← You are here
-├── QUICKSTART.md          ← 5-minute setup guide
-├── CHANGELOG.md           ← Release history
-├── ROADMAP.md             ← Future plans
+├── README.md                        ← You are here (Single Source of Truth)
+├── QUICKSTART.md                    ← 5-minute setup guide
+├── ROADMAP.md                       ← Future plans
 │
-├── reference/             ← SINGLE SOURCE OF TRUTH
-│   ├── channels.md        ← Complete channel reference
-│   ├── logic-functions.md ← All logic operations
-│   ├── configuration.md   ← JSON schema & config
-│   └── protocol.md        ← Communication protocol
+├── BINARY_CONFIG_ARCHITECTURE.md    ← Binary config system
+├── SHARED_PROTOCOL_LIBRARY.md       ← Shared library design
+├── firmware_architecture.md         ← Firmware internals
 │
-├── guides/                ← HOW-TO TUTORIALS
-│   ├── getting-started.md
+├── reference/                       ← SPECIFICATIONS
+│   ├── channels.md                  ← Channel ID ranges and types
+│   ├── configuration.md             ← Binary config format (.pmu30)
+│   ├── logic-functions.md           ← Logic operations
+│   └── protocol.md                  ← Communication protocol
+│
+├── configurator/                    ← UI DOCUMENTATION
+│   ├── README.md
 │   └── ...
 │
-├── configurator/          ← UI DOCUMENTATION
-│   ├── README.md
-│   ├── analog-inputs.md
-│   ├── digital-inputs.md
-│   ├── power-outputs.md
-│   └── monitors/
-│
-├── examples/              ← PRACTICAL EXAMPLES
+├── examples/                        ← PRACTICAL EXAMPLES
 │   ├── channel-examples.md
-│   ├── logic-examples.md
-│   └── scenarios.md
+│   └── real-world-scenarios.md
 │
-├── hardware/              ← HARDWARE SPECS
-│   ├── README.md
+├── hardware/                        ← HARDWARE SPECS
 │   ├── technical_specification.md
 │   └── PCB_DESIGN_SPECIFICATION.md
 │
-└── firmware_architecture.md ← FIRMWARE ARCHITECTURE
+└── testing/                         ← TEST GUIDES
+    ├── emulator-guide.md
+    └── integration-testing-guide.md
 ```
 
 ---
 
-## Hardware Overview
+## Architecture Overview
+
+### Binary Configuration (No JSON)
+
+PMU-30 uses a unified binary format for all configuration:
+
+```
+┌─────────────────────┐
+│   Configurator      │ Creates/edits configuration
+│   (Python/Qt)       │
+└──────────┬──────────┘
+           │
+           │ .pmu30 binary file
+           ▼
+┌─────────────────────┐
+│   Binary Config     │ One format for entire system
+│   (.pmu30 file)     │
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     │           │
+     ▼           ▼
+┌─────────┐ ┌─────────┐
+│ Firmware│ │Configur-│
+│ (C)     │ │ator     │
+└─────────┘ └─────────┘
+```
+
+**Key principles:**
+- No JSON anywhere in the system
+- One binary format for firmware and configurator
+- Shared library for C and Python
+- CRC-32 verification
+
+See [Binary Config Architecture](BINARY_CONFIG_ARCHITECTURE.md) for details.
+
+### Shared Library
+
+```
+shared/
+├── channel_config.h/c      # Binary structures (C)
+├── channel_executor.h/c    # Channel processing (C)
+├── engine/                 # Logic Engine (pure C)
+└── python/
+    └── channel_config.py   # Python port
+```
+
+See [Shared Library](SHARED_PROTOCOL_LIBRARY.md) for details.
+
+---
+
+## Hardware Specifications
 
 | Feature | Specification |
 |---------|---------------|
 | **Power Outputs** | 30 × PROFET high-side, 40A each |
 | **H-Bridges** | 4 × bidirectional, 30A each |
-| **Analog Inputs** | 20 × 0-5V, 10-bit resolution |
+| **Analog Inputs** | 20 × 0-5V, 12-bit resolution |
 | **Digital Inputs** | 20 × configurable pull-up/down |
 | **CAN Bus** | 2 × CAN FD + 2 × CAN 2.0 |
 | **Connectivity** | USB-C, WiFi, Bluetooth, LIN |
@@ -75,106 +127,85 @@ docs/
 
 ## Channel System
 
-PMU-30 uses a unified channel abstraction for all I/O:
-
 | ID Range | Type | Description |
 |----------|------|-------------|
-| 0-49 | Digital Inputs | Physical switch/button inputs |
-| 50-99 | Analog Inputs | 0-5V sensor inputs |
-| 100-129 | Power Outputs | PROFET outputs |
-| 150-157 | H-Bridge | Motor control |
-| 200-999 | Virtual | Logic, Math, Timers, PID |
-| 1000-1023 | System | Battery, temp, status |
-| 1100-1279 | Telemetry | Per-output monitoring |
+| 0-99 | Physical Inputs | Digital and analog inputs |
+| 100-199 | Physical Outputs | Power outputs, H-bridges |
+| 200-999 | Virtual Channels | Logic, Math, Timers, PID |
+| 1000-1023 | System Channels | Battery, temperature, status |
 
-→ See [Channels Reference](reference/channels.md) for details.
+See [Channels Reference](reference/channels.md) for details.
 
 ---
 
-## Configuration Format (v3.0)
+## Configuration Format
 
-PMU-30 uses JSON configuration:
+Binary format (`.pmu30` extension):
 
-```json
-{
-  "version": "3.0",
-  "device_name": "PMU-30",
-  "channels": [
-    {
-      "channel_id": 100,
-      "channel_type": "power_output",
-      "channel_name": "Headlights",
-      "output_pins": [0, 1],
-      "source_channel_id": 0,
-      "current_limit": 15000
-    }
-  ],
-  "can_messages": [
-    {
-      "message_id": 1792,
-      "can_bus": 1,
-      "cycle_time_ms": 100,
-      "signals": [...]
-    }
-  ]
-}
+```
+┌────────────────────────────────┐
+│  File Header (32 bytes)        │
+│  - Magic: 0x43464733           │
+│  - CRC-32 checksum             │
+│  - Channel count               │
+├────────────────────────────────┤
+│  Channel 0                     │
+│  ├─ Header (14 bytes)          │
+│  ├─ Name (0-31 bytes)          │
+│  └─ Config (type-specific)     │
+├────────────────────────────────┤
+│  Channel 1...N                 │
+└────────────────────────────────┘
 ```
 
-→ See [Configuration Reference](reference/configuration.md) for full schema.
+See [Configuration Reference](reference/configuration.md) for full specification.
 
 ---
 
 ## Reference Documents
 
-### Core Reference (Single Source of Truth)
+### Architecture
 
 | Document | Description |
 |----------|-------------|
-| [channels.md](reference/channels.md) | Channel IDs, types, C API, JSON config |
-| [logic-functions.md](reference/logic-functions.md) | Math, logic, timers, filters, PID |
-| [configuration.md](reference/configuration.md) | Complete JSON schema |
-| [protocol.md](reference/protocol.md) | Serial/WiFi protocol |
-| [firmware_architecture.md](firmware_architecture.md) | Firmware architecture, HAL, RTOS, boot sequence |
+| [firmware_architecture.md](firmware_architecture.md) | Firmware internals, HAL, RTOS |
+| [BINARY_CONFIG_ARCHITECTURE.md](BINARY_CONFIG_ARCHITECTURE.md) | Binary config system |
+| [SHARED_PROTOCOL_LIBRARY.md](SHARED_PROTOCOL_LIBRARY.md) | Shared library design |
 
-### Configurator UI
+### Specifications
 
 | Document | Description |
 |----------|-------------|
-| [README.md](configurator/README.md) | UI overview |
-| [analog-inputs.md](configurator/analog-inputs.md) | Analog input configuration |
-| [digital-inputs.md](configurator/digital-inputs.md) | Digital input configuration |
-| [power-outputs.md](configurator/power-outputs.md) | Output configuration |
+| [channels.md](reference/channels.md) | Channel IDs, types, API |
+| [configuration.md](reference/configuration.md) | Binary config format |
+| [logic-functions.md](reference/logic-functions.md) | Logic operations |
+| [protocol.md](reference/protocol.md) | Communication protocol |
 
-### Examples
+### Hardware
 
 | Document | Description |
 |----------|-------------|
-| [channel-examples.md](examples/channel-examples.md) | Channel code examples |
-| [logic-examples.md](examples/logic-function-examples.md) | Logic function examples |
-| [scenarios.md](examples/real-world-scenarios.md) | Complete configurations |
+| [technical_specification.md](hardware/technical_specification.md) | Electrical specs |
+| [PCB_DESIGN_SPECIFICATION.md](hardware/PCB_DESIGN_SPECIFICATION.md) | PCB design |
+
+### Testing
+
+| Document | Description |
+|----------|-------------|
+| [emulator-guide.md](testing/emulator-guide.md) | Emulator usage |
+| [integration-testing-guide.md](testing/integration-testing-guide.md) | Integration tests |
 
 ---
 
-## Comparison with Competitors
+## Version History
 
-See [ECUMASTER_COMPARISON.md](ECUMASTER_COMPARISON.md) for detailed feature comparison.
-
-### Key Advantages
-
-- **More Outputs**: 30×40A vs 16×25A
-- **H-Bridge**: 4 motor outputs (unique)
-- **CAN FD**: Up to 5 Mbps
-- **WiFi/Bluetooth**: Wireless connectivity
-- **Lua Scripting**: Custom programmable logic
-- **PWM Range**: 1Hz-20kHz vs 4-400Hz
+| Version | Date | Changes |
+|---------|------|---------|
+| 4.0 | January 2026 | Binary-only configuration, shared library |
+| 3.0 | December 2025 | JSON v3.0 format (deprecated) |
+| 2.0 | November 2025 | Two-level CAN architecture |
+| 1.0 | October 2025 | Initial release |
 
 ---
 
-## Support
-
-- [Troubleshooting Guide](operations/troubleshooting-guide.md)
-- [GitHub Issues](https://github.com/...)
-
----
-
-**Copyright © 2025 R2 m-sport. All rights reserved.**
+**Copyright 2026 R2 m-sport. All rights reserved.**

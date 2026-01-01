@@ -1,14 +1,18 @@
 # PMU-30 Firmware Architecture
 
-**Document Version:** 3.1
-**Date:** 2025-12-30
+**Document Version:** 4.0
+**Date:** 2026-01-01
 **Target Platform:** STM32H743/H753
 **Owner:** R2 m-sport
 **Confidentiality:** Proprietary - Internal Use Only
 
 ---
 
-**Copyright 2025 R2 m-sport. All rights reserved.**
+**Note:** This is part of the official PMU-30 documentation. See [docs/README.md](README.md) for the single source of truth.
+
+---
+
+**Copyright 2026 R2 m-sport. All rights reserved.**
 
 ---
 
@@ -1787,46 +1791,69 @@ Faults are logged to external flash for diagnostics:
 
 ## 14. Configuration System
 
-### 14.1 Configuration Storage
+### 14.1 Binary Configuration Format
 
-Configuration is stored as JSON with version tracking:
+Configuration is stored in binary format (`.pmu30` files):
 
-```json
-{
-    "version": "3.0",
-    "channels": {
-        "power_outputs": [...],
-        "hbridges": [...],
-        "analog_inputs": [...],
-        "digital_inputs": [...],
-        "logic": [...],
-        "can_rx": [...],
-        "can_tx": [...]
-    },
-    "settings": {
-        "standard_can_stream": {...},
-        "telemetry": {...}
-    }
-}
+```
+┌────────────────────────────────┐
+│  File Header (32 bytes)        │
+│  - Magic: 0x43464733 ("CFG3")  │
+│  - Version: 2                   │
+│  - Device type: 0x0030         │
+│  - CRC-32 checksum             │
+│  - Channel count               │
+├────────────────────────────────┤
+│  Channel 0                     │
+│  ├─ Header (14 bytes)          │
+│  ├─ Name (0-31 bytes)          │
+│  └─ Config (type-specific)     │
+├────────────────────────────────┤
+│  Channel 1...N                 │
+└────────────────────────────────┘
 ```
 
-### 14.2 Configuration API
+**Key features:**
+- No JSON parsing - binary format only
+- CRC-32 verified
+- Identical format for firmware and configurator
+- Shared library for serialization/deserialization
+
+### 14.2 Channel Executor Integration
+
+The shared library `channel_executor` handles virtual channel execution:
 
 ```c
+#include "channel_executor.h"
+#include "channel_config.h"
+
+// Initialize executor with HAL callbacks
+PMU_ChannelExec_Init();
+
+// Load channels from binary config
+PMU_ChannelExec_LoadConfig(binary_data, size);
+
+// Execute at 500Hz in control loop
+PMU_ChannelExec_Update();
+```
+
+### 14.3 Configuration API
+
+```c
+// Channel executor API
+HAL_StatusTypeDef PMU_ChannelExec_Init(void);
+HAL_StatusTypeDef PMU_ChannelExec_AddChannel(uint16_t id, uint8_t type, const void* config);
+void PMU_ChannelExec_Update(void);
+int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size);
+
+// Legacy config API (for system settings)
 void PMU_Config_Init(void);
 void PMU_Config_LoadDefaults(void);
 void PMU_Config_Save(void);
 void PMU_Config_Load(void);
-PMU_SystemConfig_t* PMU_Config_Get(void);
 ```
 
-### 14.3 JSON Parser
-
-The `pmu_config_json.c` module (4372 lines) handles:
-- Full JSON parsing with cJSON library
-- Version migration (v1.0 -> v2.0 -> v3.0)
-- Validation with error reporting
-- Atomic channel updates
+For detailed binary format specification, see [Configuration Reference](reference/configuration.md).
 
 ---
 
@@ -1860,6 +1887,30 @@ The `pmu_config_json.c` module (4372 lines) handles:
 | Idle (no outputs) | ~50 mA @ 12V |
 | Active (telemetry) | ~100 mA @ 12V |
 | Full load (30 outputs) | ~200 mA @ 12V (logic only) |
+
+### 15.4 Status LED Indication
+
+**TODO: Implement LED status indication**
+
+The board LED provides visual feedback for system state:
+
+| State | LED Behavior | Description |
+|-------|--------------|-------------|
+| System start OK | 1 blink | System initialized successfully |
+| System start error | Fast constant blink | Critical error during startup |
+| Config loaded | 2 blinks, then off | Configuration loaded successfully |
+| Config load error | Fast constant blink | Error loading configuration |
+| Normal operation | Off | System running normally |
+
+**Timing specifications:**
+- Single blink: 200ms on
+- Fast blink: 100ms on, 100ms off (continuous)
+- Between blinks: 300ms pause
+
+**Implementation notes:**
+- Use GPIO pin for status LED (see hardware specification)
+- LED control in `pmu_led.c` module
+- Called from main initialization and config loading routines
 
 ---
 

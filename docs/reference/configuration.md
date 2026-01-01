@@ -1,534 +1,599 @@
 # PMU-30 Configuration Reference
 
-**Version:** 3.0 | **Last Updated:** December 2025
+**Version:** 4.0 | **Last Updated:** January 2026
 
-Complete JSON configuration schema and parameters reference.
+Binary configuration format specification for PMU-30 firmware and configurator.
 
 ---
 
 ## Table of Contents
 
-1. [Configuration Structure](#1-configuration-structure)
-2. [Device Settings](#2-device-settings)
-3. [Channel Configuration](#3-channel-configuration)
-4. [CAN Messages](#4-can-messages)
-5. [Complete Example](#5-complete-example)
+1. [Overview](#1-overview)
+2. [Binary Format](#2-binary-format)
+3. [File Header](#3-file-header)
+4. [Channel Header](#4-channel-header)
+5. [Channel Types](#5-channel-types)
+6. [Type-Specific Configurations](#6-type-specific-configurations)
+7. [Usage Examples](#7-usage-examples)
 
 ---
 
-## 1. Configuration Structure
+## 1. Overview
 
-### 1.1 Root Schema (v3.0)
+### 1.1 Architecture
 
-```json
-{
-  "version": "3.0",
-  "device_name": "PMU-30",
-  "device_settings": { },
-  "channels": [ ],
-  "can_messages": [ ]
-}
+The PMU-30 system uses a **single binary format** for all configuration:
+
+```
+┌─────────────────────┐
+│   Configurator      │ ◄──── Creates/edits config
+│   (Python/Qt)       │
+└──────────┬──────────┘
+           │
+           │ .pmu30 binary file
+           ▼
+┌─────────────────────┐
+│   Binary Config     │ ◄──── One format for entire system
+│   (.pmu30 file)     │
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     │           │
+     ▼           ▼
+┌─────────┐ ┌─────────┐
+│ Firmware│ │ Config- │
+│ (C)     │ │ urator  │
+│         │ │ (Python)│
+└─────────┘ └─────────┘
 ```
 
-### 1.2 Schema Changes from v2.0
+### 1.2 Design Principles
 
-| v2.0 | v3.0 | Change |
-|------|------|--------|
-| `id: "100"` | `channel_id: 100` | String → Integer |
-| `name:` | `channel_name:` | Renamed |
-| CAN signals in channels | `can_messages:` array | Separated |
+| Principle | Description |
+|-----------|-------------|
+| **No JSON** | Binary format only, no JSON conversion |
+| **One Format** | Same binary format for firmware and configurator |
+| **Shared Library** | C and Python implementations share identical structures |
+| **CRC-32 Verified** | All configurations protected by CRC-32 checksum |
+| **Compact** | Minimal overhead, efficient for embedded systems |
+
+### 1.3 File Extension
+
+Configuration files use the `.pmu30` extension.
 
 ---
 
-## 2. Device Settings
+## 2. Binary Format
 
-```json
-{
-  "device_settings": {
-    "can1_baudrate": 500000,
-    "can2_baudrate": 500000,
-    "can1_termination": true,
-    "can2_termination": false,
-    "wifi_enabled": true,
-    "wifi_ssid": "PMU30_XXXX",
-    "wifi_password": "",
-    "bluetooth_enabled": true,
-    "telemetry_rate_hz": 50
-  }
-}
+### 2.1 File Structure
+
+```
+┌──────────────────────────────────────┐
+│           File Header (32 bytes)      │
+├──────────────────────────────────────┤
+│           Channel 0                   │
+│  ├─ Channel Header (14 bytes)        │
+│  ├─ Name (variable, 0-31 bytes)      │
+│  └─ Config (type-specific)           │
+├──────────────────────────────────────┤
+│           Channel 1                   │
+│  └─ ...                              │
+├──────────────────────────────────────┤
+│           ...                         │
+├──────────────────────────────────────┤
+│           Channel N                   │
+└──────────────────────────────────────┘
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `can1_baudrate` | int | 500000 | CAN1 bit rate (125k-1M, or 5M for FD) |
-| `can2_baudrate` | int | 500000 | CAN2 bit rate |
-| `can1_termination` | bool | true | Enable 120Ω termination on CAN1 |
-| `can2_termination` | bool | false | Enable 120Ω termination on CAN2 |
-| `wifi_enabled` | bool | true | Enable WiFi AP mode |
-| `wifi_ssid` | string | auto | WiFi network name |
-| `wifi_password` | string | "" | WiFi password (empty = open) |
-| `bluetooth_enabled` | bool | true | Enable Bluetooth |
-| `telemetry_rate_hz` | int | 50 | Telemetry update rate (10-500) |
+### 2.2 Byte Order
 
----
+All multi-byte values are stored in **little-endian** format.
 
-## 3. Channel Configuration
+### 2.3 Constants
 
-### 3.1 Digital Input
-
-```json
-{
-  "channel_id": 0,
-  "channel_type": "digital_input",
-  "channel_name": "Headlight Switch",
-  "input_pin": 0,
-  "subtype": "switch_active_low",
-  "debounce_ms": 50
-}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `channel_id` | int | Yes | 0-49 |
-| `channel_type` | string | Yes | `"digital_input"` |
-| `channel_name` | string | Yes | Display name (max 31 chars) |
-| `input_pin` | int | Yes | Hardware pin 0-19 |
-| `subtype` | string | No | `switch_active_low`, `switch_active_high`, `frequency` |
-| `debounce_ms` | int | No | Debounce time 0-10000ms (default: 50) |
-| `threshold_voltage` | float | No | Threshold voltage for frequency mode |
-
-### 3.2 Analog Input
-
-```json
-{
-  "channel_id": 50,
-  "channel_type": "analog_input",
-  "channel_name": "Coolant Temp",
-  "input_pin": 0,
-  "subtype": "calibrated",
-  "pullup_option": "10k_up",
-  "calibration_points": [
-    {"voltage": 0.5, "value": -400},
-    {"voltage": 4.5, "value": 1200}
-  ]
-}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `channel_id` | int | Yes | 50-99 |
-| `channel_type` | string | Yes | `"analog_input"` |
-| `channel_name` | string | Yes | Display name |
-| `input_pin` | int | Yes | Hardware pin 0-19 |
-| `subtype` | string | No | `linear`, `calibrated`, `rotary_switch` |
-| `pullup_option` | string | No | `none`, `1m_down`, `10k_up`, `10k_down`, `100k_up`, `100k_down` |
-| `voltage_min` | float | Linear | Min voltage for scaling |
-| `voltage_max` | float | Linear | Max voltage for scaling |
-| `value_min` | int | Linear | Output at voltage_min |
-| `value_max` | int | Linear | Output at voltage_max |
-| `calibration_points` | array | Calibrated | Voltage-to-value pairs |
-
-### 3.3 Power Output
-
-```json
-{
-  "channel_id": 100,
-  "channel_type": "power_output",
-  "channel_name": "Headlights",
-  "output_pins": [0, 1],
-  "source_channel_id": 0,
-  "pwm_frequency": 200,
-  "soft_start_ms": 500,
-  "current_limit": 20000,
-  "inrush_current": 80000,
-  "retry_count": 3,
-  "retry_delay_ms": 1000,
-  "shed_priority": 2
-}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `channel_id` | int | Yes | 100-129 |
-| `channel_type` | string | Yes | `"power_output"` |
-| `channel_name` | string | Yes | Display name |
-| `output_pins` | array | Yes | Pin indices [0-29], multiple for merging |
-| `source_channel_id` | int | Yes | Input source channel |
-| `duty_channel_id` | int | No | PWM duty source (0-1000) |
-| `pwm_frequency` | int | No | PWM frequency 1-20000 Hz |
-| `soft_start_ms` | int | No | Soft start ramp time 0-5000ms |
-| `current_limit` | int | No | Current limit in mA |
-| `inrush_current` | int | No | Inrush current limit in mA |
-| `retry_count` | int | No | Fault retry attempts (0-10) |
-| `retry_delay_ms` | int | No | Delay between retries |
-| `shed_priority` | int | No | Load shedding priority (0-10, see below) |
-
-**Load Shedding Priority:**
-
-The `shed_priority` field controls which outputs are disabled first during fault conditions (overcurrent, overtemperature, low voltage):
-
-| Priority | Behavior | Example Use Case |
-|----------|----------|------------------|
-| **0** | Never shed (critical) | ECU power, fuel pump, ignition |
-| **1-3** | Shed last (important) | Headlights, brake lights |
-| **4-6** | Shed middle (normal) | Interior lights, accessories |
-| **7-10** | Shed first (low priority) | Heated seats, auxiliary loads |
-
-When load shedding activates, outputs with the highest `shed_priority` number are disabled first until the fault condition clears.
-
-### 3.4 H-Bridge Output
-
-```json
-{
-  "channel_id": 150,
-  "channel_type": "hbridge_output",
-  "channel_name": "Wiper Motor",
-  "hbridge_index": 0,
-  "source_channel_id": 200,
-  "duty_channel_id": 250,
-  "pwm_frequency": 1000,
-  "current_limit": 25000
-}
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `channel_id` | int | Yes | 150-157 |
-| `channel_type` | string | Yes | `"hbridge_output"` |
-| `channel_name` | string | Yes | Display name |
-| `hbridge_index` | int | Yes | H-bridge index 0-3 |
-| `source_channel_id` | int | Yes | Direction control (-1000 to +1000) |
-| `duty_channel_id` | int | No | Optional separate duty source |
-| `pwm_frequency` | int | No | PWM frequency 1-20000 Hz |
-| `current_limit` | int | No | Current limit in mA |
-| `brake_mode` | bool | No | Brake on zero (vs coast) |
-
-### 3.5 Logic Channel
-
-```json
-{
-  "channel_id": 200,
-  "channel_type": "logic",
-  "channel_name": "Fan Enable",
-  "operation": "hysteresis",
-  "source_channel_id": 50,
-  "upper_value": 850,
-  "lower_value": 750
-}
-```
-
-See [Logic Functions Reference](logic-functions.md) for all operations.
-
-### 3.6 Number Channel
-
-```json
-{
-  "channel_id": 210,
-  "channel_type": "number",
-  "channel_name": "Average",
-  "operation": "average",
-  "source_channel_ids": [50, 51, 52]
-}
-```
-
-| Operation | Parameters |
-|-----------|------------|
-| `constant` | `constant_value` |
-| `add`, `multiply` | `source_channel_ids` (array) |
-| `subtract`, `divide`, `modulo` | `source_channel_ids` (2 elements) |
-| `min`, `max`, `average` | `source_channel_ids` (2-8 elements) |
-| `abs` | `source_channel_id` |
-| `scale` | `source_channel_id`, `factor`, `offset` |
-| `clamp` | `source_channel_id`, `min_value`, `max_value` |
-
-### 3.7 Timer Channel
-
-```json
-{
-  "channel_id": 220,
-  "channel_type": "timer",
-  "channel_name": "Run Time",
-  "mode": "count_up",
-  "trigger_channel_id": 0,
-  "reset_channel_id": 1,
-  "scale_ms": 1000
-}
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `mode` | string | `count_up`, `count_down`, `retriggerable`, `stopwatch` |
-| `trigger_channel_id` | int | Start/run trigger |
-| `reset_channel_id` | int | Reset trigger |
-| `max_value` | int | Maximum count value |
-| `initial_value` | int | Starting value (count_down) |
-| `scale_ms` | int | Time per increment (ms) |
-| `delay_ms` | int | Delay time (retriggerable) |
-
-### 3.8 Filter Channel
-
-```json
-{
-  "channel_id": 230,
-  "channel_type": "filter",
-  "channel_name": "Filtered",
-  "source_channel_id": 50,
-  "filter_type": "low_pass",
-  "time_constant_ms": 500
-}
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `filter_type` | string | `low_pass`, `moving_average`, `median`, `min_window`, `max_window` |
-| `time_constant_ms` | int | Low-pass time constant |
-| `window_size` | int | Moving average/median samples |
-
-### 3.9 Table 2D Channel
-
-```json
-{
-  "channel_id": 240,
-  "channel_type": "table_2d",
-  "channel_name": "PWM Curve",
-  "x_axis_channel_id": 50,
-  "x_values": [0, 250, 500, 750, 1000],
-  "output_values": [0, 100, 300, 700, 1000]
-}
-```
-
-### 3.10 Table 3D Channel
-
-```json
-{
-  "channel_id": 241,
-  "channel_type": "table_3d",
-  "channel_name": "Map",
-  "x_axis_channel_id": 300,
-  "y_axis_channel_id": 301,
-  "x_values": [1000, 2000, 3000],
-  "y_values": [0, 50, 100],
-  "z_values": [[100, 200, 300], [150, 250, 350], [200, 300, 400]]
-}
-```
-
-### 3.11 PID Channel
-
-PID controllers for closed-loop control. See [Logic Functions Reference](logic-functions.md#9-pid-controller) for comprehensive documentation, tuning guide, and examples.
-
-```json
-{
-  "channel_id": 250,
-  "channel_type": "pid",
-  "channel_name": "Fan Control",
-  "input_channel_id": 50,
-  "setpoint_channel_id": 251,
-  "setpoint_value": 85.0,
-  "kp": 2.0,
-  "ki": 0.1,
-  "kd": 0.5,
-  "output_min": 0,
-  "output_max": 1000,
-  "sample_time_ms": 100,
-  "anti_windup": true,
-  "derivative_filter": true,
-  "derivative_filter_coeff": 0.1,
-  "reversed": false,
-  "enabled": true
-}
-```
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `input_channel_id` | int | Required | Process variable source |
-| `setpoint_channel_id` | int | Optional | Dynamic setpoint source |
-| `setpoint_value` | float | 0 | Fixed setpoint (if no channel) |
-| `kp`, `ki`, `kd` | float | 1, 0, 0 | PID gains |
-| `output_min`, `output_max` | float | 0, 1000 | Output limits |
-| `sample_time_ms` | int | 100 | Loop period (ms) |
-| `anti_windup` | bool | true | Prevent integral windup |
-| `derivative_filter` | bool | false | Filter derivative term |
-| `derivative_filter_coeff` | float | 0.1 | Filter coefficient (0-1) |
-| `reversed` | bool | false | Reverse-acting (for cooling) |
-| `enabled` | bool | true | Controller enabled |
-
-### 3.12 CAN RX Channel
-
-```json
-{
-  "channel_id": 300,
-  "channel_type": "can_rx",
-  "channel_name": "Engine RPM",
-  "can_bus": 1,
-  "message_id": 256,
-  "is_extended": false,
-  "start_bit": 0,
-  "length": 16,
-  "byte_order": "little_endian",
-  "is_signed": false,
-  "factor": 1.0,
-  "offset": 0,
-  "timeout_ms": 500
-}
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `can_bus` | int | CAN bus 1-4 |
-| `message_id` | int | CAN message ID |
-| `is_extended` | bool | 29-bit extended ID |
-| `start_bit` | int | Signal start bit |
-| `length` | int | Signal bit length |
-| `byte_order` | string | `little_endian` or `big_endian` |
-| `is_signed` | bool | Signed value |
-| `factor` | float | Scale factor |
-| `offset` | float | Offset |
-| `timeout_ms` | int | Signal timeout |
-
-### 3.13 Switch Channel
-
-```json
-{
-  "channel_id": 260,
-  "channel_type": "switch",
-  "channel_name": "Mode Select",
-  "source_channel_id": 55,
-  "positions": [
-    {"min": 0, "max": 100, "output": 0},
-    {"min": 200, "max": 300, "output": 1},
-    {"min": 400, "max": 500, "output": 2}
-  ]
-}
+```c
+#define CFG_MAGIC           0x43464733  // "CFG3"
+#define CFG_VERSION         2
+#define CFG_MAX_NAME_LEN    31
+#define CFG_MAX_INPUTS      8
+#define CH_REF_NONE         0xFFFF      // No channel reference
 ```
 
 ---
 
-## 4. CAN Messages
+## 3. File Header
 
-### 4.1 CAN TX Configuration
+### 3.1 Structure (32 bytes)
 
-CAN transmit messages are defined in a separate `can_messages` array:
+| Offset | Size | Field | Type | Description |
+|--------|------|-------|------|-------------|
+| 0 | 4 | magic | uint32 | Magic number: 0x43464733 ("CFG3") |
+| 4 | 2 | version | uint16 | Format version (currently 2) |
+| 6 | 2 | device_type | uint16 | Device type (0x0030 = PMU-30) |
+| 8 | 4 | total_size | uint32 | Total file size in bytes |
+| 12 | 4 | crc32 | uint32 | CRC-32 of all channel data |
+| 16 | 2 | channel_count | uint16 | Number of channels |
+| 18 | 2 | flags | uint16 | Configuration flags |
+| 20 | 4 | timestamp | uint32 | Unix timestamp (seconds) |
+| 24 | 8 | reserved | bytes | Reserved for future use |
 
-```json
-{
-  "can_messages": [
-    {
-      "message_id": 1792,
-      "can_bus": 1,
-      "is_extended": false,
-      "cycle_time_ms": 100,
-      "signals": [
-        {
-          "source_channel_id": 1000,
-          "start_bit": 0,
-          "length": 16,
-          "byte_order": "little_endian",
-          "factor": 1.0,
-          "offset": 0
-        },
-        {
-          "source_channel_id": 1001,
-          "start_bit": 16,
-          "length": 16
-        }
-      ]
-    }
-  ]
-}
+### 3.2 C Structure
+
+```c
+typedef struct __attribute__((packed)) {
+    uint32_t magic;          // 0x43464733
+    uint16_t version;        // 2
+    uint16_t device_type;    // 0x0030
+    uint32_t total_size;
+    uint32_t crc32;
+    uint16_t channel_count;
+    uint16_t flags;
+    uint32_t timestamp;
+    uint8_t  reserved[8];
+} CfgFileHeader_t;
 ```
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `message_id` | int | CAN message ID |
-| `can_bus` | int | CAN bus 1-4 |
-| `is_extended` | bool | 29-bit extended ID |
-| `cycle_time_ms` | int | Transmit interval |
-| `signals` | array | Signals to pack |
+### 3.3 Python Structure
 
-### 4.2 Signal Definition
+```python
+@dataclass
+class CfgFileHeader:
+    FORMAT = "<IHHIIHHI8s"  # 32 bytes
+    SIZE = 32
 
-| Parameter | Type | Required | Default |
-|-----------|------|----------|---------|
-| `source_channel_id` | int | Yes | - |
-| `start_bit` | int | Yes | - |
-| `length` | int | Yes | - |
-| `byte_order` | string | No | `little_endian` |
-| `factor` | float | No | 1.0 |
-| `offset` | float | No | 0 |
+    magic: int = 0x43464733
+    version: int = 2
+    device_type: int = 0
+    total_size: int = 32
+    crc32: int = 0
+    channel_count: int = 0
+    flags: int = 0
+    timestamp: int = 0
+    reserved: bytes = bytes(8)
+```
+
+### 3.4 Flags
+
+| Bit | Flag | Description |
+|-----|------|-------------|
+| 0 | COMPRESSED | Channel data is compressed |
+| 1 | ENCRYPTED | Channel data is encrypted |
+| 2 | PARTIAL | Partial configuration (delta update) |
+| 3 | DEFAULTS | Contains default values |
 
 ---
 
-## 5. Complete Example
+## 4. Channel Header
 
-```json
-{
-  "version": "3.0",
-  "device_name": "Race Car PMU",
-  "device_settings": {
-    "can1_baudrate": 500000,
-    "can1_termination": true,
-    "telemetry_rate_hz": 50
-  },
-  "channels": [
-    {
-      "channel_id": 0,
-      "channel_type": "digital_input",
-      "channel_name": "Headlight Switch",
-      "input_pin": 0,
-      "subtype": "switch_active_low",
-      "debounce_ms": 50
-    },
-    {
-      "channel_id": 50,
-      "channel_type": "analog_input",
-      "channel_name": "Coolant Temp",
-      "input_pin": 0,
-      "subtype": "calibrated",
-      "pullup_option": "10k_up",
-      "calibration_points": [
-        {"voltage": 0.5, "value": -400},
-        {"voltage": 4.5, "value": 1200}
-      ]
-    },
-    {
-      "channel_id": 200,
-      "channel_type": "logic",
-      "channel_name": "Fan Enable",
-      "operation": "hysteresis",
-      "source_channel_id": 50,
-      "upper_value": 850,
-      "lower_value": 750
-    },
-    {
-      "channel_id": 100,
-      "channel_type": "power_output",
-      "channel_name": "Headlights",
-      "output_pins": [0, 1],
-      "source_channel_id": 0,
-      "current_limit": 15000
-    },
-    {
-      "channel_id": 101,
-      "channel_type": "power_output",
-      "channel_name": "Cooling Fan",
-      "output_pins": [2],
-      "source_channel_id": 200,
-      "current_limit": 25000,
-      "soft_start_ms": 500
-    }
-  ],
-  "can_messages": [
-    {
-      "message_id": 1792,
-      "can_bus": 1,
-      "cycle_time_ms": 100,
-      "signals": [
-        {"source_channel_id": 1000, "start_bit": 0, "length": 16},
-        {"source_channel_id": 1001, "start_bit": 16, "length": 16},
-        {"source_channel_id": 50, "start_bit": 32, "length": 16}
-      ]
-    }
-  ]
+### 4.1 Structure (14 bytes)
+
+| Offset | Size | Field | Type | Description |
+|--------|------|-------|------|-------------|
+| 0 | 2 | id | uint16 | Channel ID (0-65535) |
+| 2 | 1 | type | uint8 | Channel type (ChannelType enum) |
+| 3 | 1 | flags | uint8 | Channel flags |
+| 4 | 1 | hw_device | uint8 | Hardware device type |
+| 5 | 1 | hw_index | uint8 | Hardware device index |
+| 6 | 2 | source_id | uint16 | Source channel ID (0xFFFF = none) |
+| 8 | 4 | default_value | int32 | Default value |
+| 12 | 1 | name_len | uint8 | Length of name string |
+| 13 | 1 | config_size | uint8 | Size of type-specific config |
+
+### 4.2 C Structure
+
+```c
+typedef struct __attribute__((packed)) {
+    uint16_t id;
+    uint8_t  type;
+    uint8_t  flags;
+    uint8_t  hw_device;
+    uint8_t  hw_index;
+    uint16_t source_id;
+    int32_t  default_value;
+    uint8_t  name_len;
+    uint8_t  config_size;
+} CfgChannelHeader_t;
+```
+
+### 4.3 Channel Flags
+
+| Bit | Flag | Description |
+|-----|------|-------------|
+| 0 | ENABLED | Channel is enabled |
+| 1 | INVERTED | Output value is inverted |
+| 2 | BUILTIN | Built-in system channel |
+| 3 | READONLY | Read-only channel |
+| 4 | HIDDEN | Hidden from UI |
+| 5 | FAULT | Channel in fault state |
+
+---
+
+## 5. Channel Types
+
+### 5.1 Type Enumeration
+
+```c
+typedef enum {
+    // Inputs (0x01-0x0F)
+    CH_TYPE_DIGITAL_INPUT   = 0x01,
+    CH_TYPE_ANALOG_INPUT    = 0x02,
+    CH_TYPE_FREQUENCY_INPUT = 0x03,
+    CH_TYPE_CAN_INPUT       = 0x04,
+
+    // Outputs (0x10-0x1F)
+    CH_TYPE_POWER_OUTPUT    = 0x10,
+    CH_TYPE_PWM_OUTPUT      = 0x11,
+    CH_TYPE_HBRIDGE         = 0x12,
+    CH_TYPE_CAN_OUTPUT      = 0x13,
+
+    // Virtual (0x20-0x2F)
+    CH_TYPE_TIMER           = 0x20,
+    CH_TYPE_LOGIC           = 0x21,
+    CH_TYPE_MATH            = 0x22,
+    CH_TYPE_TABLE_2D        = 0x23,
+    CH_TYPE_TABLE_3D        = 0x24,
+    CH_TYPE_FILTER          = 0x25,
+    CH_TYPE_PID             = 0x26,
+    CH_TYPE_NUMBER          = 0x27,
+    CH_TYPE_SWITCH          = 0x28,
+    CH_TYPE_ENUM            = 0x29,
+    CH_TYPE_COUNTER         = 0x2A,
+    CH_TYPE_HYSTERESIS      = 0x2B,
+    CH_TYPE_FLIPFLOP        = 0x2C,
+
+    // System (0xF0-0xFF)
+    CH_TYPE_SYSTEM          = 0xF0,
+} ChannelType_t;
+```
+
+### 5.2 Hardware Device Types
+
+```c
+typedef enum {
+    HW_DEVICE_NONE    = 0x00,
+    HW_DEVICE_GPIO    = 0x01,
+    HW_DEVICE_ADC     = 0x02,
+    HW_DEVICE_PWM     = 0x03,
+    HW_DEVICE_DAC     = 0x04,
+    HW_DEVICE_PROFET  = 0x05,
+    HW_DEVICE_HBRIDGE = 0x06,
+    HW_DEVICE_CAN     = 0x07,
+    HW_DEVICE_FREQ    = 0x08,
+} HwDevice_t;
+```
+
+### 5.3 Channel ID Ranges
+
+| Range | Purpose | Examples |
+|-------|---------|----------|
+| 0-99 | Physical inputs | Digital inputs, analog inputs |
+| 100-199 | Physical outputs | Power outputs, H-bridges |
+| 200-999 | Virtual channels | Logic, timers, tables |
+| 1000-1023 | System channels | Battery voltage, temperature |
+
+---
+
+## 6. Type-Specific Configurations
+
+### 6.1 Digital Input (4 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | active_high | 1 = active high, 0 = active low |
+| 1 | 1 | use_pullup | Enable internal pull-up |
+| 2 | 2 | debounce_ms | Debounce time in milliseconds |
+
+### 6.2 Analog Input (20 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 4 | raw_min | Minimum raw ADC value |
+| 4 | 4 | raw_max | Maximum raw ADC value |
+| 8 | 4 | scaled_min | Minimum scaled output |
+| 12 | 4 | scaled_max | Maximum scaled output |
+| 16 | 2 | filter_ms | Filter time constant |
+| 18 | 1 | filter_type | Filter type (0=none, 1=LP, 2=avg) |
+| 19 | 1 | samples | Number of samples to average |
+
+### 6.3 Power Output (12 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | current_limit_ma | Current limit in milliamps |
+| 2 | 2 | inrush_time_ms | Inrush time window |
+| 4 | 2 | inrush_limit_ma | Inrush current limit |
+| 6 | 1 | retry_count | Fault retry attempts |
+| 7 | 1 | retry_delay_s | Delay between retries |
+| 8 | 2 | pwm_frequency | PWM frequency (0 = DC) |
+| 10 | 1 | soft_start_ms | Soft start ramp time |
+| 11 | 1 | flags | Output flags |
+
+### 6.4 Logic (24 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | operation | Logic operation code |
+| 1 | 1 | input_count | Number of inputs used |
+| 2 | 16 | inputs[8] | Input channel IDs (8 x uint16) |
+| 18 | 4 | compare_value | Comparison value |
+| 22 | 1 | invert_output | Invert result |
+| 23 | 1 | reserved | Reserved |
+
+**Logic Operations:**
+
+| Code | Operation | Description |
+|------|-----------|-------------|
+| 0 | AND | All inputs true |
+| 1 | OR | Any input true |
+| 2 | XOR | Odd number of inputs true |
+| 3 | NOT | Invert single input |
+| 4 | NAND | NOT AND |
+| 5 | NOR | NOT OR |
+| 6 | GT | Input > compare_value |
+| 7 | LT | Input < compare_value |
+| 8 | EQ | Input == compare_value |
+| 9 | NE | Input != compare_value |
+| 10 | GE | Input >= compare_value |
+| 11 | LE | Input <= compare_value |
+
+### 6.5 Math (32 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | operation | Math operation code |
+| 1 | 1 | input_count | Number of inputs used |
+| 2 | 16 | inputs[8] | Input channel IDs |
+| 18 | 4 | constant | Constant value for operations |
+| 22 | 4 | min_value | Output minimum clamp |
+| 26 | 4 | max_value | Output maximum clamp |
+| 30 | 2 | scale_num | Scale numerator |
+| 32 | 2 | scale_den | Scale denominator |
+
+**Math Operations:**
+
+| Code | Operation | Description |
+|------|-----------|-------------|
+| 0 | ADD | Sum of all inputs |
+| 1 | SUB | input[0] - input[1] |
+| 2 | MUL | Product of all inputs |
+| 3 | DIV | input[0] / input[1] |
+| 4 | MOD | input[0] % input[1] |
+| 5 | MIN | Minimum of inputs |
+| 6 | MAX | Maximum of inputs |
+| 7 | AVG | Average of inputs |
+| 8 | ABS | Absolute value |
+| 9 | NEG | Negate value |
+| 10 | SCALE | (input * scale_num) / scale_den |
+| 11 | CLAMP | Clamp to min/max |
+| 12 | MAP | Linear interpolation |
+
+### 6.6 Timer (16 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 | mode | Timer mode |
+| 1 | 1 | trigger_mode | Trigger edge mode |
+| 2 | 2 | trigger_id | Trigger channel ID |
+| 4 | 4 | delay_ms | Delay time in milliseconds |
+| 8 | 2 | on_time_ms | On time for flasher |
+| 10 | 2 | off_time_ms | Off time for flasher |
+| 12 | 1 | auto_reset | Auto-reset on completion |
+| 13 | 3 | reserved | Reserved |
+
+**Timer Modes:**
+
+| Code | Mode | Description |
+|------|------|-------------|
+| 0 | DELAY_ON | Delay before turning on |
+| 1 | DELAY_OFF | Delay before turning off |
+| 2 | PULSE | Single pulse of delay_ms |
+| 3 | FLASHER | Alternating on/off |
+| 4 | STOPWATCH | Count up while trigger active |
+
+### 6.7 Table 2D (68 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | input_id | X-axis input channel |
+| 2 | 1 | point_count | Number of table points |
+| 3 | 1 | reserved | Reserved |
+| 4 | 32 | x_values[16] | X-axis values (16 x int16) |
+| 36 | 32 | y_values[16] | Y-axis values (16 x int16) |
+
+### 6.8 Filter (8 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | input_id | Input channel ID |
+| 2 | 1 | filter_type | Filter type |
+| 3 | 1 | window_size | Moving average window |
+| 4 | 2 | time_constant_ms | Low-pass time constant |
+| 6 | 1 | alpha | EMA alpha (0-255) |
+| 7 | 1 | reserved | Reserved |
+
+**Filter Types:**
+
+| Code | Type | Description |
+|------|------|-------------|
+| 0 | LOW_PASS | First-order low-pass |
+| 1 | MOVING_AVG | Moving average |
+| 2 | MEDIAN | Median filter |
+| 3 | EMA | Exponential moving average |
+
+### 6.9 PID (22 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | setpoint_id | Setpoint channel ID |
+| 2 | 2 | feedback_id | Feedback channel ID |
+| 4 | 2 | kp | Proportional gain (x1000) |
+| 6 | 2 | ki | Integral gain (x1000) |
+| 8 | 2 | kd | Derivative gain (x1000) |
+| 10 | 2 | output_min | Minimum output |
+| 12 | 2 | output_max | Maximum output |
+| 14 | 2 | integral_min | Integral windup min |
+| 16 | 2 | integral_max | Integral windup max |
+| 18 | 2 | deadband | Deadband zone |
+| 20 | 1 | d_on_measurement | D on measurement vs error |
+| 21 | 1 | reserved | Reserved |
+
+### 6.10 Counter (16 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | trigger_id | Trigger channel ID |
+| 2 | 2 | reset_id | Reset channel ID |
+| 4 | 4 | min_value | Minimum count value |
+| 8 | 4 | max_value | Maximum count value |
+| 12 | 1 | direction | Count direction (0=up, 1=down) |
+| 13 | 1 | wrap | Wrap around on overflow |
+| 14 | 2 | step | Count step size |
+
+### 6.11 Hysteresis (12 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | input_id | Input channel ID |
+| 2 | 2 | reserved | Reserved |
+| 4 | 4 | threshold_high | Upper threshold |
+| 8 | 4 | threshold_low | Lower threshold |
+
+### 6.12 FlipFlop (8 bytes)
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 2 | set_id | Set input channel ID |
+| 2 | 2 | reset_id | Reset input channel ID |
+| 4 | 1 | mode | FlipFlop mode |
+| 5 | 1 | default_state | Initial state |
+| 6 | 2 | reserved | Reserved |
+
+**FlipFlop Modes:**
+
+| Code | Mode | Description |
+|------|------|-------------|
+| 0 | SR | Set-Reset latch |
+| 1 | D | D-type (set follows input) |
+| 2 | T | Toggle on rising edge |
+| 3 | JK | JK flip-flop |
+
+---
+
+## 7. Usage Examples
+
+### 7.1 Python: Load Configuration
+
+```python
+from shared.python.channel_config import ConfigFile
+
+# Load from file
+config = ConfigFile.load("my_config.pmu30")
+
+print(f"Channels: {len(config.channels)}")
+for ch in config.channels:
+    print(f"  [{ch.id}] {ch.name} ({ch.type.name})")
+```
+
+### 7.2 Python: Create Configuration
+
+```python
+from shared.python.channel_config import (
+    ConfigFile, Channel, ChannelType, ChannelFlags,
+    HwDevice, CfgLogic, CfgPowerOutput
+)
+
+# Create new config
+config = ConfigFile(device_type=0x0030)
+
+# Add logic channel
+logic = Channel(
+    id=200,
+    type=ChannelType.LOGIC,
+    flags=ChannelFlags.ENABLED,
+    name="FanEnable",
+    config=CfgLogic(
+        operation=6,  # GT
+        input_count=1,
+        inputs=[50],  # Coolant temp channel
+        compare_value=850  # 85.0 degrees
+    )
+)
+config.channels.append(logic)
+
+# Add power output
+output = Channel(
+    id=100,
+    type=ChannelType.POWER_OUTPUT,
+    flags=ChannelFlags.ENABLED,
+    hw_device=HwDevice.PROFET,
+    hw_index=0,
+    source_id=200,  # Connected to logic channel
+    name="FanRelay",
+    config=CfgPowerOutput(
+        current_limit_ma=25000
+    )
+)
+config.channels.append(output)
+
+# Save to file
+config.save("fan_control.pmu30")
+```
+
+### 7.3 Python: Send to Device
+
+```python
+from configurator.src.models.binary_config import BinaryConfigManager
+
+manager = BinaryConfigManager()
+manager.load_from_file("my_config.pmu30")
+
+# Serialize for transmission
+binary_data = manager.to_bytes()
+
+# Send via protocol
+protocol.upload_config(binary_data)
+```
+
+### 7.4 C: Load Configuration in Firmware
+
+```c
+#include "channel_config.h"
+
+// Binary config received from configurator
+const uint8_t* config_data;
+uint16_t config_size;
+
+// Validate header
+CfgFileHeader_t* header = (CfgFileHeader_t*)config_data;
+if (header->magic != CFG_MAGIC) {
+    return ERROR_INVALID_MAGIC;
+}
+
+// Verify CRC
+uint32_t calc_crc = crc32(config_data + sizeof(CfgFileHeader_t),
+                          header->total_size - sizeof(CfgFileHeader_t));
+if (calc_crc != header->crc32) {
+    return ERROR_CRC_MISMATCH;
+}
+
+// Parse channels
+uint8_t* ptr = config_data + sizeof(CfgFileHeader_t);
+for (uint16_t i = 0; i < header->channel_count; i++) {
+    CfgChannelHeader_t* ch = (CfgChannelHeader_t*)ptr;
+    ptr += sizeof(CfgChannelHeader_t);
+
+    // Read name
+    char name[32];
+    memcpy(name, ptr, ch->name_len);
+    name[ch->name_len] = '\0';
+    ptr += ch->name_len;
+
+    // Read type-specific config
+    void* config = ptr;
+    ptr += ch->config_size;
+
+    // Register channel
+    PMU_ChannelExec_AddChannel(ch->id, ch->type, config);
 }
 ```
 
@@ -537,5 +602,10 @@ CAN transmit messages are defined in a separate `can_messages` array:
 ## See Also
 
 - [Channels Reference](channels.md) - Channel ID ranges and types
-- [Logic Functions Reference](logic-functions.md) - All operations
+- [Logic Functions Reference](logic-functions.md) - Logic operations
 - [Protocol Reference](protocol.md) - Communication protocol
+- [Shared Library Documentation](../BINARY_CONFIG_ARCHITECTURE.md) - Shared library architecture
+
+---
+
+**Copyright 2026 R2 m-sport. All rights reserved.**
