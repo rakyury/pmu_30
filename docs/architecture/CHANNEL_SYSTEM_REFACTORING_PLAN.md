@@ -355,6 +355,7 @@ shared/
 ├── channel_registry.h/.c    # Channel management
 ├── channel_deps.h/.c        # Dependency resolution
 ├── protocol_codec.h/.c      # Binary protocol encode/decode
+├── telemetry_codec.h/.c     # Telemetry build/parse (NEW)
 └── crc32.h/.c               # CRC calculation
 ```
 
@@ -400,6 +401,128 @@ uint16_t* Channel_GetDependents(uint16_t id, uint8_t* count);
 typedef void (*ChannelCallback)(Channel_t* ch, void* ctx);
 void Channel_ForEach(ChannelCallback cb, void* ctx);
 void Channel_ForEachByType(ChannelType_t type, ChannelCallback cb, void* ctx);
+
+// Telemetry (shared codec)
+size_t Telemetry_Build(uint8_t* buffer, size_t max_size, const TelemetryConfig_t* cfg);
+TelemetryResult_t Telemetry_Parse(const uint8_t* data, size_t size, TelemetryPacket_t* out);
+```
+
+### 6.4 Telemetry Codec (Shared)
+
+Телеметрия — один из главных кандидатов на shared library:
+- Firmware: строит пакет телеметрии
+- Configurator: парсит пакет телеметрии
+- **Одинаковый формат = один код**
+
+#### Текущие проблемы
+
+| Проблема | Описание |
+|----------|----------|
+| **Дублирование** | `pmu_protocol.c` (C) и `telemetry.py` (Python) — две реализации |
+| **Рассинхрон** | Изменение формата требует правки в двух местах |
+| **Разные платформы** | Nucleo vs Full PMU-30 — разные структуры телеметрии |
+
+#### Unified Telemetry Format
+
+```c
+typedef struct __attribute__((packed)) {
+    // Header (8 bytes)
+    uint32_t stream_counter;     // Packet sequence number
+    uint32_t timestamp_ms;       // System time
+
+    // Core data (fixed, always present)
+    uint16_t input_voltage_mv;   // Battery voltage
+    int16_t  mcu_temp_c10;       // MCU temp × 10
+    int16_t  board_temp_c10;     // Board temp × 10
+    uint32_t total_current_ma;   // Total current
+
+    // Sections (presence controlled by flags)
+    uint16_t flags;              // What sections are present
+    // Followed by variable sections...
+} TelemetryHeader_t;
+
+// Section flags
+#define TELEM_HAS_ADC           0x0001  // ADC values section
+#define TELEM_HAS_OUTPUTS       0x0002  // Output states section
+#define TELEM_HAS_HBRIDGE       0x0004  // H-Bridge section
+#define TELEM_HAS_DIN           0x0008  // Digital inputs section
+#define TELEM_HAS_VIRTUALS      0x0010  // Virtual channels section
+#define TELEM_HAS_FAULTS        0x0020  // Fault status section
+```
+
+#### Section: Virtual Channels
+
+```c
+// Virtual channels section (variable length)
+typedef struct __attribute__((packed)) {
+    uint16_t count;              // Number of virtual channels
+    // Followed by count × VirtualChannelEntry
+} VirtualChannelsHeader_t;
+
+typedef struct __attribute__((packed)) {
+    uint16_t channel_id;         // Channel ID
+    int32_t  value;              // Current value
+} VirtualChannelEntry_t;  // 6 bytes each
+```
+
+#### Telemetry API
+
+```c
+// === Firmware (build) ===
+typedef struct {
+    bool include_adc;
+    bool include_outputs;
+    bool include_hbridge;
+    bool include_din;
+    bool include_virtuals;
+    bool include_faults;
+} TelemetryConfig_t;
+
+// Build telemetry packet, returns size written
+size_t Telemetry_Build(uint8_t* buffer, size_t max_size, const TelemetryConfig_t* cfg);
+
+// === Configurator (parse) ===
+typedef struct {
+    uint32_t stream_counter;
+    uint32_t timestamp_ms;
+    uint16_t input_voltage_mv;
+    int16_t  mcu_temp_c10;
+    int16_t  board_temp_c10;
+    uint32_t total_current_ma;
+
+    // Optional sections (NULL if not present)
+    uint16_t* adc_values;        // [20] ADC raw values
+    uint8_t*  output_states;     // [30] Output states
+    int32_t*  virtual_values;    // Dynamic: channel_id -> value map
+    uint16_t  virtual_count;
+    // ... other sections
+} TelemetryPacket_t;
+
+typedef enum {
+    TELEM_OK = 0,
+    TELEM_ERR_TOO_SHORT,
+    TELEM_ERR_BAD_CRC,
+    TELEM_ERR_BAD_FLAGS,
+} TelemetryResult_t;
+
+TelemetryResult_t Telemetry_Parse(const uint8_t* data, size_t size, TelemetryPacket_t* out);
+```
+
+#### Python Bindings
+
+```python
+# Option 1: ctypes wrapper
+from pmu_shared import telemetry_parse, TelemetryPacket
+
+packet = TelemetryPacket()
+result = telemetry_parse(raw_bytes, len(raw_bytes), ctypes.byref(packet))
+
+# Option 2: Pure Python port (auto-generated from C structs)
+from pmu_shared.telemetry import parse_telemetry
+
+packet = parse_telemetry(raw_bytes)
+print(f"Voltage: {packet.input_voltage_mv}mV")
+print(f"Virtuals: {packet.virtual_channels}")
 ```
 
 ---
