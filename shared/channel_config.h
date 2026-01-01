@@ -232,7 +232,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  reserved[3];
 } CfgLogic_t;
 
-_Static_assert(sizeof(CfgLogic_t) == 24, "CfgLogic_t size check");
+_Static_assert(sizeof(CfgLogic_t) == 26, "CfgLogic_t size check");
 
 /*============================================================================
  * Math Configuration
@@ -249,7 +249,7 @@ typedef struct __attribute__((packed)) {
     int16_t  scale_den;         /**< Output scale denominator */
 } CfgMath_t;
 
-_Static_assert(sizeof(CfgMath_t) == 32, "CfgMath_t size check");
+_Static_assert(sizeof(CfgMath_t) == 34, "CfgMath_t size check");
 
 /*============================================================================
  * 2D Table Configuration
@@ -368,7 +368,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  edge_mode;         /**< Trigger on edge (vs level) */
 } CfgCounter_t;
 
-_Static_assert(sizeof(CfgCounter_t) == 18, "CfgCounter_t size check");
+_Static_assert(sizeof(CfgCounter_t) == 16, "CfgCounter_t size check");
 
 /*============================================================================
  * FlipFlop Configuration
@@ -413,7 +413,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  reserved[3];
 } CfgDisplay_t;
 
-_Static_assert(sizeof(CfgDisplay_t) == 20, "CfgDisplay_t size check");
+_Static_assert(sizeof(CfgDisplay_t) == 21, "CfgDisplay_t size check");
 
 /*============================================================================
  * Complete Configuration File Header

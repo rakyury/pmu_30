@@ -123,7 +123,7 @@ int32_t Exec_Logic(
             result = Logic_NEQ(inputs[0], config->compare_value);
             break;
 
-        case LOGIC_OP_IN_RANGE:
+        case LOGIC_OP_RANGE:
             result = Logic_InRange(inputs[0], inputs[1], config->compare_value);
             break;
 
@@ -153,7 +153,7 @@ int32_t Exec_Math(
 
     switch (config->operation) {
         case MATH_OP_ADD:
-            result = Math_Add(inputs[0], inputs[1]);
+            result = Math_Add(inputs, config->input_count);
             break;
 
         case MATH_OP_SUB:
@@ -238,12 +238,13 @@ int32_t Exec_Timer(
 
     /* Convert CfgTimer to Timer_Config_t */
     Timer_Config_t timer_cfg = {
-        .mode = (TimerMode_t)config->mode,
-        .trigger_mode = (TimerTrigger_t)config->trigger_mode,
-        .delay_ms = config->delay_ms,
-        .on_time_ms = config->on_time_ms,
-        .off_time_ms = config->off_time_ms,
-        .auto_reset = config->auto_reset
+        .mode = config->mode,
+        .start_edge = config->trigger_mode,
+        .auto_reset = config->auto_reset,
+        .reserved = 0,
+        .duration_ms = config->delay_ms,
+        .blink_on_ms = config->on_time_ms,
+        .blink_off_ms = config->off_time_ms
     };
 
     return Timer_Update(state, &timer_cfg, trigger, ctx->now_ms);
@@ -356,13 +357,14 @@ int32_t Exec_Table2D(
 
     /* Build Table2D_t from config */
     Table2D_t table = {
-        .size = config->point_count
+        .count = config->point_count,
+        .reserved = {0, 0, 0}
     };
 
     /* Copy values (int16 to int32) */
     for (uint8_t i = 0; i < config->point_count && i < TABLE_2D_MAX_POINTS; i++) {
-        table.x_values[i] = config->x_values[i];
-        table.y_values[i] = config->y_values[i];
+        table.x[i] = config->x_values[i];
+        table.y[i] = config->y_values[i];
     }
 
     return Table2D_Lookup(&table, input);
