@@ -199,6 +199,77 @@ Run tests on both platforms:
 
 ---
 
+## Shared Validation Module
+
+The shared validation module ensures identical validation between Configurator and Firmware.
+
+### Architecture
+
+```
+shared/
+├── channel_validation.h       # Validation API (C)
+├── channel_validation.c       # Validation logic (C)
+└── python/
+    └── channel_validation.py  # Python port
+
+configurator/
+└── src/utils/validation.py    # Config transformer bridge
+```
+
+### Config Transformers
+
+The Configurator uses **Config Transformers** to map UI field names to shared validation field names:
+
+```python
+# configurator/src/utils/validation.py
+
+CONFIG_TRANSFORMERS = {
+    "timer": _transform_timer_config,      # limit_hours/min/sec -> delay_ms
+    "logic": _transform_logic_config,      # input_channels -> input_ids
+    "filter": _transform_filter_config,    # time_constant -> time_constant_ms
+    "pid": _transform_pid_config,          # setpoint_channel -> setpoint_id
+    "table_2d": _transform_table_2d_config,# x_axis_channel -> input_id
+    "digital_input": _transform_digital_input_config,
+    "analog_input": _transform_analog_input_config,
+    "power_output": _transform_power_output_config,
+    "switch": _transform_switch_config,
+    "number": _transform_number_config,
+    "can_rx": _transform_can_input_config,
+}
+```
+
+### Integration in Dialogs
+
+```python
+# configurator/src/ui/dialogs/base_channel_dialog.py
+
+def _on_accept(self):
+    errors = self._validate_base()
+    errors.extend(self._validate_specific())
+
+    # Run shared validation (consistent with firmware)
+    if self.channel_type:
+        config = self.get_config()
+        shared_errors = validate_with_shared(self.channel_type, config)
+        errors.extend(shared_errors)
+
+    if errors:
+        QMessageBox.warning(self, "Validation Error", ...)
+        return
+    self.accept()
+```
+
+### Benefits
+
+| Aspect | Before | After |
+|--------|--------|-------|
+| Validation rules | Duplicated | Single source |
+| UI/FW consistency | Manual sync | Automatic |
+| Error messages | Different | Identical |
+| Test coverage | Separate | Unified |
+
+---
+
 ## See Also
 
 - [Binary Configuration Architecture](BINARY_CONFIG_ARCHITECTURE.md)

@@ -2,14 +2,30 @@
 
 This document tracks the accuracy of documentation compared to the actual implementation.
 
-**Last Updated:** 2025-12-29
+**Last Updated:** 2026-01-01
 
 ## Summary
 
 | Status | Count | Description |
 |--------|-------|-------------|
-| ✅ Fixed | 8 | All issues resolved |
-| ✅ OK | 7 | Documentation matches implementation |
+| ✅ Fixed | 9 | All issues resolved |
+| ✅ OK | 8 | Documentation matches implementation |
+
+---
+
+## Recent Updates (v4.1) ✅
+
+### Shared Library Integration — Documented ✅
+
+**Files Updated:**
+- [docs/firmware_architecture.md](firmware_architecture.md) - Updated to v4.1
+- [docs/SHARED_PROTOCOL_LIBRARY.md](SHARED_PROTOCOL_LIBRARY.md) - Added Validation module section
+
+**What was added:**
+- Channel Executor integration with firmware (pmu_channel_exec.c)
+- LED module integration for status indication
+- Shared Validation module with Config Transformers
+- Python/C validation consistency
 
 ---
 

@@ -1,6 +1,6 @@
 # PMU-30 Firmware Architecture
 
-**Document Version:** 4.0
+**Document Version:** 4.1
 **Date:** 2026-01-01
 **Target Platform:** STM32H743/H753
 **Owner:** R2 m-sport
@@ -2012,6 +2012,8 @@ The emulator stubs out hardware-specific functionality:
 | 3.0 | 2025-12-29 | PMU-30 Team | Deep HAL/RTOS detail |
 | 3.1 | 2025-12-30 | PMU-30 Team | ESP32 bridge layer, WiFi/BT AT commands, load shedding priority |
 | 3.2 | 2025-12-30 | PMU-30 Team | Emulator limitations documentation, ESP32/WiFi/BT stubs |
+| 4.0 | 2025-12-31 | PMU-30 Team | Binary config architecture, channel executor integration |
+| 4.1 | 2026-01-01 | PMU-30 Team | LED module integration, shared validation module |
 
 ### 17.2 Related Documents
 
