@@ -85,6 +85,8 @@ typedef enum {
     /* Device control (0x60-0x6F) */
     PMU_CMD_SET_CHANNEL_CONFIG  = 0x66,  /**< Set single channel config (atomic update) */
     PMU_CMD_CHANNEL_CONFIG_ACK  = 0x67,  /**< Channel config update response */
+    PMU_CMD_LOAD_BINARY_CONFIG  = 0x68,  /**< Load binary configuration (chunked) */
+    PMU_CMD_BINARY_CONFIG_ACK   = 0x69,  /**< Binary config acknowledgment */
 
     /* Device restart (0x70-0x7F) */
     PMU_CMD_RESET               = 0x70,  /**< Reset/restart device */

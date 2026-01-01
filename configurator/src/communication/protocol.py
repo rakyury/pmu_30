@@ -54,6 +54,8 @@ class MessageType(IntEnum):
     # Atomic channel configuration update
     SET_CHANNEL_CONFIG = 0x66    # Update single channel config
     CHANNEL_CONFIG_ACK = 0x67    # Channel config update response
+    LOAD_BINARY_CONFIG = 0x68    # Load binary configuration (chunked)
+    BINARY_CONFIG_ACK = 0x69     # Binary config acknowledgment
 
     # Error handling
     ERROR = 0x50
