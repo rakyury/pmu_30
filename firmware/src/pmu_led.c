@@ -155,14 +155,27 @@ static void LED_GPIO_Init(void)
 #ifndef PMU_EMULATOR
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* Enable GPIO clocks */
+    /* Enable GPIO clocks - board specific */
+#ifdef STATUS_LED_SINGLE
+    /* Single LED board (e.g., Nucleo-F446RE) - enable GPIOA */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+#else
+    /* RGB LED board - enable GPIOC */
     __HAL_RCC_GPIOC_CLK_ENABLE();
+#endif
 
-    /* Configure GPIO pins for RGB LED */
+    /* Configure GPIO pins for LED(s) */
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 
+#ifdef STATUS_LED_SINGLE
+    /* Single LED - only configure once */
+    GPIO_InitStruct.Pin = STATUS_LED_G_PIN;
+    HAL_GPIO_Init(STATUS_LED_G_PORT, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(STATUS_LED_G_PORT, STATUS_LED_G_PIN, LED_OFF_STATE);
+#else
+    /* RGB LED - configure all three pins */
     /* Red LED */
     GPIO_InitStruct.Pin = STATUS_LED_R_PIN;
     HAL_GPIO_Init(STATUS_LED_R_PORT, &GPIO_InitStruct);
@@ -178,6 +191,7 @@ static void LED_GPIO_Init(void)
     HAL_GPIO_Init(STATUS_LED_B_PORT, &GPIO_InitStruct);
     HAL_GPIO_WritePin(STATUS_LED_B_PORT, STATUS_LED_B_PIN, LED_OFF_STATE);
 #endif
+#endif
 }
 
 /**
@@ -187,7 +201,15 @@ static void LED_GPIO_Init(void)
 static void LED_SetHardware(PMU_LED_Color_t color)
 {
 #ifndef PMU_EMULATOR
-    /* Turn all off first */
+#ifdef STATUS_LED_SINGLE
+    /* Single LED mode - ON for any color, OFF for OFF */
+    if (color == PMU_LED_COLOR_OFF) {
+        HAL_GPIO_WritePin(STATUS_LED_G_PORT, STATUS_LED_G_PIN, LED_OFF_STATE);
+    } else {
+        HAL_GPIO_WritePin(STATUS_LED_G_PORT, STATUS_LED_G_PIN, LED_ON_STATE);
+    }
+#else
+    /* RGB LED mode - turn all off first */
     HAL_GPIO_WritePin(STATUS_LED_R_PORT, STATUS_LED_R_PIN, LED_OFF_STATE);
     HAL_GPIO_WritePin(STATUS_LED_G_PORT, STATUS_LED_G_PIN, LED_OFF_STATE);
     HAL_GPIO_WritePin(STATUS_LED_B_PORT, STATUS_LED_B_PIN, LED_OFF_STATE);
@@ -225,6 +247,7 @@ static void LED_SetHardware(PMU_LED_Color_t color)
             /* All already off */
             break;
     }
+#endif /* STATUS_LED_SINGLE */
 #else
     /* Emulator: just store state */
     (void)color;

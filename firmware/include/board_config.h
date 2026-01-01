@@ -60,6 +60,15 @@ extern "C" {
 #define USER_BTN_PIN            GPIO_PIN_13
 #define USER_BTN_PORT           GPIOC
 
+/* Status LED - single green LED on PA5 (all colors map to same LED) */
+#define STATUS_LED_R_PIN        GPIO_PIN_5
+#define STATUS_LED_R_PORT       GPIOA
+#define STATUS_LED_G_PIN        GPIO_PIN_5
+#define STATUS_LED_G_PORT       GPIOA
+#define STATUS_LED_B_PIN        GPIO_PIN_5
+#define STATUS_LED_B_PORT       GPIOA
+#define STATUS_LED_SINGLE       1  /* Flag for single-LED board */
+
 /* Pin mapping - CAN1 */
 #define CAN1_RX_PIN             GPIO_PIN_11
 #define CAN1_RX_PORT            GPIOA

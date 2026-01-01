@@ -97,8 +97,8 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 
 /* Timing constants (ms) */
-#define PMU_LED_BLINK_ON_MS         200     /* Single blink ON duration */
-#define PMU_LED_BLINK_OFF_MS        300     /* Pause between blinks */
+#define PMU_LED_BLINK_ON_MS         500     /* Single blink ON duration */
+#define PMU_LED_BLINK_OFF_MS        400     /* Pause between blinks */
 #define PMU_LED_FAST_ON_MS          100     /* Fast blink ON duration */
 #define PMU_LED_FAST_OFF_MS         100     /* Fast blink OFF duration */
 #define PMU_LED_SLOW_ON_MS          500     /* Slow blink ON duration */

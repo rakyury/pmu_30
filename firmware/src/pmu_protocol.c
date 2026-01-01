@@ -865,7 +865,7 @@ static void Protocol_HandleGetVersion(const PMU_Protocol_Packet_t* packet)
     (void)packet;
     uint8_t version[64];
     snprintf((char*)version, sizeof(version), "PMU-30 v%d.%d.%d", 1, 0, 0);
-    Protocol_SendData(PMU_CMD_GET_VERSION, version, strlen((char*)version));
+    Protocol_SendData(PMU_CMD_INFO_RESP, version, strlen((char*)version));
 }
 
 static void Protocol_HandleGetSerial(const PMU_Protocol_Packet_t* packet)
