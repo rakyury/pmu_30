@@ -82,6 +82,7 @@ static int32_t ExecGetValue(uint16_t channel_id, void* user_data);
 static void ExecSetValue(uint16_t channel_id, int32_t value, void* user_data);
 static PMU_ExecChannel_t* FindChannel(uint16_t channel_id);
 static void* AllocConfig(uint16_t size);
+static int32_t GetSourceValue(uint16_t channel_id);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -273,8 +274,8 @@ void PMU_ChannelExec_Update(void)
             continue;
         }
 
-        /* Read source channel value */
-        int32_t source_value = PMU_Channel_GetValue(link->source_id);
+        /* Read source channel value (check executor channels first, then firmware) */
+        int32_t source_value = GetSourceValue(link->source_id);
 
         /* Convert to output state (non-zero = ON) */
         uint8_t state = (source_value != 0) ? 1 : 0;
@@ -424,11 +425,12 @@ void PMU_ChannelExec_GetStats(uint32_t* exec_count, uint32_t* last_exec_us)
 
 /**
  * @brief Get channel value callback for executor
+ * Uses GetSourceValue to check executor channels first, then firmware.
  */
 static int32_t ExecGetValue(uint16_t channel_id, void* user_data)
 {
     (void)user_data;
-    return PMU_Channel_GetValue(channel_id);
+    return GetSourceValue(channel_id);
 }
 
 /**
@@ -468,6 +470,28 @@ static void* AllocConfig(uint16_t size)
     void* ptr = &config_storage[config_storage_used];
     config_storage_used += size;
     return ptr;
+}
+
+/**
+ * @brief Get channel value, checking executor channels first
+ *
+ * For virtual channels (Logic, Timer, etc.) that exist only in the executor,
+ * we read directly from runtime.value. For hardware channels (DIN, ADC, etc.)
+ * we fall back to PMU_Channel_GetValue().
+ *
+ * @param channel_id Channel ID to read
+ * @return Channel value
+ */
+static int32_t GetSourceValue(uint16_t channel_id)
+{
+    /* First check if this is an executor channel (virtual) */
+    PMU_ExecChannel_t* ch = FindChannel(channel_id);
+    if (ch) {
+        return ch->runtime.value;
+    }
+
+    /* Not an executor channel - read from firmware channel registry */
+    return PMU_Channel_GetValue(channel_id);
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
