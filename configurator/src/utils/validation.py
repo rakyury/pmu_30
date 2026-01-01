@@ -114,10 +114,109 @@ def _transform_power_output_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def _transform_filter_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform filter config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map input_channel to input_id
+    input_ch = config.get('input_channel')
+    if input_ch and isinstance(input_ch, int):
+        result['input_id'] = input_ch
+
+    # Convert time_constant (seconds) to time_constant_ms
+    time_const = config.get('time_constant', 0.1)
+    if isinstance(time_const, (int, float)):
+        result['time_constant_ms'] = int(time_const * 1000)
+
+    return result
+
+
+def _transform_switch_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform switch config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map input_channel_up to selector_id
+    input_up = config.get('input_channel_up')
+    if input_up and isinstance(input_up, int):
+        result['selector_id'] = input_up
+
+    # Create cases list from first_state to last_state
+    first_state = config.get('first_state', 0)
+    last_state = config.get('last_state', 2)
+    cases = list(range(first_state, last_state + 1))
+    result['cases'] = cases
+
+    return result
+
+
+def _transform_number_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform number config from UI to shared validation format."""
+    result = dict(config)
+
+    # For constant operation, set value from constant_value
+    if config.get('operation') == 'constant':
+        result['value'] = int(config.get('constant_value', 0) * 100)  # Scale for fixed-point
+
+    # Set reasonable defaults if not present
+    if 'min_value' not in result:
+        result['min_value'] = -1000000
+    if 'max_value' not in result:
+        result['max_value'] = 1000000
+
+    return result
+
+
+def _transform_can_input_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform CAN input config from UI to shared validation format."""
+    result = dict(config)
+
+    # Most fields have same names, just ensure types
+    if 'can_id' in config:
+        result['can_id'] = int(config['can_id'])
+
+    return result
+
+
+def _transform_analog_input_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform analog input config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map calibration values to raw values
+    if 'cal_raw_low' in config:
+        result['raw_min'] = config['cal_raw_low']
+    if 'cal_raw_high' in config:
+        result['raw_max'] = config['cal_raw_high']
+
+    return result
+
+
+def _transform_pid_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Transform PID config from UI to shared validation format."""
+    result = dict(config)
+
+    # Map setpoint_channel to setpoint_id
+    setpoint_ch = config.get('setpoint_channel')
+    if setpoint_ch and isinstance(setpoint_ch, int):
+        result['setpoint_id'] = setpoint_ch
+
+    # Map feedback_channel to feedback_id
+    feedback_ch = config.get('feedback_channel')
+    if feedback_ch and isinstance(feedback_ch, int):
+        result['feedback_id'] = feedback_ch
+
+    return result
+
+
 CONFIG_TRANSFORMERS = {
     "timer": _transform_timer_config,
     "logic": _transform_logic_config,
     "power_output": _transform_power_output_config,
+    "filter": _transform_filter_config,
+    "switch": _transform_switch_config,
+    "number": _transform_number_config,
+    "can_rx": _transform_can_input_config,
+    "analog_input": _transform_analog_input_config,
+    "pid": _transform_pid_config,
 }
 
 

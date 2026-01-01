@@ -51,6 +51,7 @@
 #include "pmu_logic_functions.h"
 #include "pmu_can_stream.h"
 #include "pmu_channel_exec.h"
+#include "pmu_led.h"
 
 #ifndef PMU_DISABLE_LUA
 #include "pmu_lua.h"
@@ -199,6 +200,9 @@ int main(void)
     /* Channel Executor (shared library integration) */
     PMU_ChannelExec_Init();
 
+    /* Status LED (visual feedback) */
+    PMU_LED_Init();
+
     /* Logging and JSON */
     PMU_Logging_Init();
     PMU_JSON_Init();
@@ -219,6 +223,9 @@ int main(void)
         }
         while (!(USART2->SR & USART_SR_TC));
     }
+
+    /* Signal successful startup with LED */
+    PMU_LED_SignalStartupOK();
 
     SysTick->CTRL = 0;
 
@@ -256,6 +263,9 @@ int main(void)
 
             /* Update power outputs based on source_channel linking */
             PMU_PowerOutput_Update();
+
+            /* Update LED state machine (patterns, blinking) */
+            PMU_LED_Update();
 
             g_logic_exec_count++;  /* Debug: count loop iterations */
 
@@ -320,6 +330,9 @@ static void vControlTask(void *pvParameters)
             PMU_FilterChannel_Update();
             PMU_TimerChannel_Update();
             PMU_PowerOutput_Update();  /* Apply source_channel to power outputs */
+
+            /* Update LED status patterns */
+            PMU_LED_Update();
 
             g_logic_exec_count++;
 
