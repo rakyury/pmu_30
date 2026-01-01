@@ -41,6 +41,7 @@ extern "C" {
 #define PMU_EXEC_MAX_CHANNELS       128
 
 /* Channel types (mirrors ChannelType_t from shared library) */
+#define PMU_EXEC_TYPE_POWER_OUTPUT  0x10  /* Power output with source linking */
 #define PMU_EXEC_TYPE_TIMER         0x20
 #define PMU_EXEC_TYPE_LOGIC         0x21
 #define PMU_EXEC_TYPE_MATH          0x22
@@ -71,6 +72,22 @@ HAL_StatusTypeDef PMU_ChannelExec_AddChannel(
     uint16_t channel_id,
     uint8_t type,
     const void* config
+);
+
+/**
+ * @brief Add a power output link (source channel -> hardware output)
+ * @param output_id     Output channel ID in firmware registry
+ * @param source_id     Source channel ID to read value from
+ * @param hw_index      Hardware output index (0-29 for PROFET outputs)
+ * @retval HAL_OK on success, HAL_ERROR if full
+ *
+ * When PMU_ChannelExec_Update() runs, it reads source_id value and
+ * sets the hardware output state (non-zero = ON, zero = OFF).
+ */
+HAL_StatusTypeDef PMU_ChannelExec_AddOutputLink(
+    uint16_t output_id,
+    uint16_t source_id,
+    uint8_t hw_index
 );
 
 /**

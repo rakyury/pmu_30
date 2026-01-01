@@ -728,9 +728,13 @@ static int32_t Channel_ReadPhysicalInput(const PMU_Channel_t* channel)
 {
 #if !defined(UNIT_TEST) || defined(PMU_EMULATOR)
     switch (channel->hw_class) {
-        case PMU_CHANNEL_CLASS_INPUT_DIGITAL:
         case PMU_CHANNEL_CLASS_INPUT_SWITCH:
-            /* Return digital state (0 or 1) for switch inputs */
+            /* For GPIO switch inputs (buttons), return cached value
+             * This is updated by DigitalInputs_Read() via PMU_Channel_UpdateValue() */
+            return channel->value;
+
+        case PMU_CHANNEL_CLASS_INPUT_DIGITAL:
+            /* For ADC-based digital inputs (with threshold), use ADC system */
             return (int32_t)PMU_ADC_GetDigitalState(channel->physical_index);
 
         case PMU_CHANNEL_CLASS_INPUT_ANALOG:

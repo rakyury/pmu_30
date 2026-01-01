@@ -98,7 +98,8 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet);
-/* Protocol_HandleLoadConfig/GetConfig removed - binary config only */
+/* Binary config persistence */
+static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet);
@@ -119,6 +120,7 @@ static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 #endif
 /* Protocol_HandleSetChannelConfig removed - binary config only */
 static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleReset(const PMU_Protocol_Packet_t* packet);
 static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg);
 
 /* Payload pack/unpack helpers -----------------------------------------------*/
@@ -210,6 +212,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_GET_OUTPUTS,       Protocol_HandleGetOutputs},
     {PMU_CMD_GET_INPUTS,        Protocol_HandleGetInputs},
     /* Configuration commands (binary only) */
+    {PMU_CMD_GET_CONFIG,        Protocol_HandleGetConfig},
     {PMU_CMD_SAVE_CONFIG,       Protocol_HandleSaveConfig},
     {PMU_CMD_LOAD_BINARY_CONFIG, Protocol_HandleLoadBinaryConfig},
     /* Logging commands */
@@ -230,8 +233,8 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_LUA_GET_OUTPUT,    Protocol_HandleLuaGetOutput},
     {PMU_CMD_LUA_SET_ENABLED,   Protocol_HandleLuaSetEnabled},
 #endif
-    /* Atomic channel config update */
-    /* PMU_CMD_SET_CHANNEL_CONFIG removed - binary config only */
+    /* Device control */
+    {PMU_CMD_RESET,             Protocol_HandleReset},
 };
 
 #define COMMAND_DISPATCH_COUNT (sizeof(command_dispatch_table) / sizeof(command_dispatch_table[0]))
@@ -1009,7 +1012,197 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_GET_INPUTS, data, index);
 }
 
-/* Protocol_HandleLoadConfig and Protocol_HandleGetConfig removed - binary only */
+/* Binary config state */
+static uint16_t binary_config_len = 0;
+
+/* ============================================================================
+ * Binary Config Flash Storage (Nucleo-F446RE)
+ * ============================================================================
+ * STM32F446RE has 512KB flash with sectors:
+ *   Sector 0-3: 16KB each (0x08000000-0x0800FFFF)
+ *   Sector 4: 64KB (0x08010000-0x0801FFFF)
+ *   Sectors 5-7: 128KB each (0x08020000-0x0807FFFF)
+ *
+ * We use Sector 7 (last 128KB at 0x08060000) for config storage.
+ * Header: [magic:4B][size:2B][crc16:2B] = 8 bytes
+ * Data: binary_config_buffer (up to CONFIG_BUFFER_SIZE bytes)
+ */
+#ifdef NUCLEO_F446RE
+#define CONFIG_FLASH_SECTOR      7
+#define CONFIG_FLASH_ADDR        0x08060000UL
+#define CONFIG_FLASH_MAGIC       0x434F4E46UL  /* "CONF" */
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;      /* CONFIG_FLASH_MAGIC */
+    uint16_t size;       /* Size of config data */
+    uint16_t crc16;      /* CRC16 of config data */
+} BinaryConfigHeader_t;
+
+/**
+ * @brief Calculate CRC16 for binary config verification
+ */
+static uint16_t BinaryConfig_CRC16(const uint8_t* data, uint16_t length)
+{
+    uint16_t crc = 0xFFFF;
+    for (uint16_t i = 0; i < length; i++) {
+        crc ^= (uint16_t)data[i] << 8;
+        for (uint8_t j = 0; j < 8; j++) {
+            if (crc & 0x8000) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
+}
+
+/**
+ * @brief Save binary config to flash
+ */
+static bool BinaryConfig_SaveToFlash(void)
+{
+    if (binary_config_len == 0 || binary_config_len > CONFIG_BUFFER_SIZE) {
+        return false;
+    }
+
+    /* Prepare header */
+    BinaryConfigHeader_t header;
+    header.magic = CONFIG_FLASH_MAGIC;
+    header.size = binary_config_len;
+    header.crc16 = BinaryConfig_CRC16(binary_config_buffer, binary_config_len);
+
+    /* Unlock flash */
+    HAL_FLASH_Unlock();
+
+    /* Erase Sector 7 */
+    FLASH_EraseInitTypeDef erase_init;
+    uint32_t sector_error = 0;
+    erase_init.TypeErase = FLASH_TYPEERASE_SECTORS;
+    erase_init.Sector = CONFIG_FLASH_SECTOR;
+    erase_init.NbSectors = 1;
+    erase_init.VoltageRange = FLASH_VOLTAGE_RANGE_3;  /* 2.7V-3.6V */
+
+    if (HAL_FLASHEx_Erase(&erase_init, &sector_error) != HAL_OK) {
+        HAL_FLASH_Lock();
+        return false;
+    }
+
+    /* Write header (8 bytes = 2 words) */
+    uint32_t addr = CONFIG_FLASH_ADDR;
+    uint32_t* header_ptr = (uint32_t*)&header;
+    for (int i = 0; i < 2; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, header_ptr[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return false;
+        }
+        addr += 4;
+    }
+
+    /* Write config data (word-aligned) */
+    uint32_t words = (binary_config_len + 3) / 4;
+    uint32_t* data_ptr = (uint32_t*)binary_config_buffer;
+    for (uint32_t i = 0; i < words; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, data_ptr[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return false;
+        }
+        addr += 4;
+    }
+
+    HAL_FLASH_Lock();
+    return true;
+}
+
+/**
+ * @brief Load binary config from flash at startup
+ */
+bool PMU_Protocol_LoadSavedConfig(void)
+{
+    BinaryConfigHeader_t* header = (BinaryConfigHeader_t*)CONFIG_FLASH_ADDR;
+
+    /* Check magic */
+    if (header->magic != CONFIG_FLASH_MAGIC) {
+        return false;  /* No saved config */
+    }
+
+    /* Check size */
+    if (header->size == 0 || header->size > CONFIG_BUFFER_SIZE) {
+        return false;
+    }
+
+    /* Read config data */
+    uint8_t* flash_data = (uint8_t*)(CONFIG_FLASH_ADDR + sizeof(BinaryConfigHeader_t));
+    memcpy(binary_config_buffer, flash_data, header->size);
+    binary_config_len = header->size;
+
+    /* Verify CRC */
+    uint16_t calc_crc = BinaryConfig_CRC16(binary_config_buffer, binary_config_len);
+    if (calc_crc != header->crc16) {
+        binary_config_len = 0;
+        return false;
+    }
+
+    /* Load into Channel Executor */
+    int loaded = PMU_ChannelExec_LoadConfig(binary_config_buffer, binary_config_len);
+    return (loaded >= 0);
+}
+
+#else
+/* Non-Nucleo platforms - stub implementation */
+static bool BinaryConfig_SaveToFlash(void) { return false; }
+bool PMU_Protocol_LoadSavedConfig(void) { return false; }
+#endif
+
+/**
+ * @brief Handle GET_CONFIG command - return current binary configuration
+ *
+ * Response format (chunked if needed):
+ * [chunk_idx:2B LE][total_chunks:2B LE][data]
+ *
+ * Or for small configs (fits in one packet):
+ * [config_data:N bytes]
+ */
+static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    if (binary_config_len == 0) {
+        /* No config loaded - send empty response */
+        uint8_t response[2] = {0, 0};  /* size = 0 */
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 2);
+        return;
+    }
+
+    /* For small configs, send directly */
+    if (binary_config_len <= 256) {
+        /* Response: [size:2B LE][data:N bytes] */
+        uint8_t response[2 + CONFIG_BUFFER_SIZE];
+        response[0] = (uint8_t)(binary_config_len & 0xFF);
+        response[1] = (uint8_t)((binary_config_len >> 8) & 0xFF);
+        memcpy(response + 2, binary_config_buffer, binary_config_len);
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 2 + binary_config_len);
+    } else {
+        /* Chunked response for larger configs */
+        uint16_t chunk_size = 256;
+        uint16_t total_chunks = (binary_config_len + chunk_size - 1) / chunk_size;
+
+        for (uint16_t chunk_idx = 0; chunk_idx < total_chunks; chunk_idx++) {
+            uint16_t offset = chunk_idx * chunk_size;
+            uint16_t len = binary_config_len - offset;
+            if (len > chunk_size) len = chunk_size;
+
+            /* Response: [chunk_idx:2B][total_chunks:2B][data:N bytes] */
+            uint8_t response[4 + 256];
+            response[0] = (uint8_t)(chunk_idx & 0xFF);
+            response[1] = (uint8_t)((chunk_idx >> 8) & 0xFF);
+            response[2] = (uint8_t)(total_chunks & 0xFF);
+            response[3] = (uint8_t)((total_chunks >> 8) & 0xFF);
+            memcpy(response + 4, binary_config_buffer + offset, len);
+            Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + len);
+        }
+    }
+}
 
 /**
  * @brief Handle SAVE_CONFIG command - save configuration to flash
@@ -1017,14 +1210,20 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
 {
     (void)packet;
-    /* For Nucleo, just acknowledge - config is kept in RAM buffer */
-    /* TODO: For PMU-30, implement actual flash storage */
-    uint8_t response[3] = {1, 0, 0};  /* success=1, error_code=0 */
+
+    if (binary_config_len == 0) {
+        /* No config to save */
+        uint8_t response[3] = {0, 1, 0};  /* success=0, error_code=1 */
+        Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
+        return;
+    }
+
+    bool success = BinaryConfig_SaveToFlash();
+    uint8_t response[3] = {success ? 1 : 0, success ? 0 : 2, 0};
     Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
 }
 
-/* Binary config state */
-static uint16_t binary_config_len = 0;
+/* Binary config chunked upload state */
 static uint16_t binary_total_chunks = 0;
 static uint16_t binary_received_chunks = 0;
 
@@ -1073,16 +1272,12 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
                 return;
             }
 
-            /* Send ACK for this chunk */
-            uint8_t response[4] = {1, 0, (uint8_t)chunk_idx, (uint8_t)(chunk_idx >> 8)};
-            Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
-
             /* All chunks received - process binary config */
             if (binary_received_chunks >= binary_total_chunks) {
                 /* Load into Channel Executor */
                 int loaded = PMU_ChannelExec_LoadConfig(binary_config_buffer, binary_config_len);
 
-                /* Send final status */
+                /* Send final status (only one ACK for complete config) */
                 uint8_t final_response[6] = {0};
                 final_response[0] = (loaded >= 0) ? 1 : 0;  /* success */
                 final_response[1] = (loaded >= 0) ? 0 : 1;  /* error_code */
@@ -1091,6 +1286,10 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
                 final_response[4] = (uint8_t)PMU_ChannelExec_GetChannelCount();  /* total channels */
                 final_response[5] = 0;  /* reserved */
                 Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, final_response, 6);
+            } else {
+                /* Send intermediate ACK for multi-chunk upload */
+                uint8_t response[4] = {1, 0, (uint8_t)chunk_idx, (uint8_t)(chunk_idx >> 8)};
+                Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
             }
             return;
         }
@@ -1500,5 +1699,22 @@ static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uin
 }
 
 /* Protocol_HandleSetChannelConfig removed - use LOAD_BINARY_CONFIG for config updates */
+
+/**
+ * @brief Handle RESET command - software reset the device
+ */
+static void Protocol_HandleReset(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Send ACK before reset */
+    Protocol_SendACK(PMU_CMD_RESET);
+
+    /* Small delay to ensure ACK is transmitted */
+    for (volatile int i = 0; i < 100000; i++) { }
+
+    /* Perform software reset */
+    NVIC_SystemReset();
+}
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

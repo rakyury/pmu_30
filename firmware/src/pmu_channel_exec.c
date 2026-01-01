@@ -33,8 +33,22 @@ typedef struct {
     uint16_t        channel_id;     /**< Channel ID in firmware registry */
     uint8_t         type;           /**< ChannelType_t */
     uint8_t         enabled;        /**< Processing enabled flag */
+    uint16_t        source_id;      /**< Source channel ID (for outputs) */
+    uint8_t         hw_index;       /**< Hardware index (for outputs) */
     ChannelRuntime_t runtime;       /**< Runtime state and config pointer */
 } PMU_ExecChannel_t;
+
+/**
+ * @brief Power output link entry (for auto-update)
+ */
+typedef struct {
+    uint16_t        output_id;      /**< Output channel ID */
+    uint16_t        source_id;      /**< Source channel to read from */
+    uint8_t         hw_index;       /**< Hardware output index (0-29) */
+    uint8_t         enabled;        /**< Link active */
+} PMU_OutputLink_t;
+
+#define PMU_MAX_OUTPUT_LINKS    32
 
 /**
  * @brief Channel executor state (internal)
@@ -43,6 +57,8 @@ typedef struct {
     ExecContext_t       context;                        /**< Executor context */
     PMU_ExecChannel_t   channels[PMU_EXEC_MAX_CHANNELS]; /**< Channel array */
     uint16_t            channel_count;                  /**< Number of channels */
+    PMU_OutputLink_t    output_links[PMU_MAX_OUTPUT_LINKS]; /**< Output links */
+    uint16_t            output_link_count;              /**< Number of output links */
     uint32_t            exec_count;                     /**< Execution counter */
     uint32_t            last_exec_us;                   /**< Last execution time (us) */
 } PMU_ExecState_t;
@@ -55,6 +71,10 @@ static PMU_ExecState_t exec_state;
 /** Config storage (static allocation for embedded) */
 static uint8_t config_storage[PMU_EXEC_MAX_CHANNELS * 64];  /* ~8KB for configs */
 static uint16_t config_storage_used = 0;
+
+/* External functions (platform-specific) ------------------------------------*/
+
+extern void NucleoOutput_SetState(uint8_t channel, uint8_t state);
 
 /* Private function prototypes -----------------------------------------------*/
 
@@ -187,11 +207,35 @@ HAL_StatusTypeDef PMU_ChannelExec_RemoveChannel(uint16_t channel_id)
 void PMU_ChannelExec_Clear(void)
 {
     exec_state.channel_count = 0;
+    exec_state.output_link_count = 0;
     config_storage_used = 0;
 }
 
 /**
- * @brief Execute all virtual channels
+ * @brief Add a power output link (source channel -> hw output)
+ */
+HAL_StatusTypeDef PMU_ChannelExec_AddOutputLink(
+    uint16_t output_id,
+    uint16_t source_id,
+    uint8_t hw_index
+)
+{
+    if (exec_state.output_link_count >= PMU_MAX_OUTPUT_LINKS) {
+        return HAL_ERROR;
+    }
+
+    PMU_OutputLink_t* link = &exec_state.output_links[exec_state.output_link_count];
+    link->output_id = output_id;
+    link->source_id = source_id;
+    link->hw_index = hw_index;
+    link->enabled = 1;
+
+    exec_state.output_link_count++;
+    return HAL_OK;
+}
+
+/**
+ * @brief Execute all virtual channels and update output links
  */
 void PMU_ChannelExec_Update(void)
 {
@@ -200,7 +244,7 @@ void PMU_ChannelExec_Update(void)
     /* Update timing */
     Exec_UpdateTime(&exec_state.context, start_tick);
 
-    /* Process all enabled channels */
+    /* Process all enabled virtual channels */
     for (uint16_t i = 0; i < exec_state.channel_count; i++) {
         PMU_ExecChannel_t* ch = &exec_state.channels[i];
 
@@ -219,6 +263,27 @@ void PMU_ChannelExec_Update(void)
 
         /* Write result to firmware channel registry */
         PMU_Channel_SetValue(ch->channel_id, result);
+    }
+
+    /* Process output links: read source channel -> set hardware output */
+    for (uint16_t i = 0; i < exec_state.output_link_count; i++) {
+        PMU_OutputLink_t* link = &exec_state.output_links[i];
+
+        if (!link->enabled) {
+            continue;
+        }
+
+        /* Read source channel value */
+        int32_t source_value = PMU_Channel_GetValue(link->source_id);
+
+        /* Convert to output state (non-zero = ON) */
+        uint8_t state = (source_value != 0) ? 1 : 0;
+
+        /* Set hardware output */
+        NucleoOutput_SetState(link->hw_index, state);
+
+        /* Also update the output channel value in registry */
+        PMU_Channel_SetValue(link->output_id, state ? 1000 : 0);
     }
 
     exec_state.exec_count++;
@@ -254,13 +319,20 @@ HAL_StatusTypeDef PMU_ChannelExec_ResetChannel(uint16_t channel_id)
 /**
  * @brief Load channels from binary configuration blob
  *
- * Binary format:
+ * Binary format (full CfgChannelHeader_t, 14 bytes):
  * [2 bytes] channel_count
  * For each channel:
- *   [2 bytes] channel_id
+ *   [2 bytes] id
  *   [1 byte]  type (ChannelType_t)
+ *   [1 byte]  flags
+ *   [1 byte]  hw_device
+ *   [1 byte]  hw_index
+ *   [2 bytes] source_id
+ *   [4 bytes] default_value
+ *   [1 byte]  name_len
  *   [1 byte]  config_size
- *   [N bytes] config data
+ *   [N bytes] name (name_len bytes)
+ *   [M bytes] config data (config_size bytes)
  */
 int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
 {
@@ -277,23 +349,49 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
     int loaded = 0;
 
     for (uint16_t i = 0; i < count && offset < size; i++) {
-        if (offset + 4 > size) {
+        /* Check for minimum header size (14 bytes) */
+        if (offset + 14 > size) {
             break;  /* Not enough data for header */
         }
 
+        /* Parse CfgChannelHeader_t */
         uint16_t channel_id = data[offset] | (data[offset + 1] << 8);
         uint8_t type = data[offset + 2];
-        uint8_t config_size = data[offset + 3];
-        offset += 4;
+        /* uint8_t flags = data[offset + 3]; */
+        /* uint8_t hw_device = data[offset + 4]; */
+        uint8_t hw_index = data[offset + 5];
+        uint16_t source_id = data[offset + 6] | (data[offset + 7] << 8);
+        /* int32_t default_value = ... (offset + 8..11) */
+        uint8_t name_len = data[offset + 12];
+        uint8_t config_size = data[offset + 13];
+        offset += 14;
 
+        /* Skip name */
+        if (offset + name_len > size) {
+            break;
+        }
+        offset += name_len;
+
+        /* Check for config data */
         if (offset + config_size > size) {
-            break;  /* Not enough data for config */
+            break;
         }
 
-        /* Add channel */
-        if (PMU_ChannelExec_AddChannel(channel_id, (ChannelType_t)type, &data[offset]) == HAL_OK) {
-            loaded++;
+        /* Handle based on channel type */
+        if (type == CH_TYPE_POWER_OUTPUT) {
+            /* Power output: create link from source_id to hw_index */
+            if (source_id != 0xFFFF) {  /* CH_REF_NONE = 0xFFFF */
+                if (PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index) == HAL_OK) {
+                    loaded++;
+                }
+            }
+        } else if (type >= CH_TYPE_TIMER && type <= CH_TYPE_FLIPFLOP) {
+            /* Virtual channel: add to executor */
+            if (PMU_ChannelExec_AddChannel(channel_id, type, &data[offset]) == HAL_OK) {
+                loaded++;
+            }
         }
+        /* Skip unsupported types (digital inputs, analog inputs, etc.) */
 
         offset += config_size;
     }

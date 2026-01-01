@@ -199,6 +199,11 @@ int main(void)
     /* Channel Executor (shared library integration - replaces PMU_LogicFunctions) */
     PMU_ChannelExec_Init();
 
+    /* Load saved config from flash (if any) */
+    if (PMU_Protocol_LoadSavedConfig()) {
+        /* Config loaded successfully - channels are ready */
+    }
+
     /* Status LED (visual feedback) */
     PMU_LED_Init();
 
@@ -255,17 +260,16 @@ int main(void)
             /* Channel Executor - processes all virtual channels (logic, timer, etc.) */
             PMU_ChannelExec_Update();
 
-            /* Update LED state machine (patterns, blinking) */
-            PMU_LED_Update();
-
-            g_logic_exec_count++;  /* Debug: count loop iterations */
-
-            /* LED (PA5) = state of power output 1 */
+            /* LED (PA5) = state of power output 1 (priority over status LED) */
             if (output_state[1]) {
                 GPIOA->ODR |= (1 << 5);
             } else {
                 GPIOA->ODR &= ~(1 << 5);
+                /* Only run status LED when output 1 is off */
+                PMU_LED_Update();
             }
+
+            g_logic_exec_count++;  /* Debug: count loop iterations */
         }
 
         /* Protocol update at ~1kHz (every 200 loops = ~1ms)
