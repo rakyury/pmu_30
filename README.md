@@ -80,7 +80,7 @@ PMU-30 is a high-performance power distribution module designed for racing and h
 - [Logic Functions Framework](docs/architecture/logic-functions-framework.md) - 64 logic functions
 
 ### Reference
-- [Configuration Reference](docs/reference/configuration.md) - JSON config schema
+- [Configuration Reference](docs/reference/configuration.md) - Binary config format
 - [Protocol Reference](docs/reference/protocol.md) - Binary protocol details
 - [Channel Types](docs/api/channel-types.md) - All channel type specifications
 
@@ -119,8 +119,8 @@ pmu_30/
 │   └── lib/                      # Libraries
 ├── configurator/                  # Python+Qt configuration software
 │   ├── requirements.txt
-│   ├── main.py                   # Application entry point
 │   ├── src/
+│   │   ├── main.py              # Application entry point
 │   │   ├── ui/                  # UI components
 │   │   ├── models/              # Data models
 │   │   ├── communication/       # Protocol handler
@@ -136,7 +136,7 @@ pmu_30/
 ```bash
 cd configurator
 pip install -r requirements.txt
-python main.py
+python src/main.py
 ```
 
 ### Key Features
@@ -165,7 +165,7 @@ python main.py
   - Variables Inspector (CAN signals)
 - **Emulator Support**: Connect to firmware emulator for development
 - **Dark/Light Themes** with multiple Qt styles
-- **Configuration Save/Load** (JSON format)
+- **Configuration Save/Load** (.pmu30 binary format)
 
 ### Desktop Emulator
 
@@ -179,15 +179,6 @@ python -m platformio run -e pmu30_emulator
 # Run emulator (Windows)
 .pio/build/pmu30_emulator/program.exe
 ```
-
-The Configurator connects to `localhost:9876` when emulator is running.
-
-See [Emulator Guide](docs/testing/emulator-guide.md) for details on what's emulated vs stubbed.
-
-### Documentation
-
-- [Configurator UI Guide](docs/configuration/configurator-ui.md) - UI overview
-- [Qt Styles Guide](configurator/docs/QT_STYLES.md) - Available themes
 
 ## Firmware
 
@@ -242,7 +233,7 @@ Project is in active development.
 ### Quick Links
 - [Firmware Architecture](docs/firmware_architecture.md) - Complete firmware design
 - [Emulator Guide](docs/testing/emulator-guide.md) - Desktop testing
-- [Configuration Reference](docs/reference/configuration.md) - JSON schema
+- [Configuration Reference](docs/reference/configuration.md) - Binary config format
 
 ## Testing
 

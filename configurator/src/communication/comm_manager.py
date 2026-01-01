@@ -489,10 +489,10 @@ class CommManager:
 
     async def get_configuration(self) -> bytes:
         """
-        Download configuration from device.
+        Download binary configuration from device.
 
         Returns:
-            Configuration data as bytes (JSON)
+            Configuration data as bytes (.pmu30 binary format)
         """
         # Stop telemetry stream first to avoid interference
         stop_frame = FrameBuilder.unsubscribe_telemetry()
@@ -530,10 +530,10 @@ class CommManager:
 
     async def set_configuration(self, config_data: bytes, chunk_size: int = 1024) -> bool:
         """
-        Upload configuration to device.
+        Upload binary configuration to device.
 
         Args:
-            config_data: Configuration data (JSON bytes)
+            config_data: Binary configuration data (.pmu30 format)
             chunk_size: Size of each chunk
 
         Returns:

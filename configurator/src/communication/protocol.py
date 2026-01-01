@@ -247,15 +247,45 @@ class FrameBuilder:
     @staticmethod
     def set_config(config_data: bytes, chunk_index: int, total_chunks: int) -> ProtocolFrame:
         """
-        Create a SET_CONFIG frame.
+        Create a SET_CONFIG frame for binary configuration upload.
 
         Args:
-            config_data: Configuration data chunk
+            config_data: Binary configuration data chunk (.pmu30 format)
             chunk_index: Current chunk index (0-based)
             total_chunks: Total number of chunks
         """
         header = struct.pack("<HH", chunk_index, total_chunks)
         return ProtocolFrame(msg_type=MessageType.SET_CONFIG, payload=header + config_data)
+
+    @staticmethod
+    def set_binary_config(binary_data: bytes, chunk_size: int = 1024) -> list:
+        """
+        Create SET_CONFIG frames for a complete binary configuration.
+
+        Splits large configurations into chunks for reliable transfer.
+
+        Args:
+            binary_data: Complete binary configuration (.pmu30 format)
+            chunk_size: Maximum chunk size (default 1024 bytes)
+
+        Returns:
+            List of ProtocolFrame objects to send sequentially
+        """
+        frames = []
+        total_chunks = (len(binary_data) + chunk_size - 1) // chunk_size
+
+        for i in range(total_chunks):
+            start = i * chunk_size
+            end = min(start + chunk_size, len(binary_data))
+            chunk = binary_data[start:end]
+
+            header = struct.pack("<HH", i, total_chunks)
+            frames.append(ProtocolFrame(
+                msg_type=MessageType.SET_CONFIG,
+                payload=header + chunk
+            ))
+
+        return frames
 
     @staticmethod
     def subscribe_telemetry(rate_hz: int = 50) -> ProtocolFrame:
