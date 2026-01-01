@@ -19,7 +19,7 @@
 #include "pmu_protection.h"
 #include "pmu_logic.h"
 #include "pmu_logging.h"
-#include "pmu_config_json.h"
+/* pmu_config_json.h removed - binary config only */
 #include "pmu_channel.h"
 #include "pmu_channel_exec.h"
 #include "pmu_lua.h"
@@ -65,11 +65,9 @@ static uint8_t rx_pending_buffer[RX_PENDING_BUFFER_SIZE];
 static volatile uint8_t rx_pending_head = 0;
 static volatile uint8_t rx_pending_tail = 0;
 
-/* Config storage buffer - stores received config for GET_CONFIG response */
-#define CONFIG_BUFFER_SIZE 4096
-static char config_buffer[CONFIG_BUFFER_SIZE];
-static uint16_t config_buffer_len = 0;
-static bool config_received = false;
+/* Binary config buffer - reduced size for Channel Executor only */
+#define CONFIG_BUFFER_SIZE 2048
+static uint8_t binary_config_buffer[CONFIG_BUFFER_SIZE];
 
 #ifndef UNIT_TEST
   #ifdef NUCLEO_F446RE
@@ -100,8 +98,7 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet);
-static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet);
-static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet);
+/* Protocol_HandleLoadConfig/GetConfig removed - binary config only */
 static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet);
@@ -120,7 +117,7 @@ static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 #endif
-static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet);
+/* Protocol_HandleSetChannelConfig removed - binary config only */
 static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg);
 
@@ -212,9 +209,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     /* Query commands */
     {PMU_CMD_GET_OUTPUTS,       Protocol_HandleGetOutputs},
     {PMU_CMD_GET_INPUTS,        Protocol_HandleGetInputs},
-    /* Configuration commands */
-    {PMU_CMD_GET_CONFIG,        Protocol_HandleGetConfig},
-    {PMU_CMD_LOAD_CONFIG,       Protocol_HandleLoadConfig},
+    /* Configuration commands (binary only) */
     {PMU_CMD_SAVE_CONFIG,       Protocol_HandleSaveConfig},
     {PMU_CMD_LOAD_BINARY_CONFIG, Protocol_HandleLoadBinaryConfig},
     /* Logging commands */
@@ -236,7 +231,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_LUA_SET_ENABLED,   Protocol_HandleLuaSetEnabled},
 #endif
     /* Atomic channel config update */
-    {PMU_CMD_SET_CHANNEL_CONFIG, Protocol_HandleSetChannelConfig},
+    /* PMU_CMD_SET_CHANNEL_CONFIG removed - binary config only */
 };
 
 #define COMMAND_DISPATCH_COUNT (sizeof(command_dispatch_table) / sizeof(command_dispatch_table[0]))
@@ -434,58 +429,9 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         }
         telemetry_data[index++] = din_byte;
 
-        /* Debug: Timer debug info for telemetry */
-        {
-            extern uint16_t Debug_Timer0_GetStartChannelId(void);
-            extern int32_t Debug_Timer0_GetStartVal(void);
-            extern int32_t Debug_Timer0_GetPrevStartVal(void);
-            extern uint8_t Debug_Timer0_GetRunning(void);
-            extern uint8_t PMU_TimerChannel_GetCount(void);
-
-            const PMU_Channel_t* ch50 = PMU_Channel_GetInfo(50);
-            const PMU_Channel_t* ch30 = PMU_Channel_GetInfo(30);
-            uint8_t ch50_val = (ch50 && ch50->value > 0) ? 1 : 0;
-            uint8_t ch30_val = (ch30 && ch30->value > 0) ? 1 : 0;
-            uint8_t ch50_exists = ch50 ? 1 : 0;
-            uint8_t ch30_exists = ch30 ? 1 : 0;
-
-            /* Byte 79: channel exists/value flags */
-            telemetry_data[index++] = (ch50_exists << 7) | (ch50_val << 4) | (ch30_exists << 3) | ch30_val;
-
-            /* Byte 80: timer_count */
-            telemetry_data[index++] = PMU_TimerChannel_GetCount();
-
-            /* Bytes 81-82: start_channel_id (16-bit LE) */
-            uint16_t start_ch_id = Debug_Timer0_GetStartChannelId();
-            telemetry_data[index++] = start_ch_id & 0xFF;
-            telemetry_data[index++] = (start_ch_id >> 8) & 0xFF;
-
-            /* Byte 83: start_val (clamped to 0-255) */
-            int32_t start_val = Debug_Timer0_GetStartVal();
-            telemetry_data[index++] = (start_val < 0) ? 0 : ((start_val > 255) ? 255 : (uint8_t)start_val);
-
-            /* Byte 84: prev_start_val (clamped to 0-255) */
-            int32_t prev_val = Debug_Timer0_GetPrevStartVal();
-            telemetry_data[index++] = (prev_val < 0) ? 0 : ((prev_val > 255) ? 255 : (uint8_t)prev_val);
-
-            /* Byte 85: running state */
-            telemetry_data[index++] = Debug_Timer0_GetRunning();
-
-            /* Bytes 86-89: timer update calls (32-bit LE) */
-            extern uint32_t Debug_Timer_GetUpdateCalls(void);
-            uint32_t update_calls = Debug_Timer_GetUpdateCalls();
-            telemetry_data[index++] = update_calls & 0xFF;
-            telemetry_data[index++] = (update_calls >> 8) & 0xFF;
-            telemetry_data[index++] = (update_calls >> 16) & 0xFF;
-            telemetry_data[index++] = (update_calls >> 24) & 0xFF;
-
-            /* Bytes 90-93: logic exec count from main (32-bit LE) */
-            extern uint32_t Debug_GetLogicExecCount(void);
-            uint32_t logic_cnt = Debug_GetLogicExecCount();
-            telemetry_data[index++] = logic_cnt & 0xFF;
-            telemetry_data[index++] = (logic_cnt >> 8) & 0xFF;
-            telemetry_data[index++] = (logic_cnt >> 16) & 0xFF;
-            telemetry_data[index++] = (logic_cnt >> 24) & 0xFF;
+        /* Reserved bytes for future use (formerly debug timer info) */
+        for (int i = 0; i < 15; i++) {
+            telemetry_data[index++] = 0;
         }
 #else
         telemetry_data[index++] = 0;  /* Placeholder for non-Nucleo */
@@ -1063,138 +1009,7 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_GET_INPUTS, data, index);
 }
 
-/* Chunked config receive - uses config_buffer directly to save 4KB RAM */
-static uint16_t chunked_config_len = 0;
-static uint16_t chunked_total_chunks = 0;
-static uint16_t chunked_received_chunks = 0;
-
-static void Protocol_HandleLoadConfig(const PMU_Protocol_Packet_t* packet)
-{
-    /* Check for chunked format: [chunk_idx:2B LE][total_chunks:2B LE][data] */
-    if (packet->length >= 4) {
-        uint16_t chunk_idx = packet->data[0] | (packet->data[1] << 8);
-        uint16_t total_chunks = packet->data[2] | (packet->data[3] << 8);
-
-        /* Detect chunked format: total_chunks > 0 and reasonable values */
-        if (total_chunks > 0 && total_chunks <= 64 && chunk_idx < total_chunks) {
-            const uint8_t* chunk_data = packet->data + 4;
-            uint16_t chunk_len = packet->length - 4;
-
-            /* First chunk - reset buffer */
-            if (chunk_idx == 0) {
-                chunked_config_len = 0;
-                chunked_total_chunks = total_chunks;
-                chunked_received_chunks = 0;
-            }
-
-            /* Accumulate chunk data directly into config_buffer */
-            if (chunked_config_len + chunk_len < CONFIG_BUFFER_SIZE) {
-                memcpy(config_buffer + chunked_config_len, chunk_data, chunk_len);
-                chunked_config_len += chunk_len;
-                chunked_received_chunks++;
-            }
-
-            /* Send ACK for this chunk */
-            uint8_t response[3] = {1, 0, 0};
-            Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
-
-            /* All chunks received - process config */
-            if (chunked_received_chunks >= chunked_total_chunks) {
-                config_buffer[chunked_config_len] = '\0';
-                config_buffer_len = chunked_config_len;
-                config_received = true;
-
-                /* Load JSON and send final status */
-                PMU_JSON_LoadStats_t stats = {0};
-                PMU_JSON_Status_t status = PMU_JSON_LoadFromString(config_buffer, chunked_config_len, &stats);
-
-                /* Send final CONFIG_ACK with actual parsing result and channel counts */
-                uint8_t final_response[10] = {0};
-                final_response[0] = (status == PMU_JSON_OK) ? 1 : 0;  /* success */
-                final_response[1] = (uint8_t)status;                  /* status code */
-                final_response[2] = (uint8_t)stats.digital_inputs;
-                final_response[3] = (uint8_t)stats.analog_inputs;
-                final_response[4] = (uint8_t)stats.power_outputs;
-                final_response[5] = (uint8_t)stats.logic_functions;
-                final_response[6] = (uint8_t)stats.numbers;
-                final_response[7] = (uint8_t)PMU_PowerOutput_GetCount();
-                final_response[8] = (uint8_t)stats.timers;            /* timer count */
-                final_response[9] = (uint8_t)PMU_TimerChannel_GetCount();  /* runtime timer count */
-                Protocol_SendData(PMU_CMD_CONFIG_ACK, final_response, 10);
-            }
-            return;
-        }
-    }
-
-    /* Non-chunked format: raw JSON data */
-    if (packet->length > 0 && packet->length < CONFIG_BUFFER_SIZE) {
-        memcpy(config_buffer, packet->data, packet->length);
-        config_buffer[packet->length] = '\0';
-        config_buffer_len = packet->length;
-        config_received = true;
-    }
-
-    /* Load JSON configuration from packet data */
-    PMU_JSON_LoadStats_t stats;
-    PMU_JSON_Status_t status = PMU_JSON_LoadFromString((const char*)packet->data,
-                                                        packet->length,
-                                                        &stats);
-
-    if (status == PMU_JSON_OK) {
-        /* Send CONFIG_ACK with success=1, error_code=0 */
-        uint8_t response[3] = {1, 0, 0};  /* success, error_code low, error_code high */
-        Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
-    } else {
-        /* Send CONFIG_ACK with success=0, error_code=1 */
-        uint8_t response[3] = {0, 1, 0};
-        Protocol_SendData(PMU_CMD_CONFIG_ACK, response, 3);
-    }
-}
-
-/**
- * @brief Handle GET_CONFIG command - send current configuration as JSON
- */
-static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
-{
-    (void)packet;
-
-    const char* config_to_send;
-    uint16_t config_len;
-
-    /* Use stored config if available, otherwise minimal default */
-    if (config_received && config_buffer_len > 0) {
-        config_to_send = config_buffer;
-        config_len = config_buffer_len;
-    } else {
-        /* Minimal valid JSON config as fallback */
-        static const char* minimal_config =
-            "{"
-            "\"version\":\"1.0\","
-            "\"device\":{\"name\":\"PMU-30\",\"serial\":\"PMU30-NUCLEO-001\"},"
-            "\"outputs\":[],"
-            "\"inputs\":[],"
-            "\"hbridges\":[],"
-            "\"logic\":[]"
-            "}";
-        config_to_send = minimal_config;
-        config_len = strlen(minimal_config);
-    }
-
-    /* Build response with chunk header:
-     * [chunk_index:2B LE][total_chunks:2B LE][config_data]
-     * Use static buffer to avoid stack overflow on F446RE
-     */
-    static uint8_t response[4 + 512];  /* Max 512 bytes per chunk */
-    uint16_t send_len = (config_len > 508) ? 508 : config_len;
-
-    response[0] = 0;  /* chunk_index low */
-    response[1] = 0;  /* chunk_index high */
-    response[2] = 1;  /* total_chunks low */
-    response[3] = 0;  /* total_chunks high */
-    memcpy(&response[4], config_to_send, send_len);
-
-    Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + send_len);
-}
+/* Protocol_HandleLoadConfig and Protocol_HandleGetConfig removed - binary only */
 
 /**
  * @brief Handle SAVE_CONFIG command - save configuration to flash
@@ -1208,8 +1023,7 @@ static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
 }
 
-/* Binary config receive buffer (separate from JSON buffer) */
-static uint8_t binary_config_buffer[CONFIG_BUFFER_SIZE];
+/* Binary config state */
 static uint16_t binary_config_len = 0;
 static uint16_t binary_total_chunks = 0;
 static uint16_t binary_received_chunks = 0;
@@ -1685,48 +1499,6 @@ static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uin
     PMU_Protocol_SendResponse(PMU_CMD_CHANNEL_CONFIG_ACK, response, index);
 }
 
-/**
- * @brief Handle SET_CHANNEL_CONFIG command - atomic update of single channel
- * Payload format: [channel_type:1B][channel_id:2B LE][json_len:2B LE][json_config:NB]
- *
- * Channel type values:
- *   0x01 = power_output, 0x02 = hbridge, 0x03 = digital_input, 0x04 = analog_input,
- *   0x05 = logic, 0x06 = number, 0x07 = timer, 0x08 = filter, 0x09 = switch,
- *   0x0A = table_2d, 0x0B = table_3d, 0x0C = can_rx, 0x0D = can_tx, 0x0E = pid
- */
-static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet)
-{
-    /* Minimum payload: type(1) + channel_id(2) + json_len(2) = 5 bytes */
-    if (packet->length < 5) {
-        Protocol_SendChannelConfigACK(0, false, 1, "Payload too short");
-        return;
-    }
-
-    /* Parse header */
-    uint8_t channel_type = packet->data[0];
-    uint16_t channel_id = Protocol_GetU16(packet->data, 1);
-    uint16_t json_len = Protocol_GetU16(packet->data, 3);
-
-    /* Validate JSON length */
-    if (5 + json_len > packet->length) {
-        Protocol_SendChannelConfigACK(channel_id, false, 2, "JSON truncated");
-        return;
-    }
-
-    /* Copy JSON to null-terminated buffer */
-    char json_buf[PMU_PROTOCOL_MAX_PAYLOAD + 1];
-    uint16_t copy_len = (json_len < PMU_PROTOCOL_MAX_PAYLOAD) ? json_len : PMU_PROTOCOL_MAX_PAYLOAD;
-    memcpy(json_buf, &packet->data[5], copy_len);
-    json_buf[copy_len] = '\0';
-
-    /* Call JSON update function */
-    bool success = PMU_JSON_UpdateChannel(channel_type, channel_id, json_buf);
-
-    if (success) {
-        Protocol_SendChannelConfigACK(channel_id, true, 0, NULL);
-    } else {
-        Protocol_SendChannelConfigACK(channel_id, false, 3, PMU_JSON_GetLastError());
-    }
-}
+/* Protocol_HandleSetChannelConfig removed - use LOAD_BINARY_CONFIG for config updates */
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/

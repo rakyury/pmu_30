@@ -844,3 +844,5 @@ uint16_t PMU_LogicFunctions_CreateHysteresis(uint16_t output_ch,
     (void)threshold_off;
     return 0;
 }
+
+/* pmu_config_json.c stubs removed - all JSON code deleted from protocol */

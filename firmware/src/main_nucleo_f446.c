@@ -46,7 +46,7 @@
 #include "pmu_logic.h"
 #include "pmu_logging.h"
 #include "pmu_protocol.h"
-#include "pmu_config_json.h"
+/* pmu_config_json.h removed - binary config only */
 #include "pmu_channel.h"
 // #include "pmu_logic_functions.h"  // DEPRECATED: replaced by channel_executor
 #include "pmu_can_stream.h"
@@ -202,9 +202,9 @@ int main(void)
     /* Status LED (visual feedback) */
     PMU_LED_Init();
 
-    /* Logging and JSON */
+    /* Logging */
     PMU_Logging_Init();
-    PMU_JSON_Init();
+    /* PMU_JSON_Init removed - binary config only */
 
     /* Protocol */
     PMU_Protocol_Init(PMU_TRANSPORT_UART);
@@ -252,16 +252,9 @@ int main(void)
             g_soft_tick_ms++;  /* Increment software tick (~1ms resolution) */
             DigitalInputs_Read();
             PMU_ADC_Update();
-            PMU_LogicChannel_Update(); /* Evaluate logic channels */
 
-            /* Shared library executor - processes virtual channels */
+            /* Channel Executor - processes all virtual channels (logic, timer, etc.) */
             PMU_ChannelExec_Update();
-
-            /* Update timer channels (edge detection, timer logic) */
-            PMU_TimerChannel_Update();
-
-            /* Update power outputs based on source_channel linking */
-            PMU_PowerOutput_Update();
 
             /* Update LED state machine (patterns, blinking) */
             PMU_LED_Update();
@@ -310,7 +303,6 @@ static void vControlTask(void *pvParameters)
 
         /* Read ADC inputs */
         PMU_ADC_Update();
-            PMU_LogicChannel_Update(); /* Evaluate logic channels */
 
         /* Update channel abstraction */
         PMU_Channel_Update();
@@ -319,16 +311,9 @@ static void vControlTask(void *pvParameters)
         if (++logic_counter >= 2) {
             logic_counter = 0;
             PMU_Logic_Execute();
-            // PMU_LogicFunctions_Update();  // DEPRECATED: Channel Executor handles this
 
-            /* Update channel-based functions (source_channel -> output linking) */
-            PMU_LogicChannel_Update();
-            PMU_ChannelExec_Update();  /* Shared library executor - handles all virtual channels */
-            PMU_NumberChannel_Update();
-            PMU_SwitchChannel_Update();
-            PMU_FilterChannel_Update();
-            PMU_TimerChannel_Update();
-            PMU_PowerOutput_Update();  /* Apply source_channel to power outputs */
+            /* Channel Executor - handles all virtual channels (logic, timer, filter, etc.) */
+            PMU_ChannelExec_Update();
 
             /* Update LED status patterns */
             PMU_LED_Update();
