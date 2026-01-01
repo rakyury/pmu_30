@@ -1890,27 +1890,40 @@ For detailed binary format specification, see [Configuration Reference](referenc
 
 ### 15.4 Status LED Indication
 
-**TODO: Implement LED status indication**
+The RGB status LED provides visual feedback for system state.
 
-The board LED provides visual feedback for system state:
+**Implementation:** `pmu_led.c` / `pmu_led.h`
 
-| State | LED Behavior | Description |
-|-------|--------------|-------------|
-| System start OK | 1 blink | System initialized successfully |
-| System start error | Fast constant blink | Critical error during startup |
-| Config loaded | 2 blinks, then off | Configuration loaded successfully |
-| Config load error | Fast constant blink | Error loading configuration |
-| Normal operation | Off | System running normally |
+| State | Color | LED Behavior | Description |
+|-------|-------|--------------|-------------|
+| Startup | Yellow | Fast blink | System initializing |
+| Startup OK | Green | 1 blink | Initialized successfully |
+| Startup error | Red | Fast blink | Critical error |
+| Config loaded | Green | 2 blinks | Configuration loaded |
+| Config error | Red | Fast blink | Error loading config |
+| Normal | Off | Off | System running |
+| Warning | Yellow | Slow blink | Non-critical issue |
+| Fault | Red | Fast blink | System fault |
+| Comm active | Blue | Heartbeat | WiFi/BT/CAN activity |
 
 **Timing specifications:**
 - Single blink: 200ms on
 - Fast blink: 100ms on, 100ms off (continuous)
+- Slow blink: 500ms on, 500ms off
 - Between blinks: 300ms pause
+- Heartbeat: 100ms pulse, 100ms gap, 100ms pulse, 600ms pause
 
-**Implementation notes:**
-- Use GPIO pin for status LED (see hardware specification)
-- LED control in `pmu_led.c` module
-- Called from main initialization and config loading routines
+**API:**
+```c
+PMU_LED_Init();                      // Initialize LED module
+PMU_LED_Update();                    // Call at 20-50Hz from UI task
+PMU_LED_SignalStartupOK();           // 1 green blink
+PMU_LED_SignalConfigLoaded();        // 2 green blinks
+PMU_LED_SignalConfigError();         // Fast red blink
+PMU_LED_TriggerCommActivity();       // Brief blue flash
+```
+
+**Hardware:** RGB LED on PC6 (R), PC7 (G), PC8 (B) - see `board_config.h`
 
 ---
 

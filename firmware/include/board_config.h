@@ -218,6 +218,15 @@ extern "C" {
 #define DEBUG_UART              huart1  /* Debug UART */
 #define DEBUG_BAUDRATE          115200
 
+/* Status LED (RGB) - Pin mapping */
+#define STATUS_LED_R_PIN        GPIO_PIN_6
+#define STATUS_LED_R_PORT       GPIOC
+#define STATUS_LED_G_PIN        GPIO_PIN_7
+#define STATUS_LED_G_PORT       GPIOC
+#define STATUS_LED_B_PIN        GPIO_PIN_8
+#define STATUS_LED_B_PORT       GPIOC
+/* #define LED_COMMON_ANODE */  /* Uncomment for common anode LED */
+
 /* HAL include for H7 series */
 #include "pmu_hal.h"
 
