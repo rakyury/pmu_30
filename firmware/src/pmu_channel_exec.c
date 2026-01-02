@@ -74,7 +74,8 @@ static uint16_t config_storage_used = 0;
 
 /* External functions (platform-specific) ------------------------------------*/
 
-extern void NucleoOutput_SetState(uint8_t channel, uint8_t state);
+/* PROFET API - declared here to avoid include dependency issues */
+extern HAL_StatusTypeDef PMU_PROFET_SetState(uint8_t channel, uint8_t state);
 extern void NucleoOutput_Reset(void);
 
 /* Private function prototypes -----------------------------------------------*/
@@ -294,8 +295,8 @@ void PMU_ChannelExec_Update(void)
         /* Convert to output state (non-zero = ON) */
         uint8_t state = (source_value != 0) ? 1 : 0;
 
-        /* Set hardware output */
-        NucleoOutput_SetState(link->hw_index, state);
+        /* Set hardware output via PROFET API (updates stub_channels for telemetry) */
+        PMU_PROFET_SetState(link->hw_index, state);
 
         /* Also update the output channel value in registry */
         PMU_Channel_SetValue(link->output_id, state ? 1000 : 0);
