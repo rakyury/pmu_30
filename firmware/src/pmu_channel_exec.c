@@ -436,6 +436,25 @@ void PMU_ChannelExec_GetStats(uint32_t* exec_count, uint32_t* last_exec_us)
     }
 }
 
+/**
+ * @brief Get channel data for telemetry
+ */
+bool PMU_ChannelExec_GetChannelInfo(uint16_t index, uint16_t* channel_id, int32_t* value)
+{
+    if (index >= exec_state.channel_count) {
+        return false;
+    }
+
+    PMU_ExecChannel_t* ch = &exec_state.channels[index];
+    if (channel_id) {
+        *channel_id = ch->channel_id;
+    }
+    if (value) {
+        *value = ch->runtime.value;
+    }
+    return true;
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /**

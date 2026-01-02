@@ -310,13 +310,42 @@ class TimerTest:
         self.port.reset_input_buffer()
 
     def read_telemetry(self, timeout: float = 0.5):
+        """
+        Parse telemetry packet.
+
+        Telemetry structure:
+          0-3:   stream_counter (4 bytes)
+          4-7:   timestamp (4 bytes)
+          8-37:  outputs (30 bytes)
+          38-77: analog inputs (40 bytes)
+          78:    digital inputs (1 byte)
+          79-93: reserved (15 bytes)
+          94-97: voltages (4 bytes)
+          98-101: temperatures (4 bytes)
+          102-103: faults (2 bytes)
+          104-105: virtual_count (2 bytes)
+          106+:  virtual channels (6 bytes each: id + value)
+        """
         cmd, payload = read_frame(self.port, timeout)
         if cmd == CMD.DATA and payload and len(payload) >= 78:
             outputs = list(payload[8:38])
             din_byte = payload[78]
             digital_inputs = [(din_byte >> i) & 1 for i in range(8)]
-            return outputs, digital_inputs
-        return None, None
+
+            # Parse virtual channels (after fixed data at offset 104)
+            virtual_channels = {}
+            if len(payload) >= 106:
+                virtual_count = struct.unpack('<H', payload[104:106])[0]
+                offset = 106
+                for _ in range(virtual_count):
+                    if offset + 6 <= len(payload):
+                        ch_id = struct.unpack('<H', payload[offset:offset+2])[0]
+                        ch_val = struct.unpack('<i', payload[offset+2:offset+6])[0]
+                        virtual_channels[ch_id] = ch_val
+                        offset += 6
+
+            return outputs, digital_inputs, virtual_channels
+        return None, None, None
 
     def monitor_timer(self, duration: float = 20.0):
         """
@@ -340,18 +369,26 @@ class TimerTest:
 
         packets = 0
         trigger_count = 0
+        channel_found = 0
         last_button = False
         last_output = False
+        last_timer_val = None
         start = time.time()
 
         try:
             while time.time() - start < duration:
-                outputs, dins = self.read_telemetry(timeout=0.1)
+                outputs, dins, channels = self.read_telemetry(timeout=0.1)
 
                 if outputs is not None and dins is not None:
                     packets += 1
                     button_pressed = (dins[0] != 0)
                     output_on = (outputs[1] > 0)
+
+                    # Check virtual channel in telemetry
+                    timer_val = None
+                    if channels and CH_TIMER in channels:
+                        channel_found += 1
+                        timer_val = channels[CH_TIMER]
 
                     # Detect button press (rising edge)
                     if button_pressed and not last_button:
@@ -361,14 +398,22 @@ class TimerTest:
                     # Detect output change
                     if output_on != last_output:
                         state = "ON" if output_on else "OFF"
-                        print(f"    [{time.time()-start:.1f}s] LED {state}")
+                        timer_str = f", Timer ch={timer_val}" if timer_val is not None else ""
+                        print(f"    [{time.time()-start:.1f}s] LED {state}{timer_str}")
+
+                    # Show timer value changes
+                    if timer_val is not None and timer_val != last_timer_val:
+                        if last_timer_val is not None:
+                            print(f"    [{time.time()-start:.1f}s] Timer channel: {last_timer_val} -> {timer_val}")
+                        last_timer_val = timer_val
 
                     last_button = button_pressed
                     last_output = output_on
 
                     if packets % 200 == 0:
                         elapsed = time.time() - start
-                        print(f"    [{elapsed:.1f}s] Packets: {packets}, Triggers: {trigger_count}")
+                        ch_rate = (100 * channel_found / packets) if packets > 0 else 0
+                        print(f"    [{elapsed:.1f}s] Packets: {packets}, Triggers: {trigger_count}, Channel in telem: {ch_rate:.0f}%")
 
         except KeyboardInterrupt:
             print("\n    Interrupted by user")
@@ -379,9 +424,18 @@ class TimerTest:
         print(f"\n    Results:")
         print(f"    - Total packets: {packets}")
         print(f"    - Timer triggers: {trigger_count}")
+        print(f"    - Channel in telemetry: {channel_found}/{packets}")
 
-        if trigger_count > 0:
+        channel_rate = (100 * channel_found / packets) if packets > 0 else 0
+        print(f"    - Channel telemetry rate: {channel_rate:.1f}%")
+
+        if trigger_count > 0 and channel_rate >= 90:
             print("    [OK] Timer triggered successfully!")
+            print("    [OK] Virtual channel present in telemetry!")
+            return True
+        elif trigger_count > 0:
+            print("    [OK] Timer triggered successfully!")
+            print("    [WARN] Virtual channel missing from telemetry")
             return True
         else:
             print("    [INFO] No triggers detected (press button during test)")

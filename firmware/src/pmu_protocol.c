@@ -480,23 +480,23 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
     index += 2;  /* Reserve space for count */
 
 #ifdef NUCLEO_F446RE
-    /* Nucleo: scan all channels 0-(MAX-1), filter by hw_class for virtual types */
-    for (uint16_t ch_id = 0;
-         ch_id < PMU_CHANNEL_MAX_CHANNELS && index < TELEMETRY_BUFFER_SIZE - 6;
-         ch_id++) {
-        const PMU_Channel_t* ch = PMU_Channel_GetInfo(ch_id);
-        if (ch && (ch->flags & PMU_CHANNEL_FLAG_ENABLED) &&
-            ch->hw_class >= PMU_CHANNEL_CLASS_OUTPUT_FUNCTION) {
-            /* Add channel ID */
-            memcpy(&telemetry_data[index], &ch_id, sizeof(ch_id));
-            index += sizeof(ch_id);
+    /* Nucleo: use Channel Executor for virtual channels */
+    {
+        uint16_t exec_count = PMU_ChannelExec_GetChannelCount();
+        for (uint16_t i = 0; i < exec_count && index < TELEMETRY_BUFFER_SIZE - 6; i++) {
+            uint16_t ch_id;
+            int32_t value;
+            if (PMU_ChannelExec_GetChannelInfo(i, &ch_id, &value)) {
+                /* Add channel ID */
+                memcpy(&telemetry_data[index], &ch_id, sizeof(ch_id));
+                index += sizeof(ch_id);
 
-            /* Add channel value (4 bytes signed) */
-            int32_t value = ch->value;
-            memcpy(&telemetry_data[index], &value, sizeof(value));
-            index += sizeof(value);
+                /* Add channel value (4 bytes signed) */
+                memcpy(&telemetry_data[index], &value, sizeof(value));
+                index += sizeof(value);
 
-            virtual_count++;
+                virtual_count++;
+            }
         }
     }
 #else

@@ -77,6 +77,28 @@ The LED on PA5 is shared between:
 
 For chunked config upload, send only ONE final ACK when all chunks received, not intermediate ACKs per chunk (for single-chunk uploads this caused double-ACK issue).
 
+### Virtual Channels in Telemetry
+
+**ВАЖНО**: Virtual channels (Logic, Timer, Filter, etc.) хранятся в **Channel Executor** (`exec_state.channels[]`), а НЕ в Channel Registry (`PMU_Channel`).
+
+Для получения данных о виртуальных каналах в телеметрии нужно использовать:
+```c
+// ПРАВИЛЬНО - через Channel Executor
+uint16_t count = PMU_ChannelExec_GetChannelCount();
+for (uint16_t i = 0; i < count; i++) {
+    uint16_t ch_id;
+    int32_t value;
+    PMU_ChannelExec_GetChannelInfo(i, &ch_id, &value);
+}
+
+// НЕПРАВИЛЬНО - Channel Registry не содержит виртуальные каналы
+PMU_Channel_GetInfo(ch_id);  // Вернёт NULL для виртуальных каналов
+```
+
+Телеметрия добавляет виртуальные каналы в конец пакета:
+- Offset 104-105: `virtual_count` (2 bytes)
+- Offset 106+: массив `[channel_id (2) + value (4)]` × count
+
 ### SysTick and Timing
 
 SysTick is **disabled** in bare-metal mode (`SysTick->CTRL = 0`). A custom `HAL_GetTick()` returns `g_soft_tick_ms`:

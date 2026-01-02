@@ -149,6 +149,15 @@ uint16_t PMU_ChannelExec_GetChannelCount(void);
  */
 void PMU_ChannelExec_GetStats(uint32_t* exec_count, uint32_t* last_exec_us);
 
+/**
+ * @brief Get channel data for telemetry
+ * @param index         Channel index (0 to count-1)
+ * @param channel_id    Output: channel ID
+ * @param value         Output: current value
+ * @retval true if valid, false if index out of range
+ */
+bool PMU_ChannelExec_GetChannelInfo(uint16_t index, uint16_t* channel_id, int32_t* value);
+
 #ifdef __cplusplus
 }
 #endif

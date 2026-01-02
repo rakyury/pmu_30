@@ -285,13 +285,42 @@ class LogicIsTrueTest:
         self.port.reset_input_buffer()
 
     def read_telemetry(self, timeout: float = 0.5):
+        """
+        Parse telemetry packet.
+
+        Telemetry structure:
+          0-3:   stream_counter (4 bytes)
+          4-7:   timestamp (4 bytes)
+          8-37:  outputs (30 bytes)
+          38-77: analog inputs (40 bytes)
+          78:    digital inputs (1 byte)
+          79-93: reserved (15 bytes)
+          94-97: voltages (4 bytes)
+          98-101: temperatures (4 bytes)
+          102-103: faults (2 bytes)
+          104-105: virtual_count (2 bytes)
+          106+:  virtual channels (6 bytes each: id + value)
+        """
         cmd, payload = read_frame(self.port, timeout)
         if cmd == CMD.DATA and payload and len(payload) >= 78:
             outputs = list(payload[8:38])
             din_byte = payload[78]
             digital_inputs = [(din_byte >> i) & 1 for i in range(8)]
-            return outputs, digital_inputs
-        return None, None
+
+            # Parse virtual channels (after fixed data at offset 104)
+            virtual_channels = {}
+            if len(payload) >= 106:
+                virtual_count = struct.unpack('<H', payload[104:106])[0]
+                offset = 106
+                for _ in range(virtual_count):
+                    if offset + 6 <= len(payload):
+                        ch_id = struct.unpack('<H', payload[offset:offset+2])[0]
+                        ch_val = struct.unpack('<i', payload[offset+2:offset+6])[0]
+                        virtual_channels[ch_id] = ch_val
+                        offset += 6
+
+            return outputs, digital_inputs, virtual_channels
+        return None, None, None
 
     def monitor_is_true(self, duration: float = 15.0):
         """
@@ -314,12 +343,14 @@ class LogicIsTrueTest:
 
         packets = 0
         matches = 0
+        channel_matches = 0
+        channel_found = 0
         last_button = None
         start = time.time()
 
         try:
             while time.time() - start < duration:
-                outputs, dins = self.read_telemetry(timeout=0.1)
+                outputs, dins, channels = self.read_telemetry(timeout=0.1)
 
                 if outputs is not None and dins is not None:
                     packets += 1
@@ -331,18 +362,26 @@ class LogicIsTrueTest:
                     if output_on == expected_output:
                         matches += 1
 
+                    # Check virtual channel value in telemetry
+                    if channels and CH_LOGIC_IS_TRUE in channels:
+                        channel_found += 1
+                        logic_value = channels[CH_LOGIC_IS_TRUE]
+                        expected_logic = 1 if button_pressed else 0
+                        if logic_value == expected_logic:
+                            channel_matches += 1
+
                     if last_button is not None and button_pressed != last_button:
                         state = "PRESSED" if button_pressed else "released"
                         out_state = "ON" if output_on else "OFF"
-                        expected = "ON" if button_pressed else "OFF"
-                        match = "OK" if output_on == expected_output else f"MISMATCH (expected {expected})"
-                        print(f"    Button {state}, LED {out_state} [{match}]")
+                        logic_val = channels.get(CH_LOGIC_IS_TRUE, "N/A") if channels else "N/A"
+                        print(f"    Button {state}, LED {out_state}, Logic ch={logic_val}")
 
                     last_button = button_pressed
 
                     if packets % 100 == 0:
                         elapsed = time.time() - start
-                        print(f"    [{elapsed:.1f}s] Packets: {packets}, Match rate: {100*matches/packets:.1f}%")
+                        ch_rate = (100 * channel_found / packets) if packets > 0 else 0
+                        print(f"    [{elapsed:.1f}s] Packets: {packets}, Channel in telem: {ch_rate:.0f}%")
 
         except KeyboardInterrupt:
             print("\n    Interrupted by user")
@@ -352,14 +391,23 @@ class LogicIsTrueTest:
 
         print(f"\n    Results:")
         print(f"    - Total packets: {packets}")
-        print(f"    - Matches: {matches}")
+        print(f"    - Output matches: {matches}")
+        print(f"    - Channel in telemetry: {channel_found}/{packets}")
+        print(f"    - Channel value matches: {channel_matches}")
 
         match_rate = (100 * matches / packets) if packets > 0 else 0
-        print(f"    - Match rate: {match_rate:.1f}%")
+        channel_rate = (100 * channel_found / packets) if packets > 0 else 0
+        print(f"    - Output match rate: {match_rate:.1f}%")
+        print(f"    - Channel telemetry rate: {channel_rate:.1f}%")
 
-        if match_rate >= 95:
+        if match_rate >= 95 and channel_rate >= 90:
             print("    [OK] Logic IS_TRUE chain working correctly!")
+            print("    [OK] Virtual channel present in telemetry!")
             return True
+        elif match_rate >= 95:
+            print("    [OK] Logic IS_TRUE chain working correctly!")
+            print("    [WARN] Virtual channel missing from telemetry")
+            return True  # Still pass, but warn
         else:
             print("    [FAIL] Logic IS_TRUE chain not working as expected")
             return False
