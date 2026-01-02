@@ -120,6 +120,7 @@ static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 #endif
 /* Protocol_HandleSetChannelConfig removed - binary config only */
 static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet);
+static void Protocol_HandleClearConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleReset(const PMU_Protocol_Packet_t* packet);
 static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uint16_t error_code, const char* error_msg);
 
@@ -214,6 +215,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     /* Configuration commands (binary only) */
     {PMU_CMD_GET_CONFIG,        Protocol_HandleGetConfig},
     {PMU_CMD_SAVE_CONFIG,       Protocol_HandleSaveConfig},
+    {PMU_CMD_CLEAR_CONFIG,      Protocol_HandleClearConfig},
     {PMU_CMD_LOAD_BINARY_CONFIG, Protocol_HandleLoadBinaryConfig},
     /* Logging commands */
     {PMU_CMD_START_LOGGING,     Protocol_HandleStartLogging},
@@ -432,8 +434,34 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
         }
         telemetry_data[index++] = din_byte;
 
-        /* Reserved bytes for future use (formerly debug timer info) */
-        for (int i = 0; i < 15; i++) {
+        /* System info (15 bytes total): uptime, RAM, Flash, channels */
+        {
+            /* Uptime in seconds (4 bytes) */
+            uint32_t uptime_sec = HAL_GetTick() / 1000;
+            memcpy(&telemetry_data[index], &uptime_sec, 4);
+            index += 4;
+
+            /* RAM usage: stack used bytes (4 bytes) */
+            extern uint32_t _estack;  /* Top of stack from linker */
+            uint32_t sp;
+            __asm volatile ("mov %0, sp" : "=r" (sp));
+            uint32_t stack_used = (uint32_t)&_estack - sp;
+            memcpy(&telemetry_data[index], &stack_used, 4);
+            index += 4;
+
+            /* Flash usage: program size in bytes (4 bytes) */
+            extern uint32_t _sidata;  /* Start of initialized data in flash (end of code) */
+            /* Flash starts at 0x08000000, program size = _sidata - 0x08000000 */
+            uint32_t flash_used = (uint32_t)&_sidata - 0x08000000U;
+            memcpy(&telemetry_data[index], &flash_used, 4);
+            index += 4;
+
+            /* Channel count in runtime (2 bytes) */
+            uint16_t ch_count = PMU_ChannelExec_GetChannelCount();
+            memcpy(&telemetry_data[index], &ch_count, 2);
+            index += 2;
+
+            /* Reserved (1 byte) */
             telemetry_data[index++] = 0;
         }
 #else
@@ -1164,47 +1192,37 @@ bool PMU_Protocol_LoadSavedConfig(void) { return false; }
  * Response format (chunked if needed):
  * [chunk_idx:2B LE][total_chunks:2B LE][data]
  *
- * Or for small configs (fits in one packet):
- * [config_data:N bytes]
+ * Always uses chunked format (even for single chunk) for consistency.
  */
 static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
 {
     (void)packet;
 
     if (binary_config_len == 0) {
-        /* No config loaded - send empty response */
-        uint8_t response[2] = {0, 0};  /* size = 0 */
-        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 2);
+        /* No config loaded - send single chunk with channel_count=0 */
+        uint8_t response[6] = {0, 0, 1, 0, 0, 0};  /* chunk_idx=0, total_chunks=1, channel_count=0 */
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 6);
         return;
     }
 
-    /* For small configs, send directly */
-    if (binary_config_len <= 256) {
-        /* Response: [size:2B LE][data:N bytes] */
-        uint8_t response[2 + CONFIG_BUFFER_SIZE];
-        response[0] = (uint8_t)(binary_config_len & 0xFF);
-        response[1] = (uint8_t)((binary_config_len >> 8) & 0xFF);
-        memcpy(response + 2, binary_config_buffer, binary_config_len);
-        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 2 + binary_config_len);
-    } else {
-        /* Chunked response for larger configs */
-        uint16_t chunk_size = 256;
-        uint16_t total_chunks = (binary_config_len + chunk_size - 1) / chunk_size;
+    /* Always use chunked format for consistency */
+    uint16_t chunk_size = 256;
+    uint16_t total_chunks = (binary_config_len + chunk_size - 1) / chunk_size;
+    if (total_chunks == 0) total_chunks = 1;
 
-        for (uint16_t chunk_idx = 0; chunk_idx < total_chunks; chunk_idx++) {
-            uint16_t offset = chunk_idx * chunk_size;
-            uint16_t len = binary_config_len - offset;
-            if (len > chunk_size) len = chunk_size;
+    for (uint16_t chunk_idx = 0; chunk_idx < total_chunks; chunk_idx++) {
+        uint16_t offset = chunk_idx * chunk_size;
+        uint16_t len = binary_config_len - offset;
+        if (len > chunk_size) len = chunk_size;
 
-            /* Response: [chunk_idx:2B][total_chunks:2B][data:N bytes] */
-            uint8_t response[4 + 256];
-            response[0] = (uint8_t)(chunk_idx & 0xFF);
-            response[1] = (uint8_t)((chunk_idx >> 8) & 0xFF);
-            response[2] = (uint8_t)(total_chunks & 0xFF);
-            response[3] = (uint8_t)((total_chunks >> 8) & 0xFF);
-            memcpy(response + 4, binary_config_buffer + offset, len);
-            Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + len);
-        }
+        /* Response: [chunk_idx:2B][total_chunks:2B][data:N bytes] */
+        uint8_t response[4 + 256];
+        response[0] = (uint8_t)(chunk_idx & 0xFF);
+        response[1] = (uint8_t)((chunk_idx >> 8) & 0xFF);
+        response[2] = (uint8_t)(total_chunks & 0xFF);
+        response[3] = (uint8_t)((total_chunks >> 8) & 0xFF);
+        memcpy(response + 4, binary_config_buffer + offset, len);
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + len);
     }
 }
 
@@ -1227,6 +1245,47 @@ static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
     Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
 }
 
+/**
+ * @brief Handle CLEAR_CONFIG command - clear config from memory and flash
+ *
+ * This resets the device to a clean state with no user configuration.
+ * Telemetry continues to work with system channels (physical pins, uptime, etc.)
+ */
+static void Protocol_HandleClearConfig(const PMU_Protocol_Packet_t* packet)
+{
+    (void)packet;
+
+    /* Clear in-memory config */
+    binary_config_len = 0;
+    memset(binary_config_buffer, 0, sizeof(binary_config_buffer));
+
+    /* Clear channel executor */
+    PMU_ChannelExec_Clear();
+
+    /* Erase flash sector (if we're on Nucleo) */
+#ifdef NUCLEO_F446RE
+    HAL_FLASH_Unlock();
+
+    /* Erase Sector 7 */
+    FLASH_EraseInitTypeDef erase;
+    erase.TypeErase = FLASH_TYPEERASE_SECTORS;
+    erase.Sector = CONFIG_FLASH_SECTOR;
+    erase.NbSectors = 1;
+    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+    uint32_t error = 0;
+    HAL_StatusTypeDef status = HAL_FLASHEx_Erase(&erase, &error);
+
+    HAL_FLASH_Lock();
+
+    uint8_t response[2] = {(status == HAL_OK) ? 1 : 0, (status == HAL_OK) ? 0 : 1};
+#else
+    uint8_t response[2] = {1, 0};  /* Always success on non-Nucleo */
+#endif
+
+    Protocol_SendData(PMU_CMD_CLEAR_CONFIG_ACK, response, 2);
+}
+
 /* Binary config chunked upload state */
 static uint16_t binary_total_chunks = 0;
 static uint16_t binary_received_chunks = 0;
@@ -1247,73 +1306,61 @@ static uint16_t binary_received_chunks = 0;
  */
 static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
 {
-    /* Check for chunked format: [chunk_idx:2B LE][total_chunks:2B LE][data] */
-    if (packet->length >= 4) {
-        uint16_t chunk_idx = packet->data[0] | (packet->data[1] << 8);
-        uint16_t total_chunks = packet->data[2] | (packet->data[3] << 8);
-
-        /* Detect chunked format: total_chunks > 0 and reasonable values */
-        if (total_chunks > 0 && total_chunks <= 64 && chunk_idx < total_chunks) {
-            const uint8_t* chunk_data = packet->data + 4;
-            uint16_t chunk_len = packet->length - 4;
-
-            /* First chunk - reset buffer and stop telemetry */
-            if (chunk_idx == 0) {
-                PMU_Protocol_StopStream();  /* Stop telemetry during config load */
-                binary_config_len = 0;
-                binary_total_chunks = total_chunks;
-                binary_received_chunks = 0;
-            }
-
-            /* Accumulate chunk data */
-            if (binary_config_len + chunk_len < CONFIG_BUFFER_SIZE) {
-                memcpy(binary_config_buffer + binary_config_len, chunk_data, chunk_len);
-                binary_config_len += chunk_len;
-                binary_received_chunks++;
-            } else {
-                /* Buffer overflow */
-                uint8_t response[4] = {0, 1, 0, 0};  /* success=0, error=1 (overflow) */
-                Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
-                return;
-            }
-
-            /* All chunks received - process binary config */
-            if (binary_received_chunks >= binary_total_chunks) {
-                /* Load into Channel Executor */
-                int loaded = PMU_ChannelExec_LoadConfig(binary_config_buffer, binary_config_len);
-
-                /* Send final status (only one ACK for complete config) */
-                uint8_t final_response[6] = {0};
-                final_response[0] = (loaded >= 0) ? 1 : 0;  /* success */
-                final_response[1] = (loaded >= 0) ? 0 : 1;  /* error_code */
-                final_response[2] = (uint8_t)(loaded & 0xFF);        /* channels loaded (low) */
-                final_response[3] = (uint8_t)((loaded >> 8) & 0xFF); /* channels loaded (high) */
-                final_response[4] = (uint8_t)PMU_ChannelExec_GetChannelCount();  /* total channels */
-                final_response[5] = 0;  /* reserved */
-                Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, final_response, 6);
-            } else {
-                /* Send intermediate ACK for multi-chunk upload */
-                uint8_t response[4] = {1, 0, (uint8_t)chunk_idx, (uint8_t)(chunk_idx >> 8)};
-                Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
-            }
-            return;
-        }
+    /* Always use chunked format: [chunk_idx:2B LE][total_chunks:2B LE][data] */
+    if (packet->length < 4) {
+        uint8_t response[4] = {0, 2, 0, 0};  /* success=0, error=2 (invalid format) */
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        return;
     }
 
-    /* Non-chunked format: raw binary data */
-    if (packet->length > 0 && packet->length < CONFIG_BUFFER_SIZE) {
-        int loaded = PMU_ChannelExec_LoadConfig(packet->data, packet->length);
+    uint16_t chunk_idx = packet->data[0] | (packet->data[1] << 8);
+    uint16_t total_chunks = packet->data[2] | (packet->data[3] << 8);
+    const uint8_t* chunk_data = packet->data + 4;
+    uint16_t chunk_len = packet->length - 4;
 
-        uint8_t response[6] = {0};
-        response[0] = (loaded >= 0) ? 1 : 0;  /* success */
-        response[1] = (loaded >= 0) ? 0 : 1;  /* error_code */
-        response[2] = (uint8_t)(loaded & 0xFF);
-        response[3] = (uint8_t)((loaded >> 8) & 0xFF);
-        response[4] = (uint8_t)PMU_ChannelExec_GetChannelCount();
-        response[5] = 0;
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 6);
+    /* Validate chunk header */
+    if (total_chunks == 0 || total_chunks > 64 || chunk_idx >= total_chunks) {
+        uint8_t response[4] = {0, 3, 0, 0};  /* success=0, error=3 (invalid chunk header) */
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        return;
+    }
+
+    /* First chunk - reset buffer and stop telemetry */
+    if (chunk_idx == 0) {
+        PMU_Protocol_StopStream();  /* Stop telemetry during config load */
+        binary_config_len = 0;
+        binary_total_chunks = total_chunks;
+        binary_received_chunks = 0;
+    }
+
+    /* Accumulate chunk data */
+    if (binary_config_len + chunk_len >= CONFIG_BUFFER_SIZE) {
+        uint8_t response[4] = {0, 1, 0, 0};  /* success=0, error=1 (overflow) */
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        return;
+    }
+
+    memcpy(binary_config_buffer + binary_config_len, chunk_data, chunk_len);
+    binary_config_len += chunk_len;
+    binary_received_chunks++;
+
+    /* All chunks received - process binary config */
+    if (binary_received_chunks >= binary_total_chunks) {
+        /* Load into Channel Executor */
+        int loaded = PMU_ChannelExec_LoadConfig(binary_config_buffer, binary_config_len);
+
+        /* Send final status (only one ACK for complete config) */
+        uint8_t final_response[6] = {0};
+        final_response[0] = (loaded >= 0) ? 1 : 0;  /* success */
+        final_response[1] = (loaded >= 0) ? 0 : 1;  /* error_code */
+        final_response[2] = (uint8_t)(loaded & 0xFF);        /* channels loaded (low) */
+        final_response[3] = (uint8_t)((loaded >> 8) & 0xFF); /* channels loaded (high) */
+        final_response[4] = (uint8_t)PMU_ChannelExec_GetChannelCount();  /* total channels */
+        final_response[5] = 0;  /* reserved */
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, final_response, 6);
     } else {
-        uint8_t response[4] = {0, 2, 0, 0};  /* success=0, error=2 (invalid length) */
+        /* Send intermediate ACK for multi-chunk upload */
+        uint8_t response[4] = {1, 0, (uint8_t)chunk_idx, (uint8_t)(chunk_idx >> 8)};
         Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
     }
 }

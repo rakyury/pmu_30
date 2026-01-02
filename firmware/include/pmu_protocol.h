@@ -62,6 +62,8 @@ typedef enum {
     PMU_CMD_CONFIG_ACK          = 0x23,  /**< Configuration acknowledgment */
     PMU_CMD_SAVE_CONFIG         = 0x24,  /**< Save configuration to flash */
     PMU_CMD_FLASH_ACK           = 0x25,  /**< Flash save acknowledgment */
+    PMU_CMD_CLEAR_CONFIG        = 0x26,  /**< Clear config from memory and flash */
+    PMU_CMD_CLEAR_CONFIG_ACK    = 0x27,  /**< Clear config acknowledgment */
 
     /* Telemetry commands (0x30-0x3F) - matches configurator protocol */
     PMU_CMD_START_STREAM        = 0x30,  /**< Subscribe to telemetry */
@@ -158,6 +160,7 @@ typedef struct {
     bool temps_enabled;         /**< Stream temperatures */
     bool voltages_enabled;      /**< Stream voltages */
     bool faults_enabled;        /**< Stream faults */
+    bool channels_enabled;      /**< Stream virtual channel values */
     uint16_t rate_hz;           /**< Stream rate in Hz (1-1000) */
 } PMU_TelemetryConfig_t;
 
@@ -276,6 +279,12 @@ PMU_Protocol_Stats_t* PMU_Protocol_GetStats(void);
  * @retval CRC16 checksum
  */
 uint16_t PMU_Protocol_CRC16(const uint8_t* data, uint16_t length);
+
+/**
+ * @brief Load saved binary config from flash at startup
+ * @retval true if config was loaded successfully
+ */
+bool PMU_Protocol_LoadSavedConfig(void);
 
 #ifdef __cplusplus
 }

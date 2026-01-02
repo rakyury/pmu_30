@@ -52,6 +52,8 @@ class MessageType(IntEnum):
     CONFIG_ACK = 0x23
     SAVE_TO_FLASH = 0x24    # Save current config to flash
     FLASH_ACK = 0x25        # Flash save acknowledgment
+    CLEAR_CONFIG = 0x26     # Clear config from memory and flash
+    CLEAR_CONFIG_ACK = 0x27 # Clear config acknowledgment
 
     # Telemetry streaming
     SUBSCRIBE_TELEMETRY = 0x30

@@ -136,10 +136,16 @@ Offset   Size   Field
 ------   ----   -----
 0        4      stream_counter (uint32)
 4        4      timestamp_ms (uint32)
-8        30     output_states[30] (1 byte each)
-38       40     adc_values[20] (uint16 each = 40 bytes)
-78       1      digital_inputs (packed bitmask, 8 bits)
-79       15     reserved (was timer debug)
+8        30     output_states[30] (1 byte each) - pmu.o1-o30
+38       40     adc_values[20] (uint16 each = 40 bytes) - pmu.ai1-ai10
+78       1      digital_inputs (packed bitmask, 8 bits) - pmu.di1-di8
+--- System Info (15 bytes) ---
+79       4      uptime_sec (uint32) - device uptime in seconds
+83       4      ram_used (uint32) - stack bytes used
+87       4      flash_used (uint32) - program size in bytes
+91       2      channel_count (uint16) - runtime channel count
+93       1      reserved
+--- End System Info ---
 94       2      voltage_mv (uint16)
 96       2      current_ma (uint16)
 98       2      mcu_temp_c (int16)
