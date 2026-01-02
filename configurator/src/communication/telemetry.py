@@ -399,21 +399,23 @@ def parse_telemetry(data: bytes) -> TelemetryPacket:
 
 def _parse_telemetry_nucleo(data: bytes) -> TelemetryPacket:
     """
-    Parse Nucleo F446RE telemetry format (~104 bytes).
+    Parse Nucleo F446RE telemetry format.
 
-    Nucleo format (reduced hardware):
-    - stream_counter: 4 bytes
-    - timestamp: 4 bytes
-    - output_states: 30 bytes (1 byte per output)
-    - adc_values: 40 bytes (20 x uint16)
-    - digital_inputs: 1 byte (packed)
-    - debug_flags: 1 byte
-    - timer_debug: ~15 bytes
-    - voltage_mv: 2 bytes
-    - current_ma: 2 bytes
-    - mcu_temp: 2 bytes
-    - board_temp: 2 bytes
-    - fault_status: 2 bytes
+    Nucleo format (firmware pmu_protocol.c):
+    - stream_counter: 4 bytes (offset 0)
+    - timestamp: 4 bytes (offset 4)
+    - output_states: 30 bytes (offset 8)
+    - adc_values: 40 bytes (20 x uint16) (offset 38)
+    - digital_inputs: 1 byte packed (offset 78)
+    - reserved: 15 bytes (offset 79)
+    - voltage_mv: 2 bytes (offset 94)
+    - current_ma: 2 bytes (offset 96)
+    - mcu_temp: 2 bytes (offset 98)
+    - board_temp: 2 bytes (offset 100)
+    - fault_status: 1 byte (offset 102)
+    - fault_flags: 1 byte (offset 103)
+    - virtual_count: 2 bytes (offset 104)
+    - virtual_channels: 6 bytes each (id:2 + value:4)
     """
     idx = 0
 
@@ -450,13 +452,9 @@ def _parse_telemetry_nucleo(data: bytes) -> TelemetryPacket:
     idx += 1
     digital_inputs = [(din_byte >> i) & 1 for i in range(8)] + [0] * 12
 
-    # Debug flags byte
-    if idx < len(data):
-        idx += 1  # Skip debug flags
-
-    # Timer debug section (~15 bytes) - skip for basic parsing
-    timer_debug_size = 15
-    idx += min(timer_debug_size, len(data) - idx)
+    # Reserved bytes (15 bytes) - skip
+    reserved_size = 15
+    idx += min(reserved_size, len(data) - idx)
 
     # Voltage and current (4 bytes)
     voltage_mv = 0

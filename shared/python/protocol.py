@@ -12,15 +12,20 @@ from typing import Callable, Optional, List, Tuple, Any
 
 
 # ============================================================================
-# Protocol Constants
+# Protocol Constants (matches pmu_protocol.h)
 # ============================================================================
+# Frame format:
+# ┌──────┬────────┬───────┬─────────────┬───────┐
+# │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
+# │ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
+# └──────┴────────┴───────┴─────────────┴───────┘
+# CRC16 is calculated over Length+MsgID+Payload (excludes start marker)
 
-PROTO_SYNC_H = 0xAA
-PROTO_SYNC_L = 0x55
-PROTO_HEADER_SIZE = 5    # SYNC(2) + CMD(1) + LEN(2)
+PROTO_START_MARKER = 0xAA
+PROTO_HEADER_SIZE = 4    # START(1) + LENGTH(2) + CMD(1)
 PROTO_CRC_SIZE = 2
 PROTO_OVERHEAD = PROTO_HEADER_SIZE + PROTO_CRC_SIZE
-PROTO_MAX_PAYLOAD = 1024
+PROTO_MAX_PAYLOAD = 2048
 PROTO_MAX_FRAME = PROTO_OVERHEAD + PROTO_MAX_PAYLOAD
 
 
@@ -195,23 +200,33 @@ class Frame:
 # ============================================================================
 
 def build_frame(cmd: int, payload: bytes = b"") -> bytes:
-    """Build a complete protocol frame"""
+    """
+    Build a complete protocol frame.
+
+    Frame format (matches firmware pmu_protocol.h):
+    ┌──────┬────────┬───────┬─────────────┬───────┐
+    │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
+    │ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
+    └──────┴────────┴───────┴─────────────┴───────┘
+
+    CRC16 is calculated over Length+MsgID+Payload (excludes start marker)
+    """
     if len(payload) > PROTO_MAX_PAYLOAD:
         raise ValueError(f"Payload too large: {len(payload)} > {PROTO_MAX_PAYLOAD}")
 
     length = len(payload)
 
-    # Build header + payload for CRC calculation
-    crc_data = bytes([cmd, length & 0xFF, (length >> 8) & 0xFF]) + payload
+    # Build data for CRC calculation: Length(2B LE) + Command(1B) + Payload
+    # This matches firmware: PMU_Protocol_CRC16(((uint8_t*)&packet) + 1, 3 + length)
+    crc_data = bytes([length & 0xFF, (length >> 8) & 0xFF, cmd]) + payload
     crc = calc_crc16(crc_data)
 
-    # Build complete frame
+    # Build complete frame: [0xAA][Length:2B LE][Command:1B][Payload][CRC:2B LE]
     frame = bytes([
-        PROTO_SYNC_H,
-        PROTO_SYNC_L,
-        cmd,
+        PROTO_START_MARKER,
         length & 0xFF,
-        (length >> 8) & 0xFF
+        (length >> 8) & 0xFF,
+        cmd
     ]) + payload + bytes([crc & 0xFF, (crc >> 8) & 0xFF])
 
     return frame
@@ -222,18 +237,29 @@ def build_frame(cmd: int, payload: bytes = b"") -> bytes:
 # ============================================================================
 
 class ParseState(IntEnum):
-    SYNC1 = 0
-    SYNC2 = 1
-    CMD = 2
-    LEN_L = 3
-    LEN_H = 4
-    PAYLOAD = 5
-    CRC_L = 6
-    CRC_H = 7
+    """
+    Parser states matching firmware frame format:
+    [0xAA][Length:2B LE][Command:1B][Payload][CRC16:2B LE]
+    """
+    SYNC = 0      # Waiting for 0xAA start marker
+    LEN_L = 1     # Length low byte
+    LEN_H = 2     # Length high byte
+    CMD = 3       # Command/Message ID
+    PAYLOAD = 4   # Payload bytes
+    CRC_L = 5     # CRC low byte
+    CRC_H = 6     # CRC high byte
 
 
 class ProtocolParser:
-    """Streaming protocol parser"""
+    """
+    Streaming protocol parser.
+
+    Parses frames with format matching firmware pmu_protocol.h:
+    ┌──────┬────────┬───────┬─────────────┬───────┐
+    │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
+    │ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
+    └──────┴────────┴───────┴─────────────┴───────┘
+    """
 
     def __init__(self, max_payload: int = PROTO_MAX_PAYLOAD):
         self.max_payload = max_payload
@@ -241,7 +267,7 @@ class ProtocolParser:
 
     def reset(self):
         """Reset parser state"""
-        self.state = ParseState.SYNC1
+        self.state = ParseState.SYNC
         self.cmd = 0
         self.length = 0
         self.payload = bytearray()
@@ -251,21 +277,9 @@ class ProtocolParser:
         """
         Parse a single byte. Returns Frame if complete frame received.
         """
-        if self.state == ParseState.SYNC1:
-            if byte == PROTO_SYNC_H:
-                self.state = ParseState.SYNC2
-
-        elif self.state == ParseState.SYNC2:
-            if byte == PROTO_SYNC_L:
-                self.state = ParseState.CMD
-            elif byte == PROTO_SYNC_H:
-                pass  # Stay in SYNC2
-            else:
-                self.state = ParseState.SYNC1
-
-        elif self.state == ParseState.CMD:
-            self.cmd = byte
-            self.state = ParseState.LEN_L
+        if self.state == ParseState.SYNC:
+            if byte == PROTO_START_MARKER:
+                self.state = ParseState.LEN_L
 
         elif self.state == ParseState.LEN_L:
             self.length = byte
@@ -278,6 +292,10 @@ class ProtocolParser:
                 self.reset()
                 return None
 
+            self.state = ParseState.CMD
+
+        elif self.state == ParseState.CMD:
+            self.cmd = byte
             self.payload = bytearray()
 
             if self.length == 0:
@@ -298,11 +316,12 @@ class ProtocolParser:
         elif self.state == ParseState.CRC_H:
             self.crc |= byte << 8
 
-            # Verify CRC
+            # Verify CRC: calculated over Length(2B LE) + Command(1B) + Payload
+            # Matches firmware: PMU_Protocol_CRC16(((uint8_t*)&packet) + 1, 3 + length)
             crc_data = bytes([
-                self.cmd,
                 self.length & 0xFF,
-                (self.length >> 8) & 0xFF
+                (self.length >> 8) & 0xFF,
+                self.cmd
             ]) + bytes(self.payload)
 
             calc = calc_crc16(crc_data)

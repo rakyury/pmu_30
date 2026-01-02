@@ -50,28 +50,13 @@ class DigitalMonitor(QWidget):
         self.inputs_data = []
         self._connected = False
         self._telemetry_data = {}
+        self._digital_inputs = []
         self._init_ui()
-
-        # Initialize with default 8 digital inputs
-        self._init_default_inputs()
 
         # Update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_values)
         self.update_timer.start(100)  # Update every 100ms
-
-    def _init_default_inputs(self):
-        """Initialize with default 20 digital inputs (unconfigured)."""
-        default_inputs = []
-        for i in range(20):
-            default_inputs.append({
-                'input_pin': i,
-                'name': '',
-                'subtype': '',
-                '_is_default': True
-            })
-        self.inputs_data = default_inputs
-        self._populate_table()
 
     def _init_ui(self):
         """Initialize UI."""
@@ -133,36 +118,21 @@ class DigitalMonitor(QWidget):
         layout.addWidget(self.table)
 
     def set_inputs(self, inputs: List[Dict]):
-        """Set configured inputs - merges with defaults to keep all 20 inputs visible."""
-        # Create a mapping of configured inputs by pin number
-        configured_by_pin = {}
+        """Set configured inputs - shows only user-created digital inputs."""
+        # Filter to only digital inputs with names
+        user_inputs = []
         for inp in inputs:
             # Only process digital inputs
             if inp.get('channel_type') != 'digital_input':
                 continue
-            # Support both 'input_pin' and 'channel' field names for pin number
-            pin = inp.get('input_pin') if inp.get('input_pin') is not None else inp.get('channel')
             # Check both 'name' and 'channel_name' for backwards compatibility
             channel_name = inp.get('name') or inp.get('channel_name')
-            if pin is not None and channel_name:
-                configured_by_pin[pin] = inp
+            if channel_name:
+                inp_copy = inp.copy()
+                inp_copy['_is_default'] = False
+                user_inputs.append(inp_copy)
 
-        # Build merged list: configured inputs override defaults
-        merged_inputs = []
-        for i in range(20):
-            if i in configured_by_pin:
-                inp = configured_by_pin[i].copy()
-                inp['_is_default'] = False
-                merged_inputs.append(inp)
-            else:
-                merged_inputs.append({
-                    'input_pin': i,
-                    'name': '',
-                    'subtype': '',
-                    '_is_default': True
-                })
-
-        self.inputs_data = merged_inputs
+        self.inputs_data = user_inputs
         self._populate_table()
 
     def _populate_table(self):

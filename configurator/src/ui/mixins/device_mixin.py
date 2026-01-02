@@ -338,14 +338,19 @@ class MainWindowDeviceMixin:
 
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Send SAVE_CONFIG command (0x24)
-                frame = struct.pack('<BHB', 0xAA, 0, 0x24)
-                crc = self._calculate_crc(frame[1:])
-                frame += struct.pack('<H', crc)
-                self.device_controller.send_command(frame)
+                self.status_message.setText("Saving configuration to flash...")
 
-                self.status_message.setText("Configuration saved to flash")
-                QMessageBox.information(self, "Success", "Configuration saved to flash memory.")
+                # Use device controller's save_to_flash which waits for ACK
+                success = self.device_controller.save_to_flash(timeout=5.0)
+
+                if success:
+                    self.status_message.setText("Configuration saved to flash")
+                    QMessageBox.information(self, "Success", "Configuration saved to flash memory.")
+                else:
+                    self.status_message.setText("Flash save failed")
+                    QMessageBox.warning(self, "Save Failed",
+                                       "Failed to save configuration to flash.\n"
+                                       "Device may not have responded.")
 
             except Exception as e:
                 logger.error(f"Failed to save to flash: {e}")

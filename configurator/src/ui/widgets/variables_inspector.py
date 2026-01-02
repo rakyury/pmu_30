@@ -188,23 +188,9 @@ class VariablesInspector(QWidget):
     def set_connected(self, connected: bool):
         """Set connection state."""
         self._connected = connected
-        if connected:
-            pass  # Connection status shown in status bar
-            # Set constant channel values (they don't come from telemetry)
-            self._update_constant_channels()
-        else:
-            pass  # Connection status shown in status bar
+        if not connected:
             # Reset all values to "?"
             self._reset_values()
-
-    def _update_constant_channels(self):
-        """Update constant channels with their fixed values."""
-        # These are system constants that never change
-        # zero = 0, one = 1 (displayed as float for consistency)
-        if 'zero' in self._channels:
-            self.update_value('zero', 0.0)
-        if 'one' in self._channels:
-            self.update_value('one', 1.0)
 
     def _reset_values(self):
         """Reset all telemetry values to '?'."""
@@ -405,161 +391,64 @@ class VariablesInspector(QWidget):
 
     def update_from_telemetry(self, telemetry_data: Dict[str, Any]):
         """
-        Update channels from telemetry packet.
+        Update virtual channels from telemetry packet.
+
+        Only updates virtual channels (logic, number, timer, filter, switch, table_2d, table_3d, pid).
+        Hardware/system channels are updated in PMU Monitor widget.
 
         Args:
             telemetry_data: Telemetry data dict with channel values
         """
-        # Update PMU system channels (using pmu.* naming)
-        if 'board_temp_l' in telemetry_data:
-            self.update_value('pmu.boardTemperatureL', telemetry_data['board_temp_l'])
-        if 'board_temp_r' in telemetry_data:
-            self.update_value('pmu.boardTemperatureR', telemetry_data['board_temp_r'])
-        if 'battery_voltage' in telemetry_data:
-            self.update_value('pmu.batteryVoltage', telemetry_data['battery_voltage'])
-        if 'voltage_5v' in telemetry_data:
-            self.update_value('pmu.5VOutput', telemetry_data['voltage_5v'])
-        if 'voltage_3v3' in telemetry_data:
-            self.update_value('pmu.3V3Output', telemetry_data['voltage_3v3'])
-        if 'pmu_status' in telemetry_data:
-            self.update_value('pmu.status', telemetry_data['pmu_status'])
-        if 'user_error' in telemetry_data:
-            self.update_value('pmu.userError', telemetry_data['user_error'],
-                            error=telemetry_data['user_error'] != 0)
-        if 'total_current' in telemetry_data:
-            self.update_value('pmu.totalCurrent', telemetry_data['total_current'])
-        if 'uptime' in telemetry_data:
-            self.update_value('pmu.uptime', telemetry_data['uptime'])
+        # Update virtual channels only (logic, timer, switch, number, etc.)
+        if 'virtual_channels' not in telemetry_data:
+            return
 
-        # Update hardware output channels (pmu.o{i}.*) - 40 PROFET outputs
-        if 'profet_states' in telemetry_data:
-            states = telemetry_data['profet_states']
-            state_names = ["OFF", "ON", "OC", "OT", "SC", "OL", "PWM", "DIS"]
-            fault_states = [2, 3, 4, 5]  # OC, OT, SC, OL
+        for ch_id, value in telemetry_data['virtual_channels'].items():
+            # Fast O(1) lookup using channel_id map
+            stored_id = self._channel_id_map.get(ch_id)
+            if stored_id is None:
+                continue
 
-            for i, state in enumerate(states):
-                # Hardware output status (pmu.o{i}.status)
-                ch_id = f'pmu.o{i+1}.status'
-                status_str = state_names[state] if state < len(state_names) else "?"
-                is_active = state == 1 or state == 6  # ON or PWM
-                is_error = state in fault_states
-                self.update_value(ch_id, status_str, active=is_active, error=is_error)
+            ch_data = self._channels.get(stored_id)
+            if ch_data is None:
+                continue
 
-        if 'profet_currents' in telemetry_data:
-            currents = telemetry_data['profet_currents']
-            for i, current_ma in enumerate(currents):
-                # Hardware output current (pmu.o{i}.current)
-                ch_id = f'pmu.o{i+1}.current'
-                if current_ma >= 1000:
-                    self.update_value(ch_id, f"{current_ma/1000:.2f}A")
+            # Format based on channel type
+            ch_type = ch_data.get('channel_type', '')
+            if ch_type == 'logic':
+                # Boolean display
+                display_value = "ON" if value > 0 else "OFF"
+                self.update_value(stored_id, display_value, active=(value > 0))
+            elif ch_type == 'timer':
+                # Timer main channel shows ON/OFF status (running state)
+                running = value > 0
+                display_value = "ON" if running else "OFF"
+                self.update_value(stored_id, display_value, active=running)
+            elif ch_type == 'timer_running':
+                # Timer running flag (1 = running, 0 = stopped)
+                running = value > 0
+                self.update_value(stored_id, "1" if running else "0", active=running)
+            elif ch_type == 'timer_elapsed':
+                # Timer elapsed channel - shows time in ms, display as seconds
+                seconds = value / 1000.0
+                if seconds >= 3600:
+                    h = int(seconds // 3600)
+                    m = int((seconds % 3600) // 60)
+                    s = seconds % 60
+                    time_str = f"{h}h {m}m {s:.2f}s"
+                elif seconds >= 60:
+                    m = int(seconds // 60)
+                    s = seconds % 60
+                    time_str = f"{m}m {s:.2f}s"
                 else:
-                    self.update_value(ch_id, f"{current_ma}mA")
-
-        # Update output duty cycles
-        if 'profet_duties' in telemetry_data:
-            duties = telemetry_data['profet_duties']
-            states = telemetry_data.get('profet_states', [0] * 40)
-
-            for i, duty in enumerate(duties):
-                state = states[i] if i < len(states) else 0
-
-                # Duty cycle (pmu.o{i}.dc)
-                ch_id = f'pmu.o{i+1}.dc'
-                if state == 1:  # ON
-                    self.update_value(ch_id, "100.00%")
-                elif state == 6:  # PWM
-                    self.update_value(ch_id, f"{duty/10:.2f}%")
-                else:
-                    self.update_value(ch_id, "0.00%")
-
-        # Update hardware analog input channels (pmu.a{i}.*)
-        if 'adc_values' in telemetry_data:
-            adc_values = telemetry_data['adc_values']
-            ref_voltage = telemetry_data.get('reference_voltage', 3.3)  # 3.3V ADC reference
-            for i, adc_raw in enumerate(adc_values):
-                # Voltage (pmu.a{i}.voltage)
-                ch_id = f'pmu.a{i+1}.voltage'
-                voltage = (adc_raw / 4095.0) * ref_voltage
-                self.update_value(ch_id, f"{voltage:.2f}V")
-
-                # Raw ADC value (pmu.a{i}.raw)
-                ch_id = f'pmu.a{i+1}.raw'
-                self.update_value(ch_id, adc_raw)
-
-        # Update hardware digital input channels (pmu.d{i}.*)
-        if 'digital_states' in telemetry_data:
-            digital_states = telemetry_data['digital_states']
-            for i, state in enumerate(digital_states):
-                ch_id = f'pmu.d{i+1}.state'
-                self.update_value(ch_id, "1" if state else "0", active=state)
-
-        # Update CAN RX channels
-        if 'can_rx_values' in telemetry_data:
-            for ch_id, value in telemetry_data['can_rx_values'].items():
-                self.update_value(ch_id, value)
-
-        # Update keypad channels (legacy)
-        if 'keypad_states' in telemetry_data:
-            for keypad_id, state in telemetry_data['keypad_states'].items():
-                self.update_value(keypad_id, "ON" if state else "OFF", active=state)
-
-        # Update BlinkMarine keypad button states
-        if 'blinkmarine_buttons' in telemetry_data:
-            for btn_id, state in telemetry_data['blinkmarine_buttons'].items():
-                self.update_value(btn_id, "ON" if state else "OFF", active=state)
-
-        # Update virtual channels (logic, timer, switch, number, etc.)
-        if 'virtual_channels' in telemetry_data:
-            for ch_id, value in telemetry_data['virtual_channels'].items():
-                # Fast O(1) lookup using channel_id map
-                stored_id = self._channel_id_map.get(ch_id)
-                if stored_id is None:
-                    continue
-
-                ch_data = self._channels.get(stored_id)
-                if ch_data is None:
-                    continue
-
-                # Format based on channel type
-                ch_type = ch_data.get('channel_type', '')
-                if ch_type == 'logic':
-                    # Boolean display
-                    display_value = "ON" if value > 0 else "OFF"
-                    self.update_value(stored_id, display_value, active=(value > 0))
-                elif ch_type == 'timer':
-                    # Timer main channel shows ON/OFF status (running state)
-                    # Value is 1000 when running, 0 when stopped
-                    running = value > 0
-                    display_value = "ON" if running else "OFF"
-                    self.update_value(stored_id, display_value, active=running)
-                elif ch_type == 'timer_running':
-                    # Timer running flag (1 = running, 0 = stopped)
-                    running = value > 0
-                    self.update_value(stored_id, "1" if running else "0", active=running)
-                elif ch_type == 'timer_elapsed':
-                    # Timer elapsed channel - shows time in ms, display as seconds
-                    seconds = value / 1000.0
-                    if seconds >= 3600:
-                        h = int(seconds // 3600)
-                        m = int((seconds % 3600) // 60)
-                        s = seconds % 60
-                        time_str = f"{h}h {m}m {s:.2f}s"
-                    elif seconds >= 60:
-                        m = int(seconds // 60)
-                        s = seconds % 60
-                        time_str = f"{m}m {s:.2f}s"
-                    else:
-                        time_str = f"{seconds:.2f}s"
-                    self.update_value(stored_id, time_str)
-                elif ch_type == 'switch':
-                    # Enum display (show state index)
-                    self.update_value(stored_id, f"State {value // 1000}")
-                else:
-                    # Numeric display (scaled by 1000)
-                    self.update_value(stored_id, f"{value / 1000:.2f}")
-
-        # Always update constant channels (they don't come from telemetry)
-        self._update_constant_channels()
+                    time_str = f"{seconds:.2f}s"
+                self.update_value(stored_id, time_str)
+            elif ch_type == 'switch':
+                # Enum display (show state index)
+                self.update_value(stored_id, f"State {value // 1000}")
+            elif ch_type in ('number', 'filter', 'table_2d', 'table_3d', 'pid'):
+                # Numeric display (scaled by 1000)
+                self.update_value(stored_id, f"{value / 1000:.2f}")
 
     def _update_display(self):
         """Periodic display update (for change color decay)."""
@@ -652,235 +541,45 @@ class VariablesInspector(QWidget):
         """
         Populate channels from config manager.
 
+        ONLY shows virtual channels (logic, number, timer, filter, switch, table_2d, table_3d, pid).
+        Hardware/system channels are displayed in PMU Monitor widget.
+
+        Uses actual channel_id from config (matches firmware binary config).
+
         Args:
             config_manager: ConfigManager instance with channel configurations
         """
         channels = []
 
-        # Add constant channels
-        constant_channels = [
-            {'id': 'zero', 'name': 'zero', 'unit': '', 'channel_id': 1012, 'channel_type': 'system'},
-            {'id': 'one', 'name': 'one', 'unit': '', 'channel_id': 1013, 'channel_type': 'system'},
-        ]
-        channels.extend(constant_channels)
-
-        # Add PMU system channels (pmu.* naming)
-        pmu_system_channels = [
-            {'id': 'pmu.status', 'name': 'PMU Status', 'unit': ''},
-            {'id': 'pmu.userError', 'name': 'User Error', 'unit': ''},
-            {'id': 'pmu.batteryVoltage', 'name': 'Battery Voltage', 'unit': 'V'},
-            {'id': 'pmu.boardTemperatureL', 'name': 'Board Temp L', 'unit': '°C'},
-            {'id': 'pmu.boardTemperatureR', 'name': 'Board Temp R', 'unit': '°C'},
-            {'id': 'pmu.boardTemperatureMax', 'name': 'Board Temp Max', 'unit': '°C'},
-            {'id': 'pmu.5VOutput', 'name': '5V Output', 'unit': 'V'},
-            {'id': 'pmu.3V3Output', 'name': '3.3V Output', 'unit': 'V'},
-            {'id': 'pmu.totalCurrent', 'name': 'Total Current', 'unit': 'A'},
-            {'id': 'pmu.uptime', 'name': 'Uptime', 'unit': 's'},
-            {'id': 'pmu.isTurningOff', 'name': 'Is Turning Off', 'unit': ''},
-        ]
-        channels.extend(pmu_system_channels)
-
-        # Add PMU hardware analog input channels (pmu.a{i}.*)
-        for i in range(1, 21):
-            channels.append({
-                'id': f'pmu.a{i}.voltage',
-                'name': f'Analog {i} Voltage',
-                'unit': 'V',
-                'channel_type': 'system'
-            })
-            channels.append({
-                'id': f'pmu.a{i}.raw',
-                'name': f'Analog {i} Raw',
-                'unit': '',
-                'channel_type': 'system'
-            })
-
-        # Add PMU hardware digital input channels (pmu.d{i}.*)
-        for i in range(1, 21):
-            channels.append({
-                'id': f'pmu.d{i}.state',
-                'name': f'Digital {i} State',
-                'unit': '',
-                'channel_type': 'system'
-            })
-
-        # Add PMU hardware output channels (pmu.o{i}.*) - 40 PROFET outputs
-        # Only add key sub-channels to reduce row count (status, current, dc)
-        for i in range(1, 41):
-            output_subchannels = [
-                ('status', 'Status', ''),
-                ('current', 'Current', 'mA'),
-                ('dc', 'Duty Cycle', '%'),
-            ]
-            for sub_id, sub_name, unit in output_subchannels:
-                channels.append({
-                    'id': f'pmu.o{i}.{sub_id}',
-                    'name': f'Output {i} {sub_name}',
-                    'unit': unit,
-                    'channel_type': 'output'
-                })
-
-        # Add CAN RX channels
-        try:
-            can_inputs = config_manager.get_can_inputs()
-            for ch in can_inputs:
-                if True:  # All channels are active
-                    channels.append({
-                        'id': ch.get('id', ''),
-                        'name': ch.get('id', ''),
-                        'unit': ch.get('unit', ''),
-                        'channel_type': 'can_rx'
-                    })
-        except Exception:
-            pass
-
-        # Add user-created output channel sub-properties (reduced set for performance)
-        try:
-            outputs = config_manager.get_outputs()
-            for out in outputs:
-                out_id = out.get('id', out.get('name', ''))
-                out_name = out.get('name', out_id)
-                if not out_id:
-                    continue
-                # Only essential sub-properties to reduce row count
-                output_subprops = [
-                    ('status', 'Status', ''),
-                    ('current', 'Current', 'mA'),
-                    ('dc', 'Duty Cycle', '%'),
-                    ('fault', 'Fault', ''),
-                ]
-                for sub_id, sub_name, unit in output_subprops:
-                    channels.append({
-                        'id': f'{out_id}.{sub_id}',
-                        'name': f'{out_name} - {sub_name}',
-                        'unit': unit,
-                        'channel_type': 'output'
-                    })
-        except Exception:
-            pass
-
-        # Add user-created analog input channel sub-properties
-        try:
-            inputs = config_manager.get_inputs()
-            for inp in inputs:
-                inp_id = inp.get('id', inp.get('name', ''))
-                inp_name = inp.get('name', inp_id)
-                if not inp_id:
-                    continue
-                channels.append({
-                    'id': f'{inp_id}.voltage',
-                    'name': f'{inp_name} - Voltage',
-                    'unit': 'V',
-                    'channel_type': 'analog'
-                })
-                channels.append({
-                    'id': f'{inp_id}.raw',
-                    'name': f'{inp_name} - Raw',
-                    'unit': '',
-                    'channel_type': 'analog'
-                })
-        except Exception:
-            pass
-
-        # Add keypad channels (legacy)
-        try:
-            keypads = config_manager.get_keypads()
-            for kp in keypads:
-                kp_id = kp.get('id', 'keypad')
-                for btn_idx in range(kp.get('button_count', 8)):
-                    channels.append({
-                        'id': f'kb_{kp_id}.{btn_idx}.active',
-                        'name': f'kb_{kp_id}.{btn_idx}.active',
-                        'unit': '',
-                        'channel_type': 'keypad'
-                    })
-        except Exception:
-            pass
-
-        # Add BlinkMarine keypad button channels
-        try:
-            blinkmarine_keypads = config_manager.get_blinkmarine_keypads()
-            for kp in blinkmarine_keypads:
-                kp_name = kp.get('name', kp.get('id', 'keypad'))
-                keypad_type = kp.get('keypad_type', '2x6')
-                # Determine button count based on keypad type
-                button_count = 12 if keypad_type == '2x6' else 16
-                buttons = kp.get('buttons', [])
-
-                for btn_idx in range(button_count):
-                    btn_name = f"Button {btn_idx + 1}"
-                    # Try to get custom button name from config
-                    if btn_idx < len(buttons):
-                        btn_config = buttons[btn_idx]
-                        if btn_config.get('name'):
-                            btn_name = btn_config.get('name')
-
-                    # Add button state channel
-                    channels.append({
-                        'id': f'bm_{kp_name}.btn{btn_idx + 1}',
-                        'name': f'{kp_name} {btn_name}',
-                        'unit': '',
-                        'channel_type': 'keypad_button'
-                    })
-        except Exception:
-            pass
-
-        # Virtual channel ID counter - must match firmware assignment order
-        # Firmware assigns IDs starting at 200 (PMU_CHANNEL_ID_VIRTUAL_START)
-        # Channels are assigned IDs in the order they appear in the JSON channels array
-        virtual_channel_id = 200
-
-        # Get all channels from config in order and assign virtual channel IDs
-        # IMPORTANT: This list must match the channel types that firmware actually registers
-        # with AllocateVirtualChannelID() in pmu_config_json.c
-        # Currently registered: logic, number, switch, filter, timer
-        # NOT registered yet: can_rx (has TODO in firmware)
-        VIRTUAL_CHANNEL_TYPES = {'logic', 'number', 'switch', 'filter', 'timer'}
+        # Virtual channel types that should appear in Variables Inspector
+        VIRTUAL_CHANNEL_TYPES = {
+            'logic', 'number', 'switch', 'filter', 'timer',
+            'table_2d', 'table_3d', 'pid'
+        }
 
         try:
             all_channels = config_manager.get_all_channels()
             for ch in all_channels:
                 ch_type = ch.get('channel_type', '')
                 ch_id = ch.get('id', '')
+                # Use actual channel_id from config (matches firmware telemetry)
+                runtime_id = ch.get('channel_id')
+
+                if runtime_id is None:
+                    continue  # Skip channels without proper ID assignment
+
                 # Use channel_name for display, fallback to id
                 ch_display_name = ch.get('channel_name', ch.get('name', ch_id))
 
                 if ch_type in VIRTUAL_CHANNEL_TYPES:
-                    # Main channel - use the channel_name for display (e.g., "logic_1")
                     channels.append({
                         'id': ch_id,
                         'name': ch_display_name,
                         'unit': ch.get('unit', ''),
                         'channel_type': ch_type,
-                        'channel_id': virtual_channel_id
+                        'channel_id': runtime_id  # Use actual ID from config
                     })
-                    virtual_channel_id += 1
-
-                    # Timer has additional sub-properties
-                    if ch_type == 'timer':
-                        # .elapsed - elapsed time
-                        channels.append({
-                            'id': f'{ch_id}.elapsed',
-                            'name': f'{ch_display_name} - Elapsed',
-                            'unit': 'ms',
-                            'channel_type': 'timer_elapsed',
-                            'channel_id': virtual_channel_id
-                        })
-                        virtual_channel_id += 1
-                        # .running - is timer running
-                        channels.append({
-                            'id': f'{ch_id}.running',
-                            'name': f'{ch_display_name} - Running',
-                            'unit': '',
-                            'channel_type': 'timer_running',
-                            'channel_id': virtual_channel_id
-                        })
-                        virtual_channel_id += 1
         except Exception:
             pass
 
         self.set_channels(channels)
-
-        # If already connected, initialize constant channels
-        if self._connected:
-            self._update_constant_channels()

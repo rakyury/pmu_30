@@ -1,10 +1,13 @@
 """
 PMU-30 Binary Protocol Implementation
 
-Frame Format:
+Uses shared protocol from shared/python/protocol.py for CRC calculation.
+Provides configurator-specific message types and frame builders.
+
+Frame Format (matches firmware pmu_protocol.h):
 ┌──────┬────────┬───────┬─────────────┬───────┐
 │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
-│ 1B   │ 2B     │ 1B    │ Variable    │ 2B    │
+│ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
 └──────┴────────┴───────┴─────────────┴───────┘
 
 - Start byte: 0xAA (fixed)
@@ -18,6 +21,17 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional
 import struct
+import sys
+from pathlib import Path
+
+# Add shared path for protocol imports
+# Path: communication/protocol.py -> src -> configurator -> pmu_30 -> shared/python
+_shared_path = Path(__file__).parent.parent.parent.parent / "shared" / "python"
+if str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+# Import CRC calculation from shared protocol
+from protocol import calc_crc16 as _shared_crc16
 
 
 class MessageType(IntEnum):
@@ -117,23 +131,17 @@ def crc16_ccitt(data: bytes, initial: int = 0xFFFF) -> int:
     """
     Calculate CRC-16-CCITT checksum.
 
+    Uses shared protocol implementation for consistency with firmware.
+
     Args:
         data: Data bytes to calculate CRC over
-        initial: Initial CRC value (default 0xFFFF)
+        initial: Initial CRC value (default 0xFFFF, only value supported)
 
     Returns:
         16-bit CRC value
     """
-    crc = initial
-    for byte in data:
-        crc ^= byte << 8
-        for _ in range(8):
-            if crc & 0x8000:
-                crc = (crc << 1) ^ 0x1021
-            else:
-                crc <<= 1
-            crc &= 0xFFFF
-    return crc
+    # Use shared protocol CRC (always uses 0xFFFF initial)
+    return _shared_crc16(data)
 
 
 def encode_frame(frame: ProtocolFrame) -> bytes:

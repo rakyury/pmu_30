@@ -25,6 +25,11 @@ cmd //c "set PATH=C:\\msys64\\ucrt64\\bin;%PATH% && cd c:\\Projects\\pmu_30\\fir
 cmd //c "set PATH=C:\\msys64\\ucrt64\\bin;%PATH% && cd c:\\Projects\\pmu_30\\firmware && python -m platformio run -e nucleo_f446re"
 ```
 
+### Run Configurator
+```bash
+cd c:/Projects/pmu_30/configurator/src && start "" python main.py
+```
+
 ## Architecture
 
 - **Firmware**: Binary config only (no JSON), Channel Executor for virtual channels
@@ -120,6 +125,61 @@ if (++input_count >= 200) {
 ```
 
 **Timer accuracy**: ~10% faster than real time (10000ms ≈ 9 real seconds). This is because 200 loop iterations complete slightly faster than 1ms.
+
+### Telemetry Packet Format (Nucleo-F446RE)
+
+**IMPORTANT**: Configurator's telemetry parser must match firmware format EXACTLY.
+
+Firmware telemetry format (`pmu_protocol.c` → `PMU_Protocol_SendTelemetry()`):
+```
+Offset   Size   Field
+------   ----   -----
+0        4      stream_counter (uint32)
+4        4      timestamp_ms (uint32)
+8        30     output_states[30] (1 byte each)
+38       40     adc_values[20] (uint16 each = 40 bytes)
+78       1      digital_inputs (packed bitmask, 8 bits)
+79       15     reserved (was timer debug)
+94       2      voltage_mv (uint16)
+96       2      current_ma (uint16)
+98       2      mcu_temp_c (int16)
+100      2      board_temp_c (int16)
+102      1      fault_status (uint8)
+103      1      fault_flags (uint8)
+104      2      virtual_count (uint16)
+106+     6*N    virtual_channels: [id(2) + value(4)] × count
+```
+
+Parser file: `configurator/src/communication/telemetry.py` → `_parse_telemetry_nucleo()`
+
+### Variables Inspector Channel ID Mapping
+
+**CRITICAL**: Variables Inspector MUST use actual `channel_id` from config, NOT sequential IDs.
+
+```python
+# ПРАВИЛЬНО - use actual channel_id from config
+runtime_id = ch.get('channel_id')  # e.g., 200, 203, 207
+
+# НЕПРАВИЛЬНО - sequential assignment breaks telemetry mapping
+virtual_channel_id = 200
+virtual_channel_id += 1  # DON'T DO THIS
+```
+
+Channel IDs are assigned by `BaseChannelDialog` using `get_next_channel_id()` and stored in config. Firmware uses these exact IDs in telemetry.
+
+### Protocol CRC
+
+CRC16-CCITT (init: 0xFFFF, poly: 0x1021) calculated over `[Length_L, Length_H, CMD, Payload]` - excludes 0xAA start byte.
+
+Shared implementation: `shared/python/protocol.py` → `calc_crc16()`
+
+**DO NOT** create custom CRC implementations in configurator - import from shared.
+
+### Flash Config Persistence
+
+- Firmware saves to Sector 7 (0x08060000) with header: `[magic:4][size:2][crc16:2]`
+- `PMU_Protocol_LoadSavedConfig()` loads at startup
+- Configurator uses `device_controller.save_to_flash()` which waits for FLASH_ACK
 
 ## Deprecated (removed)
 

@@ -45,12 +45,17 @@ class MainWindowConfigMixin:
             self._load_configuration_file(filename)
 
     def _load_configuration_file(self, filename: str):
-        """Load configuration from a specific file path."""
+        """Load configuration from a specific file path and upload to device if connected."""
         success, error_msg = self.config_manager.load_from_file(filename)
         if success:
             self._load_config_to_ui()
             self.status_message.setText(f"Loaded: {filename}")
             logger.info(f"Configuration loaded from file: {filename}")
+
+            # Auto-upload to device if connected
+            if self.device_controller.is_connected():
+                self._send_config_to_device_silent()
+                logger.info("Configuration auto-uploaded to device")
         else:
             QMessageBox.critical(self, "Error", error_msg)
             logger.error(f"Failed to load configuration: {error_msg}")
