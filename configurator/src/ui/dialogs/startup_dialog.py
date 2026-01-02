@@ -129,7 +129,7 @@ class StartupDialog(QDialog):
                 self,
                 "Open Configuration",
                 str(Path.home()),
-                "PMU-30 Configuration (*.pmu30 *.json);;All Files (*.*)"
+                "PMU-30 Configuration (*.pmu30);;All Files (*.*)"
             )
             if file_path:
                 self.selected_file = file_path

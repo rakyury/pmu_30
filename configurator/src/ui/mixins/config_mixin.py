@@ -38,7 +38,7 @@ class MainWindowConfigMixin:
         """Open configuration file."""
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open Configuration", "",
-            "PMU-30 Configuration (*.pmu30 *.json);;All Files (*.*)"
+            "PMU-30 Configuration (*.pmu30);;All Files (*.*)"
         )
 
         if filename:
@@ -74,7 +74,7 @@ class MainWindowConfigMixin:
         """Save configuration as."""
         filename, _ = QFileDialog.getSaveFileName(
             self, "Save Configuration As", "",
-            "JSON Files (*.json);;All Files (*.*)"
+            "PMU-30 Configuration (*.pmu30);;All Files (*.*)"
         )
 
         if filename:
