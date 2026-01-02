@@ -181,6 +181,73 @@ Shared implementation: `shared/python/protocol.py` → `calc_crc16()`
 - `PMU_Protocol_LoadSavedConfig()` loads at startup
 - Configurator uses `device_controller.save_to_flash()` which waits for FLASH_ACK
 
+### Output Telemetry Sync (PROFET API)
+
+**CRITICAL**: `pmu_channel_exec.c` must use `PMU_PROFET_SetState()` NOT `NucleoOutput_SetState()` for output control.
+
+```c
+// ПРАВИЛЬНО - обновляет и физический выход, и stub_channels[] для телеметрии
+PMU_PROFET_SetState(link->hw_index, state);
+
+// НЕПРАВИЛЬНО - обновляет только физический выход, телеметрия покажет 0
+NucleoOutput_SetState(link->hw_index, state);
+```
+
+Flow: `PMU_PROFET_SetState()` → `stub_channels[ch].state = ON/OFF` → telemetry reads `stub_channels[]`
+
+### Configurator Widgets Require Config
+
+**Output Monitor** and **Variables Inspector** require channels to be configured BEFORE showing telemetry updates:
+
+1. **Output Monitor** (`output_monitor.py`): `set_outputs()` populates table with Power Output channels. Empty table = no config loaded.
+
+2. **Variables Inspector** (`variables_inspector.py`): `set_channels()` builds `_channel_id_map[runtime_id] = ch_id`. Without this mapping, `update_from_telemetry()` silently skips all updates.
+
+3. **Telemetry Mixin** (`telemetry_mixin.py:64-73`): Only calls `variables_inspector.update_from_telemetry()` if `telemetry.virtual_channels` is not empty.
+
+**Симптом**: "статус вариейблов/выходов не обновляется" → проверить что конфигурация загружена в конфигуратор.
+
+### Protocol Command IDs
+
+Firmware uses these command IDs (NOT 0x10, 0x11, 0x20):
+
+| Command | ID | Notes |
+|---------|-----|-------|
+| START_STREAM | 0x30 | Subscribe to telemetry |
+| STOP_STREAM | 0x31 | Unsubscribe |
+| DATA | 0x32 | Telemetry packet |
+| LOAD_BINARY_CONFIG | 0x68 | Channel config upload |
+| BINARY_CONFIG_ACK | 0x69 | Config acknowledgment |
+| ACK | 0xE0 | Generic ACK |
+
+See `firmware/include/pmu_protocol.h` and `configurator/src/communication/protocol.py`.
+
+### Quick Firmware Test Script
+
+For testing firmware telemetry directly (bypassing configurator):
+
+```python
+import serial, struct, time
+
+def crc16(data):
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = (crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1
+        crc &= 0xFFFF
+    return crc
+
+def build_packet(cmd, payload=b''):
+    header = struct.pack('<BHB', 0xAA, len(payload), cmd)
+    crc = crc16(struct.pack('<HB', len(payload), cmd) + payload)
+    return header + payload + struct.pack('<H', crc)
+
+ser = serial.Serial('COM11', 115200, timeout=0.2)
+ser.write(build_packet(0x30))  # START_STREAM
+# Parse responses: cmd=0x32 is DATA, byte 78 is DIN bitmask, bytes 8-37 are output states
+```
+
 ## Deprecated (removed)
 
 - `pmu_config_json.c` - JSON config parsing
