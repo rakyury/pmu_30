@@ -9,12 +9,19 @@ Owner: R2 m-sport
 
 import logging
 import struct
+import sys
 import threading
 import time
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 import serial.tools.list_ports
+
+# Add shared library to path for channel_config import
+_shared_path = Path(__file__).parent.parent.parent.parent / "shared" / "python"
+if str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
 
 from communication.protocol import MessageType
 from communication.telemetry import parse_telemetry
@@ -80,6 +87,12 @@ class DeviceController(QObject):
         self._channel_config_ack_event = threading.Event()
         self._channel_config_ack_success = False
         self._channel_config_ack_error_msg = ""
+
+        # Binary config upload state
+        self._binary_config_ack_event = threading.Event()
+        self._binary_config_ack_success = False
+        self._binary_config_ack_error = 0
+        self._binary_config_channels_loaded = 0
 
         # Auto-reconnect state
         self._auto_reconnect_enabled = True
@@ -281,14 +294,22 @@ class DeviceController(QObject):
         # Stop telemetry stream first to avoid interference
         stop_frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
         self._send_frame(stop_frame)
-        time.sleep(0.2)  # Give device time to stop stream
+        time.sleep(0.5)  # Give device time to stop stream and flush
 
-        # Clear any pending data from transport buffer
+        # Clear any pending data from transport buffer (multiple attempts)
         if hasattr(self._transport, 'receive'):
-            try:
-                self._transport.receive(4096, timeout=0.1)  # Flush buffer
-            except Exception:
-                pass
+            for _ in range(5):
+                try:
+                    data = self._transport.receive(4096, timeout=0.1)
+                    if not data:
+                        break
+                    logger.debug(f"Cleared {len(data)} bytes from buffer")
+                    time.sleep(0.05)
+                except Exception:
+                    break
+
+        # Clear protocol handler's internal buffer
+        self._protocol.clear_buffer()
 
         # Reset config assembler
         self._config_assembler.reset()
@@ -302,12 +323,15 @@ class DeviceController(QObject):
             return None
         logger.debug("GET_CONFIG sent successfully, waiting for response...")
 
+        # Small delay to let device prepare response
+        time.sleep(0.3)
+
         # For Serial transport, do synchronous receive (no receive thread running)
         if self._connection_type == "USB Serial":
             start_time = time.time()
             while time.time() - start_time < timeout:
-                # Read available data
-                data = self._transport.receive(4096, timeout=0.5)
+                # Read available data with longer timeout for complete frames
+                data = self._transport.receive(4096, timeout=1.0)
                 if data:
                     logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
                     # Feed to protocol handler
@@ -320,6 +344,11 @@ class DeviceController(QObject):
                         break
                 else:
                     time.sleep(0.05)
+
+            # Check if we exited due to timeout
+            if not self._config_event.is_set():
+                logger.error(f"Timeout waiting for config ({timeout}s) - no CONFIG_DATA received")
+                return None
         else:
             # For async transports (Emulator, WiFi), wait for event from receive thread
             if not self._config_event.wait(timeout):
@@ -329,21 +358,31 @@ class DeviceController(QObject):
         # Get assembled config data
         config_data = self._config_assembler.get_data()
         if config_data is None:
-            logger.error("Failed to assemble config chunks")
+            logger.error("Failed to assemble config chunks - incomplete data")
             return None
 
-        # Parse JSON
+        # Parse binary config (raw channel data without file header)
         try:
-            import json
-            config_str = config_data.decode('utf-8')
-            config = json.loads(config_str)
-            logger.info(f"Configuration received: {len(config_str)} bytes")
+            from models.binary_config import BinaryConfigManager
+            binary_manager = BinaryConfigManager()
+            success, error = binary_manager.load_from_raw_bytes(config_data)
+
+            if not success:
+                logger.error(f"Failed to parse binary config: {error}")
+                return None
+
+            # Convert binary channels to UI config format
+            config = {"channels": []}
+            for ch in binary_manager.channels:
+                ch_dict = _channel_to_dict(ch)
+                if ch_dict:
+                    config["channels"].append(ch_dict)
+
+            logger.info(f"Configuration received: {len(config_data)} bytes, {len(config['channels'])} channels")
             return config
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse config JSON: {e}")
-            return None
+
         except Exception as e:
-            logger.error(f"Error processing config: {e}")
+            logger.error(f"Error processing binary config: {e}")
             return None
 
     def update_firmware(self, firmware_path: str, progress_callback=None) -> bool:
@@ -576,6 +615,20 @@ class DeviceController(QObject):
                     self._channel_config_ack_error_msg = str(e)
                 self._channel_config_ack_event.set()
 
+            elif msg_type == MessageType.BINARY_CONFIG_ACK:
+                # Parse binary config ACK: success (1B) + error_code (1B) + channels_loaded (2B) + ...
+                if len(payload) >= 4:
+                    self._binary_config_ack_success = payload[0] == 1
+                    self._binary_config_ack_error = payload[1]
+                    self._binary_config_channels_loaded = payload[2] | (payload[3] << 8)
+                else:
+                    self._binary_config_ack_success = len(payload) >= 1 and payload[0] == 1
+                    self._binary_config_ack_error = payload[1] if len(payload) >= 2 else 0
+                    self._binary_config_channels_loaded = 0
+                self._binary_config_ack_event.set()
+                logger.info(f"Binary config ACK: success={self._binary_config_ack_success}, "
+                           f"error={self._binary_config_ack_error}, channels={self._binary_config_channels_loaded}")
+
             elif msg_type == MessageType.CONFIG_DATA:
                 # Use protocol handler to parse config chunk
                 chunk_idx, total_chunks, chunk_data = ProtocolHandler.parse_config_chunk(payload)
@@ -644,11 +697,14 @@ class DeviceController(QObject):
         try:
             data = self._transport.receive(1024, timeout=0.01)
             if data:
+                logger.debug(f"Serial poll RX: {len(data)} bytes")
                 messages = self._protocol.feed_data(data)
+                if messages:
+                    logger.debug(f"Parsed {len(messages)} messages")
                 for msg in messages:
                     self._handle_message(msg.msg_type, msg.payload)
         except Exception as e:
-            logger.debug(f"Serial poll error: {e}")
+            logger.warning(f"Serial poll error: {e}")
 
     def set_channel(self, channel_id: int, value: float) -> bool:
         """Set channel value (live, not saved to flash)."""
@@ -660,11 +716,100 @@ class DeviceController(QObject):
             return True
         return False
 
+    def upload_binary_config(self, binary_data: bytes, timeout: float = 5.0) -> bool:
+        """Upload binary configuration to device and wait for ACK.
+
+        Args:
+            binary_data: Binary config data (serialized channels)
+            timeout: Timeout in seconds to wait for ACK
+
+        Returns:
+            True if config was uploaded successfully (ACK received)
+        """
+        if not self._is_connected:
+            logger.warning("Cannot upload config: not connected")
+            return False
+
+        # Stop serial polling timer to prevent it from stealing our ACK
+        polling_was_active = self._serial_poll_timer.isActive()
+        if polling_was_active:
+            self._serial_poll_timer.stop()
+            logger.debug("Stopped serial polling for config upload")
+
+        # Reset ACK state (use BINARY_CONFIG_ACK, not CONFIG_ACK!)
+        self._binary_config_ack_event.clear()
+        self._binary_config_ack_success = False
+        self._binary_config_ack_error = 0
+        self._binary_config_channels_loaded = 0
+
+        # Send in chunks
+        chunk_size = 1024
+        chunks = [binary_data[i:i + chunk_size] for i in range(0, len(binary_data), chunk_size)]
+        total_chunks = len(chunks)
+
+        logger.info(f"Uploading binary config: {len(binary_data)} bytes in {total_chunks} chunks")
+
+        for idx, chunk in enumerate(chunks):
+            frame = self._build_binary_config_frame(idx, total_chunks, chunk)
+            if not self._send_frame(frame):
+                logger.error(f"Failed to send chunk {idx + 1}/{total_chunks}")
+                return False
+            # Small delay between chunks to avoid overwhelming device
+            time.sleep(0.02)
+
+        logger.info("All chunks sent, waiting for BINARY_CONFIG_ACK (0x69)...")
+
+        try:
+            # For Serial transport, do synchronous receive (no receive thread running)
+            if self._connection_type == "USB Serial":
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    data = self._transport.receive(4096, timeout=0.5)
+                    if data:
+                        logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
+                        messages = self._protocol.feed_data(data)
+                        for msg in messages:
+                            self._handle_message(msg.msg_type, msg.payload)
+
+                        if self._binary_config_ack_event.is_set():
+                            break
+                    else:
+                        time.sleep(0.05)
+            else:
+                # For async transports (Emulator, WiFi), wait for event from receive thread
+                if not self._binary_config_ack_event.wait(timeout):
+                    logger.error(f"Timeout waiting for BINARY_CONFIG_ACK ({timeout}s)")
+                    return False
+
+            if self._binary_config_ack_success:
+                logger.info(f"Binary config uploaded successfully: {self._binary_config_channels_loaded} channels loaded")
+                return True
+            else:
+                logger.error(f"Config upload failed: error code {self._binary_config_ack_error}")
+                return False
+        finally:
+            # Always restart polling timer if it was active
+            if polling_was_active:
+                self._serial_poll_timer.start()
+                logger.debug("Restarted serial polling after config upload")
+
+    def _build_binary_config_frame(self, chunk_idx: int, total_chunks: int, chunk: bytes) -> bytes:
+        """Build protocol frame for binary config chunk."""
+        header = struct.pack('<HH', chunk_idx, total_chunks)
+        payload = header + chunk
+        return self._protocol.build_frame(MessageType.LOAD_BINARY_CONFIG, payload)
+
     def save_to_flash(self, timeout: float = 5.0) -> bool:
         """Save current configuration to flash."""
         if not self._is_connected:
             logger.warning("Cannot save to flash: not connected")
             return False
+
+        # Stop serial polling timer to prevent it from stealing our ACK
+        polling_was_active = self._serial_poll_timer.isActive()
+        if polling_was_active:
+            self._serial_poll_timer.stop()
+            logger.debug("Stopped serial polling for flash save")
 
         # Reset ACK state
         self._flash_ack_event.clear()
@@ -674,36 +819,44 @@ class DeviceController(QObject):
 
         if not self._send_frame(frame):
             logger.error("Failed to send SAVE_TO_FLASH command")
+            if polling_was_active:
+                self._serial_poll_timer.start()
             return False
 
         logger.info("Save to flash requested, waiting for ACK...")
 
-        # For Serial transport, do synchronous receive (no receive thread)
-        if self._connection_type == "USB Serial":
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                data = self._transport.receive(4096, timeout=0.5)
-                if data:
-                    logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
-                    messages = self._protocol.feed_data(data)
-                    for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload)
+        try:
+            # For Serial transport, do synchronous receive (no receive thread)
+            if self._connection_type == "USB Serial":
+                start_time = time.time()
+                while time.time() - start_time < timeout:
+                    data = self._transport.receive(4096, timeout=0.5)
+                    if data:
+                        logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
+                        messages = self._protocol.feed_data(data)
+                        for msg in messages:
+                            self._handle_message(msg.msg_type, msg.payload)
 
-                    if self._flash_ack_event.is_set():
-                        break
-                else:
-                    time.sleep(0.05)
-        else:
-            if not self._flash_ack_event.wait(timeout):
-                logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
+                        if self._flash_ack_event.is_set():
+                            break
+                    else:
+                        time.sleep(0.05)
+            else:
+                if not self._flash_ack_event.wait(timeout):
+                    logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
+                    return False
+
+            if self._flash_ack_success:
+                logger.info("Configuration saved to flash successfully")
+                return True
+            else:
+                logger.error("Flash save failed")
                 return False
-
-        if self._flash_ack_success:
-            logger.info("Configuration saved to flash successfully")
-            return True
-        else:
-            logger.error("Flash save failed")
-            return False
+        finally:
+            # Always restart polling timer if it was active
+            if polling_was_active:
+                self._serial_poll_timer.start()
+                logger.debug("Restarted serial polling after flash save")
 
     def restart_device(self) -> bool:
         """Restart the device."""
@@ -762,3 +915,190 @@ class DeviceController(QObject):
             logger.debug(f"Injected CAN message bus={bus_id} id=0x{can_id:X}")
             return True
         return False
+
+
+# ============================================================================
+# Helper Functions for Binary Config Conversion
+# ============================================================================
+
+def _channel_to_dict(channel) -> Optional[Dict[str, Any]]:
+    """
+    Convert binary Channel object to UI-compatible dict format.
+
+    Args:
+        channel: Channel object from binary_config.py
+
+    Returns:
+        Dict compatible with UI project_tree format
+    """
+    from channel_config import ChannelType, HwDevice, CH_REF_NONE
+
+    # Channel type mapping (binary -> UI string)
+    TYPE_MAP = {
+        ChannelType.DIGITAL_INPUT: "digital_input",
+        ChannelType.ANALOG_INPUT: "analog_input",
+        ChannelType.FREQUENCY_INPUT: "frequency_input",
+        ChannelType.CAN_INPUT: "can_rx",
+        ChannelType.POWER_OUTPUT: "power_output",
+        ChannelType.PWM_OUTPUT: "pwm_output",
+        ChannelType.HBRIDGE: "hbridge",
+        ChannelType.CAN_OUTPUT: "can_tx",
+        ChannelType.TIMER: "timer",
+        ChannelType.LOGIC: "logic",
+        ChannelType.MATH: "math",
+        ChannelType.TABLE_2D: "table_2d",
+        ChannelType.TABLE_3D: "table_3d",
+        ChannelType.FILTER: "filter",
+        ChannelType.PID: "pid",
+        ChannelType.NUMBER: "number",
+        ChannelType.SWITCH: "switch",
+        ChannelType.ENUM: "enum",
+        ChannelType.COUNTER: "counter",
+        ChannelType.HYSTERESIS: "hysteresis",
+        ChannelType.FLIPFLOP: "flipflop",
+    }
+
+    ch_type_str = TYPE_MAP.get(channel.type)
+    if not ch_type_str:
+        logger.debug(f"Unknown channel type: {channel.type}")
+        return None
+
+    result = {
+        "channel_id": channel.id,
+        "channel_type": ch_type_str,
+        "name": channel.name,
+        "enabled": bool(channel.flags & 0x01),
+    }
+
+    # Add source_id if set
+    if channel.source_id != CH_REF_NONE:
+        result["source_channel"] = channel.source_id
+
+    # Add hardware info
+    if channel.hw_device != HwDevice.NONE:
+        result["hw_device"] = channel.hw_device
+        result["hw_index"] = channel.hw_index
+
+    # Parse type-specific config
+    if channel.config:
+        _parse_channel_config(result, ch_type_str, channel.config)
+
+    return result
+
+
+def _parse_channel_config(result: Dict, ch_type: str, config) -> None:
+    """Parse type-specific channel config into UI dict format."""
+    from channel_config import CH_REF_NONE
+
+    # Hardware input channels
+    if ch_type == "digital_input":
+        result["debounce_ms"] = getattr(config, 'debounce_ms', 0)
+        result["active_high"] = bool(getattr(config, 'active_high', 1))
+        result["use_pullup"] = bool(getattr(config, 'use_pullup', 1))
+
+    elif ch_type == "analog_input":
+        result["raw_min"] = getattr(config, 'raw_min', 0)
+        result["raw_max"] = getattr(config, 'raw_max', 4095)
+        result["scaled_min"] = getattr(config, 'scaled_min', 0)
+        result["scaled_max"] = getattr(config, 'scaled_max', 1000)
+        result["filter_ms"] = getattr(config, 'filter_ms', 0)
+        result["samples"] = getattr(config, 'samples', 1)
+
+    elif ch_type == "frequency_input":
+        result["min_freq_hz"] = getattr(config, 'min_freq_hz', 0)
+        result["max_freq_hz"] = getattr(config, 'max_freq_hz', 10000)
+        result["edge_mode"] = getattr(config, 'edge_mode', 0)
+
+    elif ch_type == "can_rx":
+        result["can_id"] = getattr(config, 'can_id', 0)
+        result["bus"] = getattr(config, 'bus', 0)
+        result["is_extended"] = bool(getattr(config, 'is_extended', 0))
+        result["start_bit"] = getattr(config, 'start_bit', 0)
+        result["bit_length"] = getattr(config, 'bit_length', 8)
+
+    # Hardware output channels
+    elif ch_type == "power_output":
+        result["current_limit_ma"] = getattr(config, 'current_limit_ma', 5000)
+        result["inrush_time_ms"] = getattr(config, 'inrush_time_ms', 100)
+        result["inrush_limit_ma"] = getattr(config, 'inrush_limit_ma', 5000)
+
+    elif ch_type == "pwm_output":
+        result["frequency_hz"] = getattr(config, 'frequency_hz', 1000)
+        result["min_duty"] = getattr(config, 'min_duty', 0)
+        result["max_duty"] = getattr(config, 'max_duty', 10000)
+
+    elif ch_type == "hbridge":
+        result["frequency_hz"] = getattr(config, 'frequency_hz', 1000)
+        result["deadband_us"] = getattr(config, 'deadband_us', 0)
+
+    # Virtual channels
+    elif ch_type == "timer":
+        result["timer_mode"] = _timer_mode_name(config.mode)
+        result["start_channel"] = config.trigger_id if config.trigger_id != CH_REF_NONE else None
+        # Convert delay_ms to hours/minutes/seconds
+        total_seconds = config.delay_ms // 1000
+        result["limit_hours"] = total_seconds // 3600
+        result["limit_minutes"] = (total_seconds % 3600) // 60
+        result["limit_seconds"] = total_seconds % 60
+
+    elif ch_type == "logic":
+        result["operation"] = _logic_op_name(config.operation)
+        result["input_channels"] = [ch for ch in config.inputs[:config.input_count] if ch != CH_REF_NONE]
+        result["compare_value"] = config.compare_value
+        result["invert_output"] = bool(config.invert_output)
+
+    elif ch_type == "filter":
+        result["input_channel"] = config.input_id if config.input_id != CH_REF_NONE else None
+        result["time_constant"] = config.time_constant_ms / 1000.0
+
+    elif ch_type == "table_2d":
+        result["x_axis_channel"] = config.input_id if config.input_id != CH_REF_NONE else None
+        result["x_values"] = list(config.x_values[:config.point_count])
+        result["output_values"] = list(config.y_values[:config.point_count])
+
+    elif ch_type == "number":
+        result["constant_value"] = config.value / 100.0
+        result["min_value"] = config.min_value
+        result["max_value"] = config.max_value
+        result["step"] = config.step
+
+    elif ch_type == "pid":
+        result["setpoint_channel"] = config.setpoint_id if config.setpoint_id != CH_REF_NONE else None
+        result["feedback_channel"] = config.feedback_id if config.feedback_id != CH_REF_NONE else None
+        result["kp"] = config.kp / 1000.0
+        result["ki"] = config.ki / 1000.0
+        result["kd"] = config.kd / 1000.0
+        result["output_min"] = config.output_min
+        result["output_max"] = config.output_max
+
+    elif ch_type == "math":
+        result["operation"] = _math_op_name(config.operation)
+        result["input_channels"] = [ch for ch in config.inputs[:config.input_count] if ch != CH_REF_NONE]
+        result["constant"] = config.constant
+        result["min_value"] = config.min_value
+        result["max_value"] = config.max_value
+
+
+def _timer_mode_name(mode: int) -> str:
+    """Convert timer mode int to string."""
+    modes = {0: "one_shot", 1: "retriggerable", 2: "delay", 3: "pulse", 4: "blink"}
+    return modes.get(mode, "one_shot")
+
+
+def _logic_op_name(op: int) -> str:
+    """Convert logic operation int to string."""
+    ops = {
+        0x00: "and", 0x01: "or", 0x02: "xor", 0x03: "nand", 0x04: "nor",
+        0x06: "is_true", 0x07: "is_false",
+        0x10: "greater", 0x11: "greater_equal", 0x12: "less", 0x13: "less_equal",
+        0x14: "equal", 0x15: "not_equal",
+        0x20: "range", 0x21: "outside"
+    }
+    return ops.get(op, "is_true")
+
+
+def _math_op_name(op: int) -> str:
+    """Convert math operation int to string."""
+    ops = {0: "add", 1: "sub", 2: "mul", 3: "div", 4: "min", 5: "max",
+           6: "abs", 7: "neg", 8: "avg", 9: "scale", 10: "clamp"}
+    return ops.get(op, "add")
