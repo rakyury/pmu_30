@@ -28,7 +28,10 @@ from communication.telemetry import parse_telemetry
 
 # New modular components
 from .transport import TransportFactory
+from .telemetry_manager import TelemetryManager, TelemetryState
 from .protocol_handler import ProtocolHandler, ConfigAssembler
+from .request_tracker import RequestTracker
+from .connection_recovery import ConnectionRecoveryMachine, ConnectionConfig, ConnectionState
 
 
 logger = logging.getLogger(__name__)
@@ -60,12 +63,16 @@ class DeviceController(QObject):
         self._transport = None
         self._protocol = ProtocolHandler()
         self._config_assembler = ConfigAssembler()
+        self._request_tracker = RequestTracker()
 
         self._connection_type = None
         self._is_connected = False
         self._receive_thread = None
         self._stop_thread = threading.Event()
         self._telemetry_enabled = False
+
+        # Telemetry manager for centralized control
+        self._telemetry_manager = TelemetryManager(self)
 
         # Serial telemetry polling timer
         self._serial_poll_timer = QTimer()
@@ -94,19 +101,48 @@ class DeviceController(QObject):
         self._binary_config_ack_error = 0
         self._binary_config_channels_loaded = 0
 
-        # Auto-reconnect state
-        self._auto_reconnect_enabled = True
-        self._reconnect_interval = 3.0  # seconds between attempts
-        self._max_reconnect_attempts = 10
-        self._last_connection_config = None
-        self._reconnect_thread = None
-        self._reconnect_attempt = 0
-        self._stop_reconnect = threading.Event()
-        self._user_disconnected = False  # True if user explicitly disconnected
+        # PING/PONG health check state
+        self._pong_event = threading.Event()
+
+        # Connection Recovery Machine (replaces manual reconnect logic)
+        self._recovery = ConnectionRecoveryMachine(
+            connect_fn=self._do_connect,
+            disconnect_fn=self._do_disconnect,
+            health_check_fn=self.ping,
+            config=ConnectionConfig(
+                auto_reconnect=True,
+                max_reconnect_attempts=10,
+                initial_reconnect_delay=1.0,
+                max_reconnect_delay=30.0,
+                backoff_multiplier=1.5,
+                health_check_enabled=False,  # Manual health checks for now
+            )
+        )
+        # Wire up recovery callbacks to Qt signals
+        self._recovery.on_state_changed = self._on_recovery_state_changed
+        self._recovery.on_reconnecting = lambda attempt, max_attempts: self.reconnecting.emit(attempt, max_attempts)
+        self._recovery.on_reconnect_failed = lambda: self.reconnect_failed.emit()
+
+        # Legacy state for backward compatibility
+        self._user_disconnected = False
 
     def is_connected(self) -> bool:
         """Check if device is connected."""
         return self._is_connected
+
+    @property
+    def telemetry(self) -> TelemetryManager:
+        """Get telemetry manager for stream control.
+
+        Usage:
+            controller.telemetry.start(rate_hz=10)
+            controller.telemetry.stop()
+
+            # Auto-restart after operations:
+            with controller.telemetry.paused("config_upload"):
+                controller.upload_binary_config(data)
+        """
+        return self._telemetry_manager
 
     def set_auto_reconnect(self, enabled: bool, interval: float = 3.0, max_attempts: int = 10):
         """
@@ -114,26 +150,29 @@ class DeviceController(QObject):
 
         Args:
             enabled: Enable/disable auto-reconnect
-            interval: Seconds between reconnection attempts
+            interval: Seconds between reconnection attempts (initial delay)
             max_attempts: Maximum number of attempts (0 = unlimited)
         """
-        self._auto_reconnect_enabled = enabled
-        self._reconnect_interval = max(1.0, interval)
-        self._max_reconnect_attempts = max(0, max_attempts)
+        self._recovery.configure(
+            auto_reconnect=enabled,
+            max_reconnect_attempts=max_attempts,
+            initial_reconnect_delay=max(1.0, interval),
+        )
         logger.info(f"Auto-reconnect: enabled={enabled}, interval={interval}s, max_attempts={max_attempts}")
 
     def is_auto_reconnect_enabled(self) -> bool:
         """Check if auto-reconnect is enabled."""
-        return self._auto_reconnect_enabled
+        return self._recovery._config.auto_reconnect
 
     def stop_reconnect(self):
         """Stop any ongoing reconnection attempts."""
-        self._stop_reconnect.set()
-        if self._reconnect_thread and self._reconnect_thread.is_alive():
-            self._reconnect_thread.join(timeout=1.0)
-        self._reconnect_thread = None
-        self._reconnect_attempt = 0
+        self._recovery._stop_reconnection()
         logger.info("Reconnection attempts stopped")
+
+    @property
+    def connection_state(self) -> ConnectionState:
+        """Get current connection state from recovery machine."""
+        return self._recovery.state
 
     def get_available_serial_ports(self) -> List[str]:
         """Get list of available serial ports."""
@@ -167,9 +206,15 @@ class DeviceController(QObject):
         Returns:
             True if connection successful
         """
-        # Stop any ongoing reconnection attempts
-        self.stop_reconnect()
+        self._user_disconnected = False
+        return self._recovery.request_connect(config)
 
+    def _do_connect(self, config: Dict[str, Any]) -> bool:
+        """Internal connection implementation called by recovery machine.
+
+        This performs the actual transport connection without triggering
+        the recovery machine (which would cause recursion).
+        """
         connection_type = config.get("type", "")
 
         try:
@@ -180,9 +225,6 @@ class DeviceController(QObject):
 
             self._connection_type = connection_type
             self._is_connected = True
-            self._user_disconnected = False
-            self._last_connection_config = config.copy()  # Save for auto-reconnect
-            self._reconnect_attempt = 0
 
             # Clear protocol buffers
             self._protocol.clear_buffer()
@@ -191,8 +233,6 @@ class DeviceController(QObject):
             # Start receive thread for async transports
             if connection_type in ("Emulator", "WiFi"):
                 self._start_receive_thread()
-
-            self.connected.emit()
 
             # Subscribe to telemetry after connection is established
             # Note: For Serial, telemetry starts after config is loaded (see _post_connection_setup)
@@ -205,39 +245,112 @@ class DeviceController(QObject):
         except Exception as e:
             error_msg = f"Connection failed: {str(e)}"
             logger.error(error_msg)
-            self.error.emit(error_msg)
             self._transport = None
             return False
 
-    def disconnect(self):
-        """Disconnect from device (user-initiated)."""
-        # Mark as user-disconnected to prevent auto-reconnect
-        self._user_disconnected = True
-
-        # Stop any ongoing reconnection attempts
-        self.stop_reconnect()
-
+    def _do_disconnect(self):
+        """Internal disconnect implementation called by recovery machine."""
         # Stop serial polling timer if running
         if self._serial_poll_timer.isActive():
             self._serial_poll_timer.stop()
             logger.debug("Stopped serial polling timer")
 
-        # Stop receive thread first
+        # Stop receive thread
         self._stop_receive_thread()
 
         if self._transport:
             try:
                 self._transport.disconnect()
-                self._transport = None
-                self._is_connected = False
-                self._telemetry_enabled = False
-                self._protocol.clear_buffer()
-                self.disconnected.emit()
-
-                logger.info("Disconnected from device (user-initiated)")
-
             except Exception as e:
                 logger.error(f"Error disconnecting: {e}")
+            finally:
+                self._transport = None
+
+        self._is_connected = False
+        self._telemetry_enabled = False
+        self._protocol.clear_buffer()
+
+    def _on_recovery_state_changed(self, old_state: ConnectionState, new_state: ConnectionState):
+        """Handle state changes from the recovery machine."""
+        if new_state == ConnectionState.CONNECTED:
+            self.connected.emit()
+        elif new_state in (ConnectionState.DISCONNECTED, ConnectionState.SUSPENDED):
+            self.disconnected.emit()
+            if old_state == ConnectionState.CONNECTED:
+                self.error.emit("Connection lost")
+
+    def disconnect(self):
+        """Disconnect from device (user-initiated)."""
+        self._user_disconnected = True
+        self._recovery.request_disconnect()
+        logger.info("Disconnected from device (user-initiated)")
+
+
+    def ping(self, timeout: float = 1.0) -> bool:
+        """Send PING and wait for PONG response.
+
+        Args:
+            timeout: Maximum time to wait for PONG response
+
+        Returns:
+            True if PONG received within timeout, False otherwise
+        """
+        if not self._is_connected or not self._transport:
+            return False
+
+        self._pong_event.clear()
+
+        frame = self._protocol.build_frame(MessageType.PING)
+        if not self._send_frame(frame):
+            return False
+
+        # For Serial, we need to read the response ourselves
+        if self._connection_type == "USB Serial":
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                try:
+                    data = self._transport.receive(256, timeout=0.1)
+                    if data:
+                        messages = self._protocol.feed_data(data)
+                        for msg in messages:
+                            if msg.msg_type == MessageType.PONG:
+                                return True
+                            # Handle other messages silently
+                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+                except Exception:
+                    pass
+            return False
+        else:
+            # For async transports, wait on event
+            return self._pong_event.wait(timeout)
+
+    def _wait_for_device_ready(self, max_wait: float = 5.0, poll_interval: float = 0.5) -> bool:
+        """Wait for device to become responsive using PING/PONG.
+
+        After STOP_STREAM, firmware has a "dead period" where it doesn't respond.
+        This method polls with PING until device responds with PONG.
+
+        Args:
+            max_wait: Maximum total wait time in seconds
+            poll_interval: Time between PING attempts
+
+        Returns:
+            True if device responded, False if timeout
+        """
+        start_time = time.time()
+        attempts = 0
+
+        while time.time() - start_time < max_wait:
+            attempts += 1
+            if self.ping(timeout=poll_interval):
+                logger.debug(f"Device ready after {attempts} PING attempt(s), "
+                           f"{time.time() - start_time:.2f}s elapsed")
+                return True
+            # Small delay before next attempt
+            time.sleep(0.1)
+
+        logger.warning(f"Device not ready after {max_wait}s ({attempts} PING attempts)")
+        return False
 
     def send_command(self, command: bytes) -> Optional[bytes]:
         """
@@ -291,20 +404,31 @@ class DeviceController(QObject):
 
         logger.info("Reading configuration from device...")
 
-        # Stop telemetry stream first to avoid interference
+        # Stop serial polling timer - we need exclusive access to serial port
+        polling_was_active = self._serial_poll_timer.isActive()
+        if polling_was_active:
+            self._serial_poll_timer.stop()
+            logger.debug("Stopped serial polling for config read")
+
+        # Stop any running telemetry stream first.
+        # NOTE: After STOP_STREAM, firmware has a "dead period" where it
+        # doesn't respond to commands. We use PING/PONG to verify readiness.
         stop_frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
         self._send_frame(stop_frame)
-        time.sleep(0.5)  # Give device time to stop stream and flush
+        logger.debug("Sent STOP_STREAM, waiting for device ready...")
 
-        # Clear any pending data from transport buffer (multiple attempts)
+        # Use PING/PONG health check instead of fixed sleep
+        if not self._wait_for_device_ready(max_wait=5.0, poll_interval=0.3):
+            logger.warning("Device not responding to PING after STOP_STREAM, proceeding anyway")
+
+        # Clear any pending data from transport buffer (drain telemetry packets)
         if hasattr(self._transport, 'receive'):
             for _ in range(5):
                 try:
                     data = self._transport.receive(4096, timeout=0.1)
                     if not data:
                         break
-                    logger.debug(f"Cleared {len(data)} bytes from buffer")
-                    time.sleep(0.05)
+                    logger.debug(f"Drained {len(data)} bytes from buffer")
                 except Exception:
                     break
 
@@ -337,7 +461,7 @@ class DeviceController(QObject):
                     # Feed to protocol handler
                     messages = self._protocol.feed_data(data)
                     for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload)
+                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
 
                     # Check if config complete
                     if self._config_event.is_set():
@@ -348,17 +472,20 @@ class DeviceController(QObject):
             # Check if we exited due to timeout
             if not self._config_event.is_set():
                 logger.error(f"Timeout waiting for config ({timeout}s) - no CONFIG_DATA received")
+                self._restore_polling(polling_was_active)
                 return None
         else:
             # For async transports (Emulator, WiFi), wait for event from receive thread
             if not self._config_event.wait(timeout):
                 logger.error(f"Timeout waiting for config ({timeout}s)")
+                self._restore_polling(polling_was_active)
                 return None
 
         # Get assembled config data
         config_data = self._config_assembler.get_data()
         if config_data is None:
             logger.error("Failed to assemble config chunks - incomplete data")
+            self._restore_polling(polling_was_active)
             return None
 
         # Parse binary config (raw channel data without file header)
@@ -369,6 +496,7 @@ class DeviceController(QObject):
 
             if not success:
                 logger.error(f"Failed to parse binary config: {error}")
+                self._restore_polling(polling_was_active)
                 return None
 
             # Convert binary channels to UI config format
@@ -379,11 +507,19 @@ class DeviceController(QObject):
                     config["channels"].append(ch_dict)
 
             logger.info(f"Configuration received: {len(config_data)} bytes, {len(config['channels'])} channels")
+            self._restore_polling(polling_was_active)
             return config
 
         except Exception as e:
             logger.error(f"Error processing binary config: {e}")
+            self._restore_polling(polling_was_active)
             return None
+
+    def _restore_polling(self, was_active: bool):
+        """Restore serial polling timer if it was active before."""
+        if was_active and not self._serial_poll_timer.isActive():
+            self._serial_poll_timer.start()
+            logger.debug("Restored serial polling after config read")
 
     def update_firmware(self, firmware_path: str, progress_callback=None) -> bool:
         """
@@ -444,7 +580,7 @@ class DeviceController(QObject):
                     # Feed data to protocol handler and process messages
                     messages = self._protocol.feed_data(data)
                     for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload)
+                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
                 elif data == b'':
                     # Empty bytes means connection closed (for socket)
                     logger.warning("Connection closed by remote")
@@ -473,6 +609,9 @@ class DeviceController(QObject):
         if self._serial_poll_timer.isActive():
             self._serial_poll_timer.stop()
 
+        # Cancel all pending requests
+        self._request_tracker.cancel_all()
+
         if self._transport:
             try:
                 self._transport.disconnect()
@@ -480,87 +619,36 @@ class DeviceController(QObject):
                 pass
             self._transport = None
         self._protocol.clear_buffer()
-        self.disconnected.emit()
-        self.error.emit("Connection lost")
 
-        # Start auto-reconnect if enabled and not user-disconnected
-        if (self._auto_reconnect_enabled and
-            not self._user_disconnected and
-            self._last_connection_config):
-            self._start_reconnect()
+        # Notify recovery machine (handles auto-reconnect if enabled)
+        if not self._user_disconnected:
+            self._recovery.handle_connection_lost()
 
-    def _start_reconnect(self):
-        """Start auto-reconnect background thread."""
-        if self._reconnect_thread and self._reconnect_thread.is_alive():
-            return  # Already reconnecting
+    def _handle_message(self, msg_type: int, payload: bytes, seq_id: int = 0):
+        """Handle incoming message with SeqID for request-response correlation.
 
-        self._stop_reconnect.clear()
-        self._reconnect_attempt = 0
-        self._reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
-        self._reconnect_thread.start()
-        logger.info("Auto-reconnect started")
-
-    def _reconnect_loop(self):
-        """Background loop for reconnection attempts."""
-        while not self._stop_reconnect.is_set():
-            self._reconnect_attempt += 1
-
-            # Check if max attempts reached
-            if self._max_reconnect_attempts > 0 and self._reconnect_attempt > self._max_reconnect_attempts:
-                logger.warning(f"Max reconnection attempts ({self._max_reconnect_attempts}) reached")
-                self.reconnect_failed.emit()
-                break
-
-            logger.info(f"Reconnection attempt {self._reconnect_attempt}/{self._max_reconnect_attempts or '∞'}")
-            self.reconnecting.emit(self._reconnect_attempt, self._max_reconnect_attempts)
-
-            # Wait before attempting
-            if self._stop_reconnect.wait(self._reconnect_interval):
-                break  # Stop requested
-
-            # Try to reconnect using TransportFactory
-            try:
-                config = self._last_connection_config
-                connection_type = config.get("type", "")
-
-                self._transport = TransportFactory.create(config)
-                if not self._transport.connect():
-                    raise ConnectionError("Transport connect() returned False")
-
-                # Success!
-                self._connection_type = connection_type
-                self._is_connected = True
-                self._reconnect_attempt = 0
-                self._protocol.clear_buffer()
-
-                # Start receive thread for async transports
-                if connection_type in ("Emulator", "WiFi"):
-                    self._start_receive_thread()
-
-                self.connected.emit()
-
-                # Resubscribe to telemetry
-                if connection_type == "Emulator":
-                    self.subscribe_telemetry()
-
-                logger.info(f"Reconnected via {connection_type}")
-                break
-
-            except Exception as e:
-                logger.debug(f"Reconnection attempt {self._reconnect_attempt} failed: {e}")
-                self._transport = None
-                # Continue trying
-
-        logger.debug("Reconnect loop ended")
-
-    def _handle_message(self, msg_type: int, payload: bytes):
-        """Handle incoming message."""
+        Args:
+            msg_type: Message type
+            payload: Message payload
+            seq_id: Sequence ID from response (0 = broadcast/unsolicited)
+        """
         try:
             # Debug: log all non-telemetry messages
             if msg_type != MessageType.TELEMETRY_DATA:
-                logger.debug(f"RX msg_type=0x{msg_type:02X}, payload={len(payload)} bytes")
+                logger.debug(f"RX msg_type=0x{msg_type:02X}, seq_id=0x{seq_id:04X}, payload={len(payload)} bytes")
 
-            if msg_type == MessageType.TELEMETRY_DATA:
+            # Try to complete tracked request by SeqID first
+            if seq_id != 0:
+                if self._request_tracker.complete_by_seq_id(seq_id, payload):
+                    # Request completed via tracker, still process for events/signals
+                    pass
+
+            if msg_type == MessageType.PONG:
+                # PING response - signal the event
+                self._pong_event.set()
+                logger.debug("PONG received")
+
+            elif msg_type == MessageType.TELEMETRY_DATA:
                 telemetry = parse_telemetry(payload)
                 self.telemetry_received.emit(telemetry)
 
@@ -661,13 +749,87 @@ class DeviceController(QObject):
             logger.error(f"Send error: {e}")
             return False
 
+    def _send_tracked_request(self, msg_type: int, payload: bytes = b'',
+                               timeout: float = 5.0, description: str = "") -> Optional[bytes]:
+        """Send a request and wait for tracked response using SeqID.
+
+        This method:
+        1. Builds a frame with auto-assigned SeqID
+        2. Registers the request with RequestTracker
+        3. Sends the frame
+        4. Waits for response by SeqID
+
+        Args:
+            msg_type: Message type to send
+            payload: Message payload
+            timeout: Response timeout in seconds
+            description: Optional description for logging
+
+        Returns:
+            Response payload bytes, or None on timeout/error
+        """
+        if not self._is_connected or not self._transport:
+            logger.warning("Cannot send tracked request: not connected")
+            return None
+
+        # Build frame with auto-assigned SeqID
+        frame, seq_id = self._protocol.build_frame_with_seq_id(msg_type, payload)
+
+        # Determine expected response type
+        from .request_tracker import RESPONSE_TYPE_MAP
+        response_type = RESPONSE_TYPE_MAP.get(msg_type)
+        if response_type is None:
+            logger.warning(f"No response mapping for msg_type 0x{msg_type:02X}")
+            return None
+
+        # Register request with tracker
+        if not self._request_tracker.create_request(
+            seq_id=seq_id,
+            request_type=msg_type,
+            response_type=response_type,
+            timeout=timeout,
+            description=description or f"0x{msg_type:02X}"
+        ):
+            logger.error(f"Failed to create tracked request for 0x{msg_type:02X}")
+            return None
+
+        # Send frame
+        if not self._send_frame(frame):
+            self._request_tracker.cancel_by_seq_id(seq_id)
+            return None
+
+        # For Serial transport, do synchronous receive
+        if self._connection_type == "USB Serial":
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                data = self._transport.receive(4096, timeout=0.5)
+                if data:
+                    messages = self._protocol.feed_data(data)
+                    for msg in messages:
+                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+
+                # Check if our request was completed
+                if not self._request_tracker.is_pending_by_seq_id(seq_id):
+                    break
+                time.sleep(0.05)
+
+        # Wait for response (blocking)
+        return self._request_tracker.wait_for_response_by_seq_id(seq_id, timeout=timeout)
+
     def subscribe_telemetry(self, rate_hz: int = 10):
-        """Subscribe to telemetry streaming."""
+        """Subscribe to telemetry streaming.
+
+        Note: Prefer using self.telemetry.start() for managed streaming
+        with proper state tracking and auto-restart capabilities.
+        """
         payload = struct.pack('<H', rate_hz)
         frame = self._protocol.build_frame(MessageType.SUBSCRIBE_TELEMETRY, payload)
 
         if self._send_frame(frame):
             self._telemetry_enabled = True
+            # Sync TelemetryManager state
+            self._telemetry_manager._state = TelemetryState.STREAMING
+            self._telemetry_manager._rate_hz = rate_hz
             logger.info(f"Subscribed to telemetry at {rate_hz}Hz")
 
             # For Serial connections, start polling timer (async transports use receive thread)
@@ -677,7 +839,11 @@ class DeviceController(QObject):
                 logger.info(f"Started serial polling at {poll_interval}ms interval")
 
     def unsubscribe_telemetry(self):
-        """Unsubscribe from telemetry streaming."""
+        """Unsubscribe from telemetry streaming.
+
+        Note: Prefer using self.telemetry.stop() for managed streaming
+        with proper state tracking.
+        """
         # Stop serial polling timer if running
         if self._serial_poll_timer.isActive():
             self._serial_poll_timer.stop()
@@ -687,6 +853,9 @@ class DeviceController(QObject):
 
         if self._send_frame(frame):
             self._telemetry_enabled = False
+            # Sync TelemetryManager state (if not paused - pause handles its own state)
+            if self._telemetry_manager._state != TelemetryState.PAUSED:
+                self._telemetry_manager._state = TelemetryState.STOPPED
             logger.info("Unsubscribed from telemetry")
 
     def _poll_serial_telemetry(self):
@@ -697,12 +866,9 @@ class DeviceController(QObject):
         try:
             data = self._transport.receive(1024, timeout=0.01)
             if data:
-                logger.debug(f"Serial poll RX: {len(data)} bytes")
                 messages = self._protocol.feed_data(data)
-                if messages:
-                    logger.debug(f"Parsed {len(messages)} messages")
                 for msg in messages:
-                    self._handle_message(msg.msg_type, msg.payload)
+                    self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
         except Exception as e:
             logger.warning(f"Serial poll error: {e}")
 
@@ -735,6 +901,19 @@ class DeviceController(QObject):
         if polling_was_active:
             self._serial_poll_timer.stop()
             logger.debug("Stopped serial polling for config upload")
+
+        # Clear any pending data in buffers to ensure clean state
+        self._protocol.clear_buffer()
+        if hasattr(self._transport, 'receive'):
+            # Flush serial input buffer
+            for _ in range(5):
+                try:
+                    flushed = self._transport.receive(4096, timeout=0.05)
+                    if not flushed:
+                        break
+                    logger.debug(f"Flushed {len(flushed)} bytes from serial buffer")
+                except Exception:
+                    break
 
         # Reset ACK state (use BINARY_CONFIG_ACK, not CONFIG_ACK!)
         self._binary_config_ack_event.clear()
@@ -769,7 +948,7 @@ class DeviceController(QObject):
                         logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
                         messages = self._protocol.feed_data(data)
                         for msg in messages:
-                            self._handle_message(msg.msg_type, msg.payload)
+                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
 
                         if self._binary_config_ack_event.is_set():
                             break
@@ -835,7 +1014,7 @@ class DeviceController(QObject):
                         logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
                         messages = self._protocol.feed_data(data)
                         for msg in messages:
-                            self._handle_message(msg.msg_type, msg.payload)
+                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
 
                         if self._flash_ack_event.is_set():
                             break
@@ -857,6 +1036,72 @@ class DeviceController(QObject):
             if polling_was_active:
                 self._serial_poll_timer.start()
                 logger.debug("Restarted serial polling after flash save")
+
+    def update_channel_config(self, channel_dict: Dict[str, Any], timeout: float = 3.0) -> bool:
+        """Atomically update a single channel configuration on the device.
+
+        This sends just one channel's config without re-uploading the entire config.
+        Useful for live parameter tweaking during development.
+
+        Args:
+            channel_dict: Channel configuration dict with keys:
+                - channel_id: int
+                - channel_type: str (e.g., "timer", "logic", "power_output")
+                - name: str (optional)
+                - source_channel: int (for power_output)
+                - ... other type-specific fields
+            timeout: Response timeout in seconds
+
+        Returns:
+            True if channel was updated successfully
+        """
+        if not self._is_connected:
+            logger.warning("Cannot update channel: not connected")
+            return False
+
+        try:
+            # Serialize channel to binary format
+            from models.binary_config import BinaryConfigManager
+            manager = BinaryConfigManager()
+
+            # Serialize single channel
+            channel_bytes = manager.serialize_single_channel(channel_dict)
+            if not channel_bytes:
+                logger.error(f"Failed to serialize channel: {channel_dict.get('name', 'unknown')}")
+                return False
+
+            # Use tracked request for reliable response
+            response = self._send_tracked_request(
+                MessageType.SET_CHANNEL_CONFIG,
+                payload=channel_bytes,
+                timeout=timeout,
+                description=f"Update channel {channel_dict.get('name', channel_dict.get('channel_id', '?'))}"
+            )
+
+            if response is None:
+                logger.error("Timeout waiting for channel config ACK")
+                return False
+
+            # Parse response: [channel_id:2B][success:1B][error_code:2B][error_msg:NB]
+            if len(response) >= 5:
+                resp_channel_id = response[0] | (response[1] << 8)
+                success = response[2] == 1
+                error_code = response[3] | (response[4] << 8)
+
+                if success:
+                    logger.info(f"Channel {resp_channel_id} updated successfully")
+                    return True
+                else:
+                    error_msg = response[5:].decode('utf-8', errors='replace') if len(response) > 5 else ""
+                    logger.error(f"Channel update failed: code={error_code}, msg={error_msg}")
+                    return False
+            else:
+                logger.error(f"Invalid channel config ACK: {len(response)} bytes")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error updating channel config: {e}")
+            return False
 
     def restart_device(self) -> bool:
         """Restart the device."""
@@ -971,6 +1216,7 @@ def _channel_to_dict(channel) -> Optional[Dict[str, Any]]:
     }
 
     # Add source_id if set
+    logger.info(f"[DEBUG] _channel_to_dict: id={channel.id}, type={ch_type_str}, source_id={channel.source_id}, CH_REF_NONE={CH_REF_NONE}")
     if channel.source_id != CH_REF_NONE:
         result["source_channel"] = channel.source_id
 

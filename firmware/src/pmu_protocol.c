@@ -82,12 +82,15 @@ static uint8_t binary_config_buffer[CONFIG_BUFFER_SIZE];
   #endif
 #endif
 
+/* Private variables for sequence ID tracking --------------------------------*/
+static uint16_t current_seq_id = 0;  /**< SeqID of current request being processed */
+
 /* Private function prototypes -----------------------------------------------*/
 static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet);
 static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet);
-static void Protocol_SendACK(uint8_t command);
-static void Protocol_SendNACK(uint8_t command, const char* reason);
-static void Protocol_SendData(uint8_t command, const uint8_t* data, uint16_t length);
+static void Protocol_SendACK(uint8_t command, uint16_t seq_id);
+static void Protocol_SendNACK(uint8_t command, uint16_t seq_id, const char* reason);
+static void Protocol_SendData(uint8_t command, uint16_t seq_id, const uint8_t* data, uint16_t length);
 static void Protocol_HandlePing(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetVersion(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleGetSerial(const PMU_Protocol_Packet_t* packet);
@@ -118,7 +121,7 @@ static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet);
 #endif
-/* Protocol_HandleSetChannelConfig removed - binary config only */
+static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleClearConfig(const PMU_Protocol_Packet_t* packet);
 static void Protocol_HandleReset(const PMU_Protocol_Packet_t* packet);
@@ -217,6 +220,7 @@ static const Protocol_CommandEntry_t command_dispatch_table[] = {
     {PMU_CMD_SAVE_CONFIG,       Protocol_HandleSaveConfig},
     {PMU_CMD_CLEAR_CONFIG,      Protocol_HandleClearConfig},
     {PMU_CMD_LOAD_BINARY_CONFIG, Protocol_HandleLoadBinaryConfig},
+    {PMU_CMD_SET_CHANNEL_CONFIG, Protocol_HandleSetChannelConfig},
     /* Logging commands */
     {PMU_CMD_START_LOGGING,     Protocol_HandleStartLogging},
     {PMU_CMD_STOP_LOGGING,      Protocol_HandleStopLogging},
@@ -333,13 +337,13 @@ HAL_StatusTypeDef PMU_Protocol_ProcessData(const uint8_t* data, uint16_t length)
             }
 
             /* Check if we have enough for header */
-            if (protocol_buffer.rx_index >= 4) {
-                /* Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE] */
+            if (protocol_buffer.rx_index >= 6) {
+                /* Frame format v2: [0xAA][Length:2B LE][SeqID:2B LE][MsgID:1B][Payload][CRC16:2B LE] */
                 uint16_t payload_len = protocol_buffer.rx_buffer[1] |
                                       (protocol_buffer.rx_buffer[2] << 8);
 
                 /* Check if full packet received */
-                uint16_t total_len = 4 + payload_len + 2;  /* header + payload + CRC */
+                uint16_t total_len = 6 + payload_len + 2;  /* header(6) + payload + CRC(2) */
                 if (protocol_buffer.rx_index >= total_len) {
                     /* Full packet received - process it */
                     PMU_Protocol_Packet_t* packet = (PMU_Protocol_Packet_t*)protocol_buffer.rx_buffer;
@@ -551,35 +555,47 @@ HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
     /* Write virtual channel count at saved offset */
     memcpy(&telemetry_data[virtual_count_offset], &virtual_count, sizeof(virtual_count));
 
-    /* Send data packet */
-    Protocol_SendData(PMU_CMD_DATA, telemetry_data, index);
+    /* Send data packet as broadcast (seq_id = 0, no response expected) */
+    PMU_Protocol_SendBroadcast(PMU_CMD_DATA, telemetry_data, index);
 
     return HAL_OK;
 }
 
 /**
- * @brief Send response packet
+ * @brief Send response packet with sequence ID
  */
 HAL_StatusTypeDef PMU_Protocol_SendResponse(PMU_CMD_Type_t command,
+                                             uint16_t seq_id,
                                              const uint8_t* data,
                                              uint16_t length)
 {
     PMU_Protocol_Packet_t packet;
 
     packet.start_marker = PMU_PROTOCOL_START_MARKER;
-    packet.command = command;
     packet.length = length;
+    packet.seq_id = seq_id;
+    packet.command = command;
 
     if (data && length > 0 && length <= PMU_PROTOCOL_MAX_PAYLOAD) {
         memcpy(packet.data, data, length);
     }
 
-    /* Calculate CRC over length(2) + command(1) + payload - excludes start marker */
-    packet.crc16 = PMU_Protocol_CRC16(((uint8_t*)&packet) + 1, 3 + length);
+    /* Calculate CRC over length(2) + seq_id(2) + command(1) + payload - excludes start marker */
+    packet.crc16 = PMU_Protocol_CRC16(((uint8_t*)&packet) + 1, 5 + length);
 
     Protocol_SendPacket(&packet);
 
     return HAL_OK;
+}
+
+/**
+ * @brief Send broadcast packet (no response expected, seq_id = 0)
+ */
+HAL_StatusTypeDef PMU_Protocol_SendBroadcast(PMU_CMD_Type_t command,
+                                              const uint8_t* data,
+                                              uint16_t length)
+{
+    return PMU_Protocol_SendResponse(command, PMU_SEQ_BROADCAST, data, length);
 }
 
 /**
@@ -686,18 +702,18 @@ static bool Protocol_ValidatePacket(const PMU_Protocol_Packet_t* packet)
     }
 
     /* Verify CRC
-     * Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE]
-     * CRC is calculated over Length+MsgID+Payload (excludes start marker)
-     * CRC position in buffer: byte offset (4 + payload_length)
+     * Frame format v2: [0xAA][Length:2B LE][SeqID:2B LE][MsgID:1B][Payload][CRC16:2B LE]
+     * CRC is calculated over Length+SeqID+MsgID+Payload (excludes start marker)
+     * CRC position in buffer: byte offset (6 + payload_length)
      */
     const uint8_t* raw_bytes = (const uint8_t*)packet;
 
-    /* CRC calculated over bytes 1 to (3 + length): length(2) + command(1) + payload */
-    uint16_t calculated_crc = PMU_Protocol_CRC16(&raw_bytes[1], 3 + packet->length);
+    /* CRC calculated over bytes 1 to (5 + length): length(2) + seq_id(2) + command(1) + payload */
+    uint16_t calculated_crc = PMU_Protocol_CRC16(&raw_bytes[1], 5 + packet->length);
 
-    /* Read received CRC from correct position (after payload) */
-    uint16_t received_crc = raw_bytes[4 + packet->length] |
-                           (raw_bytes[5 + packet->length] << 8);
+    /* Read received CRC from correct position (after header + payload) */
+    uint16_t received_crc = raw_bytes[6 + packet->length] |
+                           (raw_bytes[7 + packet->length] << 8);
 
     if (calculated_crc != received_crc) {
         return false;
@@ -715,6 +731,9 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
         return;
     }
 
+    /* Store seq_id for use in response handlers */
+    current_seq_id = packet->seq_id;
+
     /* Look up handler in dispatch table */
     for (uint16_t i = 0; i < COMMAND_DISPATCH_COUNT; i++) {
         if (command_dispatch_table[i].command == packet->command) {
@@ -724,7 +743,7 @@ static void Protocol_HandleCommand(const PMU_Protocol_Packet_t* packet)
     }
 
     /* Command not found in dispatch table */
-    Protocol_SendNACK(packet->command, "Unknown command");
+    Protocol_SendNACK(packet->command, current_seq_id, "Unknown command");
 }
 
 #ifdef NUCLEO_F446RE
@@ -768,13 +787,13 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
     }
 
 #ifndef UNIT_TEST
-    /* Frame format: [0xAA][Length:2B LE][MsgID:1B][Payload][CRC16:2B LE]
+    /* Frame format v2: [0xAA][Length:2B LE][SeqID:2B LE][MsgID:1B][Payload][CRC16:2B LE]
      * CRC is stored in packet->crc16 at fixed struct offset,
-     * but must be transmitted at position (4 + length)
+     * but must be transmitted at position (6 + length)
      */
-    uint16_t header_len = 4;  /* marker(1) + length(2) + command(1) */
+    uint16_t header_len = 6;  /* marker(1) + length(2) + seq_id(2) + command(1) */
     uint16_t payload_len = packet->length;
-    const uint8_t* header_ptr = (const uint8_t*)packet;  /* first 4 bytes */
+    const uint8_t* header_ptr = (const uint8_t*)packet;  /* first 6 bytes */
     const uint8_t* payload_ptr = packet->data;
     uint8_t crc_bytes[2] = {
         (uint8_t)(packet->crc16 & 0xFF),
@@ -860,55 +879,53 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
 /**
  * @brief Send ACK response
  */
-static void Protocol_SendACK(uint8_t command)
+static void Protocol_SendACK(uint8_t command, uint16_t seq_id)
 {
     uint8_t data[1] = {command};
-    PMU_Protocol_SendResponse(PMU_CMD_ACK, data, 1);
+    PMU_Protocol_SendResponse(PMU_CMD_ACK, seq_id, data, 1);
 }
 
 /**
  * @brief Send NACK response
  */
-static void Protocol_SendNACK(uint8_t command, const char* reason)
+static void Protocol_SendNACK(uint8_t command, uint16_t seq_id, const char* reason)
 {
     uint8_t data[64];
     data[0] = command;
     if (reason) {
         strncpy((char*)&data[1], reason, sizeof(data) - 1);
     }
-    PMU_Protocol_SendResponse(PMU_CMD_NACK, data, strlen(reason) + 1);
+    PMU_Protocol_SendResponse(PMU_CMD_NACK, seq_id, data, strlen(reason) + 1);
 }
 
 /**
  * @brief Send data response
  */
-static void Protocol_SendData(uint8_t command, const uint8_t* data, uint16_t length)
+static void Protocol_SendData(uint8_t command, uint16_t seq_id, const uint8_t* data, uint16_t length)
 {
-    PMU_Protocol_SendResponse(command, data, length);
+    PMU_Protocol_SendResponse(command, seq_id, data, length);
 }
 
 /* Command handlers ----------------------------------------------------------*/
 
 static void Protocol_HandlePing(const PMU_Protocol_Packet_t* packet)
 {
-    /* Echo back ping data */
-    Protocol_SendData(PMU_CMD_PONG, packet->data, packet->length);
+    /* Echo back ping data with same seq_id */
+    Protocol_SendData(PMU_CMD_PONG, packet->seq_id, packet->data, packet->length);
 }
 
 static void Protocol_HandleGetVersion(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
     uint8_t version[64];
     snprintf((char*)version, sizeof(version), "PMU-30 v%d.%d.%d", 1, 0, 0);
-    Protocol_SendData(PMU_CMD_INFO_RESP, version, strlen((char*)version));
+    Protocol_SendData(PMU_CMD_INFO_RESP, packet->seq_id, version, strlen((char*)version));
 }
 
 static void Protocol_HandleGetSerial(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
     uint8_t serial[32];
     snprintf((char*)serial, sizeof(serial), "PMU30-%08X", (unsigned int)HAL_GetUIDw0());
-    Protocol_SendData(PMU_CMD_GET_SERIAL, serial, strlen((char*)serial));
+    Protocol_SendData(PMU_CMD_GET_SERIAL, packet->seq_id, serial, strlen((char*)serial));
 }
 
 static void Protocol_HandleStartStream(const PMU_Protocol_Packet_t* packet)
@@ -921,14 +938,13 @@ static void Protocol_HandleStartStream(const PMU_Protocol_Packet_t* packet)
     }
 
     PMU_Protocol_StartStream();
-    Protocol_SendACK(PMU_CMD_START_STREAM);
+    Protocol_SendACK(PMU_CMD_START_STREAM, packet->seq_id);
 }
 
 static void Protocol_HandleStopStream(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
     PMU_Protocol_StopStream();
-    Protocol_SendACK(PMU_CMD_STOP_STREAM);
+    Protocol_SendACK(PMU_CMD_STOP_STREAM, packet->seq_id);
 }
 
 static void Protocol_HandleSetOutput(const PMU_Protocol_Packet_t* packet)
@@ -939,12 +955,12 @@ static void Protocol_HandleSetOutput(const PMU_Protocol_Packet_t* packet)
 
         if (channel < 30) {
             PMU_PROFET_SetState(channel, state);
-            Protocol_SendACK(PMU_CMD_SET_OUTPUT);
+            Protocol_SendACK(PMU_CMD_SET_OUTPUT, packet->seq_id);
         } else {
-            Protocol_SendNACK(PMU_CMD_SET_OUTPUT, "Invalid channel");
+            Protocol_SendNACK(PMU_CMD_SET_OUTPUT, packet->seq_id, "Invalid channel");
         }
     } else {
-        Protocol_SendNACK(PMU_CMD_SET_OUTPUT, "Invalid data");
+        Protocol_SendNACK(PMU_CMD_SET_OUTPUT, packet->seq_id, "Invalid data");
     }
 }
 
@@ -957,12 +973,12 @@ static void Protocol_HandleSetPWM(const PMU_Protocol_Packet_t* packet)
         if (channel < 30) {
             PMU_PROFET_SetState(channel, 1);
             PMU_PROFET_SetPWM(channel, duty);
-            Protocol_SendACK(PMU_CMD_SET_PWM);
+            Protocol_SendACK(PMU_CMD_SET_PWM, packet->seq_id);
         } else {
-            Protocol_SendNACK(PMU_CMD_SET_PWM, "Invalid channel");
+            Protocol_SendNACK(PMU_CMD_SET_PWM, packet->seq_id, "Invalid channel");
         }
     } else {
-        Protocol_SendNACK(PMU_CMD_SET_PWM, "Invalid data");
+        Protocol_SendNACK(PMU_CMD_SET_PWM, packet->seq_id, "Invalid data");
     }
 }
 
@@ -1003,18 +1019,17 @@ static void Protocol_HandleSetHBridge(const PMU_Protocol_Packet_t* packet)
                 PMU_HBridge_SetPosition(bridge, target);
             }
 
-            Protocol_SendACK(PMU_CMD_SET_HBRIDGE);
+            Protocol_SendACK(PMU_CMD_SET_HBRIDGE, packet->seq_id);
         } else {
-            Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, "Invalid bridge");
+            Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, packet->seq_id, "Invalid bridge");
         }
     } else {
-        Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, "Invalid data");
+        Protocol_SendNACK(PMU_CMD_SET_HBRIDGE, packet->seq_id, "Invalid data");
     }
 }
 
 static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
     uint8_t data[60];  /* 30 channels × 2 bytes */
     uint16_t index = 0;
 
@@ -1026,12 +1041,11 @@ static void Protocol_HandleGetOutputs(const PMU_Protocol_Packet_t* packet)
         }
     }
 
-    Protocol_SendData(PMU_CMD_GET_OUTPUTS, data, index);
+    Protocol_SendData(PMU_CMD_GET_OUTPUTS, packet->seq_id, data, index);
 }
 
 static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
     uint8_t data[40];  /* 20 inputs × 2 bytes */
     uint16_t index = 0;
 
@@ -1041,7 +1055,7 @@ static void Protocol_HandleGetInputs(const PMU_Protocol_Packet_t* packet)
         data[index++] = (uint8_t)(val >> 8);
     }
 
-    Protocol_SendData(PMU_CMD_GET_INPUTS, data, index);
+    Protocol_SendData(PMU_CMD_GET_INPUTS, packet->seq_id, data, index);
 }
 
 /* Binary config state */
@@ -1196,12 +1210,10 @@ bool PMU_Protocol_LoadSavedConfig(void) { return false; }
  */
 static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     if (binary_config_len == 0) {
         /* No config loaded - send single chunk with channel_count=0 */
         uint8_t response[6] = {0, 0, 1, 0, 0, 0};  /* chunk_idx=0, total_chunks=1, channel_count=0 */
-        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 6);
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, packet->seq_id, response, 6);
         return;
     }
 
@@ -1222,7 +1234,7 @@ static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
         response[2] = (uint8_t)(total_chunks & 0xFF);
         response[3] = (uint8_t)((total_chunks >> 8) & 0xFF);
         memcpy(response + 4, binary_config_buffer + offset, len);
-        Protocol_SendData(PMU_CMD_CONFIG_DATA, response, 4 + len);
+        Protocol_SendData(PMU_CMD_CONFIG_DATA, packet->seq_id, response, 4 + len);
     }
 }
 
@@ -1231,18 +1243,16 @@ static void Protocol_HandleGetConfig(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     if (binary_config_len == 0) {
         /* No config to save */
         uint8_t response[3] = {0, 1, 0};  /* success=0, error_code=1 */
-        Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
+        Protocol_SendData(PMU_CMD_FLASH_ACK, packet->seq_id, response, 3);
         return;
     }
 
     bool success = BinaryConfig_SaveToFlash();
     uint8_t response[3] = {success ? 1 : 0, success ? 0 : 2, 0};
-    Protocol_SendData(PMU_CMD_FLASH_ACK, response, 3);
+    Protocol_SendData(PMU_CMD_FLASH_ACK, packet->seq_id, response, 3);
 }
 
 /**
@@ -1253,8 +1263,6 @@ static void Protocol_HandleSaveConfig(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleClearConfig(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Clear in-memory config */
     binary_config_len = 0;
     memset(binary_config_buffer, 0, sizeof(binary_config_buffer));
@@ -1283,7 +1291,7 @@ static void Protocol_HandleClearConfig(const PMU_Protocol_Packet_t* packet)
     uint8_t response[2] = {1, 0};  /* Always success on non-Nucleo */
 #endif
 
-    Protocol_SendData(PMU_CMD_CLEAR_CONFIG_ACK, response, 2);
+    Protocol_SendData(PMU_CMD_CLEAR_CONFIG_ACK, packet->seq_id, response, 2);
 }
 
 /* Binary config chunked upload state */
@@ -1309,7 +1317,7 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
     /* Always use chunked format: [chunk_idx:2B LE][total_chunks:2B LE][data] */
     if (packet->length < 4) {
         uint8_t response[4] = {0, 2, 0, 0};  /* success=0, error=2 (invalid format) */
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, packet->seq_id, response, 4);
         return;
     }
 
@@ -1321,7 +1329,7 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
     /* Validate chunk header */
     if (total_chunks == 0 || total_chunks > 64 || chunk_idx >= total_chunks) {
         uint8_t response[4] = {0, 3, 0, 0};  /* success=0, error=3 (invalid chunk header) */
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, packet->seq_id, response, 4);
         return;
     }
 
@@ -1336,7 +1344,7 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
     /* Accumulate chunk data */
     if (binary_config_len + chunk_len >= CONFIG_BUFFER_SIZE) {
         uint8_t response[4] = {0, 1, 0, 0};  /* success=0, error=1 (overflow) */
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, packet->seq_id, response, 4);
         return;
     }
 
@@ -1357,11 +1365,11 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
         final_response[3] = (uint8_t)((loaded >> 8) & 0xFF); /* channels loaded (high) */
         final_response[4] = (uint8_t)PMU_ChannelExec_GetChannelCount();  /* total channels */
         final_response[5] = 0;  /* reserved */
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, final_response, 6);
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, packet->seq_id, final_response, 6);
     } else {
         /* Send intermediate ACK for multi-chunk upload */
         uint8_t response[4] = {1, 0, (uint8_t)chunk_idx, (uint8_t)(chunk_idx >> 8)};
-        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, response, 4);
+        Protocol_SendData(PMU_CMD_BINARY_CONFIG_ACK, packet->seq_id, response, 4);
     }
 }
 
@@ -1370,13 +1378,11 @@ static void Protocol_HandleLoadBinaryConfig(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Start logging session */
     if (PMU_Logging_Start() == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_START_LOGGING);
+        Protocol_SendACK(PMU_CMD_START_LOGGING, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_START_LOGGING, "Failed to start logging");
+        Protocol_SendNACK(PMU_CMD_START_LOGGING, packet->seq_id, "Failed to start logging");
     }
 }
 
@@ -1385,13 +1391,11 @@ static void Protocol_HandleStartLogging(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Stop logging session */
     if (PMU_Logging_Stop() == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_STOP_LOGGING);
+        Protocol_SendACK(PMU_CMD_STOP_LOGGING, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_STOP_LOGGING, "Failed to stop logging");
+        Protocol_SendNACK(PMU_CMD_STOP_LOGGING, packet->seq_id, "Failed to stop logging");
     }
 }
 
@@ -1400,8 +1404,6 @@ static void Protocol_HandleStopLogging(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Get session list */
     PMU_LogSession_t sessions[10];
     uint16_t session_count = PMU_Logging_GetSessionList(sessions, 10);
@@ -1422,7 +1424,7 @@ static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet)
         Protocol_PackU8(response, &index, sessions[i].status);
     }
 
-    Protocol_SendData(PMU_CMD_GET_LOG_INFO, response, index);
+    Protocol_SendData(PMU_CMD_GET_LOG_INFO, packet->seq_id, response, index);
 }
 
 /**
@@ -1431,7 +1433,7 @@ static void Protocol_HandleGetLogInfo(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length < 12) {
-        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, "Invalid request");
+        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, packet->seq_id, "Invalid request");
         return;
     }
 
@@ -1466,9 +1468,9 @@ static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet)
     index += bytes_read;
 
     if (bytes_read > 0) {
-        Protocol_SendData(PMU_CMD_DOWNLOAD_LOG, response, index);
+        Protocol_SendData(PMU_CMD_DOWNLOAD_LOG, packet->seq_id, response, index);
     } else {
-        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, "Session not found or invalid offset");
+        Protocol_SendNACK(PMU_CMD_DOWNLOAD_LOG, packet->seq_id, "Session not found or invalid offset");
     }
 }
 
@@ -1477,13 +1479,11 @@ static void Protocol_HandleDownloadLog(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Erase all logs */
     if (PMU_Logging_EraseAll() == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_ERASE_LOGS);
+        Protocol_SendACK(PMU_CMD_ERASE_LOGS, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_ERASE_LOGS, "Failed to erase logs");
+        Protocol_SendNACK(PMU_CMD_ERASE_LOGS, packet->seq_id, "Failed to erase logs");
     }
 }
 
@@ -1499,7 +1499,7 @@ static void Protocol_HandleEraseLogs(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length == 0) {
-        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, "Empty code");
+        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, packet->seq_id, "Empty code");
         return;
     }
 
@@ -1513,10 +1513,10 @@ static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet)
     PMU_Lua_Status_t status = PMU_Lua_ExecuteCode(code);
 
     if (status == PMU_LUA_STATUS_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_EXECUTE);
+        Protocol_SendACK(PMU_CMD_LUA_EXECUTE, packet->seq_id);
     } else {
         const char* error_msg = PMU_Lua_GetLastError();
-        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, error_msg ? error_msg : "Execution failed");
+        Protocol_SendNACK(PMU_CMD_LUA_EXECUTE, packet->seq_id, error_msg ? error_msg : "Execution failed");
     }
 }
 
@@ -1527,13 +1527,13 @@ static void Protocol_HandleLuaExecute(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length < 2) {
-        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Invalid payload");
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, packet->seq_id, "Invalid payload");
         return;
     }
 
     uint8_t name_len = packet->data[0];
     if (name_len == 0 || name_len > 31 || (1 + name_len) >= packet->length) {
-        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Invalid script name");
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, packet->seq_id, "Invalid script name");
         return;
     }
 
@@ -1548,9 +1548,9 @@ static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet)
 
     /* Load the script */
     if (PMU_Lua_LoadScript(name, code, code_len) == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_LOAD_SCRIPT);
+        Protocol_SendACK(PMU_CMD_LUA_LOAD_SCRIPT, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, "Failed to load script");
+        Protocol_SendNACK(PMU_CMD_LUA_LOAD_SCRIPT, packet->seq_id, "Failed to load script");
     }
 }
 
@@ -1561,7 +1561,7 @@ static void Protocol_HandleLuaLoadScript(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length == 0) {
-        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, "No script name");
+        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, packet->seq_id, "No script name");
         return;
     }
 
@@ -1569,9 +1569,9 @@ static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet)
     Protocol_ExtractString(packet->data, packet->length, 0, name, 31);
 
     if (PMU_Lua_UnloadScript(name) == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_UNLOAD_SCRIPT);
+        Protocol_SendACK(PMU_CMD_LUA_UNLOAD_SCRIPT, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, "Script not found");
+        Protocol_SendNACK(PMU_CMD_LUA_UNLOAD_SCRIPT, packet->seq_id, "Script not found");
     }
 }
 
@@ -1582,7 +1582,7 @@ static void Protocol_HandleLuaUnloadScript(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length == 0) {
-        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, "No script name");
+        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, packet->seq_id, "No script name");
         return;
     }
 
@@ -1592,10 +1592,10 @@ static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet)
     PMU_Lua_Status_t status = PMU_Lua_ExecuteScript(name);
 
     if (status == PMU_LUA_STATUS_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_RUN_SCRIPT);
+        Protocol_SendACK(PMU_CMD_LUA_RUN_SCRIPT, packet->seq_id);
     } else {
         const char* error_msg = PMU_Lua_GetLastError();
-        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, error_msg ? error_msg : "Execution failed");
+        Protocol_SendNACK(PMU_CMD_LUA_RUN_SCRIPT, packet->seq_id, error_msg ? error_msg : "Execution failed");
     }
 }
 
@@ -1606,7 +1606,7 @@ static void Protocol_HandleLuaRunScript(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length == 0) {
-        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, "No script name");
+        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, packet->seq_id, "No script name");
         return;
     }
 
@@ -1615,9 +1615,9 @@ static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet)
 
     /* Disable the script to stop it */
     if (PMU_Lua_SetScriptEnabled(name, 0) == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_STOP_SCRIPT);
+        Protocol_SendACK(PMU_CMD_LUA_STOP_SCRIPT, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, "Script not found");
+        Protocol_SendNACK(PMU_CMD_LUA_STOP_SCRIPT, packet->seq_id, "Script not found");
     }
 }
 
@@ -1627,8 +1627,6 @@ static void Protocol_HandleLuaStopScript(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     uint8_t response[PMU_PROTOCOL_MAX_PAYLOAD];
     PMU_Lua_ScriptInfo_t scripts[PMU_LUA_MAX_SCRIPTS];
 
@@ -1653,7 +1651,7 @@ static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet)
         index += 4;
     }
 
-    Protocol_SendData(PMU_CMD_LUA_GET_SCRIPTS, response, index);
+    Protocol_SendData(PMU_CMD_LUA_GET_SCRIPTS, packet->seq_id, response, index);
 }
 
 /**
@@ -1662,14 +1660,12 @@ static void Protocol_HandleLuaGetScripts(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     PMU_Lua_Stats_t* stats = PMU_Lua_GetStats();
 
     if (stats) {
-        Protocol_SendData(PMU_CMD_LUA_GET_STATUS, (uint8_t*)stats, sizeof(PMU_Lua_Stats_t));
+        Protocol_SendData(PMU_CMD_LUA_GET_STATUS, packet->seq_id, (uint8_t*)stats, sizeof(PMU_Lua_Stats_t));
     } else {
-        Protocol_SendNACK(PMU_CMD_LUA_GET_STATUS, "Lua not initialized");
+        Protocol_SendNACK(PMU_CMD_LUA_GET_STATUS, packet->seq_id, "Lua not initialized");
     }
 }
 
@@ -1679,14 +1675,12 @@ static void Protocol_HandleLuaGetStatus(const PMU_Protocol_Packet_t* packet)
  */
 static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     const char* error = PMU_Lua_GetLastError();
 
     if (error && error[0]) {
-        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, (const uint8_t*)error, strlen(error) + 1);
+        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, packet->seq_id, (const uint8_t*)error, strlen(error) + 1);
     } else {
-        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, (const uint8_t*)"", 1);
+        Protocol_SendData(PMU_CMD_LUA_GET_OUTPUT, packet->seq_id, (const uint8_t*)"", 1);
     }
 }
 
@@ -1697,13 +1691,13 @@ static void Protocol_HandleLuaGetOutput(const PMU_Protocol_Packet_t* packet)
 static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet)
 {
     if (packet->length < 3) {
-        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Invalid payload");
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, packet->seq_id, "Invalid payload");
         return;
     }
 
     uint8_t name_len = packet->data[0];
     if (name_len == 0 || name_len > 31 || (1 + name_len + 1) > packet->length) {
-        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Invalid script name");
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, packet->seq_id, "Invalid script name");
         return;
     }
 
@@ -1714,9 +1708,9 @@ static void Protocol_HandleLuaSetEnabled(const PMU_Protocol_Packet_t* packet)
     uint8_t enabled = packet->data[1 + name_len];
 
     if (PMU_Lua_SetScriptEnabled(name, enabled) == HAL_OK) {
-        Protocol_SendACK(PMU_CMD_LUA_SET_ENABLED);
+        Protocol_SendACK(PMU_CMD_LUA_SET_ENABLED, packet->seq_id);
     } else {
-        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, "Script not found");
+        Protocol_SendNACK(PMU_CMD_LUA_SET_ENABLED, packet->seq_id, "Script not found");
     }
 }
 #endif /* PMU_DISABLE_LUA */
@@ -1747,20 +1741,104 @@ static void Protocol_SendChannelConfigACK(uint16_t channel_id, bool success, uin
         index += msg_len;
     }
 
-    PMU_Protocol_SendResponse(PMU_CMD_CHANNEL_CONFIG_ACK, response, index);
+    PMU_Protocol_SendResponse(PMU_CMD_CHANNEL_CONFIG_ACK, current_seq_id, response, index);
 }
 
-/* Protocol_HandleSetChannelConfig removed - use LOAD_BINARY_CONFIG for config updates */
+/**
+ * @brief Handle SET_CHANNEL_CONFIG command - atomic single channel update
+ *
+ * Payload format (same as single channel in binary config):
+ * [CfgChannelHeader: 14 bytes]
+ *   - id (2B), type (1B), flags (1B), hw_device (1B), hw_index (1B)
+ *   - source_id (2B), default_value (4B), name_len (1B), config_size (1B)
+ * [name: name_len bytes]
+ * [config: config_size bytes]
+ *
+ * This allows updating a single channel without re-uploading the entire config.
+ * Useful for live parameter tweaking during development.
+ */
+static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet)
+{
+    /* Minimum payload: 14-byte header */
+    if (packet->length < 14) {
+        Protocol_SendChannelConfigACK(0, false, 1, "Payload too short");
+        return;
+    }
+
+    const uint8_t* data = packet->data;
+    uint16_t offset = 0;
+
+    /* Parse channel header (14 bytes):
+     * Format: <HBBBBHiBB
+     * id(2) + type(1) + flags(1) + hw_device(1) + hw_index(1) + source_id(2) + default_value(4) + name_len(1) + config_size(1)
+     */
+    uint16_t channel_id = data[0] | (data[1] << 8);
+    uint8_t type = data[2];
+    uint8_t flags = data[3];
+    uint8_t hw_device = data[4];
+    uint8_t hw_index = data[5];
+    uint16_t source_id = data[6] | (data[7] << 8);
+    /* int32_t default_value at offset 8-11 (not used here) */
+    uint8_t name_len = data[12];
+    uint8_t config_size = data[13];
+    offset = 14;
+
+    /* Validate total length */
+    uint16_t expected_len = 14 + name_len + config_size;
+    if (packet->length < expected_len) {
+        Protocol_SendChannelConfigACK(channel_id, false, 2, "Incomplete data");
+        return;
+    }
+
+    /* Skip name (we don't store it in RAM for now) */
+    offset += name_len;
+
+    /* Channel type constants from channel_config.h */
+    #define CH_TYPE_POWER_OUTPUT  0x10
+    #define CH_TYPE_TIMER         0x20
+    #define CH_TYPE_FLIPFLOP      0x2C
+
+    /* Remove existing channel if present */
+    PMU_ChannelExec_RemoveChannel(channel_id);
+
+    /* Add channel based on type */
+    HAL_StatusTypeDef result = HAL_ERROR;
+
+    if (type == CH_TYPE_POWER_OUTPUT) {
+        /* Power output: create link from source_id to hw_index */
+        if (source_id != 0xFFFF) {  /* CH_REF_NONE = 0xFFFF */
+            result = PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index);
+        } else {
+            /* No source channel configured - just acknowledge */
+            result = HAL_OK;
+        }
+    } else if (type >= CH_TYPE_TIMER && type <= CH_TYPE_FLIPFLOP) {
+        /* Virtual channel: add to executor with config data */
+        result = PMU_ChannelExec_AddChannel(channel_id, type, &data[offset]);
+    } else {
+        /* Input channels (digital, analog, etc.) - just acknowledge for now */
+        /* These are hw-mapped and don't need executor registration */
+        result = HAL_OK;
+    }
+
+    if (result == HAL_OK) {
+        Protocol_SendChannelConfigACK(channel_id, true, 0, NULL);
+    } else {
+        Protocol_SendChannelConfigACK(channel_id, false, 3, "Failed to add channel");
+    }
+
+    #undef CH_TYPE_POWER_OUTPUT
+    #undef CH_TYPE_TIMER
+    #undef CH_TYPE_FLIPFLOP
+}
 
 /**
  * @brief Handle RESET command - software reset the device
  */
 static void Protocol_HandleReset(const PMU_Protocol_Packet_t* packet)
 {
-    (void)packet;
-
     /* Send ACK before reset */
-    Protocol_SendACK(PMU_CMD_RESET);
+    Protocol_SendACK(PMU_CMD_RESET, packet->seq_id);
 
     /* Small delay to ensure ACK is transmitted */
     for (volatile int i = 0; i < 100000; i++) { }

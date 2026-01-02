@@ -592,6 +592,126 @@ class BinaryConfigManager:
         )
 
     # ========================================================================
+    # Single Channel Serialization (for atomic updates)
+    # ========================================================================
+
+    def serialize_single_channel(self, channel_dict: Dict, channel_lookup: Dict[str, int] = None) -> bytes:
+        """
+        Serialize a single channel to binary format for atomic updates.
+
+        This is used by DeviceController.update_channel_config() to send
+        a single channel update without re-uploading the entire configuration.
+
+        Format matches firmware expectation:
+        - CfgChannelHeader (14 bytes): id + type + flags + hw + source_id + default + name_len + config_size
+        - name (name_len bytes)
+        - config (config_size bytes)
+
+        Args:
+            channel_dict: Channel configuration dictionary from UI
+            channel_lookup: Optional dict mapping channel names to IDs for reference resolution
+
+        Returns:
+            Binary data for SET_CHANNEL_CONFIG command
+        """
+        import struct
+        global _channel_name_to_id
+
+        # Temporarily set global lookup if provided
+        if channel_lookup:
+            _channel_name_to_id = channel_lookup
+
+        # Channel type mapping
+        ALL_CHANNEL_TYPES = {
+            "digital_input": ChannelType.DIGITAL_INPUT,
+            "analog_input": ChannelType.ANALOG_INPUT,
+            "frequency_input": ChannelType.FREQUENCY_INPUT,
+            "can_rx": ChannelType.CAN_INPUT,
+            "power_output": ChannelType.POWER_OUTPUT,
+            "pwm_output": ChannelType.PWM_OUTPUT,
+            "hbridge": ChannelType.HBRIDGE,
+            "can_tx": ChannelType.CAN_OUTPUT,
+            "timer": ChannelType.TIMER,
+            "logic": ChannelType.LOGIC,
+            "math": ChannelType.MATH,
+            "filter": ChannelType.FILTER,
+            "pid": ChannelType.PID,
+            "table_2d": ChannelType.TABLE_2D,
+            "table_3d": ChannelType.TABLE_3D,
+            "switch": ChannelType.SWITCH,
+            "number": ChannelType.NUMBER,
+            "counter": ChannelType.COUNTER,
+            "hysteresis": ChannelType.HYSTERESIS,
+            "flipflop": ChannelType.FLIPFLOP,
+        }
+
+        ch_type_str = channel_dict.get("channel_type", "") or channel_dict.get("type", "")
+        ch_type = ALL_CHANNEL_TYPES.get(ch_type_str)
+
+        if ch_type is None:
+            raise ValueError(f"Unknown channel type: {ch_type_str}")
+
+        channel_id = channel_dict.get("channel_id")
+        if channel_id is None:
+            raise ValueError("Channel must have channel_id")
+
+        # Get channel name (max 31 chars)
+        name = channel_dict.get("name", "") or channel_dict.get("channel_name", "") or ""
+        name_bytes = name.encode('utf-8')[:31]
+        name_len = len(name_bytes)
+
+        # Get common fields
+        flags = 0x01 if channel_dict.get("enabled", True) else 0x00
+        source_id = channel_dict.get("source_channel", 0xFFFF)
+        if source_id is None or source_id == "" or not isinstance(source_id, int):
+            source_id = 0xFFFF  # CH_REF_NONE
+        default_value = 0
+
+        # Get hardware info
+        hw_device = 0  # NONE
+        hw_index = 0
+        pins = channel_dict.get("pins", [])
+
+        # Set hw_device and hw_index based on channel type
+        if ch_type_str == "digital_input":
+            hw_device = 0x01  # GPIO
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "analog_input":
+            hw_device = 0x02  # ADC
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "power_output":
+            hw_device = 0x05  # PROFET
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "pwm_output":
+            hw_device = 0x06  # PWM
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "hbridge":
+            hw_device = 0x07  # HBRIDGE
+            hw_index = pins[0] if pins else 0
+
+        # Get type-specific config bytes
+        config_bytes = _ui_config_to_binary(ch_type_str, channel_dict) or b''
+        config_size = len(config_bytes)
+
+        # Build 14-byte CfgChannelHeader_t
+        header = struct.pack('<HBBBBHiBB',
+            int(channel_id),    # id: 2B
+            int(ch_type),       # type: 1B
+            flags,              # flags: 1B
+            hw_device,          # hw_device: 1B
+            hw_index,           # hw_index: 1B
+            source_id,          # source_id: 2B
+            default_value,      # default_value: 4B (signed)
+            name_len,           # name_len: 1B
+            config_size         # config_size: 1B
+        )
+
+        logger.debug(f"Serialized single channel {channel_id} ({ch_type_str}): "
+                     f"header={len(header)}B, name={name_len}B, config={config_size}B")
+
+        return header + name_bytes + config_bytes
+
+    # ========================================================================
     # Statistics
     # ========================================================================
 
@@ -656,6 +776,11 @@ class BinaryConfigManager:
 # UI Config to Binary Converter (for device_mixin.py integration)
 # ============================================================================
 
+# Module-level lookup table for channel name -> ID resolution
+# Set before serialization, cleared after
+_channel_name_to_id: Dict[str, int] = {}
+
+
 def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
     """
     Convert UI channel configs to binary format for device storage.
@@ -674,7 +799,25 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
         Channel Executor only processes virtual channel types, but all
         types are stored so GET_CONFIG returns the complete config.
     """
+    global _channel_name_to_id
     import struct
+
+    # Build name-to-ID lookup table for all channels
+    # This allows resolving channel references like "Digital Input 1" to their IDs
+    _channel_name_to_id = {}
+    for ch in channels:
+        ch_id = ch.get("channel_id")
+        if ch_id is not None:
+            # Add by name
+            name = ch.get("name") or ch.get("channel_name", "")
+            if name:
+                _channel_name_to_id[name] = ch_id
+            # Also add by id string (for backwards compatibility)
+            ch_id_str = ch.get("id", "")
+            if ch_id_str:
+                _channel_name_to_id[str(ch_id_str)] = ch_id
+
+    logger.debug(f"Built channel lookup with {len(_channel_name_to_id)} entries")
 
     # ALL channel types for complete config persistence
     ALL_CHANNEL_TYPES = {
@@ -705,10 +848,37 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
 
     channel_data = []
 
+    # First pass: collect all referenced channel IDs
+    referenced_ids = set()
     for ch in channels:
-        # Skip system channels - they are for UI only, firmware already knows about them
+        ch_type = ch.get("channel_type", "")
+        if ch_type == "logic":
+            for ref in ch.get("input_channels", []):
+                if isinstance(ref, int) and ref > 0:
+                    referenced_ids.add(ref)
+        elif ch_type in ("timer", "filter", "table_2d", "table_3d"):
+            for key in ("input_channel", "start_channel", "x_axis_channel"):
+                ref = ch.get(key)
+                if isinstance(ref, int) and ref > 0:
+                    referenced_ids.add(ref)
+        elif ch_type == "pid":
+            for key in ("setpoint_channel", "feedback_channel"):
+                ref = ch.get(key)
+                if isinstance(ref, int) and ref > 0:
+                    referenced_ids.add(ref)
+        elif ch_type == "power_output":
+            ref = ch.get("source_id")
+            if isinstance(ref, int) and ref > 0:
+                referenced_ids.add(ref)
+
+    for ch in channels:
+        # Include system channels if they are referenced by other channels
         if ch.get("system", False):
-            continue
+            ch_id = ch.get("channel_id")
+            if ch_id not in referenced_ids:
+                continue  # Skip unreferenced system channels
+            # Referenced system channel - include it
+            logger.debug(f"Including referenced system channel: {ch.get('name')} (id={ch_id})")
 
         ch_type_str = ch.get("channel_type", "") or ch.get("type", "")
         ch_type = ALL_CHANNEL_TYPES.get(ch_type_str)
@@ -840,11 +1010,74 @@ def _ui_config_to_binary(ch_type: str, config: Dict) -> Optional[bytes]:
         return b''
 
 
-def _get_channel_ref(value) -> int:
-    """Convert channel reference to int, defaulting to CH_REF_NONE."""
+def _get_channel_ref(value, channel_lookup: Dict[str, int] = None) -> int:
+    """Convert channel reference to int, resolving names to IDs.
+
+    Uses module-level _channel_name_to_id lookup table (built by
+    serialize_ui_channels_for_executor) and system channel definitions.
+
+    Args:
+        value: Channel ID (int) or channel name (str)
+        channel_lookup: Optional dict mapping channel names to IDs (overrides global)
+
+    Returns:
+        Numeric channel ID, or CH_REF_NONE if not resolvable
+    """
+    global _channel_name_to_id
+
     if value is None or value == "" or value == "None":
         return CH_REF_NONE
-    return int(value)
+
+    # Already an int - return directly
+    if isinstance(value, int):
+        return value
+
+    # String value - try to resolve
+    if isinstance(value, str):
+        # Try to convert numeric string
+        if value.isdigit():
+            return int(value)
+
+        # Check explicit lookup table first (if provided)
+        if channel_lookup and value in channel_lookup:
+            return channel_lookup[value]
+
+        # Check module-level lookup table (user channels)
+        if _channel_name_to_id and value in _channel_name_to_id:
+            resolved_id = _channel_name_to_id[value]
+            logger.debug(f"Resolved user channel '{value}' -> {resolved_id}")
+            return resolved_id
+
+        # Check system channels by name
+        system_name_to_id = _get_system_channel_name_to_id()
+        if value in system_name_to_id:
+            resolved_id = system_name_to_id[value]
+            logger.debug(f"Resolved system channel '{value}' -> {resolved_id}")
+            return resolved_id
+
+        # Fallback: try int conversion (may fail for non-numeric strings)
+        try:
+            return int(value)
+        except ValueError:
+            logger.warning(f"Could not resolve channel reference: {value}")
+            return CH_REF_NONE
+
+    return CH_REF_NONE
+
+
+def _get_system_channel_name_to_id() -> Dict[str, int]:
+    """Get mapping of system channel names to IDs.
+
+    Returns dict like: {"one": 1013, "zero": 1012, "pmu.status": 1007, ...}
+    """
+    # Import here to avoid circular import
+    from .channel_display_service import ChannelDisplayService
+
+    name_to_id = {}
+    for ch_id, ch_name, _ in ChannelDisplayService.SYSTEM_CHANNELS:
+        name_to_id[ch_name] = ch_id
+
+    return name_to_id
 
 
 # ============================================================================
@@ -1059,7 +1292,14 @@ def _serialize_timer(config: Dict) -> bytes:
 
 
 def _serialize_logic(config: Dict) -> bytes:
-    """Serialize logic to CfgLogic_t (26 bytes)."""
+    """Serialize logic to CfgLogic_t (26 bytes).
+
+    Handles both formats:
+    - Serialization format: input_channels = [id1, id2, ...]
+    - UI format: channel = "name1", channel_2 = "name2"
+
+    Channel names (e.g., "one", "Digital Input 1") are resolved to numeric IDs.
+    """
     import struct
 
     # Must match firmware LogicOp_t enum in shared/engine/logic.h
@@ -1069,18 +1309,51 @@ def _serialize_logic(config: Dict) -> bytes:
         "greater": 0x10, "gt": 0x10, "greater_equal": 0x11, "ge": 0x11,
         "less": 0x12, "lt": 0x12, "less_equal": 0x13, "le": 0x13,
         "equal": 0x14, "eq": 0x14, "not_equal": 0x15, "ne": 0x15,
-        "range": 0x20, "outside": 0x21
+        "range": 0x20, "in_range": 0x20, "outside": 0x21,
+        # Additional operations from LogicDialog
+        "edge_rising": 0x30, "edge_falling": 0x31,
+        "changed": 0x32, "hysteresis": 0x33, "set_reset_latch": 0x34,
+        "toggle": 0x35, "pulse": 0x36, "flash": 0x37
     }
 
     operation = OP_MAP.get(config.get('operation', 'is_true'), 0x06)
+
+    # Handle both formats: input_channels list OR channel/channel_2 fields
     input_channels = config.get('input_channels', [])
+    if not input_channels:
+        # UI format - build input_channels from channel/channel_2 fields
+        channel = config.get('channel')
+        channel_2 = config.get('channel_2')
+        # Some operations use different field names
+        set_channel = config.get('set_channel')
+        reset_channel = config.get('reset_channel')
+        toggle_channel = config.get('toggle_channel')
+
+        if channel:
+            input_channels.append(channel)
+        if channel_2:
+            input_channels.append(channel_2)
+        if set_channel and set_channel not in input_channels:
+            input_channels.append(set_channel)
+        if reset_channel and reset_channel not in input_channels:
+            input_channels.append(reset_channel)
+        if toggle_channel and toggle_channel not in input_channels:
+            input_channels.append(toggle_channel)
+
     input_count = len(input_channels)
 
+    # Resolve channel names to IDs (handles "one", "Digital Input 1", etc.)
     inputs = [_get_channel_ref(ch) for ch in input_channels[:8]]
     while len(inputs) < 8:
         inputs.append(CH_REF_NONE)
 
-    compare_value = int(config.get('compare_value', 0))
+    # Get compare value - handle constant field from UI
+    compare_value = config.get('compare_value', config.get('constant', 0))
+    if isinstance(compare_value, float):
+        compare_value = int(compare_value * 100)  # Scale factor for firmware
+    else:
+        compare_value = int(compare_value)
+
     invert = 1 if config.get('invert_output', False) else 0
 
     return struct.pack('<BB8HiB3s', operation, input_count, *inputs, compare_value, invert, bytes(3))

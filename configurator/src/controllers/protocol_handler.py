@@ -3,6 +3,12 @@ Protocol Handler for PMU-30
 
 Handles protocol framing, CRC, and message parsing.
 Separates protocol concerns from transport and high-level logic.
+
+Frame Format v2 (with SeqID for request-response correlation):
+┌──────┬────────┬───────┬───────┬─────────────┬───────┐
+│ 0xAA │ Length │ SeqID │ MsgID │   Payload   │ CRC16 │
+│ 1B   │ 2B LE  │ 2B LE │ 1B    │ Variable    │ 2B LE │
+└──────┴────────┴───────┴───────┴─────────────┴───────┘
 """
 
 import logging
@@ -11,13 +17,16 @@ from typing import Optional, Tuple, List, Callable
 from dataclasses import dataclass
 from enum import IntEnum
 
-from communication.protocol import MessageType, crc16_ccitt, FRAME_START_BYTE
+from communication.protocol import (
+    MessageType, crc16_ccitt, FRAME_START_BYTE,
+    get_next_seq_id, SEQ_ID_BROADCAST
+)
 
 logger = logging.getLogger(__name__)
 
 
-# Frame format: START(1) | LENGTH(2) | TYPE(1) | PAYLOAD(N) | CRC(2)
-FRAME_HEADER_SIZE = 4  # START + LENGTH + TYPE
+# Frame format v2: START(1) | LENGTH(2) | SEQID(2) | TYPE(1) | PAYLOAD(N) | CRC(2)
+FRAME_HEADER_SIZE = 6  # START + LENGTH + SEQID + TYPE
 FRAME_CRC_SIZE = 2
 MIN_FRAME_SIZE = FRAME_HEADER_SIZE + FRAME_CRC_SIZE
 MAX_PAYLOAD_SIZE = 2048  # Maximum valid payload size
@@ -25,9 +34,10 @@ MAX_PAYLOAD_SIZE = 2048  # Maximum valid payload size
 
 @dataclass
 class ParsedMessage:
-    """Parsed protocol message."""
+    """Parsed protocol message with sequence ID."""
     msg_type: int
     payload: bytes
+    seq_id: int  # SeqID for request-response correlation
     raw_frame: bytes
 
 
@@ -38,19 +48,48 @@ class ProtocolHandler:
         self._rx_buffer = bytearray()
         self._message_handlers: dict = {}
 
-    def register_handler(self, msg_type: int, handler: Callable[[int, bytes], None]):
-        """Register a handler for a specific message type."""
+    def register_handler(self, msg_type: int, handler: Callable[[int, bytes, int], None]):
+        """Register a handler for a specific message type.
+
+        Handler signature: handler(msg_type: int, payload: bytes, seq_id: int)
+        """
         self._message_handlers[msg_type] = handler
 
-    def build_frame(self, msg_type: int, payload: bytes = b'') -> bytes:
+    def build_frame(self, msg_type: int, payload: bytes = b'', seq_id: int = None) -> bytes:
         """
-        Build a protocol frame.
+        Build a protocol frame with auto-assigned SeqID.
 
-        Frame format: START(1) | LENGTH(2) | TYPE(1) | PAYLOAD(N) | CRC(2)
+        Frame format v2: START(1) | LENGTH(2) | SEQID(2) | TYPE(1) | PAYLOAD(N) | CRC(2)
+
+        Args:
+            msg_type: Message type
+            payload: Payload data
+            seq_id: Optional SeqID (auto-assigned if None)
+
+        Returns:
+            Encoded frame bytes
         """
-        frame_data = struct.pack('<BHB', FRAME_START_BYTE, len(payload), msg_type) + payload
-        crc = self.calculate_crc(frame_data[1:])  # CRC excludes start byte
+        if seq_id is None:
+            seq_id = get_next_seq_id()
+
+        # Build header: START(1) + LENGTH(2) + SEQID(2) + TYPE(1)
+        frame_data = struct.pack('<BHHB', FRAME_START_BYTE, len(payload), seq_id, msg_type) + payload
+        # CRC over LENGTH+SEQID+TYPE+PAYLOAD (excludes start byte)
+        crc = self.calculate_crc(frame_data[1:])
         return frame_data + struct.pack('<H', crc)
+
+    def build_frame_with_seq_id(self, msg_type: int, payload: bytes = b'') -> Tuple[bytes, int]:
+        """
+        Build a protocol frame and return both frame bytes and assigned SeqID.
+
+        Useful for request-response tracking.
+
+        Returns:
+            Tuple of (frame_bytes, seq_id)
+        """
+        seq_id = get_next_seq_id()
+        frame = self.build_frame(msg_type, payload, seq_id)
+        return frame, seq_id
 
     def build_config_frame(self, chunk_idx: int, total_chunks: int, chunk_data: bytes) -> bytes:
         """Build a SET_CONFIG frame with chunk header."""
@@ -67,7 +106,9 @@ class ProtocolHandler:
         """
         Feed received data into buffer and extract complete messages.
 
-        Returns list of parsed messages.
+        Parses frame format v2: START(1) | LENGTH(2) | SEQID(2) | TYPE(1) | PAYLOAD(N) | CRC(2)
+
+        Returns list of parsed messages with SeqID.
         """
         self._rx_buffer.extend(data)
         messages = []
@@ -87,7 +128,7 @@ class ProtocolHandler:
             if len(self._rx_buffer) < FRAME_HEADER_SIZE:
                 break
 
-            # Parse header
+            # Parse header: START(1) + LENGTH(2) + SEQID(2) + TYPE(1)
             length = struct.unpack_from('<H', self._rx_buffer, 1)[0]
 
             # Validate payload length to prevent sync issues
@@ -107,7 +148,7 @@ class ProtocolHandler:
             frame = bytes(self._rx_buffer[:frame_size])
             del self._rx_buffer[:frame_size]
 
-            # Verify CRC
+            # Verify CRC (over LENGTH+SEQID+TYPE+PAYLOAD)
             received_crc = struct.unpack_from('<H', frame, frame_size - 2)[0]
             calculated_crc = self.calculate_crc(frame[1:frame_size - 2])
 
@@ -117,18 +158,19 @@ class ProtocolHandler:
                 logger.debug(f"CRC mismatch: rcv={received_crc:04x}, calc={calculated_crc:04x}, len={length}")
                 # For now, process anyway to debug telemetry
 
-            # Parse message
-            msg_type = frame[3]
-            payload = frame[4:frame_size - 2]
+            # Parse message: SeqID at offset 3-4, Type at offset 5
+            seq_id = struct.unpack_from('<H', frame, 3)[0]
+            msg_type = frame[5]
+            payload = frame[FRAME_HEADER_SIZE:frame_size - 2]
 
-            message = ParsedMessage(msg_type=msg_type, payload=payload, raw_frame=frame)
+            message = ParsedMessage(msg_type=msg_type, payload=payload, seq_id=seq_id, raw_frame=frame)
             messages.append(message)
 
             # Dispatch to handler if registered
             handler = self._message_handlers.get(msg_type)
             if handler:
                 try:
-                    handler(msg_type, payload)
+                    handler(msg_type, payload, seq_id)
                 except Exception as e:
                     logger.error(f"Message handler error for type {msg_type}: {e}")
 

@@ -134,21 +134,31 @@ typedef enum {
 /**
  * @brief Protocol packet structure
  *
- * Frame format (matching configurator/emulator):
- * ┌──────┬────────┬───────┬─────────────┬───────┐
- * │ 0xAA │ Length │ MsgID │   Payload   │ CRC16 │
- * │ 1B   │ 2B LE  │ 1B    │ Variable    │ 2B LE │
- * └──────┴────────┴───────┴─────────────┴───────┘
+ * Frame format v2 with sequence ID for request-response correlation:
+ * ┌──────┬────────┬───────┬───────┬─────────────┬───────┐
+ * │ 0xAA │ Length │ SeqID │ MsgID │   Payload   │ CRC16 │
+ * │ 1B   │ 2B LE  │ 2B LE │ 1B    │ Variable    │ 2B LE │
+ * └──────┴────────┴───────┴───────┴─────────────┴───────┘
  *
- * CRC16 is calculated over Length+MsgID+Payload (excludes start marker)
+ * - SeqID: Sequence number echoed in responses for correlation
+ *   - 0x0000: Broadcast/unsolicited (no response expected)
+ *   - 0x0001-0xFFFE: Normal requests (response includes same SeqID)
+ *   - 0xFFFF: Reserved
+ * - Length: Payload length only (excludes SeqID, MsgID, CRC)
+ * - CRC16: Calculated over Length+SeqID+MsgID+Payload (excludes 0xAA)
  */
 typedef struct __attribute__((packed)) {
     uint8_t  start_marker;      /**< Start marker (0xAA) */
     uint16_t length;            /**< Payload length (little-endian) */
+    uint16_t seq_id;            /**< Sequence ID for request-response matching */
     uint8_t  command;           /**< Command/message type */
-    uint8_t  data[2048];         /**< Payload data */
+    uint8_t  data[2048];        /**< Payload data */
     uint16_t crc16;             /**< CRC16 checksum (little-endian) */
 } PMU_Protocol_Packet_t;
+
+/** Sequence ID values */
+#define PMU_SEQ_BROADCAST       0x0000  /**< Broadcast - no response expected */
+#define PMU_SEQ_RESERVED        0xFFFF  /**< Reserved */
 
 /**
  * @brief Telemetry stream configuration
@@ -231,15 +241,28 @@ void PMU_Protocol_Update(void);
 HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void);
 
 /**
- * @brief Send response packet
+ * @brief Send response packet with sequence ID
  * @param command Command type
+ * @param seq_id Sequence ID from request (echoed back for correlation)
  * @param data Payload data
  * @param length Payload length
  * @retval HAL status
  */
 HAL_StatusTypeDef PMU_Protocol_SendResponse(PMU_CMD_Type_t command,
+                                             uint16_t seq_id,
                                              const uint8_t* data,
                                              uint16_t length);
+
+/**
+ * @brief Send broadcast packet (no response expected)
+ * @param command Command type
+ * @param data Payload data
+ * @param length Payload length
+ * @retval HAL status
+ */
+HAL_StatusTypeDef PMU_Protocol_SendBroadcast(PMU_CMD_Type_t command,
+                                              const uint8_t* data,
+                                              uint16_t length);
 
 /**
  * @brief Configure telemetry streaming

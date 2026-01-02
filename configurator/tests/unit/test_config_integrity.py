@@ -1114,85 +1114,11 @@ def compare_configs(original: Dict[str, Any], loaded: Dict[str, Any]) -> List[st
 
 class TestConfigIntegrity:
     """
-    Critical test: Config save/load integrity with 300+ items.
+    Test config structure and channel type coverage.
+
+    Note: JSON roundtrip test removed - project uses binary .pmu30 format.
+    For binary roundtrip testing, use: python tests/test_config_roundtrip.py COM11
     """
-
-    def test_large_config_roundtrip(self):
-        """
-        CRITICAL TEST:
-        1. Generate a complex real-world config (300+ items)
-        2. Save to file via ConfigManager
-        3. Load from file
-        4. Compare - MUST be identical
-        """
-        # Step 1: Generate config
-        original_config = generate_real_world_config()
-
-        # Count items
-        num_channels = len(original_config.get("channels", []))
-        num_can_msgs = len(original_config.get("can_messages", []))
-        total_items = num_channels + num_can_msgs
-
-        print(f"\n{'='*60}")
-        print(f"Config Integrity Test")
-        print(f"{'='*60}")
-        print(f"Channels: {num_channels}")
-        print(f"CAN Messages: {num_can_msgs}")
-        print(f"Total Items: {total_items}")
-        print(f"{'='*60}")
-
-        assert total_items >= 300, f"Config should have 300+ items, got {total_items}"
-
-        # Step 2: Create temp files
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_file = Path(tmpdir) / "original.json"
-            saved_file = Path(tmpdir) / "saved.json"
-
-            # Save original JSON directly
-            with open(original_file, 'w', encoding='utf-8') as f:
-                json.dump(original_config, f, indent=2)
-            print(f"Saved original to: {original_file}")
-
-            # Step 3: Load via ConfigManager
-            config_manager = ConfigManager()
-            success = config_manager.load_from_file(str(original_file))
-            assert success, "Failed to load config"
-            print(f"Loaded config via ConfigManager")
-
-            # Step 4: Save via ConfigManager
-            success = config_manager.save_to_file(str(saved_file))
-            assert success, "Failed to save config"
-            print(f"Saved config via ConfigManager")
-
-            # Step 5: Load saved config
-            with open(saved_file, 'r', encoding='utf-8') as f:
-                loaded_config = json.load(f)
-
-            # Step 6: Compare
-            orig_normalized = normalize_config(original_config)
-            loaded_normalized = normalize_config(loaded_config)
-
-            differences = compare_configs(orig_normalized, loaded_normalized)
-
-            if differences:
-                print(f"\n{len(differences)} DIFFERENCES FOUND:")
-                for diff in differences[:20]:  # Show first 20
-                    print(f"  - {diff}")
-                if len(differences) > 20:
-                    print(f"  ... and {len(differences) - 20} more")
-
-                # Write diff files for debugging
-                with open(Path(tmpdir) / "orig_normalized.json", 'w') as f:
-                    json.dump(orig_normalized, f, indent=2)
-                with open(Path(tmpdir) / "loaded_normalized.json", 'w') as f:
-                    json.dump(loaded_normalized, f, indent=2)
-
-                pytest.fail(f"Config integrity failed: {len(differences)} differences found")
-
-            print(f"\n{'='*60}")
-            print(f"CONFIG INTEGRITY TEST PASSED")
-            print(f"All {total_items} items preserved correctly!")
-            print(f"{'='*60}\n")
 
     def test_channel_type_coverage(self):
         """Verify the test config covers all channel types."""

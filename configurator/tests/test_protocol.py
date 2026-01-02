@@ -56,11 +56,12 @@ class TestFrameEncoding:
         frame = ProtocolFrame(msg_type=MessageType.PING, payload=b"")
         encoded = encode_frame(frame)
 
-        # Start byte + 2 length + 1 msgtype + 0 payload + 2 CRC = 6 bytes
-        assert len(encoded) == 6
+        # Frame format v2: START(1) + LENGTH(2) + SEQID(2) + TYPE(1) + PAYLOAD(0) + CRC(2) = 8 bytes
+        assert len(encoded) == 8
         assert encoded[0] == FRAME_START_BYTE
-        assert struct.unpack("<H", encoded[1:3])[0] == 0  # Length
-        assert encoded[3] == MessageType.PING
+        assert struct.unpack("<H", encoded[1:3])[0] == 0  # Length (payload only)
+        # SeqID at offset 3-4
+        assert encoded[5] == MessageType.PING  # TYPE at offset 5
 
     def test_encode_with_payload(self):
         """Encode frame with payload."""
@@ -68,11 +69,13 @@ class TestFrameEncoding:
         frame = ProtocolFrame(msg_type=MessageType.SET_CHANNEL, payload=payload)
         encoded = encode_frame(frame)
 
+        # Frame format v2: HEADER(6) + PAYLOAD + CRC(2)
         assert len(encoded) == FRAME_HEADER_SIZE + len(payload) + FRAME_CRC_SIZE
         assert encoded[0] == FRAME_START_BYTE
-        assert struct.unpack("<H", encoded[1:3])[0] == len(payload)
-        assert encoded[3] == MessageType.SET_CHANNEL
-        assert encoded[4:4 + len(payload)] == payload
+        assert struct.unpack("<H", encoded[1:3])[0] == len(payload)  # Length
+        # SeqID at offset 3-4
+        assert encoded[5] == MessageType.SET_CHANNEL  # TYPE at offset 5
+        assert encoded[6:6 + len(payload)] == payload  # Payload starts at offset 6
 
     def test_encode_preserves_crc(self):
         """CRC should be valid after encoding."""
