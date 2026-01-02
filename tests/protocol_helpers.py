@@ -197,21 +197,25 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
     """
     ser.reset_input_buffer()
     ser.write(build_frame(cmd, payload))
-    time.sleep(0.1)
+    time.sleep(0.2)  # Give device time to process and respond
 
     data = b''
     start = time.time()
+    no_data_count = 0
     while time.time() - start < timeout:
         chunk = ser.read(4096)
         if chunk:
             data += chunk
-        elif data:
-            # Got some data, check if we have expected response
-            frames = parse_frames(data)
-            if expected_cmd is None:
-                return frames
-            if any(c == expected_cmd for c, p, s in frames):
-                return frames
+            no_data_count = 0
+        else:
+            no_data_count += 1
+            # Wait for 3 consecutive empty reads before parsing
+            if no_data_count >= 3 and data:
+                frames = parse_frames(data)
+                if expected_cmd is None:
+                    return frames
+                if any(c == expected_cmd for c, p, s in frames):
+                    return frames
         time.sleep(0.05)
 
     return parse_frames(data)
