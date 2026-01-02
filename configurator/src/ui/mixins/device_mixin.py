@@ -45,8 +45,8 @@ class MainWindowDeviceMixin:
 
             if success:
                 self._set_connected_state(True, config.get('type'))
-                # Give device/emulator time to fully initialize before reading config
-                QTimer.singleShot(1500, self.read_from_device)
+                # Give device/emulator time to fully initialize before syncing config
+                QTimer.singleShot(1500, self._auto_sync_config)
             else:
                 self.status_message.setText("Connection failed")
                 QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.")
@@ -67,8 +67,8 @@ class MainWindowDeviceMixin:
 
         if success:
             self._set_connected_state(True, 'Emulator')
-            # Give emulator time to fully initialize before reading config
-            QTimer.singleShot(1500, self.read_from_device)
+            # Give emulator time to fully initialize before syncing config
+            QTimer.singleShot(1500, self._auto_sync_config)
         else:
             self.status_message.setText("Emulator connection failed")
             QMessageBox.warning(self, "Connection Failed",
@@ -136,8 +136,31 @@ class MainWindowDeviceMixin:
         logger.warning("All reconnection attempts exhausted")
 
     def _on_device_connected(self):
-        """Handle device connection (including after reconnect)."""
+        """Handle device connection (including after reconnect).
+
+        Auto-syncs configuration:
+        - If local config exists: upload to device
+        - If no local config: read from device
+        """
         self._set_connected_state(True, "device")
+
+        # Auto-sync: upload local config if exists, otherwise read from device
+        QTimer.singleShot(500, self._auto_sync_config)
+
+    def _auto_sync_config(self):
+        """Auto-sync configuration on connection.
+
+        Always upload local config to device (even if empty).
+        This ensures device and configurator are in sync.
+        """
+        if not self.device_controller.is_connected():
+            return
+
+        # Always upload local config to device
+        # This ensures device runs what's shown in configurator
+        logger.info("Auto-syncing local config to device")
+        self.status_message.setText("Syncing configuration to device...")
+        self._send_config_to_device_silent()
 
     def read_from_device(self):
         """Read configuration from device."""
