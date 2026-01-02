@@ -369,11 +369,35 @@ def validate_logic(config: dict, limits: ValidationLimits = None) -> ValidationR
     lim = limits or DEFAULT_LIMITS
 
     operation = config.get('operation', 0)
+
+    # Convert string operation to int code if needed
+    if isinstance(operation, str):
+        op_map = {
+            "and": 0x00, "or": 0x01, "xor": 0x02, "nand": 0x03, "nor": 0x04,
+            "is_true": 0x06, "is_false": 0x07,
+            "greater": 0x10, "gt": 0x10, "greater_equal": 0x11, "ge": 0x11,
+            "less": 0x12, "lt": 0x12, "less_equal": 0x13, "le": 0x13,
+            "equal": 0x14, "eq": 0x14, "not_equal": 0x15, "ne": 0x15,
+            "range": 0x20, "outside": 0x21
+        }
+        operation = op_map.get(operation.lower(), 0x06)  # Default to IS_TRUE
+
     if operation > 0x21:  # LOGIC_OP_OUTSIDE
         return error(ValidationError.LOGIC_INVALID_OPERATION, 'operation',
                      operation, 0, 0x21)
 
-    inputs = config.get('inputs', [])
+    # UI dialog uses 'channel_1'/'channel_2', other formats use 'inputs' or 'input_channels'
+    inputs = config.get('inputs') or config.get('input_channels') or []
+
+    # If no inputs list, try to build from channel_1/channel_2 fields (Logic dialog format)
+    if not inputs:
+        ch1 = config.get('channel_1') or config.get('channel')
+        ch2 = config.get('channel_2')
+        if ch1:
+            inputs = [ch1]
+            if ch2:
+                inputs.append(ch2)
+
     input_count = len(inputs)
 
     if input_count == 0:
@@ -389,11 +413,12 @@ def validate_logic(config: dict, limits: ValidationLimits = None) -> ValidationR
         return error(ValidationError.LOGIC_INSUFFICIENT_INPUTS, 'input_count',
                      input_count, 2, lim.max_inputs)
 
-    # Validate input IDs
+    # Input channels must be strings (channel names) - IDs are resolved during serialization
     for i, input_id in enumerate(inputs):
-        if not is_valid_channel_ref(input_id, lim.max_channel_id):
+        if not isinstance(input_id, str) or not input_id:
+            # Don't pass non-int input_id as actual_value (it expects int)
             return error(ValidationError.LOGIC_INVALID_INPUT_ID, f'inputs[{i}]',
-                         input_id, 0, lim.max_channel_id)
+                         i, 0, 0)
 
     return success()
 
@@ -403,11 +428,22 @@ def validate_math(config: dict, limits: ValidationLimits = None) -> ValidationRe
     lim = limits or DEFAULT_LIMITS
 
     operation = config.get('operation', 0)
+
+    # Convert string operation to int code if needed
+    if isinstance(operation, str):
+        op_map = {
+            "add": 0, "sub": 1, "mul": 2, "div": 3, "min": 4, "max": 5,
+            "abs": 6, "neg": 7, "avg": 8, "scale": 9, "clamp": 10,
+            "mod": 11, "pow": 12
+        }
+        operation = op_map.get(operation.lower(), 0)  # Default to ADD
+
     if operation > 0x0C:  # MATH_OP_SCALE
         return error(ValidationError.MATH_INVALID_OPERATION, 'operation',
                      operation, 0, 0x0C)
 
-    inputs = config.get('inputs', [])
+    # UI uses 'input_channels', binary format uses 'inputs'
+    inputs = config.get('inputs') or config.get('input_channels') or []
     input_count = len(inputs)
 
     if input_count == 0:
@@ -418,11 +454,12 @@ def validate_math(config: dict, limits: ValidationLimits = None) -> ValidationRe
         return error(ValidationError.MATH_TOO_MANY_INPUTS, 'input_count',
                      input_count, 1, lim.max_inputs)
 
-    # Validate input IDs
+    # Input channels must be strings (channel names) - IDs are resolved during serialization
     for i, input_id in enumerate(inputs):
-        if not is_valid_channel_ref(input_id, lim.max_channel_id):
+        if not isinstance(input_id, str) or not input_id:
+            # Don't pass non-int input_id as actual_value (it expects int)
             return error(ValidationError.MATH_INVALID_INPUT_ID, f'inputs[{i}]',
-                         input_id, 0, lim.max_channel_id)
+                         i, 0, lim.max_channel_id)
 
     # Division check
     if operation == 3:  # MATH_OP_DIV

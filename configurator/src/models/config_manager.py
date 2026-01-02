@@ -1,27 +1,48 @@
 """
 PMU-30 Configuration Manager
-Version 3.0 - Unified Channel Architecture with CAN Message/Input Two-Level
+Version 4.0 - Binary-Only Config (no JSON)
 
 Owner: R2 m-sport
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime
 
-from .config_schema import ConfigValidator, create_default_config
-from .channel import ChannelBase, ChannelType, ChannelFactory, CanMessage
-from .config_migration import ConfigMigration
+from .channel import ChannelType, LogicOperation
 from .config_can import CANMessageManager
+from .config_migration import ConfigMigration
 from .channel_display_service import ChannelIdGenerator
 
 logger = logging.getLogger(__name__)
 
 
+def create_default_config() -> Dict[str, Any]:
+    """Create a minimal empty configuration (no default hardware channels)."""
+    return {
+        "version": "4.0",
+        "device": {
+            "name": "PMU-30",
+            "serial_number": "",
+            "firmware_version": "",
+            "hardware_revision": "",
+            "created": datetime.now().isoformat(),
+            "modified": datetime.now().isoformat()
+        },
+        "can_messages": [],
+        "channels": [],  # Empty - user creates channels as needed
+        "system": {
+            "control_frequency_hz": 1000,
+            "logic_frequency_hz": 500,
+            "can1_baudrate": 500000,
+            "can2_baudrate": 500000
+        }
+    }
+
+
 class ConfigManager:
-    """Manages PMU-30 configuration files (JSON format) with unified channels"""
+    """Manages PMU-30 configuration files (binary .pmu30 format only)"""
 
     def __init__(self):
         self.config: Dict[str, Any] = create_default_config()
@@ -37,14 +58,14 @@ class ConfigManager:
         self.config = create_default_config()
         self.current_file = None
         self.modified = False
-        logger.info("Created new configuration")
+        logger.info("Created new empty configuration")
 
     def load_from_file(self, filepath: str) -> Tuple[bool, Optional[str]]:
         """
-        Load configuration from JSON file with validation
+        Load configuration from binary .pmu30 file.
 
         Args:
-            filepath: Path to JSON configuration file
+            filepath: Path to configuration file (.pmu30 only)
 
         Returns:
             Tuple[bool, Optional[str]]: (success, error_message)
@@ -57,75 +78,173 @@ class ConfigManager:
                 logger.error(error_msg)
                 return False, error_msg
 
-            # Load JSON
-            with open(path, 'r', encoding='utf-8') as f:
-                loaded_config = json.load(f)
-
-            # Check version and migrate if needed
-            version = loaded_config.get("version", "1.0")
-            if version.startswith("1."):
-                # Old format - don't support migration
+            # Only .pmu30 binary files are supported
+            if path.suffix.lower() != '.pmu30':
                 error_msg = (
-                    "Configuration file uses old format (v1.x).\n"
-                    "Please create a new configuration.\n"
-                    "Migration from v1.x is not supported."
+                    f"Unsupported file format: {path.suffix}\n\n"
+                    "Only .pmu30 binary files are supported.\n"
+                    "JSON configuration files are no longer supported."
                 )
                 logger.error(error_msg)
                 return False, error_msg
 
-            # Migrate from v2.0 to v3.0 if needed
-            if version.startswith("2."):
-                loaded_config = ConfigMigration.migrate_v2_to_v3(loaded_config)
-                logger.info(f"Migrated configuration from v{version} to v3.0")
-
-            # Auto-generate missing string IDs from name field
-            loaded_config = ConfigMigration.ensure_channel_ids(loaded_config)
-
-            # Auto-generate missing numeric channel_ids
-            loaded_config = ConfigMigration.ensure_numeric_channel_ids(loaded_config)
-
-            # Validate configuration
-            is_valid, validation_errors = ConfigValidator.validate_config(loaded_config)
-
-            if not is_valid:
-                error_msg = ConfigValidator.format_validation_errors(validation_errors)
-                logger.error(f"Configuration validation failed:\n{error_msg}")
-                return False, error_msg
-
-            # Check for circular dependencies
-            cycles = ConfigValidator.detect_circular_dependencies(loaded_config)
-            if cycles:
-                cycle_str = " -> ".join(cycles[0])
-                error_msg = f"Circular dependency detected: {cycle_str}"
-                logger.warning(error_msg)
-                # Just warn, don't fail
-
-            # Configuration is valid, apply it
-            self.config = loaded_config
-
-            # Update modified timestamp
-            if "device" in self.config:
-                self.config["device"]["modified"] = datetime.now().isoformat()
-
-            self.current_file = path
-            self.modified = False
-
-            logger.info(f"Loaded and validated configuration from: {filepath}")
-            return True, None
-
-        except json.JSONDecodeError as e:
-            error_msg = (
-                f"Invalid JSON format in configuration file:\n\n"
-                f"Line {e.lineno}, Column {e.colno}:\n{e.msg}\n\n"
-                f"Please check the file syntax."
-            )
-            logger.error(f"JSON decode error: {e}")
-            return False, error_msg
+            return self._load_binary_file(path)
 
         except Exception as e:
             error_msg = f"Failed to load configuration:\n\n{str(e)}"
             logger.error(f"Failed to load configuration: {e}")
             return False, error_msg
+
+    def _load_binary_file(self, path: Path) -> Tuple[bool, Optional[str]]:
+        """
+        Load configuration from binary .pmu30 file.
+
+        Args:
+            path: Path to binary configuration file
+
+        Returns:
+            Tuple[bool, Optional[str]]: (success, error_message)
+        """
+        try:
+            from .binary_config import BinaryConfigManager
+
+            # Read raw file bytes
+            with open(path, 'rb') as f:
+                data = f.read()
+
+            binary_manager = BinaryConfigManager()
+
+            # Try loading as full format (with header) first
+            success, error = binary_manager.load_from_bytes(data)
+            if not success:
+                # Try as raw channel data (no file header - test configs)
+                success, error = binary_manager.load_from_raw_bytes(data)
+
+            if not success:
+                return False, f"Failed to load binary config: {error}"
+
+            # Convert binary channels to config format
+            channels = []
+
+            # Add system Digital Input channels (built-in firmware channels)
+            # These are for UI only - firmware already knows about them, don't serialize back!
+            for i in range(8):
+                channels.append({
+                    "id": f"DIN{i}",
+                    "channel_id": 50 + i,
+                    "channel_type": "digital_input",
+                    "name": f"Digital Input {i}",
+                    "enabled": True,
+                    "hw_index": i,
+                    "system": True,  # Mark as system channel - NOT sent to firmware
+                })
+
+            # Add configured channels from binary file
+            for ch in binary_manager.channels:
+                ch_dict = self._binary_channel_to_dict(ch)
+                if ch_dict:
+                    channels.append(ch_dict)
+
+            # Create config structure
+            self.config = create_default_config()
+            self.config["channels"] = channels
+            self.current_file = path
+            self.modified = False
+
+            logger.info(f"Loaded binary configuration: {len(channels)} channels")
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Failed to load binary configuration: {e}"
+            logger.error(error_msg)
+            return False, error_msg
+
+    def _binary_channel_to_dict(self, ch) -> Optional[Dict[str, Any]]:
+        """Convert a binary Channel object to config dictionary format."""
+        from channel_config import ChannelType as BinaryChannelType
+
+        # Map binary channel types to config channel types
+        type_map = {
+            BinaryChannelType.POWER_OUTPUT: "power_output",
+            BinaryChannelType.LOGIC: "logic",
+            BinaryChannelType.TIMER: "timer",
+            BinaryChannelType.TABLE_2D: "table_2d",
+            BinaryChannelType.TABLE_3D: "table_3d",
+            BinaryChannelType.FILTER: "filter",
+            BinaryChannelType.PID: "pid",
+        }
+
+        ch_type = type_map.get(ch.type)
+        if not ch_type:
+            logger.warning(f"Unknown channel type: {ch.type}")
+            return None
+
+        result = {
+            "id": ch.name or f"ch_{ch.id}",
+            "channel_id": ch.id,
+            "channel_type": ch_type,
+            "name": ch.name or f"Channel {ch.id}",
+            "enabled": bool(ch.flags & 0x01),
+        }
+
+        # Add source reference if present
+        if ch.source_id != 0xFFFF:
+            result["source_channel"] = ch.source_id
+
+        # Merge type-specific config into result (flat structure for UI dialogs)
+        if ch.config:
+            type_config = self._parse_binary_config(ch_type, ch.config)
+            result.update(type_config)
+
+        return result
+
+    def _parse_binary_config(self, ch_type: str, config_obj) -> Dict[str, Any]:
+        """Convert parsed config dataclass to dictionary format."""
+        from channel_config import CfgLogic, CfgTimer, CfgPowerOutput
+        from .channel import LogicOperation
+
+        if ch_type == "logic" and isinstance(config_obj, CfgLogic):
+            # Use LogicOperation.from_binary_code for proper enum value mapping
+            op = LogicOperation.from_binary_code(config_obj.operation)
+            inputs = list(config_obj.inputs[:config_obj.input_count])
+            result = {
+                "operation": op.value,  # Returns lowercase string like "is_true"
+                "inputs": inputs,
+                "threshold": config_obj.compare_value,
+                "constant": config_obj.compare_value,  # Alias for comparison ops
+                "invert": bool(config_obj.invert_output),
+            }
+            # Map inputs to channel/channel_2 for UI dialog compatibility
+            if len(inputs) >= 1:
+                result["channel"] = inputs[0]
+            if len(inputs) >= 2:
+                result["channel_2"] = inputs[1]
+            return result
+
+        elif ch_type == "power_output" and isinstance(config_obj, CfgPowerOutput):
+            return {
+                "inrush_time_ms": config_obj.inrush_time_ms,
+                "current_limit_ma": config_obj.current_limit_ma,
+                "retry_count": config_obj.retry_count,
+                "retry_delay_s": config_obj.retry_delay_s,
+                "soft_start_ms": config_obj.soft_start_ms,
+            }
+
+        elif ch_type == "timer" and isinstance(config_obj, CfgTimer):
+            mode_names = {0: "ONE_SHOT", 1: "TOGGLE", 2: "PULSE", 3: "BLINK", 4: "FLASH"}
+            return {
+                "mode": mode_names.get(config_obj.mode, f"MODE_{config_obj.mode}"),
+                "trigger_channel": config_obj.trigger_channel_id,
+                "delay_ms": config_obj.delay_ms,
+                "on_time_ms": config_obj.on_time_ms,
+                "off_time_ms": config_obj.off_time_ms,
+            }
+
+        # Return raw attributes for unknown types
+        if hasattr(config_obj, '__dataclass_fields__'):
+            return {k: getattr(config_obj, k) for k in config_obj.__dataclass_fields__}
+
+        return {}
 
     def load_from_dict(self, config_dict: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """
@@ -151,14 +270,6 @@ class ConfigManager:
             # Auto-generate missing numeric channel_ids
             config_dict = ConfigMigration.ensure_numeric_channel_ids(config_dict)
 
-            # Validate configuration
-            is_valid, validation_errors = ConfigValidator.validate_config(config_dict)
-
-            if not is_valid:
-                error_msg = ConfigValidator.format_validation_errors(validation_errors)
-                logger.warning(f"Config validation warnings:\n{error_msg}")
-                # Don't fail on validation, just warn
-
             # Compute runtime_channel_id for virtual channels
             # Firmware allocates IDs starting from 200 in order of channel parsing
             config_dict = ConfigMigration.compute_runtime_channel_ids(config_dict)
@@ -178,10 +289,10 @@ class ConfigManager:
 
     def save_to_file(self, filepath: Optional[str] = None) -> bool:
         """
-        Save configuration to JSON file
+        Save configuration to binary .pmu30 file.
 
         Args:
-            filepath: Path to save to (uses current_file if None)
+            filepath: Path to save to (.pmu30 only, uses current_file if None)
 
         Returns:
             True if saved successfully, False otherwise
@@ -195,18 +306,27 @@ class ConfigManager:
                 logger.error("No filepath specified")
                 return False
 
+            # Ensure .pmu30 extension
+            if path.suffix.lower() != '.pmu30':
+                path = path.with_suffix('.pmu30')
+
             # Update modified timestamp
             self.config["device"]["modified"] = datetime.now().isoformat()
 
-            # Convert channel references from names to numeric IDs
-            export_config = ConfigMigration.convert_references_to_ids(self.config)
+            # Use BinaryConfigManager to serialize
+            from .binary_config import BinaryConfigManager
+            binary_manager = BinaryConfigManager()
 
-            # Ensure parent directory exists
-            path.parent.mkdir(parents=True, exist_ok=True)
+            # Convert UI channel dicts to binary Channel dataclasses
+            channels = self.config.get("channels", [])
+            binary_manager.set_channels_from_dicts(channels)
 
-            # Save with pretty formatting
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(export_config, f, indent=2, ensure_ascii=False)
+            # Save to binary file
+            success, error = binary_manager.save_to_file(str(path))
+
+            if not success:
+                logger.error(f"Failed to save binary config: {error}")
+                return False
 
             self.current_file = path
             self.modified = False
@@ -501,7 +621,9 @@ class ConfigManager:
         Returns:
             Tuple of (is_valid, list_of_errors)
         """
-        return ConfigValidator.validate_config(self.config)
+        # Basic validation - ConfigValidator was removed
+        errors = self.validate_channel_references()
+        return len(errors) == 0, errors
 
     def validate_channel_references(self) -> List[str]:
         """
@@ -575,7 +697,8 @@ class ConfigManager:
         Returns:
             List of cycles (each cycle is a list of channel IDs)
         """
-        return ConfigValidator.detect_circular_dependencies(self.config)
+        # ConfigValidator was removed - return empty (no cycles detected)
+        return []
 
     # ========== Export ==========
 

@@ -45,8 +45,7 @@ class MainWindowDeviceMixin:
 
             if success:
                 self._set_connected_state(True, config.get('type'))
-                # Give device/emulator time to fully initialize before syncing config
-                QTimer.singleShot(1500, self._auto_sync_config)
+                # Auto-sync is triggered by connected signal -> _on_device_connected
             else:
                 self.status_message.setText("Connection failed")
                 QMessageBox.warning(self, "Connection Failed", "Could not connect to the device.")
@@ -67,8 +66,7 @@ class MainWindowDeviceMixin:
 
         if success:
             self._set_connected_state(True, 'Emulator')
-            # Give emulator time to fully initialize before syncing config
-            QTimer.singleShot(1500, self._auto_sync_config)
+            # Auto-sync is triggered by connected signal -> _on_device_connected
         else:
             self.status_message.setText("Emulator connection failed")
             QMessageBox.warning(self, "Connection Failed",
@@ -139,28 +137,27 @@ class MainWindowDeviceMixin:
         """Handle device connection (including after reconnect).
 
         Auto-syncs configuration:
-        - If local config exists: upload to device
-        - If no local config: read from device
+        - Read from device (device is source of truth)
         """
         self._set_connected_state(True, "device")
 
-        # Auto-sync: upload local config if exists, otherwise read from device
-        QTimer.singleShot(500, self._auto_sync_config)
+        # Give device time to fully initialize before syncing config
+        QTimer.singleShot(1500, self._auto_sync_config)
 
     def _auto_sync_config(self):
         """Auto-sync configuration on connection.
 
-        Always upload local config to device (even if empty).
-        This ensures device and configurator are in sync.
+        On connection, READ config from device (device is source of truth).
+        The device may have config saved in flash from a previous session.
         """
         if not self.device_controller.is_connected():
             return
 
-        # Always upload local config to device
-        # This ensures device runs what's shown in configurator
-        logger.info("Auto-syncing local config to device")
-        self.status_message.setText("Syncing configuration to device...")
-        self._send_config_to_device_silent()
+        # Read config from device - device is source of truth
+        # Device may have config in flash from previous session
+        logger.info("Auto-syncing: reading config from device")
+        self.status_message.setText("Reading configuration from device...")
+        self.read_from_device()
 
     def read_from_device(self):
         """Read configuration from device."""
@@ -235,24 +232,32 @@ class MainWindowDeviceMixin:
         try:
             channels = self.project_tree.get_all_channels()
             binary_data = serialize_ui_channels_for_executor(channels)
-
-            self.status_message.setText(f"Writing configuration ({len(binary_data)} bytes)...")
-            total_chunks = self._send_binary_config_chunks(binary_data)
-
-            import time
-            time.sleep(0.5)
-
-            # Parse channel count from binary data
             channel_count = struct.unpack('<H', binary_data[:2])[0] if len(binary_data) >= 2 else 0
 
-            self.status_message.setText("Configuration written successfully")
-            QMessageBox.information(
-                self, "Success",
-                f"Configuration written to device.\n"
-                f"Channels: {channel_count}\n"
-                f"Size: {len(binary_data)} bytes\n"
-                f"Chunks: {total_chunks}"
-            )
+            self.status_message.setText(f"Writing configuration ({len(binary_data)} bytes)...")
+
+            # Use upload_binary_config which waits for ACK
+            success = self.device_controller.upload_binary_config(binary_data, timeout=10.0)
+
+            if success:
+                self.status_message.setText("Configuration written successfully")
+                # Restart telemetry stream (firmware stops it during config load)
+                self.device_controller.subscribe_telemetry(rate_hz=10)
+                QMessageBox.information(
+                    self, "Success",
+                    f"Configuration written to device.\n"
+                    f"Channels: {channel_count}\n"
+                    f"Size: {len(binary_data)} bytes"
+                )
+            else:
+                self.status_message.setText("Write failed - no ACK from device")
+                # Try to restart telemetry anyway
+                self.device_controller.subscribe_telemetry(rate_hz=10)
+                QMessageBox.warning(
+                    self, "Write Failed",
+                    "Configuration was sent but device did not acknowledge.\n"
+                    "Please check device connection and try again."
+                )
 
         except Exception as e:
             logger.error(f"Failed to write configuration: {e}")
@@ -264,6 +269,9 @@ class MainWindowDeviceMixin:
 
         Sends binary config for Channel Executor virtual channels.
         Called automatically when channel configuration changes.
+
+        IMPORTANT: Firmware stops telemetry stream during config load,
+        so we must restart it after successful upload.
         """
         if not self.device_controller.is_connected():
             return
@@ -273,54 +281,34 @@ class MainWindowDeviceMixin:
             binary_data = serialize_ui_channels_for_executor(channels)
 
             if len(binary_data) > 2:  # More than just channel count
-                self._send_binary_config_chunks(binary_data, silent=True)
                 channel_count = struct.unpack('<H', binary_data[:2])[0]
-                self.status_message.setText(f"Config synced ({channel_count} channels, {len(binary_data)} bytes)")
-                logger.debug(f"Binary config sent: {channel_count} channels, {len(binary_data)} bytes")
+
+                # Use upload_binary_config which waits for ACK
+                success = self.device_controller.upload_binary_config(binary_data, timeout=5.0)
+
+                if success:
+                    self.status_message.setText(f"Config synced ({channel_count} channels, {len(binary_data)} bytes)")
+                    logger.info(f"Binary config uploaded: {channel_count} channels, {len(binary_data)} bytes")
+
+                    # CRITICAL: Restart telemetry stream after config upload
+                    # Firmware stops the stream during LOAD_BINARY_CONFIG processing
+                    self.device_controller.subscribe_telemetry(rate_hz=10)
+                    logger.info("Telemetry subscription restarted after config upload")
+                else:
+                    self.status_message.setText("Config sync failed - no ACK from device")
+                    logger.error("Binary config upload failed - no ACK")
+                    # Try to restart telemetry anyway in case firmware is in weird state
+                    self.device_controller.subscribe_telemetry(rate_hz=10)
             else:
                 self.status_message.setText("Config synced (no virtual channels)")
                 logger.debug("No virtual channels to sync")
+                # Still need to start telemetry even with no channels
+                self.device_controller.subscribe_telemetry(rate_hz=10)
+                logger.info("Telemetry subscription started (no virtual channels)")
 
         except Exception as e:
             logger.error(f"Failed to send config silently: {e}")
             self.status_message.setText("Config sync failed")
-
-    def _send_binary_config_chunks(self, binary_data: bytes, silent: bool = False) -> int:
-        """Send binary config as chunks to device. Returns number of chunks."""
-        chunk_size = 1024
-        chunks = [binary_data[i:i + chunk_size] for i in range(0, len(binary_data), chunk_size)]
-        total_chunks = len(chunks)
-
-        for idx, chunk in enumerate(chunks):
-            frame = self._build_binary_config_frame(idx, total_chunks, chunk)
-            self.device_controller.send_command(frame)
-
-            if not silent:
-                progress = int((idx + 1) / total_chunks * 100)
-                self.status_message.setText(f"Writing binary config... {progress}%")
-
-        return total_chunks
-
-    def _build_binary_config_frame(self, chunk_idx: int, total_chunks: int, chunk: bytes) -> bytes:
-        """Build protocol frame for binary config chunk."""
-        header = struct.pack('<HH', chunk_idx, total_chunks)
-        payload = header + chunk
-        msg_type = 0x68  # LOAD_BINARY_CONFIG
-
-        frame_data = struct.pack('<BHB', 0xAA, len(payload), msg_type) + payload
-
-        # CRC16-CCITT
-        crc = 0xFFFF
-        for byte in frame_data[1:]:
-            crc ^= byte << 8
-            for _ in range(8):
-                if crc & 0x8000:
-                    crc = (crc << 1) ^ 0x1021
-                else:
-                    crc <<= 1
-                crc &= 0xFFFF
-
-        return frame_data + struct.pack('<H', crc)
 
     def _apply_output_to_device(self, output_config: dict):
         """Apply output channel state to device immediately."""
@@ -368,15 +356,22 @@ class MainWindowDeviceMixin:
 
                 if success:
                     self.status_message.setText("Configuration saved to flash")
+                    # Restart telemetry stream after flash save
+                    self.device_controller.subscribe_telemetry(rate_hz=10)
+                    logger.info("Telemetry restarted after flash save")
                     QMessageBox.information(self, "Success", "Configuration saved to flash memory.")
                 else:
                     self.status_message.setText("Flash save failed")
+                    # Try to restart telemetry anyway
+                    self.device_controller.subscribe_telemetry(rate_hz=10)
                     QMessageBox.warning(self, "Save Failed",
                                        "Failed to save configuration to flash.\n"
                                        "Device may not have responded.")
 
             except Exception as e:
                 logger.error(f"Failed to save to flash: {e}")
+                # Try to restart telemetry on error
+                self.device_controller.subscribe_telemetry(rate_hz=10)
                 QMessageBox.critical(self, "Error", f"Failed to save to flash:\n{str(e)}")
 
     def restart_device(self):

@@ -364,6 +364,15 @@ class BaseChannelDialog(QDialog):
             return text if text else None
         return channel_id
 
+    def _get_channel_name_from_edit(self, edit: QLineEdit) -> str:
+        """Get channel name (display text) from edit field.
+
+        For config storage - validation expects channel names (strings).
+        Returns the text shown in the edit field, which is the channel's
+        human-readable name (e.g., 'one', 'Digital Input 1').
+        """
+        return edit.text().strip()
+
     def _set_channel_edit_value(self, edit: QLineEdit, channel_id):
         """Set channel edit field value with display name lookup.
 

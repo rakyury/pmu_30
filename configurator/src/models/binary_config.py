@@ -60,9 +60,123 @@ class BinaryConfigManager:
         self._channel_map.clear()
         logger.info("Created new binary configuration")
 
+    def set_channels_from_dicts(self, channel_dicts: List[Dict]) -> None:
+        """
+        Convert UI channel dictionaries to binary Channel dataclasses.
+
+        Args:
+            channel_dicts: List of channel configuration dictionaries from UI
+        """
+        from .channel import LogicOperation as UILogicOp
+
+        self.config.channels.clear()
+        self._channel_map.clear()
+
+        for ch_dict in channel_dicts:
+            ch_type_str = ch_dict.get("channel_type", "")
+            ch_id = ch_dict.get("channel_id", 0)
+            ch_name = ch_dict.get("name", "") or ch_dict.get("channel_name", "") or ch_dict.get("id", "")
+            enabled = ch_dict.get("enabled", True)
+
+            # Map UI channel type to binary ChannelType
+            type_map = {
+                "power_output": ChannelType.POWER_OUTPUT,
+                "logic": ChannelType.LOGIC,
+                "timer": ChannelType.TIMER,
+                "digital_input": ChannelType.DIGITAL_INPUT,
+                "analog_input": ChannelType.ANALOG_INPUT,
+                "filter": ChannelType.FILTER,
+                "number": ChannelType.NUMBER,
+                "table_2d": ChannelType.TABLE_2D,
+                "table_3d": ChannelType.TABLE_3D,
+                "pid": ChannelType.PID,
+                "switch": ChannelType.SWITCH,
+            }
+
+            binary_type = type_map.get(ch_type_str)
+            if not binary_type:
+                logger.warning(f"Unknown channel type: {ch_type_str}, skipping")
+                continue
+
+            # Build config object based on type
+            config_obj = None
+
+            if ch_type_str == "logic":
+                # Get operation as binary code
+                op_str = ch_dict.get("operation", "is_true")
+                try:
+                    op_enum = UILogicOp(op_str)
+                    op_code = op_enum.binary_code
+                except ValueError:
+                    op_code = 0x06  # Default to IS_TRUE
+
+                inputs = ch_dict.get("inputs", [])
+                if not inputs and ch_dict.get("channel"):
+                    inputs = [ch_dict.get("channel")]
+                if ch_dict.get("channel_2"):
+                    inputs.append(ch_dict.get("channel_2"))
+
+                config_obj = CfgLogic(
+                    operation=op_code,
+                    input_count=len(inputs),
+                    inputs=tuple(inputs + [0] * (8 - len(inputs))),
+                    compare_value=int(ch_dict.get("threshold", 0) or ch_dict.get("constant", 0)),
+                    invert_output=ch_dict.get("invert", False),
+                )
+
+            elif ch_type_str == "power_output":
+                config_obj = CfgPowerOutput(
+                    inrush_time_ms=ch_dict.get("inrush_time_ms", 100),
+                    current_limit_ma=ch_dict.get("current_limit_ma", 10000),
+                    retry_count=ch_dict.get("retry_count", 3),
+                    retry_delay_s=ch_dict.get("retry_delay_s", 1),
+                    soft_start_ms=ch_dict.get("soft_start_ms", 0),
+                )
+
+            elif ch_type_str == "timer":
+                mode_map = {"oneshot": 0, "toggle": 1, "pulse": 2, "blink": 3, "flash": 4}
+                mode = mode_map.get(ch_dict.get("mode", "oneshot"), 0)
+                config_obj = CfgTimer(
+                    mode=mode,
+                    trigger_channel_id=ch_dict.get("trigger_channel", 0xFFFF),
+                    delay_ms=ch_dict.get("delay_ms", 0),
+                    on_time_ms=ch_dict.get("on_time_ms", 1000),
+                    off_time_ms=ch_dict.get("off_time_ms", 1000),
+                )
+
+            # Create Channel dataclass
+            source_id = ch_dict.get("source_channel", CH_REF_NONE)
+            if isinstance(source_id, str):
+                source_id = CH_REF_NONE  # Need to resolve name to ID
+
+            hw_index = ch_dict.get("hw_index", 0) or 0
+            hw_device = ch_dict.get("hw_device", 0) or 0
+
+            channel = Channel(
+                id=ch_id,
+                type=binary_type,
+                flags=ChannelFlags.ENABLED if enabled else 0,
+                hw_device=hw_device,
+                hw_index=hw_index,
+                source_id=source_id if isinstance(source_id, int) else CH_REF_NONE,
+                default_value=ch_dict.get("default_value", 0),
+                name=ch_name[:31] if ch_name else "",
+                config=config_obj,
+            )
+
+            self.config.channels.append(channel)
+            self._channel_map[ch_id] = channel
+
+        self.modified = True
+        logger.info(f"Loaded {len(self.config.channels)} channels from UI dicts")
+
     def load_from_file(self, filepath: str) -> Tuple[bool, Optional[str]]:
         """
         Load configuration from binary file (.pmu30 extension)
+
+        Auto-detects format:
+        - Full format: has CFG_MAGIC header (0x43464733)
+        - Raw format: starts with channel count (firmware GET_CONFIG format)
 
         Args:
             filepath: Path to binary configuration file
@@ -70,13 +184,33 @@ class BinaryConfigManager:
         Returns:
             Tuple[bool, Optional[str]]: (success, error_message)
         """
+        import struct
+
         try:
             path = Path(filepath)
 
             if not path.exists():
                 return False, f"Configuration file not found: {filepath}"
 
-            self.config = ConfigFile.load(str(path))
+            with open(path, "rb") as f:
+                data = f.read()
+
+            if len(data) < 4:
+                return False, "File too small"
+
+            # Check if this is full format (starts with CFG_MAGIC)
+            magic = struct.unpack("<I", data[:4])[0]
+            if magic == CFG_MAGIC:
+                # Full ConfigFile format
+                self.config = ConfigFile.deserialize(data)
+                logger.info("Loaded full ConfigFile format")
+            else:
+                # Raw format (channel count + channel data)
+                success, error = self.load_from_raw_bytes(data)
+                if not success:
+                    return False, error
+                logger.info("Loaded raw channel format")
+
             self.current_file = path
             self.modified = False
 
@@ -84,7 +218,6 @@ class BinaryConfigManager:
             self._channel_map = {ch.id: ch for ch in self.config.channels}
 
             logger.info(f"Loaded binary config from: {filepath}")
-            logger.info(f"  Device: 0x{self.config.device_type:04X}")
             logger.info(f"  Channels: {len(self.config.channels)}")
 
             return True, None
@@ -101,10 +234,10 @@ class BinaryConfigManager:
 
     def load_from_bytes(self, data: bytes) -> Tuple[bool, Optional[str]]:
         """
-        Load configuration from bytes (e.g., from device)
+        Load configuration from bytes (full file format with header)
 
         Args:
-            data: Binary configuration data
+            data: Binary configuration data with file header
 
         Returns:
             Tuple[bool, Optional[str]]: (success, error_message)
@@ -127,6 +260,67 @@ class BinaryConfigManager:
 
         except Exception as e:
             return False, f"Failed to load configuration: {e}"
+
+    def load_from_raw_bytes(self, data: bytes) -> Tuple[bool, Optional[str]]:
+        """
+        Load configuration from raw channel data (no file header).
+
+        This is the format sent by firmware via GET_CONFIG:
+        [2 bytes] channel_count (LE)
+        For each channel:
+          CfgChannelHeader (14 bytes)
+          name (name_len bytes)
+          config (config_size bytes)
+
+        Args:
+            data: Raw channel data without file header
+
+        Returns:
+            Tuple[bool, Optional[str]]: (success, error_message)
+        """
+        import struct
+
+        try:
+            if len(data) < 2:
+                return False, "Data too short for channel count"
+
+            # Read channel count
+            channel_count = struct.unpack('<H', data[:2])[0]
+            offset = 2
+
+            channels = []
+            for i in range(channel_count):
+                if offset >= len(data):
+                    return False, f"Unexpected end of data at channel {i}"
+
+                try:
+                    channel, consumed = Channel.deserialize(data[offset:])
+                    channels.append(channel)
+                    offset += consumed
+                except Exception as e:
+                    return False, f"Failed to parse channel {i}: {e}"
+
+            # Create new config with parsed channels
+            self.config = ConfigFile(
+                device_type=self.DEVICE_PMU30,
+                channels=channels
+            )
+            self.current_file = None
+            self.modified = False
+
+            # Build channel map
+            self._channel_map = {ch.id: ch for ch in self.config.channels}
+
+            logger.info(f"Loaded raw binary config from device")
+            logger.info(f"  Channels: {len(channels)}")
+
+            return True, None
+
+        except struct.error as e:
+            return False, f"Binary parse error: {e}"
+
+        except Exception as e:
+            return False, f"Failed to load raw configuration: {e}"
 
     def save_to_file(self, filepath: Optional[str] = None) -> Tuple[bool, Optional[str]]:
         """
@@ -464,24 +658,44 @@ class BinaryConfigManager:
 
 def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
     """
-    Convert UI channel configs to binary format for Channel Executor.
+    Convert UI channel configs to binary format for device storage.
+
+    Includes ALL channel types (not just executor types) so that GET_CONFIG
+    returns the complete configuration including Digital Inputs, Analog Inputs, etc.
 
     Args:
         channels: List of channel dicts from UI (project_tree.get_all_channels())
 
     Returns:
         Binary data for LOAD_BINARY_CONFIG command
+
+    Note:
+        All channel types are serialized with names for persistence.
+        Channel Executor only processes virtual channel types, but all
+        types are stored so GET_CONFIG returns the complete config.
     """
     import struct
 
-    # Channel types that go to executor (virtual channels)
-    EXECUTOR_TYPES = {
+    # ALL channel types for complete config persistence
+    ALL_CHANNEL_TYPES = {
+        # Hardware inputs
+        "digital_input": ChannelType.DIGITAL_INPUT,
+        "analog_input": ChannelType.ANALOG_INPUT,
+        "frequency_input": ChannelType.FREQUENCY_INPUT,
+        "can_rx": ChannelType.CAN_INPUT,
+        # Hardware outputs
+        "power_output": ChannelType.POWER_OUTPUT,
+        "pwm_output": ChannelType.PWM_OUTPUT,
+        "hbridge": ChannelType.HBRIDGE,
+        "can_tx": ChannelType.CAN_OUTPUT,
+        # Virtual channels (processed by Channel Executor)
         "timer": ChannelType.TIMER,
         "logic": ChannelType.LOGIC,
         "math": ChannelType.MATH,
         "filter": ChannelType.FILTER,
         "pid": ChannelType.PID,
         "table_2d": ChannelType.TABLE_2D,
+        "table_3d": ChannelType.TABLE_3D,
         "switch": ChannelType.SWITCH,
         "number": ChannelType.NUMBER,
         "counter": ChannelType.COUNTER,
@@ -492,24 +706,76 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
     channel_data = []
 
     for ch in channels:
-        ch_type_str = ch.get("type", "")
-        ch_type = EXECUTOR_TYPES.get(ch_type_str)
+        # Skip system channels - they are for UI only, firmware already knows about them
+        if ch.get("system", False):
+            continue
+
+        ch_type_str = ch.get("channel_type", "") or ch.get("type", "")
+        ch_type = ALL_CHANNEL_TYPES.get(ch_type_str)
 
         if ch_type is None:
-            continue  # Not an executor channel type
+            logger.debug(f"Skipping unknown channel type: {ch_type_str}")
+            continue
 
         channel_id = ch.get("channel_id")
         if channel_id is None:
             continue
 
-        # Convert UI config to binary config struct
-        config_bytes = _ui_config_to_binary(ch_type_str, ch)
-        if config_bytes is None:
-            continue
+        # Get channel name for persistence (max 31 chars)
+        name = ch.get("name", "") or ch.get("channel_name", "") or ""
+        name_bytes = name.encode('utf-8')[:31]
+        name_len = len(name_bytes)
 
+        # Get common fields
+        flags = 0x01 if ch.get("enabled", True) else 0x00
+        source_id = ch.get("source_channel", 0xFFFF)
+        if source_id is None or source_id == "" or not isinstance(source_id, int):
+            source_id = 0xFFFF  # CH_REF_NONE
+        default_value = 0
+
+        # Get hardware info
+        hw_device = 0  # NONE
+        hw_index = 0
+        pins = ch.get("pins", [])
+
+        # Set hw_device and hw_index based on channel type
+        if ch_type_str == "digital_input":
+            hw_device = 0x01  # GPIO
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "analog_input":
+            hw_device = 0x02  # ADC
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "power_output":
+            hw_device = 0x05  # PROFET
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "pwm_output":
+            hw_device = 0x06  # PWM
+            hw_index = pins[0] if pins else 0
+        elif ch_type_str == "hbridge":
+            hw_device = 0x07  # HBRIDGE
+            hw_index = pins[0] if pins else 0
+
+        # Get type-specific config bytes
+        config_bytes = _ui_config_to_binary(ch_type_str, ch) or b''
         config_size = len(config_bytes)
-        header = struct.pack('<HBB', int(channel_id), int(ch_type), config_size)
-        channel_data.append(header + config_bytes)
+
+        # Build 14-byte CfgChannelHeader_t
+        # struct: id(2) + type(1) + flags(1) + hw_device(1) + hw_index(1) +
+        #         source_id(2) + default_value(4) + name_len(1) + config_size(1)
+        header = struct.pack('<HBBBBHiBB',
+            int(channel_id),    # id: 2B
+            int(ch_type),       # type: 1B
+            flags,              # flags: 1B
+            hw_device,          # hw_device: 1B
+            hw_index,           # hw_index: 1B
+            source_id,          # source_id: 2B
+            default_value,      # default_value: 4B (signed)
+            name_len,           # name_len: 1B
+            config_size         # config_size: 1B
+        )
+
+        # Append header + name + config
+        channel_data.append(header + name_bytes + config_bytes)
 
     # Build final binary
     channel_count = len(channel_data)
@@ -517,7 +783,7 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
     for data in channel_data:
         result += data
 
-    logger.debug(f"Converted {channel_count} UI channels to executor format ({len(result)} bytes)")
+    logger.info(f"Serialized {channel_count} channels to binary format ({len(result)} bytes)")
     return result
 
 
@@ -526,7 +792,26 @@ def _ui_config_to_binary(ch_type: str, config: Dict) -> Optional[bytes]:
     import struct
 
     try:
-        if ch_type == "timer":
+        # Hardware input channels
+        if ch_type == "digital_input":
+            return _serialize_digital_input(config)
+        elif ch_type == "analog_input":
+            return _serialize_analog_input(config)
+        elif ch_type == "frequency_input":
+            return _serialize_frequency_input(config)
+        elif ch_type == "can_rx":
+            return _serialize_can_input(config)
+        # Hardware output channels
+        elif ch_type == "power_output":
+            return _serialize_power_output(config)
+        elif ch_type == "pwm_output":
+            return _serialize_pwm_output(config)
+        elif ch_type == "hbridge":
+            return _serialize_hbridge(config)
+        elif ch_type == "can_tx":
+            return _serialize_can_output(config)
+        # Virtual channels
+        elif ch_type == "timer":
             return _serialize_timer(config)
         elif ch_type == "logic":
             return _serialize_logic(config)
@@ -549,10 +834,10 @@ def _ui_config_to_binary(ch_type: str, config: Dict) -> Optional[bytes]:
         elif ch_type == "math":
             return _serialize_math(config)
         else:
-            return None
+            return b''  # Return empty config for unknown types
     except Exception as e:
         logger.error(f"Failed to serialize {ch_type}: {e}")
-        return None
+        return b''
 
 
 def _get_channel_ref(value) -> int:
@@ -561,6 +846,199 @@ def _get_channel_ref(value) -> int:
         return CH_REF_NONE
     return int(value)
 
+
+# ============================================================================
+# Hardware Channel Serialization
+# ============================================================================
+
+def _serialize_digital_input(config: Dict) -> bytes:
+    """Serialize digital input to CfgDigitalInput_t (4 bytes).
+
+    FORMAT = "<BBH" matches channel_config.py CfgDigitalInput
+    """
+    import struct
+
+    active_high = 1 if config.get('active_high', True) else 0
+    use_pullup = 1 if config.get('use_pullup', True) else 0
+    debounce_ms = int(config.get('debounce_time', 50) or config.get('debounce_ms', 50))
+
+    return struct.pack('<BBH',
+        active_high,        # active_high: 1B
+        use_pullup,         # use_pullup: 1B
+        debounce_ms         # debounce_ms: 2B
+    )
+
+
+def _serialize_analog_input(config: Dict) -> bytes:
+    """Serialize analog input to CfgAnalogInput_t (20 bytes).
+
+    FORMAT = "<iiiiHBB" matches channel_config.py CfgAnalogInput
+    """
+    import struct
+
+    raw_min = int(config.get('raw_min', 0) or config.get('cal_raw_low', 0))
+    raw_max = int(config.get('raw_max', 4095) or config.get('cal_raw_high', 4095))
+    scaled_min = int(config.get('scaled_min', 0) or config.get('cal_scaled_low', 0))
+    scaled_max = int(config.get('scaled_max', 100) or config.get('cal_scaled_high', 100))
+    filter_ms = int(config.get('filter_ms', 10))
+    filter_type = int(config.get('filter_type', 0))
+    samples = int(config.get('samples', 4))
+
+    return struct.pack('<iiiiHBB',
+        raw_min,            # raw_min: 4B (signed)
+        raw_max,            # raw_max: 4B (signed)
+        scaled_min,         # scaled_min: 4B (signed)
+        scaled_max,         # scaled_max: 4B (signed)
+        filter_ms,          # filter_ms: 2B
+        filter_type,        # filter_type: 1B
+        samples             # samples: 1B
+    )
+
+
+def _serialize_frequency_input(config: Dict) -> bytes:
+    """Serialize frequency input to CfgFrequencyInput_t (20 bytes).
+
+    FORMAT = "<IIHBB ii" matches channel_config.py CfgFrequencyInput
+    """
+    import struct
+
+    min_freq = int(config.get('min_freq_hz', 0))
+    max_freq = int(config.get('max_freq_hz', 10000))
+    pulses_per_rev = int(config.get('pulses_per_rev', 1))
+    edge_mode = int(config.get('edge_mode', 0))
+    reserved = 0
+    scale_num = int(config.get('scale_num', 1))
+    scale_den = int(config.get('scale_den', 1))
+
+    return struct.pack('<IIHBBii',
+        min_freq,           # min_freq_hz: 4B
+        max_freq,           # max_freq_hz: 4B
+        pulses_per_rev,     # pulses_per_rev: 2B
+        edge_mode,          # edge_mode: 1B
+        reserved,           # reserved: 1B
+        scale_num,          # scale_num: 4B (signed)
+        scale_den           # scale_den: 4B (signed)
+    )
+
+
+def _serialize_can_input(config: Dict) -> bytes:
+    """Serialize CAN input to CfgCanInput_t (18 bytes).
+
+    FORMAT = "<IBBBBB x hhhH" matches channel_config.py CfgCanInput
+    """
+    import struct
+
+    can_id = int(config.get('can_id', 0))
+    is_extended = 1 if config.get('is_extended', False) else 0
+    bus = int(config.get('bus', 0))
+    start_bit = int(config.get('start_bit', 0))
+    bit_length = int(config.get('bit_length', 8))
+    is_signed = 1 if config.get('is_signed', False) else 0
+    scale_num = int(config.get('scale_num', 1))
+    scale_den = int(config.get('scale_den', 1))
+    offset = int(config.get('offset', 0))
+    timeout_ms = int(config.get('timeout_ms', 1000))
+
+    # Format: <IBBBBB x hhhH (with x as 1 byte padding)
+    return struct.pack('<IBBBBBxhhhH',
+        can_id,             # can_id: 4B
+        is_extended,        # is_extended: 1B
+        bus,                # bus: 1B
+        start_bit,          # start_bit: 1B
+        bit_length,         # bit_length: 1B
+        is_signed,          # is_signed: 1B
+        # 1 byte padding (x)
+        scale_num,          # scale_num: 2B (signed)
+        scale_den,          # scale_den: 2B (signed)
+        offset,             # offset: 2B (signed)
+        timeout_ms          # timeout_ms: 2B
+    )
+
+
+def _serialize_power_output(config: Dict) -> bytes:
+    """Serialize power output to CfgPowerOutput_t (12 bytes).
+
+    FORMAT = "<HHHBBHBB" matches channel_config.py CfgPowerOutput
+    """
+    import struct
+
+    current_limit = int(config.get('current_limit_ma', 10000))
+    inrush_limit = int(config.get('inrush_limit_ma', current_limit))
+    inrush_time = int(config.get('inrush_time_ms', 200))
+    retry_count = int(config.get('retry_count', 3))
+    pwm_frequency = int(config.get('pwm_frequency', 0))
+    soft_start_ms = int(config.get('soft_start_ms', 0))
+    flags = int(config.get('flags', 0))
+
+    return struct.pack('<HHHBBHBB',
+        current_limit,      # current_limit_ma: 2B
+        inrush_limit,       # inrush_limit_ma: 2B
+        inrush_time,        # inrush_time_ms: 2B
+        retry_count,        # retry_count: 1B
+        0,                  # reserved: 1B
+        pwm_frequency,      # pwm_frequency: 2B
+        soft_start_ms,      # soft_start_ms: 1B
+        flags               # flags: 1B
+    )
+
+
+def _serialize_pwm_output(config: Dict) -> bytes:
+    """Serialize PWM output to CfgPwmOutput_t (12 bytes)."""
+    import struct
+
+    frequency = int(config.get('frequency_hz', 1000))
+    min_duty = int(config.get('min_duty', 0))
+    max_duty = int(config.get('max_duty', 10000))
+    default_duty = int(config.get('default_duty', 0))
+
+    return struct.pack('<IHHHH',
+        frequency,          # frequency_hz: 4B
+        min_duty,           # min_duty: 2B
+        max_duty,           # max_duty: 2B
+        default_duty,       # default_duty: 2B
+        0                   # reserved: 2B
+    )
+
+
+def _serialize_hbridge(config: Dict) -> bytes:
+    """Serialize H-Bridge to CfgHBridge_t (8 bytes)."""
+    import struct
+
+    frequency = int(config.get('frequency_hz', 1000))
+    deadband = int(config.get('deadband_us', 0))
+    max_rate = int(config.get('max_rate', 0))
+
+    return struct.pack('<IHHH',
+        frequency,          # frequency_hz: 4B
+        deadband,           # deadband_us: 2B
+        max_rate            # max_rate: 2B
+    )
+
+
+def _serialize_can_output(config: Dict) -> bytes:
+    """Serialize CAN output to CfgCanOutput_t (16 bytes)."""
+    import struct
+
+    can_id = int(config.get('can_id', 0))
+    bus = int(config.get('bus', 0))
+    is_extended = 1 if config.get('is_extended', False) else 0
+    dlc = int(config.get('dlc', 8))
+    period_ms = int(config.get('period_ms', 100))
+
+    return struct.pack('<IBBBBHBBBBBB',
+        can_id,             # can_id: 4B
+        bus,                # bus: 1B
+        is_extended,        # is_extended: 1B
+        dlc,                # dlc: 1B
+        0,                  # reserved: 1B
+        period_ms,          # period_ms: 2B
+        0, 0, 0, 0, 0, 0    # reserved: 6B
+    )
+
+
+# ============================================================================
+# Virtual Channel Serialization
+# ============================================================================
 
 def _serialize_timer(config: Dict) -> bytes:
     """Serialize timer to CfgTimer_t (16 bytes)."""
@@ -584,10 +1062,17 @@ def _serialize_logic(config: Dict) -> bytes:
     """Serialize logic to CfgLogic_t (26 bytes)."""
     import struct
 
-    OP_MAP = {"and": 0, "or": 1, "not": 2, "xor": 3, "nand": 4, "nor": 5,
-              "gt": 6, "ge": 7, "lt": 8, "le": 9, "eq": 10, "ne": 11}
+    # Must match firmware LogicOp_t enum in shared/engine/logic.h
+    OP_MAP = {
+        "and": 0x00, "or": 0x01, "xor": 0x02, "nand": 0x03, "nor": 0x04,
+        "is_true": 0x06, "is_false": 0x07,
+        "greater": 0x10, "gt": 0x10, "greater_equal": 0x11, "ge": 0x11,
+        "less": 0x12, "lt": 0x12, "less_equal": 0x13, "le": 0x13,
+        "equal": 0x14, "eq": 0x14, "not_equal": 0x15, "ne": 0x15,
+        "range": 0x20, "outside": 0x21
+    }
 
-    operation = OP_MAP.get(config.get('operation', 'and'), 0)
+    operation = OP_MAP.get(config.get('operation', 'is_true'), 0x06)
     input_channels = config.get('input_channels', [])
     input_count = len(input_channels)
 

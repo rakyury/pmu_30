@@ -248,6 +248,119 @@ ser.write(build_packet(0x30))  # START_STREAM
 # Parse responses: cmd=0x32 is DATA, byte 78 is DIN bitmask, bytes 8-37 are output states
 ```
 
+### Config Sync on Connection
+
+**CRITICAL**: При подключении конфигуратор должен **ЧИТАТЬ** конфиг с устройства, а НЕ загружать пустой локальный.
+
+```python
+# ПРАВИЛЬНО - device_mixin.py:_auto_sync_config()
+def _auto_sync_config(self):
+    self.read_from_device()  # Device is source of truth
+
+# НЕПРАВИЛЬНО - затрёт сохранённый в flash конфиг пустым!
+def _auto_sync_config(self):
+    self._send_config_to_device_silent()  # DON'T DO THIS
+```
+
+**Симптом**: "конфиг пустой после перезапуска конфигуратора" → проверить что auto_sync читает с устройства.
+
+### Channel References: Names vs IDs
+
+**CRITICAL**: В конфиге каналов ссылки на другие каналы хранятся как **строки (имена)**, а НЕ числовые ID.
+
+```python
+# ПРАВИЛЬНО - LogicDialog.get_config() использует _get_channel_name_from_edit()
+config["channel"] = self._get_channel_name_from_edit(edit)  # Returns "one", "Digital Input 1"
+
+# НЕПРАВИЛЬНО - _get_channel_id_from_edit() возвращает int из property!
+config["channel"] = self._get_channel_id_from_edit(edit)  # Returns 50, 51 (numeric IDs)
+```
+
+Валидация (`shared/python/channel_validation.py`) ожидает строки:
+```python
+if not isinstance(input_id, str) or not input_id:
+    return error(ValidationError.LOGIC_INVALID_INPUT_ID, ...)  # Error 403
+```
+
+**Симптом**: "Validation error 403 for inputs[0]" → диалог возвращает int вместо str.
+
+### Telemetry Restart After Config
+
+**CRITICAL**: Firmware останавливает telemetry stream во время `LOAD_BINARY_CONFIG`. Конфигуратор ОБЯЗАН перезапустить после:
+
+1. `upload_binary_config()` - загрузка конфига
+2. `save_to_flash()` - сохранение в flash
+3. `_send_config_to_device_silent()` - silent sync
+
+```python
+# После ЛЮБОЙ операции с конфигом:
+self.device_controller.subscribe_telemetry(rate_hz=10)
+```
+
+**Симптом**: "телеметрия не обновляется после загрузки конфига" → не перезапустили stream.
+
+### System Channels
+
+Системные каналы "one" и "zero" - это предопределённые каналы с постоянными значениями 1 и 0. Используются как константы в логике. Их имена валидны для валидации.
+
+### Config Serialization - User-Created Channels Only
+
+**CRITICAL**: В прошивку отправляются ТОЛЬКО каналы, созданные пользователем. НЕ отправлять системные пины устройства!
+
+```python
+# ПРАВИЛЬНО - отправляем только user-created каналы
+for ch in config["channels"]:
+    if ch.get("user_created", True):  # Если явно создан пользователем
+        serialize_channel(ch)
+
+# НЕПРАВИЛЬНО - отправлять все системные Digital Input пины
+# config_manager добавляет 8 системных DIN при загрузке - это для UI, не для firmware!
+for i in range(8):
+    channels.append({"id": f"DIN{i}", ...})  # НЕ отправлять в firmware!
+```
+
+**Что отправляется в firmware:**
+1. Digital Inputs - только те, которые пользователь создал (не все 10 пинов!)
+2. Analog Inputs - только созданные пользователем
+3. Power Outputs - только с настроенным source_id (линковка)
+4. Virtual channels - Logic, Timer, Math, Filter, Table, Switch, etc.
+5. CAN Inputs/Outputs - только созданные
+
+**Что НЕ отправляется:**
+- Системные пины устройства (10 аналоговых, 8 цифровых входов как потенциальные)
+- Каналы без конфигурации
+- UI-only каналы (для отображения в интерфейсе)
+
+**Симптом**: "config upload timeout" с большим конфигом → проверить что не сериализуем лишние системные каналы.
+
+### Config Persistence - All Channel Types
+
+**CRITICAL**: `serialize_ui_channels_for_executor()` должен включать ВСЕ типы каналов для полной персистентности.
+
+```python
+# ПРАВИЛЬНО - все типы для полного сохранения конфига
+ALL_CHANNEL_TYPES = {
+    "digital_input": ChannelType.DIGITAL_INPUT,
+    "analog_input": ChannelType.ANALOG_INPUT,
+    "power_output": ChannelType.POWER_OUTPUT,
+    "timer": ChannelType.TIMER,
+    "logic": ChannelType.LOGIC,
+    # ... все типы
+}
+
+# НЕПРАВИЛЬНО - только executor types → Digital Inputs теряются при чтении
+EXECUTOR_TYPES = {"timer": ..., "logic": ...}  # Без digital_input!
+```
+
+**Важно**: Сериализация должна включать имена каналов (`name_bytes`) для UI.
+
+**Форматы struct должны точно соответствовать** `shared/python/channel_config.py`:
+- `CfgDigitalInput`: `FORMAT = "<BBH"` (4 bytes)
+- `CfgAnalogInput`: `FORMAT = "<iiiiHBB"` (20 bytes)
+- `CfgPowerOutput`: `FORMAT = "<HHHBBHBB"` (12 bytes)
+
+**Симптом**: "конфиг загружается битый, нет Digital Inputs" → проверить что все типы сериализуются.
+
 ## Deprecated (removed)
 
 - `pmu_config_json.c` - JSON config parsing

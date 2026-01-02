@@ -671,60 +671,62 @@ class LogicDialog(BaseChannelDialog):
         config["retrigger"] = False
         config["time_off_s"] = 0.5
 
-        # Fill specific fields based on operation (using _get_channel_id_from_edit for channel fields)
+        # Fill specific fields based on operation
+        # Use _get_channel_name_from_edit for channel fields - config stores names, not IDs
+        # Validation expects strings (channel names), IDs are resolved during serialization
         if page_index == 0:  # Is True / Is False
-            config["channel"] = self._get_channel_id_from_edit(self.is_tf_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.is_tf_channel_edit)
             config["true_delay_s"] = self.is_tf_true_delay.value()
             config["false_delay_s"] = self.is_tf_false_delay.value()
 
         elif page_index == 1:  # Comparison
-            config["channel"] = self._get_channel_id_from_edit(self.cmp_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.cmp_channel_edit)
             config["constant"] = self.cmp_constant.value()
             config["true_delay_s"] = self.cmp_true_delay.value()
             config["false_delay_s"] = self.cmp_false_delay.value()
 
         elif page_index == 2:  # And / Or / Xor
-            config["channel"] = self._get_channel_id_from_edit(self.and_or_ch1_edit) or ""
-            config["channel_2"] = self._get_channel_id_from_edit(self.and_or_ch2_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.and_or_ch1_edit)
+            config["channel_2"] = self._get_channel_name_from_edit(self.and_or_ch2_edit)
             config["true_delay_s"] = self.and_or_true_delay.value()
             config["false_delay_s"] = self.and_or_false_delay.value()
 
         elif page_index == 3:  # Changed
-            config["channel"] = self._get_channel_id_from_edit(self.changed_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.changed_channel_edit)
             config["threshold"] = self.changed_threshold.value()
             config["time_on_s"] = self.changed_time_on.value()
 
         elif page_index == 4:  # Hysteresis
-            config["channel"] = self._get_channel_id_from_edit(self.hyst_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.hyst_channel_edit)
             config["polarity"] = self.hyst_polarity.currentData()
             config["upper_value"] = self.hyst_upper.value()
             config["lower_value"] = self.hyst_lower.value()
 
         elif page_index == 5:  # Set-Reset Latch
-            config["set_channel"] = self._get_channel_id_from_edit(self.sr_set_edit) or ""
-            config["reset_channel"] = self._get_channel_id_from_edit(self.sr_reset_edit) or ""
+            config["set_channel"] = self._get_channel_name_from_edit(self.sr_set_edit)
+            config["reset_channel"] = self._get_channel_name_from_edit(self.sr_reset_edit)
             config["default_state"] = self.sr_default.currentData()
 
         elif page_index == 6:  # Toggle
             config["edge"] = self.toggle_edge.currentData()
-            config["toggle_channel"] = self._get_channel_id_from_edit(self.toggle_channel_edit) or ""
-            config["set_channel"] = self._get_channel_id_from_edit(self.toggle_set_edit) or ""
-            config["reset_channel"] = self._get_channel_id_from_edit(self.toggle_reset_edit) or ""
+            config["toggle_channel"] = self._get_channel_name_from_edit(self.toggle_channel_edit)
+            config["set_channel"] = self._get_channel_name_from_edit(self.toggle_set_edit)
+            config["reset_channel"] = self._get_channel_name_from_edit(self.toggle_reset_edit)
             config["default_state"] = self.toggle_default.currentData()
 
         elif page_index == 7:  # Pulse
             config["edge"] = self.pulse_edge.currentData()
-            config["channel"] = self._get_channel_id_from_edit(self.pulse_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.pulse_channel_edit)
             config["pulse_count"] = self.pulse_count.value()
             config["time_on_s"] = self.pulse_time_on.value()
             config["retrigger"] = self.pulse_retrigger.isChecked()
 
         elif page_index == 8:  # Flash
-            config["channel"] = self._get_channel_id_from_edit(self.flash_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.flash_channel_edit)
             config["time_on_s"] = self.flash_time_on.value()
             config["time_off_s"] = self.flash_time_off.value()
 
         elif page_index == 9:  # Edge detection
-            config["channel"] = self._get_channel_id_from_edit(self.edge_channel_edit) or ""
+            config["channel"] = self._get_channel_name_from_edit(self.edge_channel_edit)
 
         return config
