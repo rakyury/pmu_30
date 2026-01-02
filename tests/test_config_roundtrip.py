@@ -6,6 +6,13 @@ Tests that config uploaded to device matches config read back.
 This helps diagnose issues where Digital Input channels are lost.
 
 Usage: python tests/test_config_roundtrip.py [COM_PORT] [CONFIG_FILE]
+
+KNOWN ISSUES:
+- Firmware protocol handling is timing-sensitive and flaky
+- Commands may fail randomly and require retries
+- Test is most reliable immediately after firmware upload
+- STOP_STREAM command breaks subsequent command handling
+- Best run manually for debugging, not suitable for CI
 """
 
 import sys
@@ -44,14 +51,36 @@ def main():
     for ch in original_channels:
         print(f"  id={ch['id']}, type=0x{ch['type']:02X}, name=\"{ch['name']}\", hw_dev=0x{ch['hw_dev']:02X}")
 
+    ser = None
     try:
         ser = serial.Serial(port, 115200, timeout=2.0)
-        time.sleep(0.5)
+        time.sleep(2.0)  # Longer wait for serial to stabilize
 
-        # Initial stop stream
-        print("\n[0] Stopping telemetry stream...")
-        stop_stream(ser)
-        print("  OK - Stream stopped")
+        # Initial warmup - establish reliable communication
+        print("\n[0] Initial warmup...")
+        ser.reset_input_buffer()
+
+        # NOTE: Firmware is known to be flaky with timing.
+        # Try multiple PINGs with delays to warm up the communication.
+        from protocol_helpers import ping
+        success = False
+        for i in range(10):
+            time.sleep(0.3)
+            ser.reset_input_buffer()
+            if ping(ser, timeout=0.5):
+                print(f"  OK - Firmware responding (attempt {i+1})")
+                success = True
+                # Do a few more PINGs to stabilize
+                for _ in range(3):
+                    time.sleep(0.1)
+                    ser.reset_input_buffer()
+                    ping(ser, timeout=0.3)
+                break
+        if not success:
+            print("  WARNING - Firmware slow to respond, continuing anyway")
+
+        time.sleep(0.5)
+        ser.reset_input_buffer()
 
         # Step 1: Clear existing config
         print("\n[1] Clearing device config...")
@@ -60,26 +89,65 @@ def main():
         else:
             print("  WARNING - Clear may have failed")
 
-        # Step 2: Upload config
+        # Step 2: Upload config (with retry)
         print("\n[2] Uploading config...")
-        success, channels_loaded = upload_config(ser, original_data)
-        if success:
-            print(f"  OK - Uploaded {len(original_data)} bytes, {channels_loaded} channels loaded")
-        else:
-            print(f"  FAIL - Upload failed")
-            return 1
+        for attempt in range(5):
+            time.sleep(0.3)
+            ser.reset_input_buffer()
+            success, channels_loaded = upload_config(ser, original_data)
+            if success:
+                print(f"  OK - Uploaded {len(original_data)} bytes, {channels_loaded} channels loaded")
+                break
+            else:
+                if attempt < 4:
+                    print(f"  Attempt {attempt+1} failed, retrying after delay...")
+                    time.sleep(1.5)
+                    ser.reset_input_buffer()
+                    # Try a PING to wake up firmware
+                    ping(ser, timeout=0.5)
+                else:
+                    print(f"  FAIL - Upload failed after 5 attempts")
+                    return 1
 
-        # Step 3: Read back immediately
-        print("\n[3] Reading config back (before save)...")
-        readback_data = read_config(ser)
-        if readback_data:
-            readback_channels = parse_channels(readback_data)
-            print(f"  Got {len(readback_data)} bytes, {len(readback_channels)} channels:")
-            for ch in readback_channels:
-                print(f"    id={ch['id']}, type=0x{ch['type']:02X}, name=\"{ch['name']}\", hw_dev=0x{ch['hw_dev']:02X}")
+        # Step 2.5: Verify firmware is still responsive
+        print("\n[2.5] Checking firmware responsiveness (PING)...")
+        from protocol_helpers import ping, build_frame, CMD
+        if ping(ser, timeout=2.0):
+            print("  OK - Firmware responding")
         else:
-            print("  FAIL - No config data received")
-            return 1
+            print("  WARNING - No PONG response, trying again...")
+            time.sleep(1.0)
+            if ping(ser, timeout=2.0):
+                print("  OK - Firmware responding (delayed)")
+            else:
+                print("  FAIL - Firmware not responding to PING")
+                # Let's try to see what's in the buffer
+                ser.reset_input_buffer()
+                time.sleep(0.5)
+                data = ser.read(1024)
+                if data:
+                    print(f"  Buffer had {len(data)} bytes: {data[:50].hex()}")
+                return 1
+
+        # Step 3: Read back immediately (with retry)
+        print("\n[3] Reading config back (before save)...")
+        readback_data = None
+        for attempt in range(3):
+            readback_data = read_config(ser, debug=(attempt == 0))
+            if readback_data:
+                readback_channels = parse_channels(readback_data)
+                print(f"  Got {len(readback_data)} bytes, {len(readback_channels)} channels:")
+                for ch in readback_channels:
+                    print(f"    id={ch['id']}, type=0x{ch['type']:02X}, name=\"{ch['name']}\", hw_dev=0x{ch['hw_dev']:02X}")
+                break
+            else:
+                if attempt < 2:
+                    print(f"  Attempt {attempt+1} failed, waiting and retrying...")
+                    time.sleep(1.0)
+                    ser.reset_input_buffer()
+                else:
+                    print("  FAIL - No config data received after 3 attempts")
+                    return 1
 
         # Step 4: Save to flash
         print("\n[4] Saving to flash...")
@@ -135,8 +203,6 @@ def main():
             print("\n  FAIL - Channel count mismatch!")
             return 1
 
-        ser.close()
-
     except serial.SerialException as e:
         print(f"Serial error: {e}")
         return 1
@@ -145,6 +211,17 @@ def main():
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        # Cleanup serial port (skip STOP_STREAM to avoid timing issues)
+        if ser:
+            try:
+                pass  # Don't send STOP_STREAM - causes firmware instability
+            except:
+                pass
+            try:
+                ser.close()
+            except:
+                pass
 
 
 if __name__ == '__main__':

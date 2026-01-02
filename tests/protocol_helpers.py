@@ -181,7 +181,8 @@ def read_frame(ser: serial.Serial, timeout: float = 1.0) -> Tuple[Optional[int],
 
 
 def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
-             timeout: float = 3.0, expected_cmd: int = None) -> List[Tuple[int, bytes, int]]:
+             timeout: float = 3.0, expected_cmd: int = None,
+             debug: bool = False) -> List[Tuple[int, bytes, int]]:
     """
     Send command and collect response frames.
 
@@ -191,12 +192,17 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
         payload: Payload data
         timeout: Read timeout
         expected_cmd: If specified, wait for this response command
+        debug: If True, print debug info
 
     Returns:
         List of (cmd, payload, seq_id) tuples
     """
     ser.reset_input_buffer()
-    ser.write(build_frame(cmd, payload))
+    frame = build_frame(cmd, payload)
+    if debug:
+        print(f"  [TRANSACT] Sending CMD=0x{cmd:02X}, len={len(payload)}")
+        print(f"  [TRANSACT] Frame: {frame[:20].hex()}{'...' if len(frame) > 20 else ''}")
+    ser.write(frame)
     time.sleep(0.2)  # Give device time to process and respond
 
     data = b''
@@ -207,6 +213,8 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
         if chunk:
             data += chunk
             no_data_count = 0
+            if debug:
+                print(f"  [TRANSACT] Read {len(chunk)} bytes, total {len(data)}")
         else:
             no_data_count += 1
             # Wait for 3 consecutive empty reads before parsing
@@ -217,6 +225,11 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
                 if any(c == expected_cmd for c, p, s in frames):
                     return frames
         time.sleep(0.05)
+
+    if debug and not data:
+        print(f"  [TRANSACT] Timeout - no data received in {timeout}s")
+    elif debug:
+        print(f"  [TRANSACT] Timeout with {len(data)} bytes")
 
     return parse_frames(data)
 
@@ -265,6 +278,9 @@ def upload_config(ser: serial.Serial, config_data: bytes) -> Tuple[bool, int]:
     frames = transact(ser, CMD.LOAD_BINARY_CONFIG, chunked, timeout=5.0,
                       expected_cmd=CMD.BINARY_CONFIG_ACK)
 
+    # Give device time to process config after upload
+    time.sleep(0.5)
+
     for cmd, payload, seq_id in frames:
         if cmd == CMD.BINARY_CONFIG_ACK and len(payload) >= 2:
             success = payload[0] == 1
@@ -274,9 +290,23 @@ def upload_config(ser: serial.Serial, config_data: bytes) -> Tuple[bool, int]:
     return False, 0
 
 
-def read_config(ser: serial.Serial) -> Optional[bytes]:
-    """Read config from device. Returns config data or None."""
-    frames = transact(ser, CMD.GET_CONFIG, expected_cmd=CMD.CONFIG_DATA)
+def read_config(ser: serial.Serial, debug: bool = False) -> Optional[bytes]:
+    """Read config from device. Returns config data or None.
+
+    Args:
+        ser: Serial port
+        debug: If True, print debug info
+    """
+    if debug:
+        print(f"  [DEBUG] Sending GET_CONFIG (0x{CMD.GET_CONFIG:02X})")
+
+    frames = transact(ser, CMD.GET_CONFIG, timeout=5.0,
+                     expected_cmd=CMD.CONFIG_DATA, debug=debug)
+
+    if debug:
+        print(f"  [DEBUG] Received {len(frames)} frames")
+        for cmd, payload, seq_id in frames:
+            print(f"    CMD=0x{cmd:02X}, len={len(payload)}, seq={seq_id}")
 
     for cmd, payload, seq_id in frames:
         if cmd == CMD.CONFIG_DATA and len(payload) >= 4:
