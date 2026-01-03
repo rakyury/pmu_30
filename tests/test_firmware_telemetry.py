@@ -237,8 +237,9 @@ class TelemetryTester:
         else:
             remaining = 0
 
-        # Accept up to 5 residual packets (USB/driver buffer timing variations)
-        passed = remaining <= 5
+        # Accept up to 10 residual packets (USB/driver buffer timing variations)
+        # At 17Hz streaming, 500ms buffer could contain ~8-9 packets
+        passed = remaining <= 10
         self.add_result(
             "Stop Stream",
             passed,
@@ -286,29 +287,40 @@ class TelemetryTester:
 
     def test_set_output(self) -> bool:
         """Test SET_OUTPUT command"""
-        # Ensure clean state - stop any telemetry and drain
+        # Ensure clean state - stop any telemetry and drain aggressively
         stop_stream(self.port)
-        drain_serial(self.port, 100)
+        drain_serial(self.port, 200)  # Increased from 100ms
+        time.sleep(0.1)  # Extra settle time
+        drain_serial(self.port, 100)  # One more drain
 
         # Set output 0 to ON
         payload = bytes([0, 1])
         self.port.write(build_min_frame(CMD.SET_OUTPUT, payload))
         self.port.flush()
 
+        # Small delay to allow USB VCP to buffer the response
+        time.sleep(0.02)  # 20ms
+
         parser = MINFrameParser()
         start = time.time()
         result = False
 
-        while time.time() - start < 2.0:
-            chunk = self.port.read(256)
-            if chunk:
-                frames = parser.feed(chunk)
-                for cmd, data, seq, _ in frames:
-                    if cmd == CMD.OUTPUT_ACK:
-                        result = True
-                        break
-            if result:
-                break
+        # Use short read timeout for responsive polling
+        old_timeout = self.port.timeout
+        self.port.timeout = 0.05  # 50ms
+        try:
+            while time.time() - start < 2.0:
+                chunk = self.port.read(256)
+                if chunk:
+                    frames = parser.feed(chunk)
+                    for cmd, data, seq, _ in frames:
+                        if cmd == CMD.OUTPUT_ACK:
+                            result = True
+                            break
+                if result:
+                    break
+        finally:
+            self.port.timeout = old_timeout
 
         self.add_result(
             "SET_OUTPUT",

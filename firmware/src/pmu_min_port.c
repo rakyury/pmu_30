@@ -112,7 +112,8 @@ extern uint8_t g_digital_inputs[8];
 
 static void handle_ping(void)
 {
-    /* Use min_send_frame for immediate, non-transport response (no ACK required) */
+    /* PONG is unreliable - if lost, client will retry PING
+     * Using min_send_frame avoids infinite retransmits when client doesn't ACK */
     min_send_frame(&g_min_ctx, MIN_CMD_PONG, NULL, 0);
 }
 
@@ -120,7 +121,7 @@ static void handle_get_config(void)
 {
     if (min_config_len == 0) {
         uint8_t response[6] = {0, 0, 1, 0, 0, 0};
-        min_send_frame(&g_min_ctx, MIN_CMD_CONFIG_DATA, response, 6);
+        min_send_frame(&g_min_ctx, MIN_CMD_CONFIG_DATA, response, 6);  /* Unreliable */
         return;
     }
 
@@ -134,6 +135,7 @@ static void handle_get_config(void)
     uint16_t copy_len = (min_config_len > 251) ? 251 : min_config_len;
     memcpy(response + 4, min_config_buffer, copy_len);
 
+    /* Unreliable - if lost, client retries GET_CONFIG */
     min_send_frame(&g_min_ctx, MIN_CMD_CONFIG_DATA, response, 4 + copy_len);
 }
 
@@ -141,7 +143,7 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
 {
     if (len < 4) {
         uint8_t nack[2] = {MIN_CMD_LOAD_BINARY, 0x02};
-        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);
+        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);  /* Unreliable NACK */
         return;
     }
 
@@ -159,21 +161,24 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
 
     /* Load via channel executor */
     int result = PMU_ChannelExec_LoadConfig(config_data, config_len);
-    uint16_t channels_loaded = PMU_ChannelExec_GetChannelCount();
+    /* result is the number of loaded channels (including output links) */
+    uint16_t channels_loaded = (result >= 0) ? (uint16_t)result : 0;
 
     uint8_t ack[4];
     ack[0] = (result >= 0) ? 1 : 0;
     ack[1] = 0;
     ack[2] = channels_loaded & 0xFF;
     ack[3] = (channels_loaded >> 8) & 0xFF;
+
+    /* Unreliable ACK - if lost, client retries and we reload config */
     min_send_frame(&g_min_ctx, MIN_CMD_BINARY_ACK, ack, 4);
 }
 
 static void handle_save_config(void)
 {
-    /* Stub - always succeed for now */
+    /* TODO: Implement actual flash save */
     uint8_t ack[1] = {1};
-    min_send_frame(&g_min_ctx, MIN_CMD_FLASH_ACK, ack, 1);
+    min_send_frame(&g_min_ctx, MIN_CMD_FLASH_ACK, ack, 1);  /* Unreliable ACK */
 }
 
 static void handle_clear_config(void)
@@ -181,7 +186,7 @@ static void handle_clear_config(void)
     PMU_ChannelExec_Clear();
     min_config_len = 0;
     uint8_t ack[1] = {1};
-    min_send_frame(&g_min_ctx, MIN_CMD_CLEAR_CONFIG_ACK, ack, 1);
+    min_send_frame(&g_min_ctx, MIN_CMD_CLEAR_CONFIG_ACK, ack, 1);  /* Unreliable ACK */
 }
 
 static void handle_start_stream(uint8_t const *payload, uint8_t len)
@@ -198,28 +203,28 @@ static void handle_start_stream(uint8_t const *payload, uint8_t len)
     min_last_stream_time = min_time_ms();
 
     uint8_t ack[1] = {MIN_CMD_START_STREAM};
-    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);
+    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);  /* Unreliable ACK */
 }
 
 static void handle_stop_stream(void)
 {
     min_stream_active = false;
     uint8_t ack[1] = {MIN_CMD_STOP_STREAM};
-    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);
+    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);  /* Unreliable ACK */
 }
 
 static void handle_set_output(uint8_t const *payload, uint8_t len)
 {
     if (len < 2) {
         uint8_t nack[2] = {MIN_CMD_SET_OUTPUT, 0x02};
-        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);
+        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);  /* Unreliable NACK */
         return;
     }
 
     PMU_PROFET_SetState(payload[0], payload[1] != 0);
 
     uint8_t ack[2] = {payload[0], payload[1]};
-    min_send_frame(&g_min_ctx, MIN_CMD_OUTPUT_ACK, ack, 2);
+    min_send_frame(&g_min_ctx, MIN_CMD_OUTPUT_ACK, ack, 2);  /* Unreliable ACK */
 }
 
 /**
@@ -258,7 +263,7 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
         default:
             {
                 uint8_t nack[2] = {min_id, 0x01};
-                min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);
+                min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);  /* Unreliable NACK */
             }
             break;
     }

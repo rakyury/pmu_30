@@ -89,6 +89,7 @@ ADC_HandleTypeDef hadc1;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+IWDG_HandleTypeDef hiwdg;
 
 /* Debug counters */
 static volatile uint32_t g_tick_count = 0;
@@ -121,6 +122,7 @@ static void USART2_Init(void);
 static void CAN1_Init(void);
 static void ADC1_Init(void);
 static void TIM_PWM_Init(void);
+static void IWDG_Init(void);
 
 static void vControlTask(void *pvParameters);
 static void vProtectionTask(void *pvParameters);
@@ -168,8 +170,23 @@ int main(void)
     /* Peripheral initialization */
     GPIO_Init();
     USART2_Init();
+
+    /* Early debug - verify UART is working */
+    {
+        const char* debug_msg = "DBG:UART-OK\r\n";
+        while (*debug_msg) {
+            while (!(USART2->SR & USART_SR_TXE));
+            USART2->DR = *debug_msg++;
+        }
+        while (!(USART2->SR & USART_SR_TC));
+        GPIOA->ODR |= (1 << 5);  /* LED ON = UART init passed */
+    }
+
     ADC1_Init();
     TIM_PWM_Init();
+
+    /* IWDG (Independent Watchdog) - 2 second timeout, auto-reset on hang */
+    IWDG_Init();
 
     /* PMU modules initialization */
     PMU_Config_Init();
@@ -218,6 +235,12 @@ int main(void)
     /* Enable interrupts but keep SysTick disabled */
     __enable_irq();
     SysTick->CTRL = 0;
+
+    /* Delay for ST-Link VCP to stabilize (~500ms)
+     * The USB CDC-ACM interface needs time to enumerate before data can be received.
+     * Without this delay, early UART transmissions may be lost.
+     */
+    for (volatile uint32_t i = 0; i < 2000000; i++);
 
     /* Send "PMU30-MIN-READY" to verify UART TX works and indicate MIN mode */
     {
@@ -281,6 +304,10 @@ int main(void)
          * Handles retransmits, ACK timeouts, and telemetry streaming */
         if ((loop_count % 200) == 0) {
             PMU_MIN_Update();
+
+            /* Refresh IWDG watchdog (must be called within 2 seconds)
+             * If main loop hangs, MCU will automatically reset */
+            HAL_IWDG_Refresh(&hiwdg);
         }
     }
 }
@@ -838,6 +865,31 @@ static void TIM_PWM_Init(void)
     HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
 
     Debug_Print("[OK] PWM timers initialized (6 channels @ 1kHz)\r\n");
+}
+
+/**
+ * @brief IWDG Independent Watchdog initialization
+ *
+ * Configures ~2 second timeout. If HAL_IWDG_Refresh() is not called
+ * within this time, MCU will automatically reset.
+ *
+ * LSI oscillator: ~32kHz (can vary 17-47kHz)
+ * Prescaler: 64 -> counter clock = 32000/64 = 500 Hz
+ * Reload: 1000 -> timeout = 1000/500 = 2 seconds
+ */
+static void IWDG_Init(void)
+{
+    hiwdg.Instance = IWDG;
+    hiwdg.Init.Prescaler = IWDG_PRESCALER_64;   /* LSI / 64 = ~500Hz */
+    hiwdg.Init.Reload = 1000;                    /* 1000 / 500 = 2 sec timeout */
+
+    if (HAL_IWDG_Init(&hiwdg) != HAL_OK) {
+        /* IWDG init failed - blink LED rapidly */
+        for (int i = 0; i < 10; i++) {
+            GPIOA->ODR ^= (1 << 5);
+            for (volatile int d = 0; d < 100000; d++);
+        }
+    }
 }
 
 static void SystemClock_Config(void)

@@ -1,14 +1,19 @@
 """
-PMU-30 Protocol Helpers for Hardware Tests (MIN Protocol)
+PMU-30 Protocol Helpers for Hardware Tests (T-MIN Protocol)
 
-Provides protocol utilities for communicating with real hardware using MIN protocol.
-MIN provides reliable framing with CRC32 and automatic retransmission.
+Provides protocol utilities for communicating with real hardware using T-MIN protocol.
+T-MIN (Transport MIN) provides reliable framing with CRC32 and automatic retransmission.
 
-MIN Frame Format:
+T-MIN Frame Format:
 ┌────────────────┬────────────┬─────┬────────┬─────────┬───────┬─────┐
-│ 0xAA 0xAA 0xAA │ ID/Control │ Seq │ Length │ Payload │ CRC32 │ EOF │
+│ 0xAA 0xAA 0xAA │ ID|0x80    │ Seq │ Length │ Payload │ CRC32 │ EOF │
 │    3 bytes     │   1 byte   │ 1B  │  1B    │ 0-255B  │  4B   │ 1B  │
 └────────────────┴────────────┴─────┴────────┴─────────┴───────┴─────┘
+
+Key difference from simple MIN:
+- Transport frames have bit 7 set in ID byte (ID | 0x80)
+- Requires ACK from receiver (firmware and host must both acknowledge)
+- Automatic retransmission on timeout
 """
 
 import struct
@@ -18,6 +23,12 @@ from typing import Optional, Tuple, List
 from dataclasses import dataclass
 from enum import IntEnum
 from binascii import crc32
+from pathlib import Path
+import sys
+
+# Import T-MIN transport from shared library
+sys.path.insert(0, str(Path(__file__).parent.parent / "shared" / "python"))
+from min_protocol import MINTransportSerial, MINFrame, MINConnectionError
 
 
 # ============================================================================
@@ -64,6 +75,150 @@ CMD = MINCMD
 HEADER_BYTE = 0xAA
 STUFF_BYTE = 0x55
 EOF_BYTE = 0x55
+
+
+# ============================================================================
+# T-MIN Transport Context
+# ============================================================================
+
+class TMinContext:
+    """
+    T-MIN transport context manager for reliable communication.
+
+    Wraps MINTransportSerial with a simple synchronous API for tests.
+    Handles ACK/NACK automatically via poll() calls.
+
+    Usage:
+        with TMinContext('COM11') as tmin:
+            tmin.send_command(CMD.PING, b'')
+            frames = tmin.wait_for_response(CMD.PONG, timeout=2.0)
+    """
+
+    def __init__(self, port: str, baudrate: int = 115200):
+        self.port = port
+        self.baudrate = baudrate
+        self._transport: Optional[MINTransportSerial] = None
+
+    def __enter__(self):
+        from logging import ERROR
+        self._transport = MINTransportSerial(self.port, self.baudrate, loglevel=ERROR)
+
+        # Wait for firmware to be ready after port open
+        # ST-Link VCP and firmware initialization takes ~500-1000ms
+        time.sleep(1.0)
+
+        # Drain any stale data from previous sessions
+        self._transport._serial.reset_input_buffer()
+
+        # Send RESET to sync transport state
+        self._transport.transport_reset()
+        time.sleep(0.3)  # Allow firmware to process reset
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._transport:
+            try:
+                self._transport.close()
+            except:
+                pass
+        return False
+
+    def send_command(self, cmd: int, payload: bytes = b''):
+        """
+        Send command via T-MIN transport (reliable delivery).
+
+        Uses queue_frame() which requires ACK from firmware.
+        """
+        self._transport.queue_frame(cmd, payload)
+
+    def send_unreliable(self, cmd: int, payload: bytes = b''):
+        """
+        Send frame without transport (unreliable, for telemetry start/stop).
+
+        Uses send_frame() which doesn't require ACK.
+        """
+        self._transport.send_frame(cmd, payload)
+
+    def poll(self) -> List[MINFrame]:
+        """
+        Poll for incoming frames and handle ACKs.
+
+        Returns list of received application frames.
+        """
+        return self._transport.poll()
+
+    def wait_for_response(self, expected_cmd: int, timeout: float = 3.0,
+                          skip_data: bool = True) -> List[Tuple[int, bytes, int]]:
+        """
+        Wait for specific response command.
+
+        Args:
+            expected_cmd: Command ID to wait for
+            timeout: Maximum wait time
+            skip_data: If True, skip DATA (telemetry) packets
+
+        Returns:
+            List of (cmd, payload, seq) tuples
+        """
+        results = []
+        start = time.time()
+
+        while time.time() - start < timeout:
+            frames = self.poll()
+            for frame in frames:
+                if skip_data and frame.min_id == CMD.DATA:
+                    continue
+                results.append((frame.min_id, frame.payload, frame.seq))
+                if frame.min_id == expected_cmd:
+                    return results
+            time.sleep(0.01)
+
+        return results
+
+    def collect_frames(self, timeout: float = 1.0) -> List[Tuple[int, bytes, int]]:
+        """
+        Collect all frames for a duration.
+
+        Returns:
+            List of (cmd, payload, seq) tuples
+        """
+        results = []
+        start = time.time()
+
+        while time.time() - start < timeout:
+            frames = self.poll()
+            for frame in frames:
+                results.append((frame.min_id, frame.payload, frame.seq))
+            time.sleep(0.01)
+
+        return results
+
+
+# Global T-MIN context for legacy API compatibility
+_tmin_context: Optional[TMinContext] = None
+
+
+def get_tmin_context(ser: serial.Serial) -> TMinContext:
+    """
+    Get or create T-MIN context for a serial port.
+
+    Note: This creates a new MINTransportSerial, so the original
+    serial.Serial object is not used directly. The port is reopened.
+    """
+    global _tmin_context
+    if _tmin_context is None or _tmin_context.port != ser.port:
+        if _tmin_context:
+            try:
+                _tmin_context._transport.close()
+            except:
+                pass
+        # Close the pyserial object since MINTransportSerial opens its own
+        port = ser.port
+        baudrate = ser.baudrate
+        ser.close()
+        _tmin_context = TMinContext(port, baudrate)
+        _tmin_context.__enter__()
+    return _tmin_context
 
 
 # ============================================================================
@@ -324,24 +479,33 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
     ser.write(frame)
     ser.flush()
 
+    # Small delay to allow USB VCP to buffer the response
+    # Without this, partial data may arrive and cause frame parsing issues
+    time.sleep(0.02)  # 20ms
+
     parser = MINFrameParser()
     start = time.time()
     results = []
 
-    while time.time() - start < timeout:
-        chunk = ser.read(512)
-        if chunk:
-            frames = parser.feed(chunk)
-            for cmd_rx, payload_rx, seq_rx, _ in frames:
-                # Skip telemetry DATA packets when looking for specific command
-                if cmd_rx == CMD.DATA and expected_cmd is not None and expected_cmd != CMD.DATA:
-                    continue
-                results.append((cmd_rx, payload_rx, seq_rx))
-                if debug:
-                    print(f"  [MIN] Received CMD=0x{cmd_rx:02X}, len={len(payload_rx)}")
-                if expected_cmd is not None and cmd_rx == expected_cmd:
-                    return results
-        time.sleep(0.005)  # Shorter sleep for faster response
+    # Use short read timeout for responsive polling
+    old_timeout = ser.timeout
+    ser.timeout = 0.05  # 50ms read timeout
+    try:
+        while time.time() - start < timeout:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd_rx, payload_rx, seq_rx, _ in frames:
+                    # Skip telemetry DATA packets when looking for specific command
+                    if cmd_rx == CMD.DATA and expected_cmd is not None and expected_cmd != CMD.DATA:
+                        continue
+                    results.append((cmd_rx, payload_rx, seq_rx))
+                    if debug:
+                        print(f"  [MIN] Received CMD=0x{cmd_rx:02X}, len={len(payload_rx)}")
+                    if expected_cmd is not None and cmd_rx == expected_cmd:
+                        return results
+    finally:
+        ser.timeout = old_timeout
 
     if debug and not results:
         print(f"  [MIN] Timeout - no data received in {timeout}s")
@@ -463,17 +627,24 @@ def ping(ser: serial.Serial, timeout: float = 1.0) -> bool:
     ser.write(build_min_frame(CMD.PING))
     ser.flush()
 
-    # Wait for PONG
+    # Small delay to allow USB VCP to buffer the response
+    time.sleep(0.02)  # 20ms
+
+    # Wait for PONG with short read timeouts to allow quick loop iteration
     parser = MINFrameParser()
     start = time.time()
-    while time.time() - start < timeout:
-        chunk = ser.read(256)
-        if chunk:
-            frames = parser.feed(chunk)
-            for cmd, payload, seq, is_transport in frames:
-                if cmd == CMD.PONG:
-                    return True
-        time.sleep(0.005)  # Faster polling
+    old_timeout = ser.timeout
+    ser.timeout = 0.05  # 50ms read timeout for responsive polling
+    try:
+        while time.time() - start < timeout:
+            chunk = ser.read(256)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, is_transport in frames:
+                    if cmd == CMD.PONG:
+                        return True
+    finally:
+        ser.timeout = old_timeout
     return False
 
 
