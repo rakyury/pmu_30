@@ -217,11 +217,6 @@ int main(void)
     /* Channel Executor (shared library integration - replaces PMU_LogicFunctions) */
     PMU_ChannelExec_Init();
 
-    /* Load saved config from flash (if any) */
-    if (PMU_Protocol_LoadSavedConfig()) {
-        /* Config loaded successfully - channels are ready */
-    }
-
     /* Status LED (visual feedback) */
     PMU_LED_Init();
 
@@ -231,6 +226,14 @@ int main(void)
 
     /* MIN Protocol - reliable framing with CRC32, auto-retransmit */
     PMU_MIN_Init();
+
+    /* Refresh IWDG before loading config (many init functions above) */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Load saved config from flash (if any) - after MIN init */
+    if (PMU_MIN_LoadSavedConfig()) {
+        /* Config loaded successfully - channels are ready */
+    }
 
     /* Enable interrupts but keep SysTick disabled */
     __enable_irq();

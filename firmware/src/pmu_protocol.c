@@ -1840,6 +1840,12 @@ static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet)
         return;
     }
 
+    /* Validate channel ID - ID 0 is reserved/invalid (matches Val_IsValidChannelId) */
+    if (channel_id == 0) {
+        Protocol_SendChannelConfigACK(0, false, 4, "Invalid channel ID 0");
+        return;
+    }
+
     /* Skip name (we don't store it in RAM for now) */
     offset += name_len;
 
@@ -1856,11 +1862,15 @@ static void Protocol_HandleSetChannelConfig(const PMU_Protocol_Packet_t* packet)
 
     if (type == CH_TYPE_POWER_OUTPUT) {
         /* Power output: create link from source_id to hw_index */
-        if (source_id != 0xFFFF) {  /* CH_REF_NONE = 0xFFFF */
+        /* source_id must be valid: not CH_REF_NONE (0xFFFF) and not 0 */
+        if (source_id != 0xFFFF && source_id != 0) {
             result = PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index);
-        } else {
+        } else if (source_id == 0xFFFF) {
             /* No source channel configured - just acknowledge */
             result = HAL_OK;
+        } else {
+            /* source_id == 0 is invalid */
+            result = HAL_ERROR;
         }
     } else if (type >= CH_TYPE_TIMER && type <= CH_TYPE_FLIPFLOP) {
         /* Virtual channel: add to executor with config data */

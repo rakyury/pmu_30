@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-PMU-30 System Telemetry Test
+PMU-30 System Telemetry Test (MIN Protocol)
 
 Tests that system channels in telemetry are working and updating:
-- uptime_sec: Should increment over time
-- ram_used: Should be reasonable (< 128KB for F446RE)
-- flash_used: Should be reasonable (< 512KB for F446RE)
-- channel_count: Should be present and consistent
+- Uptime: Should increment over time
+- Output states: Should reflect physical outputs
+- Digital inputs: Should reflect GPIO state
+- Virtual channels: Should be present when config is loaded
 
 Usage: python tests/test_system_telemetry.py [COM_PORT]
 """
@@ -16,152 +16,123 @@ import struct
 import time
 import serial
 
-# Protocol commands
-CMD_START_STREAM = 0x30
-CMD_TELEMETRY = 0x32
-
-# Memory limits for STM32F446RE
-RAM_SIZE = 128 * 1024   # 128 KB
-FLASH_SIZE = 512 * 1024  # 512 KB
-
-
-def crc16(data: bytes) -> int:
-    crc = 0xFFFF
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = (crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1
-        crc &= 0xFFFF
-    return crc
-
-
-def build_frame(cmd: int, payload: bytes = b'') -> bytes:
-    header = struct.pack('<BHB', 0xAA, len(payload), cmd)
-    crc = crc16(struct.pack('<HB', len(payload), cmd) + payload)
-    return header + payload + struct.pack('<H', crc)
-
-
-def parse_frames(data: bytes) -> list:
-    frames = []
-    while len(data) >= 6:
-        if data[0] != 0xAA:
-            data = data[1:]
-            continue
-        length = struct.unpack('<H', data[1:3])[0]
-        total_len = 4 + length + 2
-        if len(data) < total_len:
-            break
-        cmd = data[3]
-        payload = data[4:4+length]
-        frames.append((cmd, payload))
-        data = data[total_len:]
-    return frames
-
-
-def parse_system_info(pkt: bytes) -> dict:
-    """Parse system info from telemetry packet (offset 79-93)."""
-    if len(pkt) < 94:
-        return None
-    return {
-        'uptime_sec': struct.unpack('<I', pkt[79:83])[0],
-        'ram_used': struct.unpack('<I', pkt[83:87])[0],
-        'flash_used': struct.unpack('<I', pkt[87:91])[0],
-        'channel_count': struct.unpack('<H', pkt[91:93])[0],
-    }
-
-
-def collect_telemetry(ser, duration: float = 2.0) -> list:
-    """Collect telemetry packets for specified duration.
-
-    Assumes stream is already running from initialization.
-    """
-    ser.reset_input_buffer()
-    time.sleep(0.1)
-
-    packets = []
-    all_data = b''
-    start = time.time()
-    while time.time() - start < duration:
-        data = ser.read(4096)
-        if data:
-            all_data += data
-        time.sleep(0.05)
-
-    # Parse all collected data at once
-    frames = parse_frames(all_data)
-    for cmd, payload in frames:
-        if cmd == CMD_TELEMETRY:
-            info = parse_system_info(payload)
-            if info:
-                packets.append(info)
-
-    return packets
+# Import protocol helpers - MIN protocol implementation
+sys.path.insert(0, 'tests')
+from protocol_helpers import (
+    CMD, build_min_frame, MINFrameParser, drain_serial,
+    ping, start_stream, stop_stream, parse_telemetry, get_capabilities
+)
 
 
 def main():
     port = sys.argv[1] if len(sys.argv) > 1 else "COM11"
     print("=" * 60)
-    print("PMU-30 System Telemetry Test")
+    print("PMU-30 System Telemetry Test (MIN Protocol)")
     print("=" * 60)
     print(f"Port: {port}")
 
     results = {}
 
     try:
-        # Open connection and start stream
-        ser = serial.Serial(port, 115200, timeout=2.0)
-        time.sleep(1.5)
+        ser = serial.Serial(port, 115200, timeout=1.0, write_timeout=1.0)
+        time.sleep(2.0)  # Wait for device startup
 
-        # Initialize connection with robust startup
-        print("Initializing connection...")
-        ser.reset_input_buffer()
+        # Ensure clean state
+        stop_stream(ser)
+        drain_serial(ser, 200)
 
-        # Send START_STREAM multiple times to ensure firmware starts
-        for i in range(5):
-            ser.write(build_frame(CMD_START_STREAM))
-            time.sleep(0.3)
-
-        # Wait for stream to stabilize
-        time.sleep(1.0)
-
-        if ser.in_waiting > 0:
-            print(f"  Connection ready ({ser.in_waiting} bytes buffered)")
+        # Test 0: Connection test
+        print("\n[TEST 0] Connection (PING/PONG)")
+        if ping(ser, timeout=2.0):
+            print("  OK - Device responding")
+            results["Connection"] = True
         else:
-            print("  Connection ready (waiting for data...)")
-            time.sleep(1.0)
+            print("  FAIL - No PONG response")
+            results["Connection"] = False
+            ser.close()
+            return 1
 
-        # Test 1: Basic telemetry reception
-        print("\n[TEST 1] Basic System Telemetry")
-        packets = collect_telemetry(ser, 2.0)
+        # Test 1: Get capabilities
+        print("\n[TEST 1] Device Capabilities")
+        caps = get_capabilities(ser, timeout=2.0)
+        if caps:
+            print(f"  Device type: 0x{caps.device_type:02X} ({caps.device_name})")
+            print(f"  Firmware: v{caps.fw_version_str}")
+            print(f"  Outputs: {caps.output_count}")
+            print(f"  Analog inputs: {caps.analog_input_count}")
+            print(f"  Digital inputs: {caps.digital_input_count}")
+            print(f"  H-Bridges: {caps.hbridge_count}")
+            print(f"  CAN buses: {caps.can_bus_count}")
+            print("  OK - Capabilities received")
+            results["Capabilities"] = True
+        else:
+            print("  FAIL - No capabilities response")
+            results["Capabilities"] = False
 
-        if len(packets) < 10:
+        # Test 2: Basic telemetry reception
+        print("\n[TEST 2] Basic Telemetry Reception")
+        start_stream(ser, rate_hz=10)
+
+        packets = []
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 2.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        if tel:
+                            packets.append(tel)
+                        if len(packets) >= 15:
+                            break
+            if len(packets) >= 15:
+                break
+
+        stop_stream(ser)
+
+        if len(packets) >= 10:
+            print(f"  Received {len(packets)} packets")
+            latest = packets[-1]
+            print(f"  Counter: {latest.stream_counter}")
+            print(f"  Timestamp: {latest.timestamp_ms} ms")
+            print(f"  Uptime: {latest.uptime_sec} s")
+            print("  OK - Telemetry streaming")
+            results["Basic"] = True
+        else:
             print(f"  FAIL - Only {len(packets)} packets received")
             results["Basic"] = False
-        else:
-            info = packets[-1]
-            print(f"  Received {len(packets)} packets")
-            print(f"  Uptime: {info['uptime_sec']} sec")
-            print(f"  RAM used: {info['ram_used']} bytes ({info['ram_used']/1024:.1f} KB)")
-            print(f"  Flash used: {info['flash_used']} bytes ({info['flash_used']/1024:.1f} KB)")
-            print(f"  Channels: {info['channel_count']}")
-            print("  OK - System telemetry received")
-            results["Basic"] = True
 
-        time.sleep(0.5)
+        # Test 3: Uptime incrementing
+        print("\n[TEST 3] Uptime Incrementing")
+        start_stream(ser, rate_hz=10)
 
-        # Test 2: Uptime incrementing
-        print("\n[TEST 2] Uptime Incrementing")
-        packets = collect_telemetry(ser, 3.0)
+        packets = []
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 3.5:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        if tel:
+                            packets.append(tel)
+
+        stop_stream(ser)
 
         if len(packets) >= 20:
-            uptime_first = packets[0]['uptime_sec']
-            uptime_last = packets[-1]['uptime_sec']
+            uptime_first = packets[0].uptime_sec
+            uptime_last = packets[-1].uptime_sec
             delta = uptime_last - uptime_first
-            print(f"  First packet: {uptime_first} sec")
-            print(f"  Last packet: {uptime_last} sec")
-            print(f"  Delta: {delta} sec (expected 1-10)")
+            print(f"  First uptime: {uptime_first} s")
+            print(f"  Last uptime: {uptime_last} s")
+            print(f"  Delta: {delta} s (expected 1-10)")
 
-            # Key test: uptime should be incrementing, not stuck
             if 1 <= delta <= 10:
                 print("  OK - Uptime incrementing correctly")
                 results["Uptime"] = True
@@ -172,99 +143,181 @@ def main():
             print(f"  FAIL - Only {len(packets)} packets")
             results["Uptime"] = False
 
-        time.sleep(0.5)
+        # Test 4: Counter incrementing
+        print("\n[TEST 4] Counter Incrementing")
+        start_stream(ser, rate_hz=20)
 
-        # Test 3: RAM usage reasonable
-        print("\n[TEST 3] RAM Usage Reasonable")
-        packets = collect_telemetry(ser, 1.0)
+        packets = []
+        parser = MINFrameParser()
+        start_time = time.time()
 
-        if packets:
-            ram = packets[-1]['ram_used']
-            print(f"  RAM used: {ram} bytes ({ram/1024:.2f} KB)")
-            print(f"  RAM total: {RAM_SIZE} bytes ({RAM_SIZE/1024:.0f} KB)")
-            print(f"  Usage: {ram*100/RAM_SIZE:.2f}%")
+        while time.time() - start_time < 1.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        if tel:
+                            packets.append(tel)
+                        if len(packets) >= 15:
+                            break
+            if len(packets) >= 15:
+                break
 
-            if 0 < ram < RAM_SIZE:
-                print("  OK - RAM usage within bounds")
-                results["RAM"] = True
-            else:
-                print(f"  FAIL - RAM {ram} out of bounds")
-                results["RAM"] = False
-        else:
-            print("  FAIL - No packets")
-            results["RAM"] = False
-
-        time.sleep(0.5)
-
-        # Test 4: Flash usage reasonable
-        print("\n[TEST 4] Flash Usage Reasonable")
-        packets = collect_telemetry(ser, 1.0)
-
-        if packets:
-            flash = packets[-1]['flash_used']
-            print(f"  Flash used: {flash} bytes ({flash/1024:.2f} KB)")
-            print(f"  Flash total: {FLASH_SIZE} bytes ({FLASH_SIZE/1024:.0f} KB)")
-            print(f"  Usage: {flash*100/FLASH_SIZE:.2f}%")
-
-            if 10000 < flash < FLASH_SIZE:
-                print("  OK - Flash usage within bounds")
-                results["Flash"] = True
-            else:
-                print(f"  FAIL - Flash {flash} out of bounds")
-                results["Flash"] = False
-        else:
-            print("  FAIL - No packets")
-            results["Flash"] = False
-
-        time.sleep(0.5)
-
-        # Test 5: Channel count in telemetry
-        print("\n[TEST 5] Channel Count Field Valid")
-        packets = collect_telemetry(ser, 2.0)
-
-        if packets:
-            channel_counts = [p['channel_count'] for p in packets]
-            latest_count = channel_counts[-1]
-            all_same = len(set(channel_counts)) == 1
-
-            print(f"  Channel count: {latest_count}")
-            print(f"  Consistent across {len(packets)} packets: {all_same}")
-
-            if 0 <= latest_count < 1000 and all_same:
-                print("  OK - Channel count field is valid")
-                results["ChannelCount"] = True
-            else:
-                print(f"  FAIL - Invalid channel count or inconsistent")
-                results["ChannelCount"] = False
-        else:
-            print("  FAIL - No packets")
-            results["ChannelCount"] = False
-
-        time.sleep(0.5)
-
-        # Test 6: Consistency across packets
-        print("\n[TEST 6] Value Consistency")
-        packets = collect_telemetry(ser, 2.0)
+        stop_stream(ser)
 
         if len(packets) >= 10:
-            ram_values = [p['ram_used'] for p in packets]
-            flash_values = [p['flash_used'] for p in packets]
+            counters = [p.stream_counter for p in packets]
+            increments = [counters[i+1] - counters[i] for i in range(len(counters)-1)]
+            good = sum(1 for inc in increments if inc == 1)
+            print(f"  Packets: {len(packets)}")
+            print(f"  Consecutive increments: {good}/{len(increments)}")
 
-            ram_variance = max(ram_values) - min(ram_values)
-            flash_variance = max(flash_values) - min(flash_values)
-
-            print(f"  RAM variance: {ram_variance} bytes (max-min)")
-            print(f"  Flash variance: {flash_variance} bytes (should be 0)")
-
-            if flash_variance == 0 and ram_variance < 1000:
-                print("  OK - Values are stable")
-                results["Consistency"] = True
+            if good >= len(increments) * 0.8:
+                print("  OK - Counter incrementing correctly")
+                results["Counter"] = True
             else:
-                print("  FAIL - Values too variable")
-                results["Consistency"] = False
+                print("  FAIL - Too many gaps in counter")
+                results["Counter"] = False
         else:
             print(f"  FAIL - Only {len(packets)} packets")
-            results["Consistency"] = False
+            results["Counter"] = False
+
+        # Test 5: Output states in telemetry
+        print("\n[TEST 5] Output States Field")
+        start_stream(ser, rate_hz=10)
+
+        tel = None
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 1.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        break
+            if tel:
+                break
+
+        stop_stream(ser)
+
+        if tel and len(tel.output_states) == 30:
+            active = sum(1 for s in tel.output_states if s)
+            print(f"  Output states array: {len(tel.output_states)} entries")
+            print(f"  Active outputs: {active}")
+            print("  OK - Output states field valid")
+            results["OutputStates"] = True
+        else:
+            print("  FAIL - Invalid output states")
+            results["OutputStates"] = False
+
+        # Test 6: ADC values in telemetry
+        print("\n[TEST 6] ADC Values Field")
+        start_stream(ser, rate_hz=10)
+
+        tel = None
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 1.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        break
+            if tel:
+                break
+
+        stop_stream(ser)
+
+        if tel and len(tel.adc_values) == 20:
+            non_zero = sum(1 for v in tel.adc_values if v > 0)
+            print(f"  ADC values array: {len(tel.adc_values)} entries")
+            print(f"  Non-zero values: {non_zero}")
+            print(f"  Sample values: {tel.adc_values[:3]}")
+            print("  OK - ADC values field valid")
+            results["ADCValues"] = True
+        else:
+            print("  FAIL - Invalid ADC values")
+            results["ADCValues"] = False
+
+        # Test 7: Digital inputs in telemetry
+        print("\n[TEST 7] Digital Inputs Field")
+        start_stream(ser, rate_hz=10)
+
+        tel = None
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 1.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        break
+            if tel:
+                break
+
+        stop_stream(ser)
+
+        if tel is not None:
+            print(f"  Digital inputs bitmask: 0b{tel.digital_inputs:08b}")
+            active_dins = bin(tel.digital_inputs).count('1')
+            print(f"  Active digital inputs: {active_dins}")
+            print("  OK - Digital inputs field valid")
+            results["DigitalInputs"] = True
+        else:
+            print("  FAIL - No telemetry received")
+            results["DigitalInputs"] = False
+
+        # Test 8: Timestamp monotonic
+        print("\n[TEST 8] Timestamp Monotonic")
+        start_stream(ser, rate_hz=20)
+
+        packets = []
+        parser = MINFrameParser()
+        start_time = time.time()
+
+        while time.time() - start_time < 1.0:
+            chunk = ser.read(512)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, _ in frames:
+                    if cmd == CMD.DATA:
+                        tel = parse_telemetry(payload)
+                        if tel:
+                            packets.append(tel)
+                        if len(packets) >= 15:
+                            break
+            if len(packets) >= 15:
+                break
+
+        stop_stream(ser)
+
+        if len(packets) >= 10:
+            timestamps = [p.timestamp_ms for p in packets]
+            monotonic = all(timestamps[i] < timestamps[i+1] for i in range(len(timestamps)-1))
+            print(f"  First timestamp: {timestamps[0]} ms")
+            print(f"  Last timestamp: {timestamps[-1]} ms")
+            print(f"  Monotonic: {monotonic}")
+
+            if monotonic:
+                print("  OK - Timestamps are monotonically increasing")
+                results["Timestamp"] = True
+            else:
+                print("  FAIL - Timestamps not monotonic")
+                results["Timestamp"] = False
+        else:
+            print(f"  FAIL - Only {len(packets)} packets")
+            results["Timestamp"] = False
 
         ser.close()
 
@@ -276,11 +329,16 @@ def main():
             status = "[PASS]" if passed else "[FAIL]"
             print(f"  {status} {name}")
 
-        all_passed = all(results.values())
+        passed = sum(1 for r in results.values() if r)
+        failed = sum(1 for r in results.values() if not r)
         print("=" * 60)
-        print("ALL TESTS PASSED!" if all_passed else "SOME TESTS FAILED")
-
-        return 0 if all_passed else 1
+        print(f"PASSED: {passed}/{len(results)}")
+        if failed > 0:
+            print("SOME TESTS FAILED")
+            return 1
+        else:
+            print("ALL TESTS PASSED!")
+            return 0
 
     except serial.SerialException as e:
         print(f"Serial error: {e}")

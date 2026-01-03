@@ -222,6 +222,11 @@ void PMU_ChannelExec_Clear(void)
     exec_state.exec_count = 0;
     exec_state.last_exec_us = 0;
 
+    /* Reset context timestamps to avoid large dt_ms after reload */
+    exec_state.context.now_ms = 0;
+    exec_state.context.last_ms = 0;
+    exec_state.context.dt_ms = 0;
+
     /* Clear config storage buffer */
     memset(config_storage, 0, sizeof(config_storage));
     config_storage_used = 0;
@@ -383,6 +388,12 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
         uint8_t config_size = data[offset + 13];
         offset += 14;
 
+        /* Validate channel ID - ID 0 is reserved/invalid (matches Val_IsValidChannelId) */
+        if (channel_id == 0) {
+            offset += name_len + config_size;  /* Skip this channel */
+            continue;
+        }
+
         /* Skip name */
         if (offset + name_len > size) {
             break;
@@ -397,7 +408,8 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
         /* Handle based on channel type */
         if (type == CH_TYPE_POWER_OUTPUT) {
             /* Power output: create link from source_id to hw_index */
-            if (source_id != 0xFFFF) {  /* CH_REF_NONE = 0xFFFF */
+            /* source_id must be valid: not CH_REF_NONE (0xFFFF) and not 0 */
+            if (source_id != 0xFFFF && source_id != 0) {
                 if (PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index) == HAL_OK) {
                     loaded++;
                 }

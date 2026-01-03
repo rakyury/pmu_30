@@ -21,6 +21,33 @@
 /* External references */
 extern UART_HandleTypeDef huart2;
 extern uint32_t HAL_GetTick(void);
+extern IWDG_HandleTypeDef hiwdg;
+
+/* ============================================================================
+ * Flash Storage for Config Persistence (STM32F446RE Sector 3)
+ * ============================================================================
+ * Using Sector 3 (16KB) instead of Sector 7 (128KB) for faster erase time:
+ * - Sector 7 (128KB): 1-2 seconds erase time, triggers IWDG timeout
+ * - Sector 3 (16KB):  ~200ms erase time, safe for IWDG
+ *
+ * STM32F446RE Flash layout:
+ * - Sector 0-3: 16KB each (0x08000000 - 0x0800FFFF)
+ * - Sector 4: 64KB (0x08010000 - 0x0801FFFF)
+ * - Sector 5-7: 128KB each (0x08020000 - 0x0807FFFF)
+ *
+ * Firmware is ~30KB, so Sector 3 (0x0800C000) is safe for config storage.
+ *
+ * Format: [magic:4][size:2][crc16:2][data...]
+ * ============================================================================ */
+#define CONFIG_FLASH_ADDR    0x0800C000UL  /* Sector 3: 16KB */
+#define CONFIG_FLASH_SECTOR  FLASH_SECTOR_3
+#define CONFIG_FLASH_MAGIC   0x434F4E46UL  /* "CONF" */
+
+typedef struct __attribute__((packed)) {
+    uint32_t magic;
+    uint16_t size;
+    uint16_t crc16;
+} ConfigFlashHeader_t;
 
 /* MIN context for USART2 */
 static struct min_context g_min_ctx;
@@ -30,6 +57,15 @@ static struct min_context g_min_ctx;
 static uint8_t min_tx_buffer[MIN_TX_BUFFER_SIZE];
 static uint16_t min_tx_len = 0;
 static volatile bool min_tx_in_progress = false;
+
+/* RX buffer for bytes received during TX - prevents byte loss
+ * At 115200 baud with 200-byte TX packets (~17ms), we could receive
+ * up to ~200 bytes during a single TX. 256 bytes gives margin. */
+#define MIN_RX_BUFFER_SIZE 256
+static uint8_t min_rx_buffer[MIN_RX_BUFFER_SIZE];
+static volatile uint16_t min_rx_head = 0;  /* Write position */
+static volatile uint16_t min_rx_tail = 0;  /* Read position */
+static volatile bool min_rx_processing = false;  /* Prevent recursive processing */
 
 /* Config buffer - copy of loaded config for GET_CONFIG */
 #define MIN_CONFIG_BUFFER_SIZE 2048
@@ -49,6 +85,11 @@ static uint32_t min_stream_counter = 0;
 void min_tx_start(uint8_t port)
 {
     (void)port;
+    /* Don't start new TX if one is in progress (prevents nested calls from
+     * command handlers triggered during TX polling) */
+    if (min_tx_in_progress) {
+        return;
+    }
     min_tx_len = 0;
     min_tx_in_progress = true;
 }
@@ -56,7 +97,8 @@ void min_tx_start(uint8_t port)
 void min_tx_byte(uint8_t port, uint8_t byte)
 {
     (void)port;
-    if (min_tx_len < MIN_TX_BUFFER_SIZE) {
+    /* Only write if TX is in progress (started by min_tx_start) */
+    if (min_tx_in_progress && min_tx_len < MIN_TX_BUFFER_SIZE) {
         min_tx_buffer[min_tx_len++] = byte;
     }
 }
@@ -65,14 +107,50 @@ void min_tx_finished(uint8_t port)
 {
     (void)port;
     if (min_tx_len > 0) {
-        /* Atomic TX - send entire frame at once, eliminates race conditions */
+        /* Send frame while buffering any received bytes.
+         * We can't process RX immediately (would cause reentrancy), but we
+         * must not lose bytes. Buffer them now, process after TX completes. */
         for (uint16_t i = 0; i < min_tx_len; i++) {
-            while (!(USART2->SR & USART_SR_TXE)) {}
+            /* Wait for TX empty, but poll RX while waiting */
+            while (!(USART2->SR & USART_SR_TXE)) {
+                /* Check for RX data and buffer it */
+                if (USART2->SR & USART_SR_RXNE) {
+                    uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
+                    uint16_t next_head = (min_rx_head + 1) % MIN_RX_BUFFER_SIZE;
+                    if (next_head != min_rx_tail) {  /* Not full */
+                        min_rx_buffer[min_rx_head] = rx_byte;
+                        min_rx_head = next_head;
+                    }
+                }
+            }
             USART2->DR = min_tx_buffer[i];
         }
-        while (!(USART2->SR & USART_SR_TC)) {}
+        /* Wait for transmission complete, still buffering RX */
+        while (!(USART2->SR & USART_SR_TC)) {
+            if (USART2->SR & USART_SR_RXNE) {
+                uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
+                uint16_t next_head = (min_rx_head + 1) % MIN_RX_BUFFER_SIZE;
+                if (next_head != min_rx_tail) {
+                    min_rx_buffer[min_rx_head] = rx_byte;
+                    min_rx_head = next_head;
+                }
+            }
+        }
     }
     min_tx_in_progress = false;
+
+    /* Process any buffered RX bytes now that TX is complete.
+     * Guard against recursion: if a command triggers another TX,
+     * that TX's completion will try to process RX again. */
+    if (!min_rx_processing) {
+        min_rx_processing = true;
+        while (min_rx_tail != min_rx_head) {
+            uint8_t byte = min_rx_buffer[min_rx_tail];
+            min_rx_tail = (min_rx_tail + 1) % MIN_RX_BUFFER_SIZE;
+            min_poll(&g_min_ctx, &byte, 1);
+        }
+        min_rx_processing = false;
+    }
 }
 
 uint16_t min_tx_space(uint8_t port)
@@ -107,6 +185,111 @@ extern uint16_t PMU_ADC_GetValue(uint8_t channel);
 extern uint8_t g_digital_inputs[8];
 
 /* ============================================================================
+ * Flash Storage Helper Functions
+ * ============================================================================ */
+
+static uint16_t Config_CRC16(const uint8_t* data, uint16_t length)
+{
+    uint16_t crc = 0xFFFF;
+    for (uint16_t i = 0; i < length; i++) {
+        crc ^= ((uint16_t)data[i]) << 8;
+        for (uint8_t j = 0; j < 8; j++) {
+            crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+        }
+    }
+    return crc;
+}
+
+static bool Config_SaveToFlash(void)
+{
+    if (min_config_len == 0 || min_config_len > MIN_CONFIG_BUFFER_SIZE) {
+        return false;
+    }
+
+    /* Prepare header */
+    ConfigFlashHeader_t header;
+    header.magic = CONFIG_FLASH_MAGIC;
+    header.size = min_config_len;
+    header.crc16 = Config_CRC16(min_config_buffer, min_config_len);
+
+    /* Refresh IWDG before flash erase (128KB sector takes 1-2 seconds) */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Unlock flash */
+    HAL_FLASH_Unlock();
+
+    /* Erase Sector 7 */
+    FLASH_EraseInitTypeDef erase_init;
+    uint32_t sector_error = 0;
+    erase_init.TypeErase = FLASH_TYPEERASE_SECTORS;
+    erase_init.Sector = CONFIG_FLASH_SECTOR;
+    erase_init.NbSectors = 1;
+    erase_init.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+    if (HAL_FLASHEx_Erase(&erase_init, &sector_error) != HAL_OK) {
+        HAL_FLASH_Lock();
+        return false;
+    }
+
+    /* Refresh IWDG after erase */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Write header (8 bytes = 2 words) */
+    uint32_t addr = CONFIG_FLASH_ADDR;
+    uint32_t* header_ptr = (uint32_t*)&header;
+    for (int i = 0; i < 2; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, header_ptr[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return false;
+        }
+        addr += 4;
+    }
+
+    /* Write config data (word-aligned) */
+    uint32_t words = (min_config_len + 3) / 4;
+    uint32_t* data_ptr = (uint32_t*)min_config_buffer;
+    for (uint32_t i = 0; i < words; i++) {
+        if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, data_ptr[i]) != HAL_OK) {
+            HAL_FLASH_Lock();
+            return false;
+        }
+        addr += 4;
+    }
+
+    HAL_FLASH_Lock();
+    return true;
+}
+
+static bool Config_LoadFromFlash(void)
+{
+    ConfigFlashHeader_t* header = (ConfigFlashHeader_t*)CONFIG_FLASH_ADDR;
+
+    /* Check magic */
+    if (header->magic != CONFIG_FLASH_MAGIC) {
+        return false;
+    }
+
+    /* Check size */
+    if (header->size == 0 || header->size > MIN_CONFIG_BUFFER_SIZE) {
+        return false;
+    }
+
+    /* Read config data */
+    uint8_t* flash_data = (uint8_t*)(CONFIG_FLASH_ADDR + sizeof(ConfigFlashHeader_t));
+    memcpy(min_config_buffer, flash_data, header->size);
+    min_config_len = header->size;
+
+    /* Verify CRC */
+    uint16_t calc_crc = Config_CRC16(min_config_buffer, min_config_len);
+    if (calc_crc != header->crc16) {
+        min_config_len = 0;
+        return false;
+    }
+
+    return true;
+}
+
+/* ============================================================================
  * Command Handlers
  * ============================================================================ */
 
@@ -115,6 +298,20 @@ static void handle_ping(void)
     /* PONG is unreliable - if lost, client will retry PING
      * Using min_send_frame avoids infinite retransmits when client doesn't ACK */
     min_send_frame(&g_min_ctx, MIN_CMD_PONG, NULL, 0);
+}
+
+static void handle_reset(void)
+{
+    /* Send ACK before reset (may not arrive - client should retry after timeout) */
+    uint8_t ack[1] = {MIN_CMD_RESET};
+    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);
+
+    /* Wait for TX to complete */
+    while (!(USART2->SR & USART_SR_TC)) {}
+
+    /* Trigger full system reset */
+    NVIC_SystemReset();
+    /* Never returns */
 }
 
 static void handle_get_config(void)
@@ -176,17 +373,36 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
 
 static void handle_save_config(void)
 {
-    /* TODO: Implement actual flash save */
-    uint8_t ack[1] = {1};
-    min_send_frame(&g_min_ctx, MIN_CMD_FLASH_ACK, ack, 1);  /* Unreliable ACK */
+    bool success = Config_SaveToFlash();
+    uint8_t ack[1] = {success ? 1 : 0};
+    min_send_frame(&g_min_ctx, MIN_CMD_FLASH_ACK, ack, 1);
 }
 
 static void handle_clear_config(void)
 {
     PMU_ChannelExec_Clear();
     min_config_len = 0;
+
+    /* Refresh IWDG before flash erase (128KB sector takes 1-2 seconds) */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Erase flash sector to prevent loading on next boot */
+    HAL_FLASH_Unlock();
+    FLASH_EraseInitTypeDef erase_init = {
+        .TypeErase = FLASH_TYPEERASE_SECTORS,
+        .Sector = CONFIG_FLASH_SECTOR,
+        .NbSectors = 1,
+        .VoltageRange = FLASH_VOLTAGE_RANGE_3
+    };
+    uint32_t sector_error = 0;
+    HAL_FLASHEx_Erase(&erase_init, &sector_error);
+    HAL_FLASH_Lock();
+
+    /* Refresh IWDG after erase */
+    HAL_IWDG_Refresh(&hiwdg);
+
     uint8_t ack[1] = {1};
-    min_send_frame(&g_min_ctx, MIN_CMD_CLEAR_CONFIG_ACK, ack, 1);  /* Unreliable ACK */
+    min_send_frame(&g_min_ctx, MIN_CMD_CLEAR_CONFIG_ACK, ack, 1);
 }
 
 static void handle_start_stream(uint8_t const *payload, uint8_t len)
@@ -267,6 +483,9 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
     switch (min_id) {
         case MIN_CMD_PING:
             handle_ping();
+            break;
+        case MIN_CMD_RESET:
+            handle_reset();
             break;
         case MIN_CMD_GET_CONFIG:
             handle_get_config();
@@ -429,6 +648,22 @@ bool PMU_MIN_IsTxInProgress(void)
 struct min_context* PMU_MIN_GetContext(void)
 {
     return &g_min_ctx;
+}
+
+bool PMU_MIN_LoadSavedConfig(void)
+{
+    /* Load config from flash */
+    if (!Config_LoadFromFlash()) {
+        return false;
+    }
+
+    /* Apply to channel executor */
+    if (min_config_len > 0) {
+        int result = PMU_ChannelExec_LoadConfig(min_config_buffer, min_config_len);
+        return (result >= 0);
+    }
+
+    return false;
 }
 
 #endif /* NUCLEO_F446RE */

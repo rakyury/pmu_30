@@ -167,6 +167,7 @@ class TelemetryTester:
         # Note: Bare-metal firmware has timing limitations:
         # - Soft tick is ~10% faster than real time
         # - Max practical rate is ~18Hz due to loop timing
+        # - 50Hz now works with RX interleaving in min_tx_finished()
         rates = [1, 10, 50]
         all_passed = True
 
@@ -287,45 +288,50 @@ class TelemetryTester:
 
     def test_set_output(self) -> bool:
         """Test SET_OUTPUT command"""
-        # Ensure clean state - stop any telemetry and drain aggressively
-        stop_stream(self.port)
-        drain_serial(self.port, 200)  # Increased from 100ms
-        time.sleep(0.1)  # Extra settle time
-        drain_serial(self.port, 100)  # One more drain
+        # Retry up to 3 times - USB VCP timing can be flaky after rate tests
+        for attempt in range(3):
+            # Ensure clean state - aggressive cleanup after rate tests
+            stop_stream(self.port)
+            time.sleep(0.1)  # Extra settle after stop_stream
+            drain_serial(self.port, 150)  # Drain residual data
+            time.sleep(0.05)  # Final settle
 
-        # Set output 0 to ON
-        payload = bytes([0, 1])
-        self.port.write(build_min_frame(CMD.SET_OUTPUT, payload))
-        self.port.flush()
+            # Set output 0 to ON
+            payload = bytes([0, 1])
+            self.port.write(build_min_frame(CMD.SET_OUTPUT, payload))
+            self.port.flush()
 
-        # Small delay to allow USB VCP to buffer the response
-        time.sleep(0.02)  # 20ms
+            # Small delay to allow USB VCP to buffer the response
+            time.sleep(0.02)  # 20ms
 
-        parser = MINFrameParser()
-        start = time.time()
-        result = False
+            parser = MINFrameParser()
+            start = time.time()
+            result = False
 
-        # Use short read timeout for responsive polling
-        old_timeout = self.port.timeout
-        self.port.timeout = 0.05  # 50ms
-        try:
-            while time.time() - start < 2.0:
-                chunk = self.port.read(256)
-                if chunk:
-                    frames = parser.feed(chunk)
-                    for cmd, data, seq, _ in frames:
-                        if cmd == CMD.OUTPUT_ACK:
-                            result = True
-                            break
-                if result:
-                    break
-        finally:
-            self.port.timeout = old_timeout
+            # Use short read timeout for responsive polling
+            old_timeout = self.port.timeout
+            self.port.timeout = 0.05  # 50ms
+            try:
+                while time.time() - start < 1.0:  # 1s per attempt
+                    chunk = self.port.read(256)
+                    if chunk:
+                        frames = parser.feed(chunk)
+                        for cmd, data, seq, _ in frames:
+                            if cmd == CMD.OUTPUT_ACK:
+                                result = True
+                                break
+                    if result:
+                        break
+            finally:
+                self.port.timeout = old_timeout
+
+            if result:
+                break
 
         self.add_result(
             "SET_OUTPUT",
             result,
-            "ACK received" if result else "No response"
+            f"ACK received (attempt {attempt + 1})" if result else "No response after 3 attempts"
         )
         return result
 

@@ -18,6 +18,7 @@ extern "C" {
 /* MIN Command IDs (0-63 range for MIN protocol) */
 #define MIN_CMD_PING              0x01
 #define MIN_CMD_PONG              0x02
+#define MIN_CMD_RESET             0x05  /* Software reset (NVIC_SystemReset) */
 #define MIN_CMD_GET_CONFIG        0x10
 #define MIN_CMD_CONFIG_DATA       0x11
 #define MIN_CMD_LOAD_CONFIG       0x12
@@ -39,20 +40,40 @@ extern "C" {
 #define MIN_CMD_NACK              0x3F
 
 /* Device Types */
-#define PMU_DEVICE_TYPE_PMU30       0x00
-#define PMU_DEVICE_TYPE_PMU30_PRO   0x01
-#define PMU_DEVICE_TYPE_PMU16_MINI  0x02
+#define PMU_DEVICE_TYPE_PMU30           0x00
+#define PMU_DEVICE_TYPE_PMU30_PRO       0x01
+#define PMU_DEVICE_TYPE_PMU16_MINI      0x02
+#define PMU_DEVICE_TYPE_NUCLEO_F446RE   0x10  /* Development board */
 
-/* Current device configuration (Nucleo-F446RE = PMU-30) */
-#define PMU_DEVICE_TYPE             PMU_DEVICE_TYPE_PMU30
+/* Firmware Version */
 #define PMU_FW_VERSION_MAJOR        1
 #define PMU_FW_VERSION_MINOR        0
 #define PMU_FW_VERSION_PATCH        0
+
+/* Device-specific capabilities */
+#ifdef NUCLEO_F446RE
+/* Nucleo-F446RE Development Board:
+ * - Outputs: 6 (PA5-LED, PB0, PB1, PC8, PC9, PA8-PWM)
+ * - Analog inputs: 3 (PA0, PA1, PA4 via ADC1)
+ * - Digital inputs: 1 (PC13 User button B1)
+ * - H-Bridges: 0 (no H-Bridge drivers)
+ * - CAN buses: 1 (CAN1 on PB8/PB9)
+ */
+#define PMU_DEVICE_TYPE             PMU_DEVICE_TYPE_NUCLEO_F446RE
+#define PMU_OUTPUT_COUNT            6
+#define PMU_ANALOG_INPUT_COUNT      3
+#define PMU_DIGITAL_INPUT_COUNT     1
+#define PMU_HBRIDGE_COUNT           0
+#define PMU_CAN_BUS_COUNT           1
+#else
+/* Production PMU-30 */
+#define PMU_DEVICE_TYPE             PMU_DEVICE_TYPE_PMU30
 #define PMU_OUTPUT_COUNT            30
 #define PMU_ANALOG_INPUT_COUNT      10
 #define PMU_DIGITAL_INPUT_COUNT     8
 #define PMU_HBRIDGE_COUNT           2
 #define PMU_CAN_BUS_COUNT           2
+#endif
 
 /**
  * @brief Initialize MIN protocol
@@ -80,6 +101,12 @@ void PMU_MIN_SendTelemetry(void);
  * @return true if streaming
  */
 bool PMU_MIN_IsStreamActive(void);
+
+/**
+ * @brief Load saved config from flash and apply to channel executor
+ * @return true if valid config was loaded
+ */
+bool PMU_MIN_LoadSavedConfig(void);
 
 #ifdef __cplusplus
 }

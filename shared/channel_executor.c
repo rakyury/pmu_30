@@ -40,7 +40,8 @@ void Exec_UpdateTime(ExecContext_t* ctx, uint32_t now_ms)
 
 static int32_t get_input(ExecContext_t* ctx, uint16_t channel_id)
 {
-    if (!ctx || !ctx->get_value || channel_id == CH_REF_NONE) {
+    /* Channel ID 0 is invalid (reserved), treat same as CH_REF_NONE */
+    if (!ctx || !ctx->get_value || channel_id == CH_REF_NONE || channel_id == 0) {
         return 0;
     }
     return ctx->get_value(channel_id, ctx->user_data);

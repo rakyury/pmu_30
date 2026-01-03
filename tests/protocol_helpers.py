@@ -40,6 +40,7 @@ class MINCMD(IntEnum):
     # Basic commands
     PING = 0x01
     PONG = 0x02
+    RESET = 0x05  # Software reset (NVIC_SystemReset)
 
     # Configuration
     GET_CONFIG = 0x10
@@ -548,6 +549,16 @@ def stop_stream(ser: serial.Serial):
             # Got ACK and no more data - done
             break
 
+    # Wait for USB VCP buffers to flush and drain residual data
+    time.sleep(0.1)
+    drain_deadline = time.time() + 0.3
+    old_timeout = ser.timeout
+    ser.timeout = 0.05
+    while time.time() < drain_deadline:
+        if not ser.read(1024):
+            break
+    ser.timeout = old_timeout
+
     # Final cleanup
     ser.reset_input_buffer()
 
@@ -622,6 +633,37 @@ def save_to_flash(ser: serial.Serial) -> bool:
     return False
 
 
+def firmware_reset(ser: serial.Serial, timeout: float = 3.0) -> bool:
+    """
+    Send RESET command to trigger NVIC_SystemReset().
+
+    Returns True if firmware comes back online after reset.
+    """
+    # Send reset command
+    ser.write(build_min_frame(CMD.RESET))
+    ser.flush()
+
+    # Close and reopen port to reset USB CDC buffers
+    port = ser.port
+    baudrate = ser.baudrate
+    ser.close()
+
+    # Wait for firmware to reset and reinitialize
+    time.sleep(2.5)
+
+    # Reopen port
+    ser.port = port
+    ser.baudrate = baudrate
+    ser.timeout = 0.5
+    ser.open()
+
+    # Drain any boot messages
+    drain_serial(ser, 500)
+
+    # Verify firmware is online with ping
+    return ping(ser, timeout=timeout)
+
+
 def ping(ser: serial.Serial, timeout: float = 1.0) -> bool:
     """Send PING and wait for PONG. Returns True if response received."""
     # Drain any residual data first (50ms time-based drain)
@@ -669,7 +711,7 @@ class DeviceCapabilities:
 
     @property
     def device_name(self) -> str:
-        names = {0: "PMU-30", 1: "PMU-30 Pro", 2: "PMU-16 Mini"}
+        names = {0: "PMU-30", 1: "PMU-30 Pro", 2: "PMU-16 Mini", 0x10: "Nucleo-F446RE"}
         return names.get(self.device_type, f"Unknown({self.device_type})")
 
 
