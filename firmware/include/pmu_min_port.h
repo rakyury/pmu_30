@@ -33,8 +33,26 @@ extern "C" {
 #define MIN_CMD_DATA              0x22
 #define MIN_CMD_SET_OUTPUT        0x28
 #define MIN_CMD_OUTPUT_ACK        0x29
+#define MIN_CMD_GET_CAPABILITIES  0x30
+#define MIN_CMD_CAPABILITIES      0x31
 #define MIN_CMD_ACK               0x3E
 #define MIN_CMD_NACK              0x3F
+
+/* Device Types */
+#define PMU_DEVICE_TYPE_PMU30       0x00
+#define PMU_DEVICE_TYPE_PMU30_PRO   0x01
+#define PMU_DEVICE_TYPE_PMU16_MINI  0x02
+
+/* Current device configuration (Nucleo-F446RE = PMU-30) */
+#define PMU_DEVICE_TYPE             PMU_DEVICE_TYPE_PMU30
+#define PMU_FW_VERSION_MAJOR        1
+#define PMU_FW_VERSION_MINOR        0
+#define PMU_FW_VERSION_PATCH        0
+#define PMU_OUTPUT_COUNT            30
+#define PMU_ANALOG_INPUT_COUNT      10
+#define PMU_DIGITAL_INPUT_COUNT     8
+#define PMU_HBRIDGE_COUNT           2
+#define PMU_CAN_BUS_COUNT           2
 
 /**
  * @brief Initialize MIN protocol

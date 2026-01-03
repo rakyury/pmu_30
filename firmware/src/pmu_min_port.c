@@ -227,6 +227,35 @@ static void handle_set_output(uint8_t const *payload, uint8_t len)
     min_send_frame(&g_min_ctx, MIN_CMD_OUTPUT_ACK, ack, 2);  /* Unreliable ACK */
 }
 
+static void handle_get_capabilities(void)
+{
+    /* Device capabilities response:
+     * [0]    device_type (0=PMU-30, 1=PMU-30 Pro, 2=PMU-16 Mini)
+     * [1]    fw_version_major
+     * [2]    fw_version_minor
+     * [3]    fw_version_patch
+     * [4]    output_count
+     * [5]    analog_input_count
+     * [6]    digital_input_count
+     * [7]    hbridge_count
+     * [8]    can_bus_count
+     * [9]    reserved (0)
+     */
+    uint8_t caps[10] = {
+        PMU_DEVICE_TYPE,
+        PMU_FW_VERSION_MAJOR,
+        PMU_FW_VERSION_MINOR,
+        PMU_FW_VERSION_PATCH,
+        PMU_OUTPUT_COUNT,
+        PMU_ANALOG_INPUT_COUNT,
+        PMU_DIGITAL_INPUT_COUNT,
+        PMU_HBRIDGE_COUNT,
+        PMU_CAN_BUS_COUNT,
+        0  /* reserved */
+    };
+    min_send_frame(&g_min_ctx, MIN_CMD_CAPABILITIES, caps, 10);
+}
+
 /**
  * @brief MIN application frame handler - routes commands
  */
@@ -259,6 +288,9 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
             break;
         case MIN_CMD_SET_OUTPUT:
             handle_set_output(min_payload, len_payload);
+            break;
+        case MIN_CMD_GET_CAPABILITIES:
+            handle_get_capabilities();
             break;
         default:
             {

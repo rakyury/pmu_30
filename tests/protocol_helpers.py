@@ -62,6 +62,10 @@ class MINCMD(IntEnum):
     SET_OUTPUT = 0x28
     OUTPUT_ACK = 0x29
 
+    # Device capabilities
+    GET_CAPABILITIES = 0x30
+    CAPABILITIES = 0x31
+
     # Response codes
     ACK = 0x3E
     NACK = 0x3F
@@ -646,6 +650,66 @@ def ping(ser: serial.Serial, timeout: float = 1.0) -> bool:
     finally:
         ser.timeout = old_timeout
     return False
+
+
+@dataclass
+class DeviceCapabilities:
+    """Device capabilities from firmware GET_CAPABILITIES response."""
+    device_type: int = 0        # 0=PMU-30, 1=PMU-30 Pro, 2=PMU-16 Mini
+    fw_version: Tuple[int, int, int] = (0, 0, 0)  # (major, minor, patch)
+    output_count: int = 30
+    analog_input_count: int = 10
+    digital_input_count: int = 8
+    hbridge_count: int = 2
+    can_bus_count: int = 2
+
+    @property
+    def fw_version_str(self) -> str:
+        return f"{self.fw_version[0]}.{self.fw_version[1]}.{self.fw_version[2]}"
+
+    @property
+    def device_name(self) -> str:
+        names = {0: "PMU-30", 1: "PMU-30 Pro", 2: "PMU-16 Mini"}
+        return names.get(self.device_type, f"Unknown({self.device_type})")
+
+
+def get_capabilities(ser: serial.Serial, timeout: float = 1.0) -> Optional[DeviceCapabilities]:
+    """
+    Request device capabilities.
+
+    Returns DeviceCapabilities or None if no response.
+    """
+    drain_serial(ser, 50)
+
+    # Send GET_CAPABILITIES
+    ser.write(build_min_frame(CMD.GET_CAPABILITIES))
+    ser.flush()
+    time.sleep(0.02)  # USB VCP delay
+
+    # Wait for CAPABILITIES response
+    parser = MINFrameParser()
+    start = time.time()
+    old_timeout = ser.timeout
+    ser.timeout = 0.05
+    try:
+        while time.time() - start < timeout:
+            chunk = ser.read(256)
+            if chunk:
+                frames = parser.feed(chunk)
+                for cmd, payload, seq, is_transport in frames:
+                    if cmd == CMD.CAPABILITIES and len(payload) >= 10:
+                        return DeviceCapabilities(
+                            device_type=payload[0],
+                            fw_version=(payload[1], payload[2], payload[3]),
+                            output_count=payload[4],
+                            analog_input_count=payload[5],
+                            digital_input_count=payload[6],
+                            hbridge_count=payload[7],
+                            can_bus_count=payload[8],
+                        )
+    finally:
+        ser.timeout = old_timeout
+    return None
 
 
 # ============================================================================

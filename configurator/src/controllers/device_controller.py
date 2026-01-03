@@ -25,16 +25,61 @@ if str(_shared_path) not in sys.path:
 
 from communication.protocol import MessageType
 from communication.telemetry import parse_telemetry
+from dataclasses import dataclass
 
 # New modular components
-from .transport import TransportFactory
+from .transport import TransportFactory, MINSerialTransport
 from .telemetry_manager import TelemetryManager, TelemetryState
-from .protocol_handler import ProtocolHandler, ConfigAssembler
-from .request_tracker import RequestTracker
+from .protocol_handler import ConfigAssembler, ProtocolHandler
 from .connection_recovery import ConnectionRecoveryMachine, ConnectionConfig, ConnectionState
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeviceCapabilities:
+    """Device hardware capabilities received from firmware.
+
+    Replaces hardcoded values in ChannelDisplayService.
+    Requested via GET_CAPABILITIES (0x30), response via CAPABILITIES (0x31).
+    """
+    device_type: int = 0        # 0=PMU-30, 1=PMU-30 Pro, 2=PMU-16 Mini
+    fw_version: str = "0.0.0"   # Firmware version string
+    output_count: int = 30      # Power output channels
+    analog_input_count: int = 10  # Analog input channels
+    digital_input_count: int = 8  # Digital input channels
+    hbridge_count: int = 2      # H-Bridge channels
+    can_bus_count: int = 2      # CAN bus interfaces
+
+    @property
+    def device_type_name(self) -> str:
+        """Human-readable device type name."""
+        names = {0: "PMU-30", 1: "PMU-30 Pro", 2: "PMU-16 Mini"}
+        return names.get(self.device_type, f"Unknown ({self.device_type})")
+
+    @classmethod
+    def from_payload(cls, payload: bytes) -> "DeviceCapabilities":
+        """Parse capabilities from firmware response payload.
+
+        Payload format (10 bytes):
+        [0] device_type, [1] fw_major, [2] fw_minor, [3] fw_patch,
+        [4] output_count, [5] analog_input_count, [6] digital_input_count,
+        [7] hbridge_count, [8] can_bus_count, [9] reserved
+        """
+        if len(payload) < 10:
+            logger.warning(f"Capabilities payload too short: {len(payload)} bytes")
+            return cls()
+
+        return cls(
+            device_type=payload[0],
+            fw_version=f"{payload[1]}.{payload[2]}.{payload[3]}",
+            output_count=payload[4],
+            analog_input_count=payload[5],
+            digital_input_count=payload[6],
+            hbridge_count=payload[7],
+            can_bus_count=payload[8],
+        )
 
 
 class DeviceController(QObject):
@@ -59,11 +104,9 @@ class DeviceController(QObject):
     def __init__(self):
         super().__init__()
 
-        # Transport and protocol handlers
+        # Transport (T-MIN for USB Serial)
         self._transport = None
-        self._protocol = ProtocolHandler()
         self._config_assembler = ConfigAssembler()
-        self._request_tracker = RequestTracker()
 
         self._connection_type = None
         self._is_connected = False
@@ -103,6 +146,10 @@ class DeviceController(QObject):
 
         # PING/PONG health check state
         self._pong_event = threading.Event()
+
+        # Device capabilities state
+        self._capabilities_event = threading.Event()
+        self._device_capabilities: Optional[DeviceCapabilities] = None
 
         # Connection Recovery Machine (replaces manual reconnect logic)
         self._recovery = ConnectionRecoveryMachine(
@@ -226,8 +273,7 @@ class DeviceController(QObject):
             self._connection_type = connection_type
             self._is_connected = True
 
-            # Clear protocol buffers
-            self._protocol.clear_buffer()
+            # Reset config assembler
             self._config_assembler.reset()
 
             # Start receive thread for async transports
@@ -268,7 +314,6 @@ class DeviceController(QObject):
 
         self._is_connected = False
         self._telemetry_enabled = False
-        self._protocol.clear_buffer()
 
     def _on_recovery_state_changed(self, old_state: ConnectionState, new_state: ConnectionState):
         """Handle state changes from the recovery machine."""
@@ -300,29 +345,76 @@ class DeviceController(QObject):
 
         self._pong_event.clear()
 
-        frame = self._protocol.build_frame(MessageType.PING)
-        if not self._send_frame(frame):
+        # Use T-MIN queue_frame for reliable delivery
+        if not self._queue_frame(MessageType.PING):
             return False
 
-        # For Serial, we need to read the response ourselves
-        if self._connection_type == "USB Serial":
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                try:
-                    data = self._transport.receive(256, timeout=0.1)
-                    if data:
-                        messages = self._protocol.feed_data(data)
-                        for msg in messages:
-                            if msg.msg_type == MessageType.PONG:
-                                return True
-                            # Handle other messages silently
-                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
-                except Exception:
-                    pass
-            return False
-        else:
-            # For async transports, wait on event
-            return self._pong_event.wait(timeout)
+        # Wait for PONG by polling T-MIN
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                if isinstance(self._transport, MINSerialTransport):
+                    frames = self._transport.poll()
+                    for frame in frames:
+                        if frame.min_id == MessageType.PONG:
+                            return True
+                        # Handle other messages
+                        self._handle_message(frame.min_id, frame.payload)
+                else:
+                    # For async transports, wait on event
+                    if self._pong_event.wait(0.1):
+                        return True
+            except Exception:
+                pass
+            time.sleep(0.01)
+
+        return False
+
+    def get_capabilities(self, timeout: float = 1.0) -> Optional[DeviceCapabilities]:
+        """Request device capabilities.
+
+        Args:
+            timeout: Maximum time to wait for response
+
+        Returns:
+            DeviceCapabilities object or None if failed
+        """
+        if not self._is_connected or not self._transport:
+            return None
+
+        self._capabilities_event.clear()
+        self._device_capabilities = None
+
+        # Send GET_CAPABILITIES request
+        if not self._queue_frame(MessageType.GET_CAPABILITIES):
+            return None
+
+        # Wait for CAPABILITIES response by polling T-MIN
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                if isinstance(self._transport, MINSerialTransport):
+                    frames = self._transport.poll()
+                    for frame in frames:
+                        if frame.min_id == MessageType.CAPABILITIES:
+                            self._device_capabilities = DeviceCapabilities.from_payload(frame.payload)
+                            return self._device_capabilities
+                        # Handle other messages
+                        self._handle_message(frame.min_id, frame.payload)
+                else:
+                    # For async transports, wait on event
+                    if self._capabilities_event.wait(0.1):
+                        return self._device_capabilities
+            except Exception as e:
+                logger.warning(f"Error polling for capabilities: {e}")
+            time.sleep(0.01)
+
+        return None
+
+    @property
+    def capabilities(self) -> Optional[DeviceCapabilities]:
+        """Get last received device capabilities (cached)."""
+        return self._device_capabilities
 
     def _wait_for_device_ready(self, max_wait: float = 5.0, poll_interval: float = 0.5) -> bool:
         """Wait for device to become responsive using PING/PONG.
@@ -404,82 +496,64 @@ class DeviceController(QObject):
 
         logger.info("Reading configuration from device...")
 
-        # Stop serial polling timer - we need exclusive access to serial port
+        # Stop serial polling timer during operation
         polling_was_active = self._serial_poll_timer.isActive()
         if polling_was_active:
             self._serial_poll_timer.stop()
-            logger.debug("Stopped serial polling for config read")
+            logger.debug("Stopped T-MIN polling for config read")
 
-        # Stop any running telemetry stream first.
-        # NOTE: After STOP_STREAM, firmware has a "dead period" where it
-        # doesn't respond to commands. We use PING/PONG to verify readiness.
-        stop_frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
-        self._send_frame(stop_frame)
+        # Stop any running telemetry stream first
+        self._queue_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
         logger.debug("Sent STOP_STREAM, waiting for device ready...")
 
         # Use PING/PONG health check instead of fixed sleep
         if not self._wait_for_device_ready(max_wait=5.0, poll_interval=0.3):
             logger.warning("Device not responding to PING after STOP_STREAM, proceeding anyway")
 
-        # Clear any pending data from transport buffer (drain telemetry packets)
-        if hasattr(self._transport, 'receive'):
-            for _ in range(5):
-                try:
-                    data = self._transport.receive(4096, timeout=0.1)
-                    if not data:
-                        break
-                    logger.debug(f"Drained {len(data)} bytes from buffer")
-                except Exception:
+        # Drain any pending frames from T-MIN queue
+        if isinstance(self._transport, MINSerialTransport):
+            for _ in range(10):
+                frames = self._transport.poll()
+                if not frames:
                     break
-
-        # Clear protocol handler's internal buffer
-        self._protocol.clear_buffer()
+                logger.debug(f"Drained {len(frames)} frames from T-MIN queue")
+                time.sleep(0.05)
 
         # Reset config assembler
         self._config_assembler.reset()
         self._config_event.clear()
 
-        # Send GET_CONFIG command using protocol handler
-        frame = self._protocol.build_frame(MessageType.GET_CONFIG)
-        logger.debug(f"Sending GET_CONFIG frame: {frame.hex()}")
-        if not self._send_frame(frame):
-            logger.error("Failed to send GET_CONFIG")
+        # Send GET_CONFIG command with T-MIN reliable delivery
+        logger.debug("Sending GET_CONFIG...")
+        if not self._queue_frame(MessageType.GET_CONFIG):
+            logger.error("Failed to queue GET_CONFIG")
+            self._restore_polling(polling_was_active)
             return None
-        logger.debug("GET_CONFIG sent successfully, waiting for response...")
+        logger.debug("GET_CONFIG queued, waiting for response...")
 
         # Small delay to let device prepare response
-        time.sleep(0.3)
+        time.sleep(0.1)
 
-        # For Serial transport, do synchronous receive (no receive thread running)
-        if self._connection_type == "USB Serial":
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                # Read available data with longer timeout for complete frames
-                data = self._transport.receive(4096, timeout=1.0)
-                if data:
-                    logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
-                    # Feed to protocol handler
-                    messages = self._protocol.feed_data(data)
-                    for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+        # Wait for CONFIG_DATA by polling T-MIN
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if isinstance(self._transport, MINSerialTransport):
+                frames = self._transport.poll()
+                for frame in frames:
+                    logger.debug(f"RX frame: id=0x{frame.min_id:02X}, len={len(frame.payload)}")
+                    self._handle_message(frame.min_id, frame.payload)
 
-                    # Check if config complete
-                    if self._config_event.is_set():
-                        break
-                else:
-                    time.sleep(0.05)
+            # Check if config complete
+            if self._config_event.is_set():
+                break
 
-            # Check if we exited due to timeout
-            if not self._config_event.is_set():
-                logger.error(f"Timeout waiting for config ({timeout}s) - no CONFIG_DATA received")
-                self._restore_polling(polling_was_active)
-                return None
-        else:
-            # For async transports (Emulator, WiFi), wait for event from receive thread
-            if not self._config_event.wait(timeout):
-                logger.error(f"Timeout waiting for config ({timeout}s)")
-                self._restore_polling(polling_was_active)
-                return None
+            time.sleep(0.05)
+
+        # Check if we exited due to timeout
+        if not self._config_event.is_set():
+            logger.error(f"Timeout waiting for config ({timeout}s) - no CONFIG_DATA received")
+            self._restore_polling(polling_was_active)
+            return None
 
         # Get assembled config data
         config_data = self._config_assembler.get_data()
@@ -547,9 +621,8 @@ class DeviceController(QObject):
     # --- New methods for telemetry and device control ---
 
     def _start_receive_thread(self):
-        """Start background thread for receiving data."""
+        """Start background thread for receiving data (for socket transports)."""
         self._stop_thread.clear()
-        self._protocol.clear_buffer()
         self._receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self._receive_thread.start()
         logger.debug("Receive thread started")
@@ -563,7 +636,10 @@ class DeviceController(QObject):
         logger.debug("Receive thread stopped")
 
     def _receive_loop(self):
-        """Background loop for receiving data from device."""
+        """Background loop for receiving data from socket transports."""
+        from communication.protocol import MINFrameParser
+        parser = MINFrameParser()
+
         logger.debug("Receive loop started")
         while not self._stop_thread.is_set():
             try:
@@ -577,10 +653,10 @@ class DeviceController(QObject):
 
                 if data:
                     logger.debug(f"Received {len(data)} bytes: {data[:50].hex()}...")
-                    # Feed data to protocol handler and process messages
-                    messages = self._protocol.feed_data(data)
-                    for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+                    # Parse MIN frames and process messages
+                    frames = parser.feed(data)
+                    for min_id, payload, seq, is_transport in frames:
+                        self._handle_message(min_id, payload)
                 elif data == b'':
                     # Empty bytes means connection closed (for socket)
                     logger.warning("Connection closed by remote")
@@ -609,39 +685,28 @@ class DeviceController(QObject):
         if self._serial_poll_timer.isActive():
             self._serial_poll_timer.stop()
 
-        # Cancel all pending requests
-        self._request_tracker.cancel_all()
-
         if self._transport:
             try:
                 self._transport.disconnect()
             except:
                 pass
             self._transport = None
-        self._protocol.clear_buffer()
 
         # Notify recovery machine (handles auto-reconnect if enabled)
         if not self._user_disconnected:
             self._recovery.handle_connection_lost()
 
-    def _handle_message(self, msg_type: int, payload: bytes, seq_id: int = 0):
-        """Handle incoming message with SeqID for request-response correlation.
+    def _handle_message(self, msg_type: int, payload: bytes):
+        """Handle incoming MIN protocol message.
 
         Args:
-            msg_type: Message type
+            msg_type: Message type (MIN command ID)
             payload: Message payload
-            seq_id: Sequence ID from response (0 = broadcast/unsolicited)
         """
         try:
             # Debug: log all non-telemetry messages
             if msg_type != MessageType.TELEMETRY_DATA:
-                logger.debug(f"RX msg_type=0x{msg_type:02X}, seq_id=0x{seq_id:04X}, payload={len(payload)} bytes")
-
-            # Try to complete tracked request by SeqID first
-            if seq_id != 0:
-                if self._request_tracker.complete_by_seq_id(seq_id, payload):
-                    # Request completed via tracker, still process for events/signals
-                    pass
+                logger.debug(f"RX msg_type=0x{msg_type:02X}, payload={len(payload)} bytes")
 
             if msg_type == MessageType.PONG:
                 # PING response - signal the event
@@ -686,8 +751,17 @@ class DeviceController(QObject):
                 logger.info("BOOT_COMPLETE received - device finished initialization")
                 self.boot_complete.emit()
 
-            elif msg_type == MessageType.CHANNEL_ACK:
-                logger.debug("Channel ACK received")
+            elif msg_type == MessageType.OUTPUT_ACK:
+                logger.debug("Output ACK received")
+
+            elif msg_type == MessageType.CAPABILITIES:
+                # Parse device capabilities response
+                self._device_capabilities = DeviceCapabilities.from_payload(payload)
+                self._capabilities_event.set()
+                logger.info(f"Device capabilities: {self._device_capabilities.device_type_name}, "
+                           f"FW v{self._device_capabilities.fw_version}, "
+                           f"{self._device_capabilities.output_count} outputs, "
+                           f"{self._device_capabilities.analog_input_count} analog inputs")
 
             elif msg_type == MessageType.CHANNEL_CONFIG_ACK:
                 # Parse atomic channel config ACK
@@ -733,88 +807,40 @@ class DeviceController(QObject):
         except Exception as e:
             logger.error(f"Error handling message 0x{msg_type:02X}: {e}")
 
-    def _send_frame(self, frame: bytes) -> bool:
-        """Send a frame to the device with error handling."""
+    def _queue_frame(self, cmd_id: int, payload: bytes = b'') -> bool:
+        """Queue frame for reliable T-MIN delivery (auto-retransmit until ACK)."""
         if not self._is_connected or not self._transport:
             logger.warning("Cannot send: not connected")
             return False
 
         try:
-            return self._transport.send(frame)
-        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError) as e:
-            logger.error(f"Connection lost while sending: {e}")
+            if isinstance(self._transport, MINSerialTransport):
+                return self._transport.queue_frame(cmd_id, payload)
+            else:
+                # Fallback for non-T-MIN transports (socket)
+                from communication.protocol import build_min_frame
+                return self._transport.send(build_min_frame(cmd_id, payload))
+        except Exception as e:
+            logger.error(f"Queue frame error: {e}")
             self._handle_connection_lost()
             return False
-        except Exception as e:
-            logger.error(f"Send error: {e}")
+
+    def _send_frame_unreliable(self, cmd_id: int, payload: bytes = b'') -> bool:
+        """Send frame without ACK (for telemetry subscription commands)."""
+        if not self._is_connected or not self._transport:
+            logger.warning("Cannot send: not connected")
             return False
 
-    def _send_tracked_request(self, msg_type: int, payload: bytes = b'',
-                               timeout: float = 5.0, description: str = "") -> Optional[bytes]:
-        """Send a request and wait for tracked response using SeqID.
-
-        This method:
-        1. Builds a frame with auto-assigned SeqID
-        2. Registers the request with RequestTracker
-        3. Sends the frame
-        4. Waits for response by SeqID
-
-        Args:
-            msg_type: Message type to send
-            payload: Message payload
-            timeout: Response timeout in seconds
-            description: Optional description for logging
-
-        Returns:
-            Response payload bytes, or None on timeout/error
-        """
-        if not self._is_connected or not self._transport:
-            logger.warning("Cannot send tracked request: not connected")
-            return None
-
-        # Build frame with auto-assigned SeqID
-        frame, seq_id = self._protocol.build_frame_with_seq_id(msg_type, payload)
-
-        # Determine expected response type
-        from .request_tracker import RESPONSE_TYPE_MAP
-        response_type = RESPONSE_TYPE_MAP.get(msg_type)
-        if response_type is None:
-            logger.warning(f"No response mapping for msg_type 0x{msg_type:02X}")
-            return None
-
-        # Register request with tracker
-        if not self._request_tracker.create_request(
-            seq_id=seq_id,
-            request_type=msg_type,
-            response_type=response_type,
-            timeout=timeout,
-            description=description or f"0x{msg_type:02X}"
-        ):
-            logger.error(f"Failed to create tracked request for 0x{msg_type:02X}")
-            return None
-
-        # Send frame
-        if not self._send_frame(frame):
-            self._request_tracker.cancel_by_seq_id(seq_id)
-            return None
-
-        # For Serial transport, do synchronous receive
-        if self._connection_type == "USB Serial":
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                data = self._transport.receive(4096, timeout=0.5)
-                if data:
-                    messages = self._protocol.feed_data(data)
-                    for msg in messages:
-                        self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
-
-                # Check if our request was completed
-                if not self._request_tracker.is_pending_by_seq_id(seq_id):
-                    break
-                time.sleep(0.05)
-
-        # Wait for response (blocking)
-        return self._request_tracker.wait_for_response_by_seq_id(seq_id, timeout=timeout)
+        try:
+            if isinstance(self._transport, MINSerialTransport):
+                return self._transport.send_frame(cmd_id, payload)
+            else:
+                from communication.protocol import build_min_frame
+                return self._transport.send(build_min_frame(cmd_id, payload))
+        except Exception as e:
+            logger.error(f"Send frame error: {e}")
+            self._handle_connection_lost()
+            return False
 
     def subscribe_telemetry(self, rate_hz: int = 10):
         """Subscribe to telemetry streaming.
@@ -823,20 +849,20 @@ class DeviceController(QObject):
         with proper state tracking and auto-restart capabilities.
         """
         payload = struct.pack('<H', rate_hz)
-        frame = self._protocol.build_frame(MessageType.SUBSCRIBE_TELEMETRY, payload)
 
-        if self._send_frame(frame):
+        # Use T-MIN queue_frame for reliable delivery
+        if self._queue_frame(MessageType.SUBSCRIBE_TELEMETRY, payload):
             self._telemetry_enabled = True
             # Sync TelemetryManager state
             self._telemetry_manager._state = TelemetryState.STREAMING
             self._telemetry_manager._rate_hz = rate_hz
             logger.info(f"Subscribed to telemetry at {rate_hz}Hz")
 
-            # For Serial connections, start polling timer (async transports use receive thread)
+            # For T-MIN Serial, start polling timer to process incoming frames
             if self._connection_type == "USB Serial":
-                poll_interval = max(50, 1000 // rate_hz)  # Convert rate to interval, min 50ms
+                poll_interval = max(20, 1000 // rate_hz // 2)  # Poll faster than telemetry rate
                 self._serial_poll_timer.start(poll_interval)
-                logger.info(f"Started serial polling at {poll_interval}ms interval")
+                logger.info(f"Started T-MIN polling at {poll_interval}ms interval")
 
     def unsubscribe_telemetry(self):
         """Unsubscribe from telemetry streaming.
@@ -847,11 +873,10 @@ class DeviceController(QObject):
         # Stop serial polling timer if running
         if self._serial_poll_timer.isActive():
             self._serial_poll_timer.stop()
-            logger.info("Stopped serial polling")
+            logger.info("Stopped T-MIN polling")
 
-        frame = self._protocol.build_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
-
-        if self._send_frame(frame):
+        # Use T-MIN queue_frame for reliable delivery
+        if self._queue_frame(MessageType.UNSUBSCRIBE_TELEMETRY):
             self._telemetry_enabled = False
             # Sync TelemetryManager state (if not paused - pause handles its own state)
             if self._telemetry_manager._state != TelemetryState.PAUSED:
@@ -859,26 +884,43 @@ class DeviceController(QObject):
             logger.info("Unsubscribed from telemetry")
 
     def _poll_serial_telemetry(self):
-        """Poll serial port for telemetry data (called by timer)."""
+        """Poll T-MIN transport for incoming frames (called by timer)."""
         if not self._is_connected or not self._transport:
             return
 
         try:
-            data = self._transport.receive(1024, timeout=0.01)
-            if data:
-                messages = self._protocol.feed_data(data)
-                for msg in messages:
-                    self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+            if isinstance(self._transport, MINSerialTransport):
+                # T-MIN: get all received frames from poll queue
+                frames = self._transport.poll()
+                for frame in frames:
+                    self._handle_message(frame.min_id, frame.payload)
+            else:
+                # Fallback for socket transports
+                from communication.protocol import MINFrameParser
+                data = self._transport.receive(1024, timeout=0.01)
+                if data:
+                    if not hasattr(self, '_socket_parser'):
+                        self._socket_parser = MINFrameParser()
+                    parsed = self._socket_parser.feed(data)
+                    for min_id, payload, seq, is_transport in parsed:
+                        self._handle_message(min_id, payload)
         except Exception as e:
-            logger.warning(f"Serial poll error: {e}")
+            logger.warning(f"T-MIN poll error: {e}")
 
-    def set_channel(self, channel_id: int, value: float) -> bool:
-        """Set channel value (live, not saved to flash)."""
-        payload = struct.pack('<Hf', channel_id, value)
-        frame = self._protocol.build_frame(MessageType.SET_CHANNEL, payload)
+    def set_output(self, output_index: int, state: bool) -> bool:
+        """Set output state (on/off) via SET_OUTPUT command.
 
-        if self._send_frame(frame):
-            logger.debug(f"Set channel {channel_id} = {value}")
+        Args:
+            output_index: Output channel index (0-29)
+            state: True for ON, False for OFF
+
+        Returns:
+            True if command was sent successfully
+        """
+        payload = struct.pack('<BB', output_index, 1 if state else 0)
+
+        if self._queue_frame(MessageType.SET_OUTPUT, payload):
+            logger.debug(f"Set output {output_index} = {'ON' if state else 'OFF'}")
             return True
         return False
 
@@ -896,69 +938,54 @@ class DeviceController(QObject):
             logger.warning("Cannot upload config: not connected")
             return False
 
-        # Stop serial polling timer to prevent it from stealing our ACK
+        # Stop serial polling timer during upload
         polling_was_active = self._serial_poll_timer.isActive()
         if polling_was_active:
             self._serial_poll_timer.stop()
-            logger.debug("Stopped serial polling for config upload")
+            logger.debug("Stopped T-MIN polling for config upload")
 
-        # Clear any pending data in buffers to ensure clean state
-        self._protocol.clear_buffer()
-        if hasattr(self._transport, 'receive'):
-            # Flush serial input buffer
-            for _ in range(5):
-                try:
-                    flushed = self._transport.receive(4096, timeout=0.05)
-                    if not flushed:
-                        break
-                    logger.debug(f"Flushed {len(flushed)} bytes from serial buffer")
-                except Exception:
-                    break
-
-        # Reset ACK state (use BINARY_CONFIG_ACK, not CONFIG_ACK!)
+        # Reset ACK state
         self._binary_config_ack_event.clear()
         self._binary_config_ack_success = False
         self._binary_config_ack_error = 0
         self._binary_config_channels_loaded = 0
 
-        # Send in chunks
-        chunk_size = 1024
+        # Send in chunks with T-MIN reliable delivery
+        chunk_size = 200  # Smaller chunks for T-MIN (max payload 255)
         chunks = [binary_data[i:i + chunk_size] for i in range(0, len(binary_data), chunk_size)]
         total_chunks = len(chunks)
 
         logger.info(f"Uploading binary config: {len(binary_data)} bytes in {total_chunks} chunks")
 
         for idx, chunk in enumerate(chunks):
-            frame = self._build_binary_config_frame(idx, total_chunks, chunk)
-            if not self._send_frame(frame):
-                logger.error(f"Failed to send chunk {idx + 1}/{total_chunks}")
-                return False
-            # Small delay between chunks to avoid overwhelming device
-            time.sleep(0.02)
+            # Build chunk header: [chunk_idx: 2] [total_chunks: 2] [data: N]
+            header = struct.pack('<HH', idx, total_chunks)
+            payload = header + chunk
 
-        logger.info("All chunks sent, waiting for BINARY_CONFIG_ACK (0x69)...")
+            if not self._queue_frame(MessageType.LOAD_BINARY_CONFIG, payload):
+                logger.error(f"Failed to queue chunk {idx + 1}/{total_chunks}")
+                if polling_was_active:
+                    self._serial_poll_timer.start()
+                return False
+
+            # Small delay between chunks
+            time.sleep(0.05)
+
+        logger.info("All chunks queued, waiting for BINARY_CONFIG_ACK...")
 
         try:
-            # For Serial transport, do synchronous receive (no receive thread running)
-            if self._connection_type == "USB Serial":
-                start_time = time.time()
-                while time.time() - start_time < timeout:
-                    data = self._transport.receive(4096, timeout=0.5)
-                    if data:
-                        logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
-                        messages = self._protocol.feed_data(data)
-                        for msg in messages:
-                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+            # Wait for ACK by polling T-MIN
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if isinstance(self._transport, MINSerialTransport):
+                    frames = self._transport.poll()
+                    for frame in frames:
+                        self._handle_message(frame.min_id, frame.payload)
 
-                        if self._binary_config_ack_event.is_set():
-                            break
-                    else:
-                        time.sleep(0.05)
-            else:
-                # For async transports (Emulator, WiFi), wait for event from receive thread
-                if not self._binary_config_ack_event.wait(timeout):
-                    logger.error(f"Timeout waiting for BINARY_CONFIG_ACK ({timeout}s)")
-                    return False
+                if self._binary_config_ack_event.is_set():
+                    break
+
+                time.sleep(0.05)
 
             if self._binary_config_ack_success:
                 logger.info(f"Binary config uploaded successfully: {self._binary_config_channels_loaded} channels loaded")
@@ -972,32 +999,24 @@ class DeviceController(QObject):
                 self._serial_poll_timer.start()
                 logger.debug("Restarted serial polling after config upload")
 
-    def _build_binary_config_frame(self, chunk_idx: int, total_chunks: int, chunk: bytes) -> bytes:
-        """Build protocol frame for binary config chunk."""
-        header = struct.pack('<HH', chunk_idx, total_chunks)
-        payload = header + chunk
-        return self._protocol.build_frame(MessageType.LOAD_BINARY_CONFIG, payload)
-
     def save_to_flash(self, timeout: float = 5.0) -> bool:
         """Save current configuration to flash."""
         if not self._is_connected:
             logger.warning("Cannot save to flash: not connected")
             return False
 
-        # Stop serial polling timer to prevent it from stealing our ACK
+        # Stop serial polling timer during operation
         polling_was_active = self._serial_poll_timer.isActive()
         if polling_was_active:
             self._serial_poll_timer.stop()
-            logger.debug("Stopped serial polling for flash save")
+            logger.debug("Stopped T-MIN polling for flash save")
 
         # Reset ACK state
         self._flash_ack_event.clear()
         self._flash_ack_success = False
 
-        frame = self._protocol.build_frame(MessageType.SAVE_TO_FLASH)
-
-        if not self._send_frame(frame):
-            logger.error("Failed to send SAVE_TO_FLASH command")
+        if not self._queue_frame(MessageType.SAVE_TO_FLASH):
+            logger.error("Failed to queue SAVE_TO_FLASH command")
             if polling_was_active:
                 self._serial_poll_timer.start()
             return False
@@ -1005,161 +1024,33 @@ class DeviceController(QObject):
         logger.info("Save to flash requested, waiting for ACK...")
 
         try:
-            # For Serial transport, do synchronous receive (no receive thread)
-            if self._connection_type == "USB Serial":
-                start_time = time.time()
-                while time.time() - start_time < timeout:
-                    data = self._transport.receive(4096, timeout=0.5)
-                    if data:
-                        logger.debug(f"Serial RX: {len(data)} bytes: {data[:50].hex()}...")
-                        messages = self._protocol.feed_data(data)
-                        for msg in messages:
-                            self._handle_message(msg.msg_type, msg.payload, msg.seq_id)
+            # Wait for ACK by polling T-MIN
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if isinstance(self._transport, MINSerialTransport):
+                    frames = self._transport.poll()
+                    for frame in frames:
+                        self._handle_message(frame.min_id, frame.payload)
 
-                        if self._flash_ack_event.is_set():
-                            break
-                    else:
-                        time.sleep(0.05)
-            else:
-                if not self._flash_ack_event.wait(timeout):
-                    logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
-                    return False
+                if self._flash_ack_event.is_set():
+                    break
+
+                time.sleep(0.05)
 
             if self._flash_ack_success:
                 logger.info("Configuration saved to flash successfully")
                 return True
             else:
-                logger.error("Flash save failed")
+                if not self._flash_ack_event.is_set():
+                    logger.error(f"Timeout waiting for flash ACK ({timeout}s)")
+                else:
+                    logger.error("Flash save failed")
                 return False
         finally:
             # Always restart polling timer if it was active
             if polling_was_active:
                 self._serial_poll_timer.start()
-                logger.debug("Restarted serial polling after flash save")
-
-    def update_channel_config(self, channel_dict: Dict[str, Any], timeout: float = 3.0) -> bool:
-        """Atomically update a single channel configuration on the device.
-
-        This sends just one channel's config without re-uploading the entire config.
-        Useful for live parameter tweaking during development.
-
-        Args:
-            channel_dict: Channel configuration dict with keys:
-                - channel_id: int
-                - channel_type: str (e.g., "timer", "logic", "power_output")
-                - name: str (optional)
-                - source_channel: int (for power_output)
-                - ... other type-specific fields
-            timeout: Response timeout in seconds
-
-        Returns:
-            True if channel was updated successfully
-        """
-        if not self._is_connected:
-            logger.warning("Cannot update channel: not connected")
-            return False
-
-        try:
-            # Serialize channel to binary format
-            from models.binary_config import BinaryConfigManager
-            manager = BinaryConfigManager()
-
-            # Serialize single channel
-            channel_bytes = manager.serialize_single_channel(channel_dict)
-            if not channel_bytes:
-                logger.error(f"Failed to serialize channel: {channel_dict.get('name', 'unknown')}")
-                return False
-
-            # Use tracked request for reliable response
-            response = self._send_tracked_request(
-                MessageType.SET_CHANNEL_CONFIG,
-                payload=channel_bytes,
-                timeout=timeout,
-                description=f"Update channel {channel_dict.get('name', channel_dict.get('channel_id', '?'))}"
-            )
-
-            if response is None:
-                logger.error("Timeout waiting for channel config ACK")
-                return False
-
-            # Parse response: [channel_id:2B][success:1B][error_code:2B][error_msg:NB]
-            if len(response) >= 5:
-                resp_channel_id = response[0] | (response[1] << 8)
-                success = response[2] == 1
-                error_code = response[3] | (response[4] << 8)
-
-                if success:
-                    logger.info(f"Channel {resp_channel_id} updated successfully")
-                    return True
-                else:
-                    error_msg = response[5:].decode('utf-8', errors='replace') if len(response) > 5 else ""
-                    logger.error(f"Channel update failed: code={error_code}, msg={error_msg}")
-                    return False
-            else:
-                logger.error(f"Invalid channel config ACK: {len(response)} bytes")
-                return False
-
-        except Exception as e:
-            logger.error(f"Error updating channel config: {e}")
-            return False
-
-    def restart_device(self) -> bool:
-        """Restart the device."""
-        frame = self._protocol.build_frame(MessageType.RESTART_DEVICE)
-
-        if self._send_frame(frame):
-            logger.info("Device restart requested")
-            return True
-        return False
-
-    # ========== Emulator-only methods ==========
-
-    def set_digital_input(self, channel: int, state: bool) -> bool:
-        """Set digital input state (emulator only).
-
-        Args:
-            channel: Digital input channel (0-19)
-            state: Input state (True=HIGH, False=LOW)
-        """
-        from communication.protocol import FrameBuilder, encode_frame
-        frame = FrameBuilder.emu_set_digital_input(channel, state)
-        frame_bytes = encode_frame(frame)
-        if self._send_frame(frame_bytes):
-            logger.debug(f"Set digital input {channel} = {state}")
-            return True
-        return False
-
-    def set_analog_input(self, channel: int, voltage: float) -> bool:
-        """Set analog input voltage (emulator only).
-
-        Args:
-            channel: Analog input channel (0-19)
-            voltage: Voltage in volts (0.0-5.0)
-        """
-        from communication.protocol import FrameBuilder, encode_frame
-        voltage_mv = int(voltage * 1000)
-        frame = FrameBuilder.emu_set_analog_input(channel, voltage_mv)
-        frame_bytes = encode_frame(frame)
-        if self._send_frame(frame_bytes):
-            logger.debug(f"Set analog input {channel} = {voltage}V")
-            return True
-        return False
-
-    def inject_can_message(self, bus_id: int, can_id: int, data: bytes) -> bool:
-        """Inject CAN message for testing (emulator only).
-
-        Args:
-            bus_id: CAN bus index (0 or 1)
-            can_id: CAN message ID
-            data: CAN data bytes (up to 8)
-        """
-        from communication.protocol import FrameBuilder, encode_frame
-        frame = FrameBuilder.emu_inject_can(bus_id, can_id, data)
-        frame_bytes = encode_frame(frame)
-        if self._send_frame(frame_bytes):
-            logger.debug(f"Injected CAN message bus={bus_id} id=0x{can_id:X}")
-            return True
-        return False
+                logger.debug("Restarted T-MIN polling after flash save")
 
 
 # ============================================================================
