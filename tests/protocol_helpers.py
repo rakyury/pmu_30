@@ -1,14 +1,14 @@
 """
-PMU-30 Protocol Helpers for Hardware Tests
+PMU-30 Protocol Helpers for Hardware Tests (MIN Protocol)
 
-Provides protocol utilities for communicating with real hardware.
-Updated for protocol v2 with SeqID support.
+Provides protocol utilities for communicating with real hardware using MIN protocol.
+MIN provides reliable framing with CRC32 and automatic retransmission.
 
-Frame Format v2:
-┌──────┬────────┬───────┬───────┬─────────────┬───────┐
-│ 0xAA │ Length │ SeqID │ MsgID │   Payload   │ CRC16 │
-│ 1B   │ 2B LE  │ 2B LE │ 1B    │ Variable    │ 2B LE │
-└──────┴────────┴───────┴───────┴─────────────┴───────┘
+MIN Frame Format:
+┌────────────────┬────────────┬─────┬────────┬─────────┬───────┬─────┐
+│ 0xAA 0xAA 0xAA │ ID/Control │ Seq │ Length │ Payload │ CRC32 │ EOF │
+│    3 bytes     │   1 byte   │ 1B  │  1B    │ 0-255B  │  4B   │ 1B  │
+└────────────────┴────────────┴─────┴────────┴─────────┴───────┴─────┘
 """
 
 import struct
@@ -17,164 +17,279 @@ import serial
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
 from enum import IntEnum
+from binascii import crc32
 
 
 # ============================================================================
-# Protocol Constants
+# MIN Protocol Constants
 # ============================================================================
 
-FRAME_START = 0xAA
-FRAME_HEADER_SIZE = 6  # START(1) + LENGTH(2) + SEQID(2) + TYPE(1)
-FRAME_CRC_SIZE = 2
-
-# SeqID special values
-SEQ_ID_BROADCAST = 0x0000
-_seq_id_counter = 1
-
-
-class CMD(IntEnum):
-    """Protocol command IDs"""
+class MINCMD(IntEnum):
+    """MIN Protocol Command IDs (0-63 range)"""
     # Basic commands
     PING = 0x01
     PONG = 0x02
-    GET_INFO = 0x10
-    INFO_RESP = 0x11
 
     # Configuration
-    GET_CONFIG = 0x20
-    CONFIG_DATA = 0x21
-    LOAD_CONFIG = 0x22
-    CONFIG_ACK = 0x23
-    SAVE_CONFIG = 0x24
-    FLASH_ACK = 0x25
-    CLEAR_CONFIG = 0x26
-    CLEAR_CONFIG_ACK = 0x27
+    GET_CONFIG = 0x10
+    CONFIG_DATA = 0x11
+    LOAD_CONFIG = 0x12
+    CONFIG_ACK = 0x13
+    SAVE_CONFIG = 0x14
+    FLASH_ACK = 0x15
+    CLEAR_CONFIG = 0x16
+    CLEAR_CONFIG_ACK = 0x17
+    LOAD_BINARY = 0x18
+    BINARY_ACK = 0x19
 
     # Telemetry
-    START_STREAM = 0x30
-    STOP_STREAM = 0x31
-    DATA = 0x32
+    START_STREAM = 0x20
+    STOP_STREAM = 0x21
+    DATA = 0x22
 
     # Channel control
-    SET_OUTPUT = 0x40
-    OUTPUT_ACK = 0x41
-    GET_CHANNEL = 0x43
-    CHANNEL_DATA = 0x44
-    GET_OUTPUTS = 0x46
-    GET_INPUTS = 0x47
-
-    # Binary config
-    LOAD_BINARY_CONFIG = 0x68
-    BINARY_CONFIG_ACK = 0x69
+    SET_OUTPUT = 0x28
+    OUTPUT_ACK = 0x29
 
     # Response codes
-    ACK = 0xE0
-    NACK = 0xE1
-    ERROR = 0x50
+    ACK = 0x3E
+    NACK = 0x3F
+
+
+# Alias for backwards compatibility
+CMD = MINCMD
+
+
+# MIN Protocol Constants
+HEADER_BYTE = 0xAA
+STUFF_BYTE = 0x55
+EOF_BYTE = 0x55
 
 
 # ============================================================================
-# Protocol Utilities
+# MIN Frame Building and Parsing
 # ============================================================================
 
-def get_next_seq_id() -> int:
-    """Get next sequence ID for request-response correlation."""
-    global _seq_id_counter
-    seq_id = _seq_id_counter
-    _seq_id_counter = (_seq_id_counter % 0xFFFE) + 1
-    return seq_id
+def _crc32_min(data: bytes) -> int:
+    """Calculate CRC32 for MIN protocol (same as binascii.crc32)."""
+    return crc32(data, 0) & 0xFFFFFFFF
 
 
-def crc16(data: bytes) -> int:
-    """Calculate CRC16-CCITT checksum."""
-    crc = 0xFFFF
-    for byte in data:
-        crc ^= byte << 8
-        for _ in range(8):
-            if crc & 0x8000:
-                crc = (crc << 1) ^ 0x1021
-            else:
-                crc <<= 1
-            crc &= 0xFFFF
-    return crc
-
-
-def build_frame(cmd: int, payload: bytes = b'', seq_id: int = None) -> bytes:
+def build_min_frame(min_id: int, payload: bytes = b'', transport: bool = False, seq: int = 0) -> bytes:
     """
-    Build protocol frame v2 with SeqID.
-
-    Frame format: [0xAA][Length:2B][SeqID:2B][MsgID:1B][Payload][CRC16:2B]
+    Build a MIN protocol frame.
 
     Args:
-        cmd: Command/message type
-        payload: Payload data
-        seq_id: Optional SeqID (auto-assigned if None)
+        min_id: Command ID (0-63)
+        payload: Payload data (0-255 bytes)
+        transport: If True, use transport layer (reliable delivery)
+        seq: Sequence number for transport frames
 
     Returns:
-        Complete frame bytes
+        Complete MIN frame bytes
     """
-    if seq_id is None:
-        seq_id = get_next_seq_id()
+    if min_id > 63:
+        raise ValueError(f"MIN ID must be 0-63, got {min_id}")
+    if len(payload) > 255:
+        raise ValueError(f"Payload too large: {len(payload)}")
 
-    # Header: START(1) + LENGTH(2) + SEQID(2) + TYPE(1)
-    header = struct.pack('<BHHB', FRAME_START, len(payload), seq_id, cmd)
-    # CRC over LENGTH+SEQID+TYPE+PAYLOAD (excludes start byte)
-    crc = crc16(header[1:] + payload)
-    return header + payload + struct.pack('<H', crc)
+    # Build header
+    if transport:
+        # Transport frame: ID with bit 7 set, seq byte included
+        id_control = min_id | 0x80
+        prolog = bytes([id_control, seq, len(payload)]) + payload
+    else:
+        # Non-transport frame: ID without bit 7, no seq byte
+        prolog = bytes([min_id, len(payload)]) + payload
+
+    # Calculate CRC32
+    crc = crc32(prolog, 0)
+
+    # Build raw frame (before stuffing)
+    raw = prolog + struct.pack(">I", crc)  # CRC is big-endian
+
+    # Stuff bytes (insert 0x55 after every two consecutive 0xAA)
+    stuffed = bytearray([HEADER_BYTE, HEADER_BYTE, HEADER_BYTE])
+    count = 0
+    for byte in raw:
+        stuffed.append(byte)
+        if byte == HEADER_BYTE:
+            count += 1
+            if count == 2:
+                stuffed.append(STUFF_BYTE)
+                count = 0
+        else:
+            count = 0
+
+    stuffed.append(EOF_BYTE)
+    return bytes(stuffed)
+
+
+class MINFrameParser:
+    """Parser for MIN protocol frames."""
+
+    SEARCHING_FOR_SOF = 0
+    RECEIVING_ID_CONTROL = 1
+    RECEIVING_SEQ = 2
+    RECEIVING_LENGTH = 3
+    RECEIVING_PAYLOAD = 4
+    RECEIVING_CHECKSUM_3 = 5
+    RECEIVING_CHECKSUM_2 = 6
+    RECEIVING_CHECKSUM_1 = 7
+    RECEIVING_CHECKSUM_0 = 8
+    RECEIVING_EOF = 9
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self._state = self.SEARCHING_FOR_SOF
+        self._header_bytes_seen = 0
+        self._id_control = 0
+        self._seq = 0
+        self._length = 0
+        self._payload = bytearray()
+        self._checksum = 0
+        self._frames = []
+
+    def feed(self, data: bytes) -> List[Tuple[int, bytes, int, bool]]:
+        """
+        Feed bytes into the parser.
+
+        Returns:
+            List of (min_id, payload, seq, is_transport) tuples
+        """
+        self._frames = []
+
+        for byte in data:
+            # Handle byte stuffing
+            if self._header_bytes_seen == 2:
+                self._header_bytes_seen = 0
+                if byte == HEADER_BYTE:
+                    self._state = self.RECEIVING_ID_CONTROL
+                    continue
+                if byte == STUFF_BYTE:
+                    continue  # Discard stuff byte
+                # Something wrong, reset
+                self._state = self.SEARCHING_FOR_SOF
+                continue
+
+            if byte == HEADER_BYTE:
+                self._header_bytes_seen += 1
+            else:
+                self._header_bytes_seen = 0
+
+            # State machine
+            if self._state == self.SEARCHING_FOR_SOF:
+                pass
+            elif self._state == self.RECEIVING_ID_CONTROL:
+                self._id_control = byte
+                if self._id_control & 0x80:  # Transport frame
+                    self._state = self.RECEIVING_SEQ
+                else:
+                    self._seq = 0
+                    self._state = self.RECEIVING_LENGTH
+            elif self._state == self.RECEIVING_SEQ:
+                self._seq = byte
+                self._state = self.RECEIVING_LENGTH
+            elif self._state == self.RECEIVING_LENGTH:
+                self._length = byte
+                self._payload = bytearray()
+                if self._length > 0:
+                    self._state = self.RECEIVING_PAYLOAD
+                else:
+                    self._state = self.RECEIVING_CHECKSUM_3
+            elif self._state == self.RECEIVING_PAYLOAD:
+                self._payload.append(byte)
+                if len(self._payload) >= self._length:
+                    self._state = self.RECEIVING_CHECKSUM_3
+            elif self._state == self.RECEIVING_CHECKSUM_3:
+                self._checksum = byte << 24
+                self._state = self.RECEIVING_CHECKSUM_2
+            elif self._state == self.RECEIVING_CHECKSUM_2:
+                self._checksum |= byte << 16
+                self._state = self.RECEIVING_CHECKSUM_1
+            elif self._state == self.RECEIVING_CHECKSUM_1:
+                self._checksum |= byte << 8
+                self._state = self.RECEIVING_CHECKSUM_0
+            elif self._state == self.RECEIVING_CHECKSUM_0:
+                self._checksum |= byte
+                # Verify CRC
+                if self._id_control & 0x80:
+                    prolog = bytes([self._id_control, self._seq, len(self._payload)]) + self._payload
+                else:
+                    prolog = bytes([self._id_control, len(self._payload)]) + self._payload
+                computed = crc32(prolog, 0) & 0xFFFFFFFF
+                if self._checksum == computed:
+                    self._state = self.RECEIVING_EOF
+                else:
+                    self._state = self.SEARCHING_FOR_SOF
+            elif self._state == self.RECEIVING_EOF:
+                if byte == EOF_BYTE:
+                    # Frame received OK
+                    min_id = self._id_control & 0x3F
+                    is_transport = bool(self._id_control & 0x80)
+                    self._frames.append((min_id, bytes(self._payload), self._seq, is_transport))
+                self._state = self.SEARCHING_FOR_SOF
+
+        return self._frames
+
+
+# Global parser instance
+_parser = MINFrameParser()
 
 
 def parse_frames(data: bytes) -> List[Tuple[int, bytes, int]]:
     """
-    Parse frames from data buffer.
+    Parse MIN frames from data buffer.
 
     Returns:
-        List of (cmd, payload, seq_id) tuples
+        List of (cmd, payload, seq) tuples (seq is always 0 for non-transport)
     """
-    frames = []
-    while len(data) >= FRAME_HEADER_SIZE:
-        # Find start byte
-        if data[0] != FRAME_START:
-            data = data[1:]
-            continue
+    _parser.reset()
+    frames = _parser.feed(data)
+    # Convert to simpler format (drop is_transport flag)
+    return [(cmd, payload, seq) for cmd, payload, seq, _ in frames]
 
-        # Parse header
-        if len(data) < FRAME_HEADER_SIZE:
-            break
 
-        length = struct.unpack('<H', data[1:3])[0]
-        seq_id = struct.unpack('<H', data[3:5])[0]
-        cmd = data[5]
+# ============================================================================
+# Serial Communication
+# ============================================================================
 
-        # Check if we have complete frame
-        total_len = FRAME_HEADER_SIZE + length + FRAME_CRC_SIZE
-        if len(data) < total_len:
-            break
+def drain_serial(ser: serial.Serial, duration_ms: int = 100):
+    """
+    Drain serial buffer for a fixed duration.
 
-        # Extract payload
-        payload = data[FRAME_HEADER_SIZE:FRAME_HEADER_SIZE + length]
-        frames.append((cmd, payload, seq_id))
-        data = data[total_len:]
-
-    return frames
+    This is more reliable than "read until empty" because USB serial
+    buffers may have asynchronous arrivals. A time-based drain ensures
+    we clear all in-flight data before sending new commands.
+    """
+    deadline = time.time() + (duration_ms / 1000.0)
+    old_timeout = ser.timeout
+    ser.timeout = 0.01
+    while time.time() < deadline:
+        ser.read(1024)
+    ser.timeout = old_timeout
+    ser.reset_input_buffer()
 
 
 def read_frame(ser: serial.Serial, timeout: float = 1.0) -> Tuple[Optional[int], Optional[bytes], Optional[int]]:
     """
-    Read a single frame from serial port.
+    Read a single MIN frame from serial port.
 
     Returns:
-        (cmd, payload, seq_id) or (None, None, None) on timeout
+        (cmd, payload, seq) or (None, None, None) on timeout
     """
-    data = b''
+    parser = MINFrameParser()
     start = time.time()
 
     while time.time() - start < timeout:
         chunk = ser.read(ser.in_waiting or 1)
         if chunk:
-            data += chunk
-            frames = parse_frames(data)
+            frames = parser.feed(chunk)
             if frames:
-                return frames[0]
+                cmd, payload, seq, _ = frames[0]
+                return cmd, payload, seq
         time.sleep(0.01)
 
     return None, None, None
@@ -195,68 +310,91 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
         debug: If True, print debug info
 
     Returns:
-        List of (cmd, payload, seq_id) tuples
+        List of (cmd, payload, seq) tuples
     """
-    ser.reset_input_buffer()
-    frame = build_frame(cmd, payload)
+    # Time-based drain: wait 50ms to clear any in-flight data
+    # This is more reliable than read-until-empty which races with async arrivals
+    drain_serial(ser, 50)
+
+    frame = build_min_frame(cmd, payload)
     if debug:
-        print(f"  [TRANSACT] Sending CMD=0x{cmd:02X}, len={len(payload)}")
-        print(f"  [TRANSACT] Frame: {frame[:20].hex()}{'...' if len(frame) > 20 else ''}")
+        print(f"  [MIN] Sending CMD=0x{cmd:02X}, len={len(payload)}")
+        print(f"  [MIN] Frame: {frame[:20].hex()}{'...' if len(frame) > 20 else ''}")
+
     ser.write(frame)
-    time.sleep(0.2)  # Give device time to process and respond
+    ser.flush()
 
-    data = b''
+    parser = MINFrameParser()
     start = time.time()
-    no_data_count = 0
+    results = []
+
     while time.time() - start < timeout:
-        chunk = ser.read(4096)
+        chunk = ser.read(512)
         if chunk:
-            data += chunk
-            no_data_count = 0
-            if debug:
-                print(f"  [TRANSACT] Read {len(chunk)} bytes, total {len(data)}")
-        else:
-            no_data_count += 1
-            # Wait for 3 consecutive empty reads before parsing
-            if no_data_count >= 3 and data:
-                frames = parse_frames(data)
-                if expected_cmd is None:
-                    return frames
-                if any(c == expected_cmd for c, p, s in frames):
-                    return frames
-        time.sleep(0.05)
+            frames = parser.feed(chunk)
+            for cmd_rx, payload_rx, seq_rx, _ in frames:
+                # Skip telemetry DATA packets when looking for specific command
+                if cmd_rx == CMD.DATA and expected_cmd is not None and expected_cmd != CMD.DATA:
+                    continue
+                results.append((cmd_rx, payload_rx, seq_rx))
+                if debug:
+                    print(f"  [MIN] Received CMD=0x{cmd_rx:02X}, len={len(payload_rx)}")
+                if expected_cmd is not None and cmd_rx == expected_cmd:
+                    return results
+        time.sleep(0.005)  # Shorter sleep for faster response
 
-    if debug and not data:
-        print(f"  [TRANSACT] Timeout - no data received in {timeout}s")
-    elif debug:
-        print(f"  [TRANSACT] Timeout with {len(data)} bytes")
+    if debug and not results:
+        print(f"  [MIN] Timeout - no data received in {timeout}s")
 
-    return parse_frames(data)
+    return results
 
+
+# ============================================================================
+# High-Level API
+# ============================================================================
 
 def stop_stream(ser: serial.Serial):
-    """Stop telemetry stream and wait for dead period."""
-    ser.write(build_frame(CMD.STOP_STREAM))
-    time.sleep(3.0)  # Dead period after STOP_STREAM (firmware needs ~2.5s)
+    """Stop telemetry stream and wait for confirmation."""
+    # Send stop command
+    ser.write(build_min_frame(CMD.STOP_STREAM))
+    ser.flush()
+
+    # Wait for ACK and drain any remaining telemetry
+    parser = MINFrameParser()
+    got_ack = False
+    deadline = time.time() + 1.0  # 1 second max wait
+
+    while time.time() < deadline:
+        old_timeout = ser.timeout
+        ser.timeout = 0.1
+        chunk = ser.read(1024)
+        ser.timeout = old_timeout
+
+        if chunk:
+            frames = parser.feed(chunk)
+            for cmd, payload, seq, _ in frames:
+                if cmd == CMD.ACK:
+                    got_ack = True
+                # Continue draining even after ACK to clear any in-flight telemetry
+        elif got_ack:
+            # Got ACK and no more data - done
+            break
+
+    # Final cleanup
     ser.reset_input_buffer()
-    time.sleep(0.1)  # Small delay before next command
 
 
 def start_stream(ser: serial.Serial, rate_hz: int = 10):
     """Start telemetry stream."""
-    # Stream config: rate_hz as uint16
     payload = struct.pack('<H', rate_hz)
-    ser.write(build_frame(CMD.START_STREAM, payload))
+    ser.write(build_min_frame(CMD.START_STREAM, payload))
     time.sleep(0.1)
 
 
 def clear_config(ser: serial.Serial) -> bool:
-    """Clear device config. Returns True on success.
-
-    Note: Assumes stream is already stopped.
-    """
+    """Clear device config. Returns True on success."""
     frames = transact(ser, CMD.CLEAR_CONFIG, expected_cmd=CMD.CLEAR_CONFIG_ACK)
-    for cmd, payload, seq_id in frames:
+    for cmd, payload, seq in frames:
         if cmd == CMD.CLEAR_CONFIG_ACK and len(payload) >= 1:
             return payload[0] == 1
     return False
@@ -275,14 +413,13 @@ def upload_config(ser: serial.Serial, config_data: bytes) -> Tuple[bool, int]:
     """
     # Add chunk header: chunk_idx=0, total_chunks=1
     chunked = struct.pack('<HH', 0, 1) + config_data
-    frames = transact(ser, CMD.LOAD_BINARY_CONFIG, chunked, timeout=5.0,
-                      expected_cmd=CMD.BINARY_CONFIG_ACK)
+    frames = transact(ser, CMD.LOAD_BINARY, chunked, timeout=5.0,
+                      expected_cmd=CMD.BINARY_ACK)
 
-    # Give device time to process config after upload
-    time.sleep(0.5)
+    time.sleep(0.3)
 
-    for cmd, payload, seq_id in frames:
-        if cmd == CMD.BINARY_CONFIG_ACK and len(payload) >= 2:
+    for cmd, payload, seq in frames:
+        if cmd == CMD.BINARY_ACK and len(payload) >= 2:
             success = payload[0] == 1
             channels = struct.unpack('<H', payload[2:4])[0] if len(payload) >= 4 else 0
             return success, channels
@@ -291,24 +428,14 @@ def upload_config(ser: serial.Serial, config_data: bytes) -> Tuple[bool, int]:
 
 
 def read_config(ser: serial.Serial, debug: bool = False) -> Optional[bytes]:
-    """Read config from device. Returns config data or None.
-
-    Args:
-        ser: Serial port
-        debug: If True, print debug info
-    """
+    """Read config from device. Returns config data or None."""
     if debug:
         print(f"  [DEBUG] Sending GET_CONFIG (0x{CMD.GET_CONFIG:02X})")
 
     frames = transact(ser, CMD.GET_CONFIG, timeout=5.0,
                      expected_cmd=CMD.CONFIG_DATA, debug=debug)
 
-    if debug:
-        print(f"  [DEBUG] Received {len(frames)} frames")
-        for cmd, payload, seq_id in frames:
-            print(f"    CMD=0x{cmd:02X}, len={len(payload)}, seq={seq_id}")
-
-    for cmd, payload, seq_id in frames:
+    for cmd, payload, seq in frames:
         if cmd == CMD.CONFIG_DATA and len(payload) >= 4:
             # Skip chunk header (4 bytes)
             return payload[4:]
@@ -317,13 +444,10 @@ def read_config(ser: serial.Serial, debug: bool = False) -> Optional[bytes]:
 
 
 def save_to_flash(ser: serial.Serial) -> bool:
-    """Save config to flash. Returns True on success.
-
-    Note: Assumes stream is already stopped.
-    """
+    """Save config to flash. Returns True on success."""
     frames = transact(ser, CMD.SAVE_CONFIG, timeout=5.0, expected_cmd=CMD.FLASH_ACK)
 
-    for cmd, payload, seq_id in frames:
+    for cmd, payload, seq in frames:
         if cmd == CMD.FLASH_ACK and len(payload) >= 1:
             return payload[0] == 1
 
@@ -332,11 +456,25 @@ def save_to_flash(ser: serial.Serial) -> bool:
 
 def ping(ser: serial.Serial, timeout: float = 1.0) -> bool:
     """Send PING and wait for PONG. Returns True if response received."""
-    ser.reset_input_buffer()
-    ser.write(build_frame(CMD.PING))
+    # Drain any residual data first (50ms time-based drain)
+    drain_serial(ser, 50)
 
-    cmd, payload, seq_id = read_frame(ser, timeout)
-    return cmd == CMD.PONG
+    # Send PING
+    ser.write(build_min_frame(CMD.PING))
+    ser.flush()
+
+    # Wait for PONG
+    parser = MINFrameParser()
+    start = time.time()
+    while time.time() - start < timeout:
+        chunk = ser.read(256)
+        if chunk:
+            frames = parser.feed(chunk)
+            for cmd, payload, seq, is_transport in frames:
+                if cmd == CMD.PONG:
+                    return True
+        time.sleep(0.005)  # Faster polling
+    return False
 
 
 # ============================================================================
@@ -427,15 +565,14 @@ def parse_telemetry(payload: bytes) -> TelemetryPacket:
 
 def wait_for_telemetry(ser: serial.Serial, timeout: float = 3.0) -> Optional[TelemetryPacket]:
     """Wait for and return a telemetry packet."""
-    data = b''
+    parser = MINFrameParser()
     start = time.time()
 
     while time.time() - start < timeout:
         chunk = ser.read(4096)
         if chunk:
-            data += chunk
-            frames = parse_frames(data)
-            for cmd, payload, seq_id in frames:
+            frames = parser.feed(chunk)
+            for cmd, payload, seq, _ in frames:
                 if cmd == CMD.DATA:
                     return parse_telemetry(payload)
         time.sleep(0.05)
@@ -487,3 +624,12 @@ def parse_channels(config_data: bytes) -> List[dict]:
         pos += 14 + name_len + cfg_size
 
     return channels
+
+
+# ============================================================================
+# Backwards Compatibility Aliases
+# ============================================================================
+
+# These aliases allow existing tests to work without modification
+build_frame = build_min_frame
+get_next_seq_id = lambda: 0  # MIN doesn't use SeqID in the same way

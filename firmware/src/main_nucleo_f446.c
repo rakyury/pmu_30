@@ -52,6 +52,7 @@
 #include "pmu_can_stream.h"
 #include "pmu_channel_exec.h"
 #include "pmu_led.h"
+#include "pmu_min_port.h"  /* MIN Protocol - reliable framing with CRC32 */
 
 #ifndef PMU_DISABLE_LUA
 #include "pmu_lua.h"
@@ -134,8 +135,8 @@ static void LED_Set(uint8_t state);
 static void DigitalInputs_Read(void);
 uint8_t DigitalInput_Get(uint8_t channel);
 
-/* Digital inputs storage */
-static uint8_t g_digital_inputs[8] = {0};
+/* Digital inputs storage (non-static for MIN protocol telemetry access) */
+uint8_t g_digital_inputs[8] = {0};
 
 /* PWM output state (used by LED indicator and NucleoOutput functions) */
 static uint16_t output_duty[6] = {0};  /* 0-1000 = 0-100% */
@@ -211,16 +212,16 @@ int main(void)
     PMU_Logging_Init();
     /* PMU_JSON_Init removed - binary config only */
 
-    /* Protocol */
-    PMU_Protocol_Init(PMU_TRANSPORT_UART);
+    /* MIN Protocol - reliable framing with CRC32, auto-retransmit */
+    PMU_MIN_Init();
 
     /* Enable interrupts but keep SysTick disabled */
     __enable_irq();
     SysTick->CTRL = 0;
 
-    /* Send "READY" to verify UART TX works */
+    /* Send "PMU30-MIN-READY" to verify UART TX works and indicate MIN mode */
     {
-        const char* msg = "PMU30-READY\r\n";
+        const char* msg = "PMU30-MIN-READY\r\n";
         while (*msg) {
             while (!(USART2->SR & USART_SR_TXE));
             USART2->DR = *msg++;
@@ -233,13 +234,17 @@ int main(void)
 
     SysTick->CTRL = 0;
 
-    /* Main loop - poll UART RX and process protocol */
+    /* Main loop - poll UART RX and process MIN protocol */
     while (1) {
-        /* Check if UART has received data (bare-metal polling) */
+        /* Check if UART has received data (bare-metal polling)
+         * MIN protocol handles TX/RX concurrency via its state machine.
+         * No need to skip RX during TX - MIN's atomic TX and byte stuffing
+         * ensure reliable framing even with concurrent operations.
+         */
         if (USART2->SR & USART_SR_RXNE) {
             uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
-            /* Pass to protocol handler (echo removed - protocol sends responses) */
-            PMU_Protocol_ProcessData(&rx_byte, 1);
+            /* Pass to MIN protocol handler */
+            PMU_MIN_ProcessByte(rx_byte);
         }
 
         /* Counter-based timing since SysTick is disabled
@@ -272,13 +277,10 @@ int main(void)
             g_logic_exec_count++;  /* Debug: count loop iterations */
         }
 
-        /* Protocol update at ~1kHz (every 200 loops = ~1ms)
-         * This handles telemetry rate control using stream_period_ms */
+        /* MIN protocol update at ~1kHz (every 200 loops = ~1ms)
+         * Handles retransmits, ACK timeouts, and telemetry streaming */
         if ((loop_count % 200) == 0) {
-            PMU_Protocol_Update();
-            /* Process any commands received during TX (buffered to prevent loss) */
-            extern void PMU_Protocol_ProcessPendingRx(void);
-            PMU_Protocol_ProcessPendingRx();
+            PMU_MIN_Update();
         }
     }
 }

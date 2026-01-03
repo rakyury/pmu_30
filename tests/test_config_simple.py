@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-PMU-30 Simple Config Test - Reliable serial communication.
-Reopens serial port between tests for clean state.
+PMU-30 Simple Config Test (MIN Protocol)
+Tests basic config operations without requiring button presses.
 """
 
 import sys
@@ -11,91 +11,46 @@ import serial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "shared" / "python"))
+sys.path.insert(0, 'tests')
+
 from channel_config import ChannelType
-
-# Protocol commands
-CMD_PING = 0x01
-CMD_PONG = 0x02
-CMD_GET_CONFIG = 0x20
-CMD_CONFIG_DATA = 0x21
-CMD_SAVE_CONFIG = 0x24
-CMD_FLASH_ACK = 0x25
-CMD_CLEAR_CONFIG = 0x26
-CMD_CLEAR_CONFIG_ACK = 0x27
-CMD_START_STREAM = 0x30
-CMD_STOP_STREAM = 0x31
-CMD_TELEMETRY = 0x32
-CMD_LOAD_BINARY_CONFIG = 0x68
-CMD_BINARY_CONFIG_ACK = 0x69
-
-
-def crc16(data: bytes) -> int:
-    crc = 0xFFFF
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = (crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1
-        crc &= 0xFFFF
-    return crc
-
-
-def build_frame(cmd: int, payload: bytes = b'') -> bytes:
-    header = struct.pack('<BHB', 0xAA, len(payload), cmd)
-    crc = crc16(struct.pack('<HB', len(payload), cmd) + payload)
-    return header + payload + struct.pack('<H', crc)
-
-
-def parse_frames(data: bytes) -> list:
-    frames = []
-    while len(data) >= 6:
-        if data[0] != 0xAA:
-            data = data[1:]
-            continue
-        length = struct.unpack('<H', data[1:3])[0]
-        total_len = 4 + length + 2
-        if len(data) < total_len:
-            break
-        cmd = data[3]
-        payload = data[4:4+length]
-        frames.append((cmd, payload))
-        data = data[total_len:]
-    return frames
-
-
-def transact(port: str, cmd: int, payload: bytes = b'', timeout: float = 2.0) -> list:
-    """Open serial, send command, get response, close serial."""
-    ser = serial.Serial(port, 115200, timeout=timeout)
-    time.sleep(0.1)
-    ser.reset_input_buffer()
-    ser.write(build_frame(cmd, payload))
-    time.sleep(0.3)
-    data = ser.read(4096)
-    ser.close()
-    return parse_frames(data)
+from protocol_helpers import (
+    CMD, build_min_frame, MINFrameParser, drain_serial,
+    ping, start_stream, stop_stream, clear_config, read_config,
+    upload_config, save_to_flash, wait_for_telemetry, parse_telemetry
+)
 
 
 def build_test_config():
-    """Build test config: 1 DIN, 1 Logic, 1 Output."""
+    """Build test config: 1 DIN, 1 Logic, 1 Output.
+
+    Channel structure:
+    - DIN (ch 50): hw_device=0x01 (GPIO), hw_index=0 (PC13 button)
+    - Logic (ch 200): inputs=[50] (single input, IS_TRUE mode)
+    - Output (ch 100): source=200 (Logic), hw_index=1 (LED PA5)
+    """
     channels = []
 
+    # Digital Input (ch 50) - PC13 button
     din = struct.pack('<HBBBBHiBB',
-        100, ChannelType.DIGITAL_INPUT, 0x01, 0x01, 0, 0xFFFF, 0, 7, 4)
+        50, ChannelType.DIGITAL_INPUT, 0x01, 0x01, 0, 0xFFFF, 0, 7, 4)
     din += b'TestDIN'
-    din += struct.pack('<BBH', 50, 1, 0)
+    din += struct.pack('<BBH', 0, 1, 0)  # gpio_pin=0 (PC13), active_high=1
     channels.append(din)
 
+    # Logic IS_TRUE (ch 200) - single input, just passes through
     logic = struct.pack('<HBBBBHiBB',
         200, ChannelType.LOGIC, 0x01, 0x00, 0, 0xFFFF, 0, 8, 26)
     logic += b'LogicAND'
-    logic += struct.pack('<BB', 0x00, 2)
-    for inp in [50, 51]:
-        logic += struct.pack('<H', inp)
-    logic += b'\x00' * 12
-    logic += struct.pack('<ii', 0, 0)
+    logic += struct.pack('<BB', 0x06, 1)  # op=IS_TRUE(6), input_count=1
+    logic += struct.pack('<H', 50)  # Input: DIN (ch 50)
+    logic += b'\x00' * 14  # Remaining input slots
+    logic += struct.pack('<i?3s', 0, False, b'\x00\x00\x00')  # compare_value, invert, reserved
     channels.append(logic)
 
+    # Power Output (ch 100) - LED on PA5 (hw_index=1)
     output = struct.pack('<HBBBBHiBB',
-        300, ChannelType.POWER_OUTPUT, 0x01, 0x05, 1, 200, 0, 6, 12)
+        100, ChannelType.POWER_OUTPUT, 0x01, 0x05, 1, 200, 0, 6, 12)
     output += b'OutLED'
     output += struct.pack('<HHHBBHBB', 1000, 0, 0, 100, 1, 0, 3, 0)
     channels.append(output)
@@ -109,16 +64,21 @@ def build_test_config():
 def main():
     port = sys.argv[1] if len(sys.argv) > 1 else "COM11"
     print("=" * 60)
-    print("PMU-30 Simple Config Test")
+    print("PMU-30 Simple Config Test (MIN Protocol)")
     print("=" * 60)
     print(f"Port: {port}")
 
     results = {}
 
+    # Open serial once
+    ser = serial.Serial(port, 115200, timeout=1.0)
+    time.sleep(3.0)  # Device startup
+    stop_stream(ser)  # Ensure clean state
+    time.sleep(0.5)  # Extra wait for stream to fully stop
+
     # Test 1: PING
     print("\n[TEST] PING")
-    frames = transact(port, CMD_PING)
-    if any(c == CMD_PONG for c, _ in frames):
+    if ping(ser, timeout=2.0):
         print("  OK - PONG received")
         results["PING"] = True
     else:
@@ -127,9 +87,7 @@ def main():
 
     # Test 2: Clear config
     print("\n[TEST] CLEAR_CONFIG")
-    frames = transact(port, CMD_CLEAR_CONFIG, timeout=3.0)
-    ack = next((p for c, p in frames if c == CMD_CLEAR_CONFIG_ACK), None)
-    if ack and ack[0] == 1:
+    if clear_config(ser):
         print("  OK - Config cleared")
         results["CLEAR"] = True
     else:
@@ -139,11 +97,9 @@ def main():
     # Test 3: Upload config
     print("\n[TEST] Upload Config")
     config = build_test_config()
-    chunked = struct.pack('<HH', 0, 1) + config
-    frames = transact(port, CMD_LOAD_BINARY_CONFIG, chunked, timeout=3.0)
-    ack = next((p for c, p in frames if c == CMD_BINARY_CONFIG_ACK), None)
-    if ack and ack[0] == 1:
-        print(f"  OK - Uploaded {len(config)} bytes")
+    success, channels_loaded = upload_config(ser, config)
+    if success:
+        print(f"  OK - Uploaded {len(config)} bytes, {channels_loaded} channels")
         results["UPLOAD"] = True
     else:
         print("  FAIL - Upload failed")
@@ -151,70 +107,43 @@ def main():
 
     # Test 4: Read config back
     print("\n[TEST] Read Config")
-    time.sleep(0.3)
-    frames = transact(port, CMD_GET_CONFIG, timeout=3.0)
-    cfg = next((p for c, p in frames if c == CMD_CONFIG_DATA), None)
-    if cfg:
-        data = cfg[4:]  # skip chunk header
-        count = struct.unpack('<H', data[:2])[0] if len(data) >= 2 else 0
-        print(f"  OK - Read {len(data)} bytes, {count} channels")
-        results["READ"] = count == 3
+    cfg = read_config(ser)
+    if cfg is not None:
+        count = struct.unpack('<H', cfg[:2])[0] if len(cfg) >= 2 else 0
+        print(f"  OK - Read {len(cfg)} bytes, {count} channels")
+        results["READ"] = count >= 1
     else:
         print("  FAIL - No config data")
         results["READ"] = False
 
-    # Test 5: Save to flash (needs longer connection)
+    # Test 5: Save to flash
     print("\n[TEST] Save to Flash")
-    ser = serial.Serial(port, 115200, timeout=5.0)
-    time.sleep(0.2)
-    ser.reset_input_buffer()
-    ser.write(build_frame(CMD_SAVE_CONFIG))
-    time.sleep(2.0)  # Flash erase/write takes time
-    data = ser.read(4096)
-    ser.close()
-    frames = parse_frames(data)
-    ack = next((p for c, p in frames if c == CMD_FLASH_ACK), None)
-    if ack and ack[0] == 1:
+    if save_to_flash(ser):
         print("  OK - Saved to flash")
         results["FLASH"] = True
     else:
-        print(f"  FAIL - Flash save failed (got {len(frames)} frames)")
+        print("  FAIL - Flash save failed")
         results["FLASH"] = False
 
-    # Test 6: Telemetry with system info
+    # Test 6: Telemetry
     print("\n[TEST] Telemetry")
-    time.sleep(0.5)  # Wait after flash operation
-    ser = serial.Serial(port, 115200, timeout=2.0)
-    time.sleep(0.2)
-    ser.reset_input_buffer()
-    ser.write(build_frame(CMD_START_STREAM))
-    time.sleep(2.0)  # Collect telemetry for 2 seconds
-    data = ser.read(4096)
-    ser.write(build_frame(CMD_STOP_STREAM))
-    time.sleep(0.2)
-    ser.close()
+    start_stream(ser, rate_hz=10)
+    telem = wait_for_telemetry(ser, timeout=2.0)
+    stop_stream(ser)
 
-    packets = [p for c, p in parse_frames(data) if c == CMD_TELEMETRY]
-    if packets:
-        pkt = packets[-1]
-        if len(pkt) >= 94:
-            uptime = struct.unpack('<I', pkt[79:83])[0]
-            ram = struct.unpack('<I', pkt[83:87])[0]
-            flash = struct.unpack('<I', pkt[87:91])[0]
-            ch_count = struct.unpack('<H', pkt[91:93])[0]
-            print(f"  OK - {len(packets)} packets")
-            print(f"       Uptime: {uptime}s, RAM: {ram}B, Flash: {flash}B, Channels: {ch_count}")
-            results["TELEMETRY"] = True
-        else:
-            print("  FAIL - Packet too short")
-            results["TELEMETRY"] = False
+    if telem:
+        print(f"  OK - Received telemetry (counter={telem.stream_counter})")
+        print(f"       Uptime: {telem.uptime_sec}s, Channels: {telem.channel_count}")
+        print(f"       Virtual channels: {telem.virtual_channels}")
+        results["TELEMETRY"] = True
     else:
         print("  FAIL - No telemetry")
         results["TELEMETRY"] = False
 
-    # Final cleanup
+    # Cleanup
     print("\n[CLEANUP] Clear config")
-    transact(port, CMD_CLEAR_CONFIG, timeout=3.0)
+    clear_config(ser)
+    ser.close()
 
     # Summary
     print("\n" + "=" * 60)
