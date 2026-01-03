@@ -7,8 +7,8 @@ import logging
 import threading
 import struct
 
-from PyQt6.QtWidgets import QMessageBox
-from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QMessageBox, QProgressDialog
+from PyQt6.QtCore import QTimer, Qt
 
 from models.channel import ChannelType
 from models.config_migration import ConfigMigration
@@ -142,7 +142,9 @@ class MainWindowDeviceMixin:
         self._set_connected_state(True, "device")
 
         # Give device time to fully initialize before syncing config
-        QTimer.singleShot(1500, self._auto_sync_config)
+        # IMPORTANT: Must wait 3000ms for firmware dead period after STOP_STREAM
+        # See CLAUDE.md Serial Communication Dead Period section
+        QTimer.singleShot(3000, self._auto_sync_config)
 
     def _auto_sync_config(self):
         """Auto-sync configuration on connection.
@@ -167,6 +169,13 @@ class MainWindowDeviceMixin:
 
         self.status_message.setText("Reading configuration...")
 
+        # Show progress dialog
+        self._progress = QProgressDialog("Reading configuration from device...", None, 0, 0, self)
+        self._progress.setWindowTitle("Please Wait")
+        self._progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress.setMinimumDuration(0)
+        self._progress.show()
+
         def read_config_thread():
             # Use longer timeout (15s) for large configurations
             config = self.device_controller.read_configuration(timeout=15.0)
@@ -180,21 +189,37 @@ class MainWindowDeviceMixin:
 
     def _load_config_from_device(self, config: dict):
         """Load configuration received from device into UI."""
+        # Close progress dialog if open
+        if hasattr(self, '_progress') and self._progress:
+            self._progress.close()
+            self._progress = None
+
         try:
             # Ensure all channels have valid channel_id before populating UI
             config = ConfigMigration.ensure_channel_ids(config)
             config = ConfigMigration.ensure_numeric_channel_ids(config)
 
+            # Auto-create missing referenced channels (e.g., DIN 50, 51 for Logic)
+            config = self._create_missing_referenced_channels(config)
+
+            # Convert numeric channel IDs to names for dialogs
+            config = self._convert_channel_ids_to_names(config)
+
             self.project_tree.clear_all()
 
             channels = config.get("channels", [])
+            logger.info(f"[DEBUG] Loading {len(channels)} channels into UI")
             for ch_data in channels:
                 ch_type_str = ch_data.get("channel_type", "")
+                logger.info(f"[DEBUG] Channel: type={ch_type_str}, name={ch_data.get('name')}")
                 try:
                     ch_type = ChannelType(ch_type_str)
-                    self.project_tree.add_channel(ch_type, ch_data, emit_signal=False)
-                except ValueError:
-                    logger.warning(f"Unknown channel type: {ch_type_str}")
+                    result = self.project_tree.add_channel(ch_type, ch_data, emit_signal=False)
+                    logger.info(f"[DEBUG]   -> Added to tree: {result is not None}")
+                except ValueError as e:
+                    logger.warning(f"Unknown channel type: {ch_type_str} - {e}")
+            # Rebind channel references (resolve IDs to names) after all channels loaded
+            self.project_tree.rebind_channel_references()
 
             # Update monitors
             self.output_monitor.set_outputs(self.project_tree.get_all_outputs())
@@ -218,8 +243,169 @@ class MainWindowDeviceMixin:
             logger.error(f"Error loading config: {e}")
             self.status_message.setText(f"Error loading config: {e}")
 
+    def _convert_channel_ids_to_names(self, config: dict) -> dict:
+        """Convert numeric channel IDs to channel names for dialog compatibility.
+
+        Logic/Timer/etc. dialogs expect 'channel' and 'channel_2' as names,
+        but binary config provides 'input_channels' as numeric IDs.
+        """
+        channels = config.get("channels", [])
+
+        # Build channel_id -> name mapping
+        id_to_name = {}
+        for ch in channels:
+            ch_id = ch.get("channel_id")
+            name = ch.get("name")
+            if ch_id is not None and name:
+                id_to_name[ch_id] = name
+
+        # Convert Logic channels
+        for ch in channels:
+            ch_type = ch.get("channel_type", "")
+
+            if ch_type == "logic":
+                input_channels = ch.get("input_channels", [])
+                if input_channels:
+                    # First input -> channel
+                    if len(input_channels) >= 1 and input_channels[0] in id_to_name:
+                        ch["channel"] = id_to_name[input_channels[0]]
+                    # Second input -> channel_2
+                    if len(input_channels) >= 2 and input_channels[1] in id_to_name:
+                        ch["channel_2"] = id_to_name[input_channels[1]]
+                    logger.debug(f"Converted Logic inputs {input_channels} -> "
+                                f"channel='{ch.get('channel')}', channel_2='{ch.get('channel_2')}'")
+
+            elif ch_type in ("timer", "filter"):
+                # input_channel -> channel
+                input_id = ch.get("input_channel")
+                if input_id and input_id in id_to_name:
+                    ch["channel"] = id_to_name[input_id]
+                # start_channel -> channel (for timers)
+                start_id = ch.get("start_channel")
+                if start_id and start_id in id_to_name:
+                    ch["channel"] = id_to_name[start_id]
+
+            elif ch_type in ("table_2d", "table_3d"):
+                # x_axis_channel -> channel
+                x_id = ch.get("x_axis_channel")
+                if x_id and x_id in id_to_name:
+                    ch["channel"] = id_to_name[x_id]
+
+            elif ch_type == "pid":
+                # setpoint_channel, feedback_channel
+                sp_id = ch.get("setpoint_channel")
+                if sp_id and sp_id in id_to_name:
+                    ch["setpoint_channel"] = id_to_name[sp_id]
+                fb_id = ch.get("feedback_channel")
+                if fb_id and fb_id in id_to_name:
+                    ch["feedback_channel"] = id_to_name[fb_id]
+
+        return config
+
+    def _create_missing_referenced_channels(self, config: dict) -> dict:
+        """Auto-create placeholder channels for missing references.
+
+        When config from device contains Logic/Timer/etc. that reference
+        channels (e.g., DIN 50, 51) that weren't explicitly saved, create
+        placeholder Digital Input channels for them.
+        """
+        channels = config.get("channels", [])
+
+        # Collect existing channel IDs
+        existing_ids = set()
+        for ch in channels:
+            ch_id = ch.get("channel_id")
+            if ch_id is not None:
+                existing_ids.add(ch_id)
+
+        # Collect all referenced channel IDs
+        referenced_ids = set()
+        for ch in channels:
+            ch_type = ch.get("channel_type", "")
+
+            # Logic channels reference input_channels
+            if ch_type == "logic":
+                for ref_id in ch.get("input_channels", []):
+                    if isinstance(ref_id, int) and ref_id > 0:
+                        referenced_ids.add(ref_id)
+
+            # Timer, Filter, Table reference single input
+            if ch_type in ("timer", "filter", "table_2d", "table_3d"):
+                ref_id = ch.get("input_channel") or ch.get("start_channel") or ch.get("x_axis_channel")
+                if isinstance(ref_id, int) and ref_id > 0:
+                    referenced_ids.add(ref_id)
+
+            # PID references setpoint and feedback
+            if ch_type == "pid":
+                for key in ("setpoint_channel", "feedback_channel"):
+                    ref_id = ch.get(key)
+                    if isinstance(ref_id, int) and ref_id > 0:
+                        referenced_ids.add(ref_id)
+
+            # Power Output references source_id
+            if ch_type == "power_output":
+                ref_id = ch.get("source_id")
+                if isinstance(ref_id, int) and ref_id > 0:
+                    referenced_ids.add(ref_id)
+
+        # Find missing references
+        missing_ids = referenced_ids - existing_ids
+
+        if missing_ids:
+            logger.info(f"Creating placeholder channels for missing refs: {sorted(missing_ids)}")
+
+            for ch_id in sorted(missing_ids):
+                # Determine channel type based on ID range
+                # 50-57: Digital Inputs (DIN0-DIN7)
+                # 0-19: Analog Inputs (AI0-AI19)
+                if 50 <= ch_id <= 57:
+                    din_idx = ch_id - 50
+                    placeholder = {
+                        "channel_id": ch_id,
+                        "channel_type": "digital_input",
+                        "name": f"Digital Input {din_idx}",
+                        "enabled": True,
+                        "hw_device": 0x11,  # DIN device
+                        "hw_index": din_idx,
+                        "debounce_ms": 50,
+                        "active_high": True,
+                        "use_pullup": True,
+                    }
+                elif 0 <= ch_id <= 19:
+                    placeholder = {
+                        "channel_id": ch_id,
+                        "channel_type": "analog_input",
+                        "name": f"Analog Input {ch_id}",
+                        "enabled": True,
+                        "hw_device": 0x01,  # ADC device
+                        "hw_index": ch_id,
+                        "raw_min": 0,
+                        "raw_max": 4095,
+                        "scaled_min": 0,
+                        "scaled_max": 1000,
+                    }
+                else:
+                    # Generic placeholder
+                    placeholder = {
+                        "channel_id": ch_id,
+                        "channel_type": "digital_input",
+                        "name": f"Channel {ch_id}",
+                        "enabled": True,
+                    }
+
+                channels.append(placeholder)
+                logger.debug(f"Created placeholder: {placeholder['name']} (id={ch_id})")
+
+        config["channels"] = channels
+        return config
+
     def _show_read_error(self):
         """Show error when config read fails."""
+        # Close progress dialog if open
+        if hasattr(self, '_progress') and self._progress:
+            self._progress.close()
+            self._progress = None
+
         self.status_message.setText("Failed to read configuration")
         QMessageBox.warning(self, "Read Failed", "Failed to read configuration from device.")
 
@@ -229,15 +415,27 @@ class MainWindowDeviceMixin:
             QMessageBox.warning(self, "Not Connected", "Please connect to device first.")
             return
 
+        # Show progress dialog
+        progress = QProgressDialog("Writing configuration to device...", None, 0, 0, self)
+        progress.setWindowTitle("Please Wait")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
         try:
             channels = self.project_tree.get_all_channels()
             binary_data = serialize_ui_channels_for_executor(channels)
             channel_count = struct.unpack('<H', binary_data[:2])[0] if len(binary_data) >= 2 else 0
 
             self.status_message.setText(f"Writing configuration ({len(binary_data)} bytes)...")
+            QApplication.processEvents()
 
             # Use upload_binary_config which waits for ACK
             success = self.device_controller.upload_binary_config(binary_data, timeout=10.0)
+
+            progress.close()
 
             if success:
                 self.status_message.setText("Configuration written successfully")
@@ -260,6 +458,7 @@ class MainWindowDeviceMixin:
                 )
 
         except Exception as e:
+            progress.close()
             logger.error(f"Failed to write configuration: {e}")
             self.status_message.setText("Write failed")
             QMessageBox.critical(self, "Write Failed", f"Failed to write configuration:\n{str(e)}")
@@ -311,26 +510,16 @@ class MainWindowDeviceMixin:
             self.status_message.setText("Config sync failed")
 
     def _apply_output_to_device(self, output_config: dict):
-        """Apply output channel state to device immediately."""
+        """Apply output channel state to device immediately (on/off only)."""
         if not self.device_controller.is_connected():
             return
 
         pins = output_config.get("pins", [])
         enabled = output_config.get("enabled", False)
-        pwm_config = output_config.get("pwm", {})
-
-        if enabled:
-            if pwm_config.get("enabled", False):
-                value = pwm_config.get("duty_value", 100.0) * 10.0
-            else:
-                value = 1000.0
-        else:
-            value = 0.0
 
         for pin in pins:
-            channel_id = 100 + pin
-            self.device_controller.set_channel(channel_id, value)
-            logger.debug(f"Applied output O{pin+1} = {value}")
+            self.device_controller.set_output(pin, enabled)
+            logger.debug(f"Applied output O{pin+1} = {'ON' if enabled else 'OFF'}")
 
         self.status_message.setText(f"Applied output state: {'ON' if enabled else 'OFF'}")
 

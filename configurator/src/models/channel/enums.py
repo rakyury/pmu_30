@@ -66,7 +66,7 @@ class AnalogInputSubtype(Enum):
 
 
 class LogicOperation(Enum):
-    """Logic operations"""
+    """Logic operations with binary code mapping for firmware communication"""
     # Basic logic
     IS_TRUE = "is_true"           # Channel != 0
     IS_FALSE = "is_false"         # Channel == 0
@@ -94,6 +94,39 @@ class LogicOperation(Enum):
     TOGGLE = "toggle"             # Toggle on edge
     PULSE = "pulse"               # Generate pulse on edge
     FLASH = "flash"               # Periodic on/off when channel active
+
+    @property
+    def binary_code(self) -> int:
+        """Get firmware binary code for this operation"""
+        codes = {
+            "and": 0x00, "or": 0x01, "xor": 0x02, "nand": 0x03, "nor": 0x04,
+            "is_true": 0x06, "is_false": 0x07,
+            "greater": 0x10, "greater_equal": 0x11,
+            "less": 0x12, "less_equal": 0x13,
+            "equal": 0x14, "not_equal": 0x15,
+            "in_range": 0x20, "hysteresis": 0x21,
+            "edge_rising": 0x30, "edge_falling": 0x31,
+            "changed": 0x40, "set_reset_latch": 0x41,
+            "toggle": 0x42, "pulse": 0x43, "flash": 0x44,
+        }
+        return codes.get(self.value, 0x06)  # Default to IS_TRUE
+
+    @classmethod
+    def from_binary_code(cls, code: int) -> "LogicOperation":
+        """Create LogicOperation from firmware binary code"""
+        reverse_map = {
+            0x00: "and", 0x01: "or", 0x02: "xor", 0x03: "nand", 0x04: "nor",
+            0x06: "is_true", 0x07: "is_false",
+            0x10: "greater", 0x11: "greater_equal",
+            0x12: "less", 0x13: "less_equal",
+            0x14: "equal", 0x15: "not_equal",
+            0x20: "in_range", 0x21: "hysteresis",
+            0x30: "edge_rising", 0x31: "edge_falling",
+            0x40: "changed", 0x41: "set_reset_latch",
+            0x42: "toggle", 0x43: "pulse", 0x44: "flash",
+        }
+        op_name = reverse_map.get(code, "is_true")
+        return cls(op_name)
 
 
 class LogicPolarity(Enum):

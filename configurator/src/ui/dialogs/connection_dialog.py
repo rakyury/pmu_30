@@ -105,11 +105,6 @@ class ConnectionDialog(QDialog):
         """Setup USB Serial parameters."""
         self.port_combo = QComboBox()
         self.port_combo.setEditable(True)
-        # Add common ports
-        self.port_combo.addItems([
-            "COM1", "COM2", "COM3", "COM4", "COM5",
-            "/dev/ttyUSB0", "/dev/ttyACM0"
-        ])
         self.params_layout.addRow("Serial Port:", self.port_combo)
 
         self.baudrate_combo = QComboBox()
@@ -124,7 +119,8 @@ class ConnectionDialog(QDialog):
         refresh_btn.clicked.connect(self._refresh_serial_ports)
         self.params_layout.addRow("", refresh_btn)
 
-        self.status_label.setText("Select serial port and click Connect")
+        # Auto-refresh ports and select ST-Link on USB Serial selection
+        self._refresh_serial_ports_with_stlink()
 
     def _setup_emulator_params(self):
         """Setup Emulator parameters."""
@@ -239,21 +235,50 @@ class ConnectionDialog(QDialog):
 
     def _refresh_serial_ports(self):
         """Refresh available serial ports."""
+        self._refresh_serial_ports_with_stlink(auto_select_stlink=False)
+
+    def _refresh_serial_ports_with_stlink(self, auto_select_stlink: bool = True):
+        """Refresh available serial ports and optionally auto-select ST-Link."""
         try:
             import serial.tools.list_ports
-            ports = [port.device for port in serial.tools.list_ports.comports()]
+            ports_info = list(serial.tools.list_ports.comports())
 
             current = self.port_combo.currentText()
             self.port_combo.clear()
-            self.port_combo.addItems(ports if ports else ["No ports found"])
 
-            # Restore previous selection if still available
-            if current in ports:
-                self.port_combo.setCurrentText(current)
+            stlink_index = -1
+            for i, port in enumerate(ports_info):
+                # Format: "COM11 - STMicroelectronics STLink Virtual COM Port"
+                port_str = f"{port.device}"
+                self.port_combo.addItem(port_str)
 
-            self.status_label.setText(f"Found {len(ports)} serial port(s)")
+                # Check for ST-Link (STMicroelectronics, STLink, ST-LINK)
+                desc_lower = (port.description or "").lower()
+                if auto_select_stlink and stlink_index == -1:
+                    if "stlink" in desc_lower or "st-link" in desc_lower or "stmicro" in desc_lower:
+                        stlink_index = i
+
+            if self.port_combo.count() == 0:
+                self.port_combo.addItem("No ports found")
+
+            # Select ST-Link if found, otherwise restore previous selection
+            if stlink_index >= 0:
+                self.port_combo.setCurrentIndex(stlink_index)
+                port_info = ports_info[stlink_index]
+                self.status_label.setText(f"ST-Link detected: {port_info.device} - {port_info.description}")
+            elif current:
+                # Restore previous selection if still available
+                idx = self.port_combo.findText(current)
+                if idx >= 0:
+                    self.port_combo.setCurrentIndex(idx)
+                self.status_label.setText(f"Found {len(ports_info)} serial port(s)")
+            else:
+                self.status_label.setText(f"Found {len(ports_info)} serial port(s)")
+
         except ImportError:
             self.status_label.setText("pyserial not installed")
+        except Exception as e:
+            self.status_label.setText(f"Error refreshing ports: {e}")
 
     def _scan_bluetooth(self):
         """Scan for Bluetooth devices."""

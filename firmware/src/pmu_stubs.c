@@ -463,6 +463,12 @@ uint16_t PMU_ADC_GetRawValue(uint8_t channel)
     return g_simulated_adc[channel];
 }
 
+uint16_t PMU_ADC_GetValue(uint8_t channel)
+{
+    if (channel >= PMU_MAX_INPUTS) return 0;
+    return g_simulated_adc[channel];
+}
+
 float PMU_ADC_GetVoltage(uint8_t channel)
 {
     if (channel >= PMU_MAX_INPUTS) return 0.0f;

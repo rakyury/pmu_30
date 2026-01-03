@@ -21,10 +21,17 @@ CH_TYPE_LOGIC = 0x21
 # Logic operations (from shared/engine/logic.h)
 LOGIC_OP_AND = 0x00
 LOGIC_OP_OR = 0x01
-LOGIC_OP_GT = 0x03
-LOGIC_OP_LT = 0x04
+LOGIC_OP_XOR = 0x02
+LOGIC_OP_NAND = 0x03
+LOGIC_OP_NOR = 0x04
 LOGIC_OP_IS_TRUE = 0x06
 LOGIC_OP_IS_FALSE = 0x07
+LOGIC_OP_GT = 0x10
+LOGIC_OP_GTE = 0x11
+LOGIC_OP_LT = 0x12
+LOGIC_OP_LTE = 0x13
+LOGIC_OP_EQ = 0x14
+LOGIC_OP_NEQ = 0x15
 
 # Timer modes
 TIMER_MODE_PULSE = 0x02
@@ -421,19 +428,248 @@ def generate_button_output_config() -> bytes:
     return build_config(channels)
 
 
+def generate_logic_xor_config() -> bytes:
+    """
+    Logic XOR: DIN0 XOR DIN1 -> Power Output -> LED
+    Exactly one button pressed -> LED ON
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_XOR, inputs=[50, 51])
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="XOR",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_nand_config() -> bytes:
+    """
+    Logic NAND: NOT(DIN0 AND DIN1) -> Power Output -> LED
+    LED OFF only when both buttons pressed
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_NAND, inputs=[50, 51])
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="NAND",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_nor_config() -> bytes:
+    """
+    Logic NOR: NOT(DIN0 OR DIN1) -> Power Output -> LED
+    LED ON only when both buttons released
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_NOR, inputs=[50, 51])
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="NOR",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_gte_config() -> bytes:
+    """
+    Logic GTE: DIN0 >= 1 -> Power Output -> LED
+    Button pressed (1 >= 1) -> LED ON
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_GTE, inputs=[50], compare_value=1)
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="GTE",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_lte_config() -> bytes:
+    """
+    Logic LTE: DIN0 <= 0 -> Power Output -> LED
+    Button released (0 <= 0) -> LED ON
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_LTE, inputs=[50], compare_value=0)
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="LTE",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_eq_config() -> bytes:
+    """
+    Logic EQ: DIN0 == 1 -> Power Output -> LED
+    Button pressed (1 == 1) -> LED ON
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_EQ, inputs=[50], compare_value=1)
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="EQ",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
+def generate_logic_neq_config() -> bytes:
+    """
+    Logic NEQ: DIN0 != 0 -> Power Output -> LED
+    Button pressed (1 != 0) -> LED ON
+    """
+    channels = []
+
+    logic_config = build_logic_config(operation=LOGIC_OP_NEQ, inputs=[50], compare_value=0)
+    logic_header = build_channel_header(
+        channel_id=200,
+        channel_type=CH_TYPE_LOGIC,
+        name="NEQ",
+        config_size=len(logic_config)
+    )
+    channels.append(logic_header + logic_config)
+
+    output_config = build_power_output_config()
+    output_header = build_channel_header(
+        channel_id=100,
+        channel_type=CH_TYPE_POWER_OUTPUT,
+        hw_device=HW_DEVICE_PROFET,
+        hw_index=1,
+        source_id=200,
+        name="LED",
+        config_size=len(output_config)
+    )
+    channels.append(output_header + output_config)
+
+    return build_config(channels)
+
+
 def main():
     """Generate all test configuration files."""
     output_dir = Path(__file__).parent
 
     configs = {
-        "logic_is_true.pmu30": generate_logic_is_true_config(),
-        "logic_is_false.pmu30": generate_logic_is_false_config(),
+        # Boolean logic (2 inputs)
         "logic_and.pmu30": generate_logic_and_config(),
         "logic_or.pmu30": generate_logic_or_config(),
+        "logic_xor.pmu30": generate_logic_xor_config(),
+        "logic_nand.pmu30": generate_logic_nand_config(),
+        "logic_nor.pmu30": generate_logic_nor_config(),
+        # Unary logic (1 input)
+        "logic_is_true.pmu30": generate_logic_is_true_config(),
+        "logic_is_false.pmu30": generate_logic_is_false_config(),
+        # Comparison logic (1 input vs threshold)
         "logic_gt.pmu30": generate_logic_gt_config(),
+        "logic_gte.pmu30": generate_logic_gte_config(),
         "logic_lt.pmu30": generate_logic_lt_config(),
+        "logic_lte.pmu30": generate_logic_lte_config(),
+        "logic_eq.pmu30": generate_logic_eq_config(),
+        "logic_neq.pmu30": generate_logic_neq_config(),
+        # Timers
         "timer_pulse.pmu30": generate_timer_pulse_config(),
         "timer_blink.pmu30": generate_timer_blink_config(),
+        # Direct link
         "button_output.pmu30": generate_button_output_config(),
     }
 

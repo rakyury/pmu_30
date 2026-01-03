@@ -964,9 +964,176 @@ class ProjectTree(QWidget):
             except ValueError:
                 continue
 
+        # Rebind channel references (resolve IDs to names) after all channels loaded
+        self.rebind_channel_references()
+
         # Auto-collapse folders with many children
         self._auto_collapse_large_folders()
         # Note: Don't emit configuration_changed here - loading is not a modification
+
+    def rebind_channel_references(self):
+        """Rebind channel references - update display names for channel IDs.
+
+        This must be called AFTER all channels are loaded, so that
+        channel ID -> name lookup works correctly.
+        """
+        # Build channel_id -> name lookup map from all loaded channels
+        channel_name_map = self._build_channel_name_map()
+        logger.info(f"Rebinding channel refs - name_map: {channel_name_map}")
+
+        # Update all channel items with resolved names
+        for channel_type in ChannelType:
+            folder = self._get_folder_for_type(channel_type)
+            if not folder:
+                continue
+
+            for i in range(folder.childCount()):
+                item = folder.child(i)
+                data = item.data(0, Qt.ItemDataRole.UserRole)
+                if data and data.get("type") == "channel":
+                    channel_data = data.get("data", {})
+                    # Update Details and Source columns with resolved names
+                    item.setText(1, self._format_channel_details_with_names(channel_type, channel_data, channel_name_map))
+                    item.setText(2, self._format_channel_source_with_names(channel_type, channel_data, channel_name_map))
+
+    def _build_channel_name_map(self) -> Dict[int, str]:
+        """Build a mapping of channel_id -> channel_name from all loaded channels."""
+        name_map = {}
+        for ch in self.get_all_channels():
+            ch_id = ch.get("channel_id")
+            if ch_id is not None:
+                ch_name = ch.get("channel_name", "") or ch.get("name", "") or ch.get("id", "")
+                if ch_name:
+                    name_map[ch_id] = ch_name
+        return name_map
+
+    def _resolve_channel_id(self, channel_id, name_map: Dict[int, str]) -> str:
+        """Resolve channel ID to display name.
+
+        Lookup order:
+        1. User channels (from name_map built from project_tree)
+        2. System channels (from ChannelDisplayService - one, zero, pmu.*, etc.)
+        3. Fallback to #{id}
+        """
+        from models.channel_display_service import ChannelDisplayService
+
+        if channel_id is None:
+            return ""
+        if isinstance(channel_id, int):
+            # 1. Try user channels lookup
+            if channel_id in name_map:
+                return name_map[channel_id]
+            # 2. Try system channels lookup (one, zero, pmu.batteryVoltage, etc.)
+            system_name = ChannelDisplayService.get_system_channel_name(channel_id)
+            if system_name:
+                return system_name
+            # 3. Fallback to #{id}
+            return f"#{channel_id}"
+        # Already a string name
+        return str(channel_id)
+
+    def _format_channel_details_with_names(self, channel_type: ChannelType, data: Dict[str, Any], name_map: Dict[int, str]) -> str:
+        """Format channel details with resolved channel names."""
+        # For Logic: show input channel names
+        if channel_type == ChannelType.LOGIC:
+            op = data.get("operation", "and").upper()
+            inputs = data.get("input_channels", []) or data.get("inputs", [])
+            delay_on = data.get("delay_on_ms", 0)
+            delay_off = data.get("delay_off_ms", 0)
+
+            # Don't include inputs in details column - they go in Source
+            if delay_on or delay_off:
+                return f"{op} (+{delay_on}/-{delay_off}ms)"
+            return op
+
+        # Default: use original formatter
+        return format_channel_details(channel_type, data)
+
+    def _format_channel_source_with_names(self, channel_type: ChannelType, data: Dict[str, Any], name_map: Dict[int, str]) -> str:
+        """Format channel source with resolved channel names instead of IDs."""
+        if channel_type == ChannelType.POWER_OUTPUT:
+            source = data.get('source_channel')
+            if source:
+                return self._resolve_channel_id(source, name_map)
+            return "Manual"
+
+        elif channel_type == ChannelType.LOGIC:
+            inputs = data.get('input_channels', []) or data.get('inputs', [])
+            if inputs:
+                if len(inputs) <= 2:
+                    return ", ".join(self._resolve_channel_id(i, name_map) for i in inputs)
+                return f"{len(inputs)} inputs"
+            return ""
+
+        elif channel_type == ChannelType.TIMER:
+            if data.get('auto_start', False):
+                return "Auto-start on boot"
+            start_ch = data.get('start_channel') or data.get('trigger_channel')
+            if start_ch:
+                return f"Start: {self._resolve_channel_id(start_ch, name_map)}"
+            return ""
+
+        elif channel_type == ChannelType.FILTER:
+            input_ch = data.get('input_channel')
+            if input_ch:
+                return self._resolve_channel_id(input_ch, name_map)
+            return ""
+
+        elif channel_type == ChannelType.HBRIDGE:
+            dir_src = data.get('direction_source')
+            speed_src = data.get('speed_source')
+            parts = []
+            if dir_src:
+                parts.append(f"Dir: {self._resolve_channel_id(dir_src, name_map)}")
+            if speed_src:
+                parts.append(f"Spd: {self._resolve_channel_id(speed_src, name_map)}")
+            return ", ".join(parts) if parts else "Manual"
+
+        elif channel_type == ChannelType.NUMBER:
+            op = data.get('operation', 'constant')
+            if op == 'constant':
+                return ""
+            inputs = data.get('input_channels', [])
+            if inputs:
+                if len(inputs) <= 2:
+                    return ", ".join(self._resolve_channel_id(i, name_map) for i in inputs)
+                return f"{len(inputs)} inputs"
+            return ""
+
+        elif channel_type == ChannelType.PID:
+            setpoint = data.get('setpoint_source')
+            input_ch = data.get('input_source')
+            parts = []
+            if setpoint:
+                parts.append(f"SP: {self._resolve_channel_id(setpoint, name_map)}")
+            if input_ch:
+                parts.append(f"PV: {self._resolve_channel_id(input_ch, name_map)}")
+            return ", ".join(parts) if parts else ""
+
+        elif channel_type == ChannelType.SWITCH:
+            ctrl = data.get('control_channel')
+            if ctrl:
+                return self._resolve_channel_id(ctrl, name_map)
+            return ""
+
+        elif channel_type == ChannelType.TABLE_2D:
+            x_src = data.get('x_source')
+            if x_src:
+                return f"X: {self._resolve_channel_id(x_src, name_map)}"
+            return ""
+
+        elif channel_type == ChannelType.TABLE_3D:
+            x_src = data.get('x_source')
+            y_src = data.get('y_source')
+            parts = []
+            if x_src:
+                parts.append(f"X: {self._resolve_channel_id(x_src, name_map)}")
+            if y_src:
+                parts.append(f"Y: {self._resolve_channel_id(y_src, name_map)}")
+            return ", ".join(parts) if parts else ""
+
+        # Default: use original formatter
+        return format_channel_source(channel_type, data)
 
     def _auto_collapse_large_folders(self, threshold: int = 10):
         """Collapse subfolders that have more than threshold children.

@@ -14,7 +14,11 @@ class MainWindowTelemetryMixin:
     def _on_telemetry_received(self, telemetry):
         """Handle telemetry data from device."""
         try:
-            logger.debug(f"Telemetry received: voltage={telemetry.input_voltage_mv}mV, temp={telemetry.temperature_c}C")
+            # Log telemetry summary
+            active_outputs = sum(1 for s in telemetry.profet_states if s and int(s) > 0)
+            virtual_count = len(telemetry.virtual_channels) if telemetry.virtual_channels else 0
+            logger.info(f"Telemetry: V={telemetry.input_voltage_mv}mV, outputs={active_outputs}/30, virtuals={virtual_count}")
+
             self._update_pmu_monitor(telemetry)
             states = self._update_output_monitor(telemetry)
             self._update_input_monitors(telemetry)
@@ -22,7 +26,7 @@ class MainWindowTelemetryMixin:
             self._update_data_logger(telemetry)
             self._update_led_indicator(telemetry, states)
         except Exception as e:
-            logger.error(f"Error processing telemetry: {e}")
+            logger.error(f"Error processing telemetry: {e}", exc_info=True)
 
     def _update_pmu_monitor(self, telemetry):
         """Update PMU monitor widget."""
@@ -58,37 +62,15 @@ class MainWindowTelemetryMixin:
         self.digital_monitor.update_from_telemetry(telemetry.digital_inputs)
 
     def _update_variables_inspector(self, telemetry):
-        """Update variables inspector with all telemetry data."""
-        states = [int(s) if hasattr(s, 'value') else s for s in telemetry.profet_states]
-        currents = list(telemetry.output_currents)
-        duties = list(telemetry.profet_duties)
+        """Update variables inspector with virtual channel data only.
 
-        variables_data = {
-            'board_temp_l': telemetry.temperature_c,
-            'board_temp_r': telemetry.board_temp_2,
-            'battery_voltage': telemetry.input_voltage,
-            'battery_voltage_mv': telemetry.input_voltage_mv,
-            'voltage_5v': telemetry.output_5v_mv / 1000.0 if telemetry.output_5v_mv else 0,
-            'voltage_3v3': telemetry.output_3v3_mv / 1000.0 if telemetry.output_3v3_mv else 0,
-            'pmu_status': telemetry.system_status,
-            'user_error': 0,
-            'profet_states': states,
-            'profet_currents': currents,
-            'profet_duties': duties,
-            'adc_values': list(telemetry.adc_values),
-        }
-
-        # Add CAN RX channel values
-        if hasattr(telemetry, 'can_rx_values') and telemetry.can_rx_values:
-            variables_data['can_rx_values'] = telemetry.can_rx_values
-        else:
-            variables_data['can_rx_values'] = self._get_can_rx_defaults()
-
-        # Add virtual channel values
+        Variables Inspector now only displays virtual channels (logic, number, timer, etc.),
+        so we only pass the virtual_channels data from telemetry.
+        """
+        # Variables inspector only shows virtual channels now
         if hasattr(telemetry, 'virtual_channels') and telemetry.virtual_channels:
-            variables_data['virtual_channels'] = telemetry.virtual_channels
-
-        self.variables_inspector.update_from_telemetry(variables_data)
+            variables_data = {'virtual_channels': telemetry.virtual_channels}
+            self.variables_inspector.update_from_telemetry(variables_data)
 
     def _update_data_logger(self, telemetry):
         """Update data logger with telemetry data."""
@@ -106,19 +88,6 @@ class MainWindowTelemetryMixin:
             data['virtual_channels'] = telemetry.virtual_channels
 
         self.data_logger.update_from_telemetry(data)
-
-    def _get_can_rx_defaults(self) -> dict:
-        """Get CAN RX default values from config."""
-        can_rx_values = {}
-        try:
-            can_inputs = self.config_manager.get_can_inputs()
-            for ch in can_inputs:
-                ch_id = ch.get('id', '')
-                if ch_id:
-                    can_rx_values[ch_id] = ch.get('default_value', '?')
-        except Exception:
-            pass
-        return can_rx_values
 
     def _on_log_received(self, level: int, source: str, message: str):
         """Handle log message from device."""

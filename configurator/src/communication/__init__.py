@@ -1,74 +1,33 @@
 """
 PMU-30 Communication Package
 
-This package provides real-time communication between the PMU-30 Configurator
-and the PMU-30 hardware device.
-
-Modules:
-    protocol: Binary protocol implementation
-    transport_base: Abstract transport interface
-    serial_transport: USB Serial transport implementation
-    comm_manager: High-level communication manager
-    telemetry: Telemetry data structures
-
-Example usage:
-    from communication import CommManager, SerialTransport
-
-    transport = SerialTransport()
-    manager = CommManager(transport)
-
-    await manager.connect("COM3")
-    await manager.subscribe_telemetry()
-
-    async for packet in manager.telemetry_stream():
-        print(f"Voltage: {packet.input_voltage}V")
+Provides MIN protocol implementation and telemetry parsing.
 """
 
 from .protocol import (
     MessageType,
-    ProtocolFrame,
-    ProtocolError,
-    encode_frame,
-    decode_frame,
+    build_min_frame,
+    MINFrameParser,
+    FrameParser,
+    MAX_PAYLOAD,
 )
-from .transport_base import TransportBase, TransportError
-from .serial_transport import SerialTransport
-from .emulator_transport import EmulatorTransport
-from .comm_manager import CommManager, ConnectionState
-from .telemetry import TelemetryPacket, ChannelState, FaultFlags
-from .telemetry_observer import (
-    TelemetryField,
-    TelemetryObserver,
-    TelemetrySubject,
-    TelemetryUpdate,
-    get_telemetry_subject,
+from .telemetry import (
+    TelemetryPacket,
+    parse_telemetry,
+    TELEMETRY_PACKET_SIZE,
 )
 
 __all__ = [
     # Protocol
     "MessageType",
-    "ProtocolFrame",
-    "ProtocolError",
-    "encode_frame",
-    "decode_frame",
-    # Transport
-    "TransportBase",
-    "TransportError",
-    "SerialTransport",
-    "EmulatorTransport",
-    # Manager
-    "CommManager",
-    "ConnectionState",
+    "build_min_frame",
+    "MINFrameParser",
+    "FrameParser",
+    "MAX_PAYLOAD",
     # Telemetry
     "TelemetryPacket",
-    "ChannelState",
-    "FaultFlags",
-    # Observer pattern
-    "TelemetryField",
-    "TelemetryObserver",
-    "TelemetrySubject",
-    "TelemetryUpdate",
-    "get_telemetry_subject",
+    "parse_telemetry",
+    "TELEMETRY_PACKET_SIZE",
 ]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

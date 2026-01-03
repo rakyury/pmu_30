@@ -113,8 +113,9 @@ class TestLogicOperation:
         """Test basic logic operations exist."""
         assert LogicOperation.AND.value == "and"
         assert LogicOperation.OR.value == "or"
-        assert LogicOperation.NOT.value == "not"
         assert LogicOperation.XOR.value == "xor"
+        assert LogicOperation.IS_TRUE.value == "is_true"
+        assert LogicOperation.IS_FALSE.value == "is_false"
 
     def test_comparison_operations(self):
         """Test comparison operations exist."""

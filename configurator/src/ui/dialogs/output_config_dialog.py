@@ -484,15 +484,14 @@ class OutputConfigDialog(BaseChannelDialog):
 
         # Control settings - source_channel can be numeric (int) or string (channel ID)
         source_channel = config.get("source_channel", config.get("control_function"))
+        import logging
+        logic_chs = self.available_channels.get('logic', []) if self.available_channels else None
+        logging.getLogger(__name__).info(f"[DEBUG] Loading source_channel: {source_channel}, logic_channels: {logic_chs}")
+
         if source_channel is not None:
             self._source_channel_id = source_channel  # Store as-is (int or str)
-            if isinstance(source_channel, int):
-                # Numeric channel ID - look up display name
-                display_name = self._get_channel_display_name(source_channel)
-                self.control_function_edit.setText(display_name if display_name else str(source_channel))
-            else:
-                # String channel ID - display as-is
-                self.control_function_edit.setText(str(source_channel))
+            # Use base class helper for consistent lookup with fallback
+            self._set_channel_edit_value(self.control_function_edit, source_channel)
         else:
             self.control_function_edit.setText("")
             self._source_channel_id = None

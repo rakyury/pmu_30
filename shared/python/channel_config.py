@@ -326,7 +326,7 @@ class CfgTimer:
 
 @dataclass
 class CfgLogic:
-    """Logic configuration (24 bytes)"""
+    """Logic configuration (26 bytes)"""
     operation: int = 0
     input_count: int = 0
     inputs: List[int] = field(default_factory=lambda: [CH_REF_NONE] * CFG_MAX_INPUTS)
@@ -335,7 +335,7 @@ class CfgLogic:
     reserved: bytes = field(default_factory=lambda: bytes(3))
 
     FORMAT = "<BB8HiB3s"
-    SIZE = 24
+    SIZE = 26  # BB=2 + 8H=16 + i=4 + B=1 + 3s=3 = 26
 
     def pack(self) -> bytes:
         inputs = self.inputs[:CFG_MAX_INPUTS]

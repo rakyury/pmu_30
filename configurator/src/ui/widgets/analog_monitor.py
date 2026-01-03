@@ -41,31 +41,17 @@ class AnalogMonitor(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.inputs_data = []
+        self.inputs_data = []  # Only user-created channels
         self._connected = False
         self._init_ui()
 
-        # Initialize with default 20 analog inputs
-        self._init_default_inputs()
+        # Start with empty table - only show user-created channels
+        self._populate_table()
 
         # Update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_values)
         self.update_timer.start(100)  # Update every 100ms
-
-    def _init_default_inputs(self):
-        """Initialize with default 20 analog inputs (unconfigured - no names)."""
-        default_inputs = []
-        for i in range(20):
-            default_inputs.append({
-                'channel': i,
-                'name': '',  # Empty name for unconfigured pins
-                'enabled': True,
-                'pull_mode': 'none',
-                '_is_default': True  # Flag to indicate this is a default/unconfigured input
-            })
-        self.inputs_data = default_inputs
-        self._populate_table()
 
     def _init_ui(self):
         """Initialize UI."""
@@ -150,53 +136,37 @@ class AnalogMonitor(QWidget):
 
     def set_inputs(self, inputs: List[Dict]):
         """
-        Set configured inputs - merges with defaults to keep all 20 inputs visible.
-        Configured inputs get their names and settings, unconfigured remain gray.
-        Only inputs with a valid name/id are considered "configured".
+        Set configured inputs - ONLY shows user-created analog input channels.
+        No placeholder rows for unconfigured pins.
         """
-        # Create a mapping of configured inputs by pin number
-        # Only include ANALOG inputs that have a name
-        configured_by_pin = {}
+        self.inputs_data = []
+
         for inp in inputs:
-            # Only process analog inputs
+            # Only process analog inputs (not digital inputs)
             if inp.get('channel_type') != 'analog_input':
                 continue
-            # Only consider inputs with a name as "configured"
-            # Priority: name > channel_name > id (for backwards compatibility)
+
             name = inp.get('name') or inp.get('channel_name') or inp.get('id', '')
             if not name:
                 continue
-            pin = inp.get('input_pin', inp.get('channel', -1))
-            if pin >= 0:
-                configured_by_pin[pin] = inp
 
-        # Reset to defaults first
-        self._init_default_inputs()
-
-        # Update configured inputs with their names and settings
-        for i, input_data in enumerate(self.inputs_data):
-            channel = input_data.get('channel', i)
-            if channel in configured_by_pin:
-                cfg = configured_by_pin[channel]
-                # Priority: name > channel_name > id (for backwards compatibility)
-                input_data['name'] = cfg.get('name') or cfg.get('channel_name') or cfg.get('id', '')
-                input_data['pull_mode'] = cfg.get('pull_mode', 'none')
-                input_data['enabled'] = cfg.get('enabled', True)
-                input_data['_is_default'] = False
-                # Store subtype and thresholds for switch logic
-                input_data['subtype'] = cfg.get('subtype', 'linear')
-                input_data['threshold_high'] = cfg.get('threshold_high', 2.5)
-                input_data['threshold_low'] = cfg.get('threshold_low', 1.5)
-                # Store linear mapping values
-                input_data['min_voltage'] = cfg.get('min_voltage', 0.0)
-                input_data['max_voltage'] = cfg.get('max_voltage', 5.0)
-                input_data['min_value'] = cfg.get('min_value', 0.0)
-                input_data['max_value'] = cfg.get('max_value', 100.0)
-                input_data['decimal_places'] = cfg.get('decimal_places', 0)
-                # Store calibration points for calibrated type
-                input_data['calibration_points'] = cfg.get('calibration_points', [])
-            else:
-                input_data['_is_default'] = True
+            channel = inp.get('input_pin', inp.get('channel', 0))
+            self.inputs_data.append({
+                'channel': channel,
+                'name': name,
+                'pull_mode': inp.get('pull_mode', 'none'),
+                'enabled': inp.get('enabled', True),
+                'subtype': inp.get('subtype', 'linear'),
+                'threshold_high': inp.get('threshold_high', 2.5),
+                'threshold_low': inp.get('threshold_low', 1.5),
+                'min_voltage': inp.get('min_voltage', 0.0),
+                'max_voltage': inp.get('max_voltage', 5.0),
+                'min_value': inp.get('min_value', 0.0),
+                'max_value': inp.get('max_value', 100.0),
+                'decimal_places': inp.get('decimal_places', 0),
+                'calibration_points': inp.get('calibration_points', []),
+                '_is_default': False,
+            })
 
         self._populate_table()
 
@@ -217,21 +187,20 @@ class AnalogMonitor(QWidget):
                     item.setBackground(QBrush(self.COLOR_DISABLED))
 
     def _populate_table(self):
-        """Populate table with inputs."""
+        """Populate table with user-created inputs only."""
         self.table.setRowCount(len(self.inputs_data))
 
         for row, input_data in enumerate(self.inputs_data):
             channel = input_data.get('channel', row)
-            is_default = input_data.get('_is_default', True)
 
             # Pin (A1, A2, etc.)
             pin_item = QTableWidgetItem(f"A{channel + 1}")
             pin_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_PIN, pin_item)
 
-            # Name - only show for configured inputs
+            # Name
             name = input_data.get('name', '')
-            name_item = QTableWidgetItem(name if name else "")
+            name_item = QTableWidgetItem(name)
             self.table.setItem(row, self.COL_NAME, name_item)
 
             # Value (? when offline)
@@ -255,16 +224,8 @@ class AnalogMonitor(QWidget):
             pupd_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_PUPD, pupd_item)
 
-            # Set initial row color - gray for unconfigured/default inputs
-            if is_default:
-                self._set_row_color(row, self.COLOR_DISABLED)
-                # Gray text for unconfigured
-                for col in range(5):
-                    item = self.table.item(row, col)
-                    if item:
-                        item.setForeground(Qt.GlobalColor.gray)
-            else:
-                self._set_row_color(row, self.COLOR_NORMAL)
+            # Set row color
+            self._set_row_color(row, self.COLOR_NORMAL)
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""
@@ -282,58 +243,43 @@ class AnalogMonitor(QWidget):
         pass
 
     def update_input_value(self, channel: int, value: float, voltage: float):
-        """Update specific input value (legacy method for backwards compatibility)."""
-        for row in range(self.table.rowCount()):
-            pin_item = self.table.item(row, self.COL_PIN)
-            if pin_item and pin_item.text() == f"A{channel + 1}":
-                # Check if this row is configured
-                input_data = self.inputs_data[row] if row < len(self.inputs_data) else {}
-                name = input_data.get('name', '')
-                is_default = input_data.get('_is_default', True) or not name
+        """Update specific input value by hardware channel number."""
+        for row, input_data in enumerate(self.inputs_data):
+            if input_data.get('channel') == channel:
+                # Update values
+                self.table.item(row, self.COL_VALUE).setText(f"{value:.2f}")
+                self.table.item(row, self.COL_VLTG).setText(f"{voltage:.2f}")
 
-                # Only update values for configured inputs
-                # Unconfigured inputs stay gray with "?" values
-                if is_default:
-                    # Keep gray color and "?" values for unconfigured inputs
-                    self._set_row_color(row, self.COLOR_DISABLED)
-                else:
-                    # Update values only for configured inputs
-                    self.table.item(row, self.COL_VALUE).setText(f"{value:.2f}")
-                    self.table.item(row, self.COL_VLTG).setText(f"{voltage:.2f}")
+                # Set row color based on logical output state (only for switch types)
+                subtype = input_data.get('subtype', 'linear')
+                if subtype in ('switch_active_low', 'switch_active_high'):
+                    threshold_high = input_data.get('threshold_high', 2.5)
+                    threshold_low = input_data.get('threshold_low', 1.5)
+                    prev_state = input_data.get('_digital_state', 0)
 
-                    # Set row color based on logical output state (only for switch types)
-                    subtype = input_data.get('subtype', 'linear')
-                    if subtype in ('switch_active_low', 'switch_active_high'):
-                        threshold_high = input_data.get('threshold_high', 2.5)
-                        threshold_low = input_data.get('threshold_low', 1.5)
-                        prev_state = input_data.get('_digital_state', 0)
-
-                        if subtype == 'switch_active_high':
-                            # Active High: 1 if voltage > threshold_high, 0 if voltage < threshold_low
-                            if voltage > threshold_high:
-                                digital_state = 1
-                            elif voltage < threshold_low:
-                                digital_state = 0
-                            else:
-                                digital_state = prev_state
-                        else:  # switch_active_low
-                            # Active Low: 0 if voltage > threshold_high, 1 if voltage < threshold_low
-                            if voltage > threshold_high:
-                                digital_state = 0
-                            elif voltage < threshold_low:
-                                digital_state = 1
-                            else:
-                                digital_state = prev_state
-
-                        input_data['_digital_state'] = digital_state
-
-                        if digital_state == 1:
-                            self._set_row_color(row, self.COLOR_ACTIVE)
+                    if subtype == 'switch_active_high':
+                        if voltage > threshold_high:
+                            digital_state = 1
+                        elif voltage < threshold_low:
+                            digital_state = 0
                         else:
-                            self._set_row_color(row, self.COLOR_NORMAL)
+                            digital_state = prev_state
+                    else:  # switch_active_low
+                        if voltage > threshold_high:
+                            digital_state = 0
+                        elif voltage < threshold_low:
+                            digital_state = 1
+                        else:
+                            digital_state = prev_state
+
+                    input_data['_digital_state'] = digital_state
+
+                    if digital_state == 1:
+                        self._set_row_color(row, self.COLOR_ACTIVE)
                     else:
-                        # Linear/calibrated - no green highlight
                         self._set_row_color(row, self.COLOR_NORMAL)
+                else:
+                    self._set_row_color(row, self.COLOR_NORMAL)
                 break
 
     def update_from_telemetry(self, adc_values: List[int], reference_voltage: float = 3.3):
@@ -344,21 +290,13 @@ class AnalogMonitor(QWidget):
             adc_values: List of raw ADC values (0-4095 for 12-bit)
             reference_voltage: ADC reference voltage (default 3.3V)
         """
-        for row in range(min(self.table.rowCount(), len(self.inputs_data))):
-            if row >= len(adc_values):
-                break
-
-            input_data = self.inputs_data[row]
-            # Consider unconfigured if _is_default flag is True OR if name is empty
-            name = input_data.get('name', '')
-            is_default = input_data.get('_is_default', True) or not name
-
-            # Unconfigured inputs stay gray with "?" values - don't update
-            if is_default:
-                self._set_row_color(row, self.COLOR_DISABLED)
+        for row, input_data in enumerate(self.inputs_data):
+            # Get the hardware channel for this input
+            hw_channel = input_data.get('channel', 0)
+            if hw_channel >= len(adc_values):
                 continue
 
-            adc_raw = adc_values[row]
+            adc_raw = adc_values[hw_channel]
 
             # Convert raw ADC to voltage (12-bit ADC, reference voltage)
             voltage = (adc_raw / 4095.0) * reference_voltage

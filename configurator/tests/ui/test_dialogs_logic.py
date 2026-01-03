@@ -51,7 +51,6 @@ class TestLogicDialog:
         LogicOperation.AND,
         LogicOperation.OR,
         LogicOperation.XOR,
-        LogicOperation.NOT,
         LogicOperation.HYSTERESIS,
         LogicOperation.PULSE,
         LogicOperation.FLASH,

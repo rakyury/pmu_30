@@ -48,33 +48,19 @@ class OutputMonitor(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.outputs_data = []
+        self.outputs_data = []  # Only user-created channels
         self._connected = False
         self._peak_currents = {}  # Track peak currents per channel
         self._row_to_index = {}   # Mapping from table row to outputs_data index
         self._init_ui()
 
-        # Initialize with default 30 outputs
-        self._init_default_outputs()
+        # Start with empty table - only show user-created channels
+        self._populate_table()
 
         # Update timer
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._update_values)
         self.update_timer.start(100)  # Update every 100ms
-
-    def _init_default_outputs(self):
-        """Initialize with default 30 PROFET outputs (unconfigured - no names)."""
-        default_outputs = []
-        for i in range(30):
-            default_outputs.append({
-                'channel': i,
-                'name': '',  # Empty name for unconfigured pins
-                'enabled': True,
-                'pins': [i],
-                '_is_default': True  # Flag to indicate this is a default/unconfigured output
-            })
-        self.outputs_data = default_outputs
-        self._populate_table()
 
     def _init_ui(self):
         """Initialize UI."""
@@ -180,56 +166,34 @@ class OutputMonitor(QWidget):
 
     def set_outputs(self, outputs: List[Dict]):
         """
-        Set configured outputs - merges with defaults to keep all 30 outputs visible.
-        Configured outputs get their names and settings, unconfigured remain gray.
-        Secondary pins (used by multi-pin outputs) are hidden.
-        Only outputs with a valid name/id are considered "configured".
+        Set configured outputs - ONLY shows user-created power output channels.
+        Physical pins without configured channels are NOT shown.
+        View PMU Monitor for raw physical pin states.
         """
-        # Reset to defaults first
-        self._init_default_outputs()
+        # Clear and only show user-created outputs
+        self.outputs_data = []
 
-        # Track which pins are secondary (used but not as primary)
-        secondary_pins = set()
-
-        # Create mapping of configured outputs by primary pin
-        # Only include outputs that have a name
-        configured_by_pin = {}
         for out in outputs:
-            # Only consider outputs with a name as "configured"
-            # Priority: name > channel_name > id (for backwards compatibility)
+            # Only include outputs that have a name (user-created)
             name = out.get('name') or out.get('channel_name') or out.get('id', '')
             if not name:
                 continue
-            # Support multiple field names: output_pins, pins, channel
-            pins = out.get('output_pins') or out.get('pins') or [out.get('channel', -1)]
-            if pins:
-                primary_pin = pins[0]
-                if primary_pin >= 0:
-                    configured_by_pin[primary_pin] = out
-                    # Mark all non-primary pins as secondary (to hide)
-                    for pin in pins[1:]:
-                        if pin >= 0:
-                            secondary_pins.add(pin)
 
-        # Update configured outputs with their names and settings
-        for i, output_data in enumerate(self.outputs_data):
-            channel = output_data.get('channel', i)
-            if channel in secondary_pins:
-                # This pin is used as secondary by another output - hide it
-                output_data['_is_hidden'] = True
-                output_data['_is_default'] = True
-            elif channel in configured_by_pin:
-                cfg = configured_by_pin[channel]
-                # Priority: name > channel_name > id (for backwards compatibility)
-                output_data['name'] = cfg.get('name') or cfg.get('channel_name') or cfg.get('id', '')
-                # Support multiple field names: output_pins, pins, channel
-                output_data['pins'] = cfg.get('output_pins') or cfg.get('pins') or [channel]
-                output_data['enabled'] = cfg.get('enabled', True)
-                output_data['_is_default'] = False
-                output_data['_is_hidden'] = False
-            else:
-                output_data['_is_default'] = True
-                output_data['_is_hidden'] = False
+            # Support multiple field names: output_pins, pins, channel, hw_index
+            pins = out.get('output_pins') or out.get('pins') or []
+            if not pins:
+                hw_index = out.get('hw_index', out.get('channel', -1))
+                if hw_index >= 0:
+                    pins = [hw_index]
+
+            self.outputs_data.append({
+                'channel': pins[0] if pins else 0,
+                'name': name,
+                'enabled': out.get('enabled', True),
+                'pins': pins,
+                'channel_id': out.get('channel_id', 0),
+                '_is_default': False,
+            })
 
         self._populate_table()
 
@@ -262,25 +226,20 @@ class OutputMonitor(QWidget):
                 item.setText("0")
 
     def _populate_table(self):
-        """Populate table with outputs (hidden secondary pins are skipped)."""
-        # Filter out hidden outputs
-        visible_outputs = [(i, out) for i, out in enumerate(self.outputs_data)
-                          if not out.get('_is_hidden', False)]
-
-        self.table.setRowCount(len(visible_outputs))
+        """Populate table with user-created outputs only."""
+        self.table.setRowCount(len(self.outputs_data))
 
         # Store mapping from table row to original index
         self._row_to_index = {}
 
-        for row, (orig_idx, output) in enumerate(visible_outputs):
-            self._row_to_index[row] = orig_idx
-            is_default = output.get('_is_default', True)
+        for row, output in enumerate(self.outputs_data):
+            self._row_to_index[row] = row
 
             # Get pins - can be single pin or multiple pins
             pins = output.get('pins', [])
             if not pins:
                 # Fallback to legacy 'channel' field
-                channel = output.get('channel', orig_idx)
+                channel = output.get('channel', row)
                 pins = [channel]
 
             # Pin (O1, O2, etc. or O1, O2, O3 for multiple)
@@ -289,9 +248,9 @@ class OutputMonitor(QWidget):
             pin_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_PIN, pin_item)
 
-            # Name - only show if configured (not default)
+            # Name - always shown for user-created channels
             name = output.get('name', '')
-            name_item = QTableWidgetItem(name if name else "")
+            name_item = QTableWidgetItem(name)
             self.table.setItem(row, self.COL_NAME, name_item)
 
             # Status
@@ -329,16 +288,8 @@ class OutputMonitor(QWidget):
             trip_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, self.COL_TRIP, trip_item)
 
-            # Set initial styling based on configured/default
-            if is_default:
-                self._set_row_color(row, self.COLOR_DISABLED)
-                # Gray text for unconfigured outputs
-                for col in range(9):
-                    item = self.table.item(row, col)
-                    if item:
-                        item.setForeground(Qt.GlobalColor.gray)
-            else:
-                self._set_row_color(row, self.COLOR_NORMAL)
+            # All rows are user-created, set normal styling
+            self._set_row_color(row, self.COLOR_NORMAL)
 
     def _set_row_color(self, row: int, color: QColor):
         """Set background color for entire row."""

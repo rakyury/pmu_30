@@ -309,6 +309,24 @@ uint16_t PMU_Protocol_CRC16(const uint8_t* data, uint16_t length);
  */
 bool PMU_Protocol_LoadSavedConfig(void);
 
+#ifdef NUCLEO_F446RE
+/**
+ * @brief Process any pending RX bytes buffered during TX
+ * Call this after TX completes to handle bytes received during transmission.
+ */
+void PMU_Protocol_ProcessPendingRx(void);
+
+/**
+ * @brief Check if TX is in progress (for main loop synchronization)
+ * @retval true if TX is in progress, false otherwise
+ *
+ * Main loop should NOT read RX directly while TX is in progress.
+ * During TX, incoming bytes are buffered internally and processed
+ * by PMU_Protocol_ProcessPendingRx() after TX completes.
+ */
+bool PMU_Protocol_IsTxInProgress(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

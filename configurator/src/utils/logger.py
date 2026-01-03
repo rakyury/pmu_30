@@ -12,7 +12,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 
-def setup_logger(log_level=logging.INFO, max_size_mb: int = 10, backup_count: int = 5):
+def setup_logger(log_level=logging.DEBUG, max_size_mb: int = 10, backup_count: int = 5):
     """
     Setup application logger with rotating file handler.
 

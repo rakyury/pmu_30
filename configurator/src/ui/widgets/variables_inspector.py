@@ -214,6 +214,8 @@ class VariablesInspector(QWidget):
         self._channels.clear()
         self._channel_id_map.clear()
 
+        logger.info(f"[DEBUG] set_channels called with {len(channels)} channels")
+
         for ch in channels:
             ch_id = ch.get('id', '')
             if not ch_id:
@@ -557,13 +559,18 @@ class VariablesInspector(QWidget):
             'table_2d', 'table_3d', 'pid'
         }
 
+        logger.info(f"[DEBUG] populate_from_config called")
+
         try:
             all_channels = config_manager.get_all_channels()
+            logger.info(f"[DEBUG] config_manager returned {len(all_channels)} channels")
             for ch in all_channels:
                 ch_type = ch.get('channel_type', '')
                 ch_id = ch.get('id', '')
                 # Use actual channel_id from config (matches firmware telemetry)
                 runtime_id = ch.get('channel_id')
+
+                logger.info(f"[DEBUG]   Config channel: type={ch_type}, id={ch_id}, channel_id={runtime_id}")
 
                 if runtime_id is None:
                     continue  # Skip channels without proper ID assignment
@@ -579,7 +586,8 @@ class VariablesInspector(QWidget):
                         'channel_type': ch_type,
                         'channel_id': runtime_id  # Use actual ID from config
                     })
-        except Exception:
-            pass
+                    logger.info(f"[DEBUG]     -> Added to list: {ch_id} with runtime_id={runtime_id}")
+        except Exception as e:
+            logger.error(f"[DEBUG] populate_from_config error: {e}")
 
         self.set_channels(channels)

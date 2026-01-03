@@ -59,11 +59,20 @@ static uint32_t stream_counter = 0;
 static uint32_t stream_period_ms = 0;
 static uint32_t last_stream_time = 0;
 
-/* RX buffer for bytes received during TX (to prevent data loss) */
-#define RX_PENDING_BUFFER_SIZE 64
+/* RX buffer for bytes received during TX (to prevent data loss)
+ * Size increased to handle full command packets during telemetry TX
+ * A typical command frame is ~10-50 bytes, telemetry TX takes ~7ms at 115200 baud
+ */
+#define RX_PENDING_BUFFER_SIZE 256
 static uint8_t rx_pending_buffer[RX_PENDING_BUFFER_SIZE];
 static volatile uint8_t rx_pending_head = 0;
 static volatile uint8_t rx_pending_tail = 0;
+
+/* TX-in-progress flag to prevent race condition with main loop RX polling */
+static volatile bool tx_in_progress = false;
+
+/* Recursion guard for ProcessPendingRx called from within SendPacket */
+static volatile bool processing_pending_rx = false;
 
 /* Binary config buffer - reduced size for Channel Executor only */
 #define CONFIG_BUFFER_SIZE 2048
@@ -766,14 +775,39 @@ static inline void Protocol_CheckRxDuringTx(void)
 
 /**
  * @brief Process any pending RX bytes buffered during TX
+ *
+ * IMPORTANT: This function can be called from SendPacket (after TX completes)
+ * which may lead to recursion if ProcessData triggers another SendPacket.
+ * We use a recursion guard to prevent infinite loops.
  */
 void PMU_Protocol_ProcessPendingRx(void)
 {
+    /* Prevent recursion: SendPacket → ProcessPendingRx → ProcessData → SendPacket → ... */
+    if (processing_pending_rx) {
+        return;
+    }
+    processing_pending_rx = true;
+
     while (rx_pending_tail != rx_pending_head) {
         uint8_t byte = rx_pending_buffer[rx_pending_tail];
         rx_pending_tail = (rx_pending_tail + 1) % RX_PENDING_BUFFER_SIZE;
         PMU_Protocol_ProcessData(&byte, 1);
     }
+
+    processing_pending_rx = false;
+}
+
+/**
+ * @brief Check if TX is in progress (for main loop synchronization)
+ * @return true if TX is in progress, false otherwise
+ *
+ * Main loop should NOT read RX while TX is in progress to avoid
+ * race condition with rx_pending_buffer. During TX, incoming bytes
+ * are buffered by Protocol_CheckRxDuringTx() and processed after TX.
+ */
+bool PMU_Protocol_IsTxInProgress(void)
+{
+    return tx_in_progress;
 }
 #endif
 
@@ -785,6 +819,10 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
     if (!packet) {
         return;
     }
+
+    /* Set TX-in-progress flag to prevent main loop from reading RX
+     * during TX - this avoids race condition with rx_pending_buffer */
+    tx_in_progress = true;
 
 #ifndef UNIT_TEST
     /* Frame format v2: [0xAA][Length:2B LE][SeqID:2B LE][MsgID:1B][Payload][CRC16:2B LE]
@@ -873,6 +911,18 @@ static void Protocol_SendPacket(const PMU_Protocol_Packet_t* packet)
 #else
     (void)packet;
     protocol_stats.tx_packets++;
+#endif
+
+    /* Clear TX-in-progress flag - main loop can resume RX polling */
+    tx_in_progress = false;
+
+#ifdef NUCLEO_F446RE
+    /* CRITICAL: Process buffered RX bytes IMMEDIATELY after TX completes!
+     * If we delay until main loop's periodic ProcessPendingRx call (~1ms),
+     * main loop polling could read new bytes from RXNE before we process
+     * the pending buffer, corrupting packet order.
+     */
+    PMU_Protocol_ProcessPendingRx();
 #endif
 }
 

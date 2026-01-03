@@ -1,0 +1,12 @@
+{
+    "name": "cJSON",
+    "version": "1.7.17",
+    "description": "Ultralightweight JSON parser in ANSI C (local copy without test files)",
+    "keywords": ["json", "parser"],
+    "authors": {
+        "name": "Dave Gamble"
+    },
+    "license": "MIT",
+    "frameworks": "*",
+    "platforms": "*"
+}

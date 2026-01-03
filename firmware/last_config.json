@@ -37,27 +37,35 @@
       "debounce_ms": 50,
       "divider": 1.0,
       "enable_pullup": true,
+      "id": "di_d_2",
       "input_pin": 1,
       "invert": false,
       "multiplier": 1.0,
       "name": "d_2",
       "number_of_teeth": 58,
-      "subtype": "switch_active_low",
+      "subtype": "switch_active_high",
       "threshold_voltage": 2.5,
       "timeout_ms": 1000,
       "trigger_edge": "rising"
     },
     {
+      "button_mode": "direct",
       "channel_id": 252,
       "channel_name": "d_3",
       "channel_type": "digital_input",
       "debounce_ms": 50,
+      "divider": 1.0,
       "enable_pullup": true,
-      "enabled": true,
       "id": "di_d_3",
       "input_pin": 2,
-      "subtype": "switch_active_low",
-      "threshold_voltage": 2.5
+      "invert": false,
+      "multiplier": 1.0,
+      "name": "d_3",
+      "number_of_teeth": 58,
+      "subtype": "switch_active_high",
+      "threshold_voltage": 2.5,
+      "timeout_ms": 1000,
+      "trigger_edge": "rising"
     },
     {
       "channel_id": 253,
@@ -264,19 +272,39 @@
       "threshold_voltage": 2.5
     },
     {
+      "calibration_points": [
+        {
+          "value": 0.0,
+          "voltage": 0.0
+        },
+        {
+          "value": 0.0,
+          "voltage": 0.0
+        },
+        {
+          "value": 66.0,
+          "voltage": 5.0
+        }
+      ],
       "channel_id": 230,
       "channel_name": "a_1",
       "channel_type": "analog_input",
+      "debounce_ms": 50,
       "decimal_places": 1,
-      "enabled": false,
       "id": "ai_a_1",
       "input_pin": 0,
       "max_value": 100.0,
       "max_voltage": 5.0,
       "min_value": 0.0,
       "min_voltage": 0.0,
+      "name": "a_1",
+      "positions": 4,
       "pullup_option": "none",
-      "subtype": "linear"
+      "subtype": "switch_active_low",
+      "threshold_high": 2.5,
+      "threshold_high_time_ms": 50,
+      "threshold_low": 1.5,
+      "threshold_low_time_ms": 50
     },
     {
       "channel_id": 231,
@@ -585,19 +613,39 @@
       "channel_id": 201,
       "channel_name": "o_2",
       "channel_type": "power_output",
-      "enabled": true,
-      "id": "out_o_2",
+      "current_limit_a": 10.0,
+      "duty_channel": null,
+      "duty_fixed": 50.0,
+      "id": "o_2",
+      "inrush_current_a": 20.0,
       "inrush_time_ms": 100,
-      "max_current": 10000,
-      "output_mode": "on_off",
-      "output_pins": [
-        1
+      "name": "o_2",
+      "pins": [
+        0
       ],
+      "protection": {
+        "current_limit": 10.0,
+        "inrush_current": 20.0,
+        "inrush_time_ms": 100,
+        "retry_count": 3,
+        "retry_delay_ms": 1000,
+        "retry_forever": false
+      },
+      "pwm": {
+        "duty_function": null,
+        "duty_value": 50.0,
+        "enabled": false,
+        "frequency": 1000,
+        "soft_start_duration_ms": 10,
+        "soft_start_enabled": false
+      },
+      "pwm_enabled": false,
       "pwm_frequency_hz": 1000,
       "retry_count": 3,
       "retry_delay_ms": 1000,
+      "retry_forever": false,
       "soft_start_ms": 0,
-      "source_channel": 251
+      "source_channel": 275
     },
     {
       "channel_id": 202,
@@ -621,55 +669,118 @@
       "channel_id": 203,
       "channel_name": "o_4",
       "channel_type": "power_output",
-      "enabled": true,
-      "id": "out_o_4",
+      "current_limit_a": 10.0,
+      "duty_channel": null,
+      "duty_fixed": 50.0,
+      "id": "o_4",
+      "inrush_current_a": 20.0,
       "inrush_time_ms": 100,
-      "max_current": 10000,
-      "output_mode": "on_off",
-      "output_pins": [
-        3
+      "name": "o_4",
+      "pins": [
+        1
       ],
+      "protection": {
+        "current_limit": 10.0,
+        "inrush_current": 20.0,
+        "inrush_time_ms": 100,
+        "retry_count": 3,
+        "retry_delay_ms": 1000,
+        "retry_forever": false
+      },
+      "pwm": {
+        "duty_function": null,
+        "duty_value": 50.0,
+        "enabled": false,
+        "frequency": 1000,
+        "soft_start_duration_ms": 10,
+        "soft_start_enabled": false
+      },
+      "pwm_enabled": false,
       "pwm_frequency_hz": 1000,
       "retry_count": 3,
       "retry_delay_ms": 1000,
+      "retry_forever": false,
       "soft_start_ms": 0,
-      "source_channel": 253
+      "source_channel": 275
     },
     {
       "channel_id": 204,
       "channel_name": "o_5",
       "channel_type": "power_output",
-      "enabled": true,
-      "id": "out_o_5",
+      "current_limit_a": 10.0,
+      "duty_channel": null,
+      "duty_fixed": 50.0,
+      "id": "o_5",
+      "inrush_current_a": 20.0,
       "inrush_time_ms": 100,
-      "max_current": 10000,
-      "output_mode": "on_off",
-      "output_pins": [
-        4
+      "name": "o_5",
+      "pins": [
+        2
       ],
+      "protection": {
+        "current_limit": 10.0,
+        "inrush_current": 20.0,
+        "inrush_time_ms": 100,
+        "retry_count": 3,
+        "retry_delay_ms": 1000,
+        "retry_forever": false
+      },
+      "pwm": {
+        "duty_function": null,
+        "duty_value": 50.0,
+        "enabled": false,
+        "frequency": 1000,
+        "soft_start_duration_ms": 10,
+        "soft_start_enabled": false
+      },
+      "pwm_enabled": false,
       "pwm_frequency_hz": 1000,
       "retry_count": 3,
       "retry_delay_ms": 1000,
+      "retry_forever": false,
       "soft_start_ms": 0,
-      "source_channel": 254
+      "source_channel": 277
     },
     {
       "channel_id": 205,
       "channel_name": "o_6",
       "channel_type": "power_output",
-      "enabled": true,
-      "id": "out_o_6",
+      "current_limit_a": 10.0,
+      "duty_channel": null,
+      "duty_fixed": 50.0,
+      "id": "o_6",
+      "inrush_current_a": 20.0,
       "inrush_time_ms": 100,
-      "max_current": 10000,
-      "output_mode": "on_off",
+      "name": "o_6",
       "output_pins": [
         5
       ],
+      "pins": [
+        5
+      ],
+      "protection": {
+        "current_limit": 10.0,
+        "inrush_current": 20.0,
+        "inrush_time_ms": 100,
+        "retry_count": 3,
+        "retry_delay_ms": 1000,
+        "retry_forever": false
+      },
+      "pwm": {
+        "duty_function": null,
+        "duty_value": 50.0,
+        "enabled": false,
+        "frequency": 1000,
+        "soft_start_duration_ms": 10,
+        "soft_start_enabled": false
+      },
+      "pwm_enabled": false,
       "pwm_frequency_hz": 1000,
       "retry_count": 3,
       "retry_delay_ms": 1000,
+      "retry_forever": false,
       "soft_start_ms": 0,
-      "source_channel": 255
+      "source_channel": 275
     },
     {
       "channel_id": 206,
@@ -1160,129 +1271,183 @@
       "source_channel": ""
     },
     {
+      "channel": 250,
+      "channel_2": 251,
       "channel_id": 274,
       "channel_name": "logic_1",
       "channel_type": "logic",
-      "operation": "and",
-      "channel": 250,
-      "channel_2": 251,
-      "true_delay_s": 0.0,
+      "enabled": true,
       "false_delay_s": 0.0,
-      "enabled": true
+      "id": "l_logic_1",
+      "operation": "and",
+      "true_delay_s": 0.0
     },
     {
+      "channel": 315,
+      "channel_2": "",
       "channel_id": 275,
       "channel_name": "logic_2",
       "channel_type": "logic",
-      "operation": "or",
-      "channel": 252,
-      "channel_2": 253,
-      "true_delay_s": 0.0,
+      "constant": 0.0,
+      "default_state": "off",
+      "edge": "rising",
       "false_delay_s": 0.0,
-      "enabled": true
+      "id": "l_logic_2",
+      "lower_value": 0.0,
+      "name": "logic_2",
+      "operation": "greater",
+      "polarity": "normal",
+      "pulse_count": 1,
+      "reset_channel": "",
+      "retrigger": false,
+      "set_channel": "",
+      "threshold": 0.0,
+      "time_off_s": 0.5,
+      "time_on_s": 0.0,
+      "toggle_channel": "",
+      "true_delay_s": 0.0,
+      "upper_value": 100.0
     },
     {
+      "channel": 254,
       "channel_id": 276,
       "channel_name": "logic_3",
       "channel_type": "logic",
-      "operation": "not",
-      "channel": 254,
-      "true_delay_s": 0.0,
+      "enabled": true,
       "false_delay_s": 0.0,
-      "enabled": true
+      "id": "l_logic_3",
+      "operation": "not",
+      "true_delay_s": 0.0
     },
     {
+      "channel": 315,
+      "channel_2": "",
       "channel_id": 277,
       "channel_name": "logic_4",
       "channel_type": "logic",
-      "operation": "greater",
-      "channel": 230,
-      "constant": 2.50,
-      "true_delay_s": 0.0,
+      "constant": 1.0,
+      "default_state": "off",
+      "edge": "rising",
       "false_delay_s": 0.0,
-      "enabled": true
+      "id": "l_logic_4",
+      "lower_value": 0.0,
+      "name": "logic_4",
+      "operation": "greater",
+      "polarity": "normal",
+      "pulse_count": 1,
+      "reset_channel": "",
+      "retrigger": false,
+      "set_channel": "",
+      "threshold": 0.0,
+      "time_off_s": 0.5,
+      "time_on_s": 0.0,
+      "toggle_channel": "",
+      "true_delay_s": 0.0,
+      "upper_value": 100.0
     },
     {
+      "channel": 231,
       "channel_id": 278,
       "channel_name": "logic_5",
       "channel_type": "logic",
+      "enabled": true,
+      "id": "l_logic_5",
+      "lower_value": 1.5,
       "operation": "hysteresis",
-      "channel": 231,
       "polarity": "normal",
-      "upper_value": 3.50,
-      "lower_value": 1.50,
-      "enabled": true
+      "upper_value": 3.5
     },
     {
       "channel_id": 279,
       "channel_name": "logic_6",
       "channel_type": "logic",
-      "operation": "toggle",
-      "toggle_channel": 255,
-      "edge": "rising",
       "default_state": "off",
-      "enabled": true
+      "edge": "rising",
+      "enabled": true,
+      "id": "l_logic_6",
+      "operation": "toggle",
+      "toggle_channel": 255
     },
     {
+      "channel": 256,
       "channel_id": 280,
       "channel_name": "logic_7",
       "channel_type": "logic",
-      "operation": "pulse",
-      "channel": 256,
       "edge": "rising",
-      "time_on_s": 0.50,
+      "enabled": true,
+      "id": "l_logic_7",
+      "operation": "pulse",
       "pulse_count": 1,
       "retrigger": false,
-      "enabled": true
+      "time_on_s": 0.5
     },
     {
+      "channel": 257,
       "channel_id": 281,
       "channel_name": "logic_8",
       "channel_type": "logic",
+      "enabled": true,
+      "id": "l_logic_8",
       "operation": "flash",
-      "channel": 257,
-      "time_on_s": 0.50,
-      "time_off_s": 0.50,
-      "enabled": true
+      "time_off_s": 0.5,
+      "time_on_s": 0.5
     },
     {
       "channel_id": 282,
       "channel_name": "logic_9",
       "channel_type": "logic",
-      "operation": "set_reset_latch",
-      "set_channel": 258,
-      "reset_channel": 259,
       "default_state": "off",
-      "enabled": true
+      "enabled": true,
+      "id": "l_logic_9",
+      "operation": "set_reset_latch",
+      "reset_channel": 259,
+      "set_channel": 258
     },
     {
+      "channel": 260,
+      "channel_2": 261,
       "channel_id": 283,
       "channel_name": "logic_10",
       "channel_type": "logic",
-      "operation": "xor",
-      "channel": 260,
-      "channel_2": 261,
-      "true_delay_s": 0.0,
+      "enabled": true,
       "false_delay_s": 0.0,
-      "enabled": true
+      "id": "l_logic_10",
+      "operation": "xor",
+      "true_delay_s": 0.0
     },
     {
       "channel_id": 314,
       "channel_name": "num_1",
       "channel_type": "number",
-      "enabled": false,
+      "clamp_max": 100.0,
+      "clamp_min": 0.0,
+      "constant_value": 5.0,
+      "decimal_places": 0,
       "id": "n_num_1",
+      "input_multipliers": [],
+      "inputs": [],
+      "lookup_values": [],
+      "name": "num_1",
       "operation": "constant",
-      "value": 0.0
+      "quantity": "Energy",
+      "unit": "kWh"
     },
     {
       "channel_id": 315,
       "channel_name": "num_2",
       "channel_type": "number",
-      "enabled": false,
+      "clamp_max": 100.0,
+      "clamp_min": 0.0,
+      "constant_value": 10.0,
+      "decimal_places": 2,
       "id": "n_num_2",
+      "input_multipliers": [],
+      "inputs": [],
+      "lookup_values": [],
+      "name": "num_2",
       "operation": "constant",
-      "value": 0.0
+      "quantity": "User",
+      "unit": "user"
     },
     {
       "channel_id": 316,

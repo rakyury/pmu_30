@@ -88,8 +88,11 @@
     - CAN channel linking (e.g., Logic channel source = CAN Input)
   - **Physical bus emulation**:
     - Loopback mode simulates physical CAN transceiver
-    - Test bitrates: 500kbps, 250kbps, 125kbps
+    - Test bitrates: 1Mbps, 500kbps, 250kbps, 125kbps (support up to 1-2Mbps)
     - Error frame handling and bus-off recovery
+  - **CAN FD support** (future):
+    - STM32F446 supports CAN 2.0B (not CAN FD)
+    - For CAN FD, need STM32H7 or similar with FDCAN peripheral
   - **10 consecutive runs at 100% stability**
 
 ### Code Quality

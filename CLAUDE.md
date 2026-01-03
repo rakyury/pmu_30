@@ -4,9 +4,40 @@
 
 **Single source of truth is `docs/` folder**. For any questions about architecture, protocol, or data formats - always read the documentation in `docs/` first.
 
+**All documentation in English**. Every document, comment, and README must be written in English. No mixed languages.
+
+**Consolidate docs in `docs/` folder**. After any refactoring:
+1. Update relevant documentation
+2. Remove outdated information
+3. Move any scattered docs from other folders to `docs/`
+4. Keep docs structure clean and organized
+
 **No backwards compatibility**. We don't support legacy code, old formats, or deprecated features. Delete old code instead of keeping it around. No migration paths, no shims, no compatibility layers.
 
+**Clean code only**. No garbage code for supporting old versions. When refactoring:
+- Delete old implementations completely, don't keep them "just in case"
+- Don't add compatibility wrappers or adapters for old interfaces
+- No `# TODO: remove legacy` comments - remove it now
+- No fallback code paths for deprecated features
+- New code must be clean and focused, not wrapped around old patterns
+
 **Testing on real hardware only**. We don't use the emulator (`pmu30_emulator`) for testing. All tests run on the physical Nucleo-F446RE board connected via **COM11**.
+
+**Fresh firmware before each test session**. Before running integration tests:
+```bash
+cmd //c "set PATH=C:\\msys64\\ucrt64\\bin;%PATH% && cd c:\\Projects\\pmu_30\\firmware && python -m platformio run -e nucleo_f446re -t upload"
+```
+
+**All channel types must have integration tests**. Integration tests must cover:
+- Digital Input, Analog Input, Frequency Input, CAN Input
+- Power Output, PWM Output, H-Bridge, CAN Output
+- Timer, Logic, Math, Filter, Table 2D/3D, PID
+- Number, Switch, Enum, Counter, Hysteresis, FlipFlop
+
+**Reflash on connection loss**. If device stops responding during tests:
+1. Power cycle the Nucleo board (unplug/replug USB)
+2. Reflash firmware using the build & upload command
+3. Resume tests from the beginning
 
 **Run telemetry tests after firmware changes**. After any modification to firmware code, run the comprehensive telemetry test suite:
 ```bash
@@ -16,6 +47,15 @@ python tests/test_firmware_telemetry.py COM11
 **Delete configurator logs before debugging**. Always clear the log file before launching the configurator for debugging sessions:
 ```bash
 del "C:\Users\User\.pmu30\logs\pmu30.log"
+```
+
+**Clear pycache before running tests or configurator**. Remove cached bytecode to avoid stale module issues:
+```bash
+# Before running tests
+cd c:/Projects/pmu_30 && rm -rf __pycache__ tests/__pycache__ configurator/src/**/__pycache__
+
+# Or using find (Git Bash)
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null
 ```
 
 ## Quick Commands
@@ -178,13 +218,67 @@ virtual_channel_id += 1  # DON'T DO THIS
 
 Channel IDs are assigned by `BaseChannelDialog` using `get_next_channel_id()` and stored in config. Firmware uses these exact IDs in telemetry.
 
-### Protocol CRC
+### T-MIN Protocol (Transport MIN)
 
-CRC16-CCITT (init: 0xFFFF, poly: 0x1021) calculated over `[Length_L, Length_H, CMD, Payload]` - excludes 0xAA start byte.
+Firmware and configurator use **T-MIN (Transport MIN)** for reliable serial communication with automatic retransmission.
 
-Shared implementation: `shared/python/protocol.py` → `calc_crc16()`
+**T-MIN vs Simple MIN:**
+| Feature | Simple MIN | T-MIN |
+|---------|------------|-------|
+| CRC32 | ✓ | ✓ |
+| Byte stuffing | ✓ | ✓ |
+| Auto-retransmit | ✗ | ✓ |
+| ACK/NACK | ✗ | ✓ |
+| Sliding window | ✗ | ✓ |
+| Sequence tracking | ✗ | ✓ |
 
-**DO NOT** create custom CRC implementations in configurator - import from shared.
+**Frame Format:**
+```
+┌────────────────┬────────────┬────────┬─────────────┬───────┬─────┐
+│ 0xAA 0xAA 0xAA │ ID/Control │ Length │   Payload   │ CRC32 │ EOF │
+│    3 bytes     │   1 byte   │   1B   │   0-255B    │  4B   │ 1B  │
+└────────────────┴────────────┴────────┴─────────────┴───────┴─────┘
+```
+
+**ID/Control byte for T-MIN:**
+- Bit 7 = 1: Transport frame (with sequence number)
+- Bits 0-5: Command ID (0-63)
+- 0xFF = ACK frame
+- 0xFE = RESET frame
+
+**Key features:**
+- Triple 0xAA header (not single byte!)
+- CRC32 (big-endian), not CRC16
+- Byte stuffing: Insert 0x55 after two consecutive 0xAA in payload
+- EOF marker: 0x55
+- Automatic retransmission with exponential backoff
+- Sliding window (up to 8 frames in flight)
+
+**Firmware T-MIN Configuration** (`firmware/lib/MIN/min_config.h`):
+```c
+#define MAX_PAYLOAD 255
+#define TRANSPORT_FIFO_SIZE_FRAMES_BITS 4      // 16 frames queue
+#define TRANSPORT_FIFO_SIZE_FRAME_DATA_BITS 10 // 1KB buffer
+#define TRANSPORT_ACK_RETRANSMIT_TIMEOUT_MS 25
+#define TRANSPORT_FRAME_RETRANSMIT_TIMEOUT_MS 50
+#define TRANSPORT_MAX_WINDOW_SIZE 8
+#define TRANSPORT_IDLE_TIMEOUT_MS 3000
+```
+
+**When to use T-MIN vs Simple MIN:**
+- `queue_frame()` - T-MIN: for commands requiring ACK (config upload, save, set output)
+- `send_frame()` - Simple MIN: for high-frequency data (telemetry - no ACK needed)
+
+**Telemetry packet loss is acceptable**. Telemetry uses `min_send_frame()` without acknowledgment. Occasional lost packets are OK - next packet arrives in 100ms at 10Hz rate.
+
+**Command processing is highest priority**. When processing commands, they take priority over telemetry. Firmware must always respond to commands promptly, even during telemetry streaming.
+
+**Implementation files:**
+- `firmware/lib/MIN/` - MIN library (min.c, min.h, min_config.h)
+- `firmware/src/pmu_min_port.c` - MIN port adapter for STM32
+- `shared/python/min_protocol.py` - Python T-MIN implementation
+- `configurator/src/controllers/transport.py` - MINSerialTransport wrapper
+- `configurator/src/communication/protocol.py` - Protocol frames and parsing
 
 ### Flash Config Persistence
 
@@ -250,45 +344,64 @@ def rebind_channel_references(self):
 - `base_channel_dialog.py`: `_set_channel_edit_value()`, `_get_channel_display_name()`
 - `channel_display_service.py`: `ChannelDisplayService.get_display_name()`
 
-### Protocol Command IDs
+### MIN Protocol Command IDs
 
-Firmware uses these command IDs (NOT 0x10, 0x11, 0x20):
+MIN protocol command IDs (0-63 range). Defined in `firmware/include/pmu_min_port.h`:
 
 | Command | ID | Notes |
 |---------|-----|-------|
-| START_STREAM | 0x30 | Subscribe to telemetry |
-| STOP_STREAM | 0x31 | Unsubscribe |
-| DATA | 0x32 | Telemetry packet |
-| LOAD_BINARY_CONFIG | 0x68 | Channel config upload |
-| BINARY_CONFIG_ACK | 0x69 | Config acknowledgment |
-| ACK | 0xE0 | Generic ACK |
+| PING | 0x01 | Connection test |
+| PONG | 0x02 | PING response |
+| GET_CONFIG | 0x10 | Request config from device |
+| CONFIG_DATA | 0x11 | Config data response |
+| SAVE_CONFIG | 0x14 | Save to flash |
+| FLASH_ACK | 0x15 | Flash save acknowledgment |
+| CLEAR_CONFIG | 0x16 | Clear config |
+| CLEAR_CONFIG_ACK | 0x17 | Clear acknowledgment |
+| LOAD_BINARY | 0x18 | Upload binary config |
+| BINARY_ACK | 0x19 | Binary config acknowledgment |
+| START_STREAM | 0x20 | Subscribe to telemetry |
+| STOP_STREAM | 0x21 | Unsubscribe |
+| DATA | 0x22 | Telemetry packet |
+| SET_OUTPUT | 0x28 | Set output state |
+| OUTPUT_ACK | 0x29 | Output set acknowledgment |
+| ACK | 0x3E | Generic ACK |
+| NACK | 0x3F | Generic NACK |
 
-See `firmware/include/pmu_protocol.h` and `configurator/src/communication/protocol.py`.
+See `firmware/include/pmu_min_port.h` and `configurator/src/communication/protocol.py`.
 
 ### Quick Firmware Test Script
 
-For testing firmware telemetry directly (bypassing configurator):
+For testing firmware telemetry directly (bypassing configurator), use MIN protocol:
 
 ```python
-import serial, struct, time
+import serial, struct
+from binascii import crc32
 
-def crc16(data):
-    crc = 0xFFFF
-    for b in data:
-        crc ^= b << 8
-        for _ in range(8):
-            crc = (crc << 1) ^ 0x1021 if crc & 0x8000 else crc << 1
-        crc &= 0xFFFF
-    return crc
+def build_min_frame(cmd, payload=b''):
+    """Build MIN protocol frame."""
+    prolog = bytes([cmd, len(payload)]) + payload
+    crc = crc32(prolog, 0)
+    raw = prolog + struct.pack(">I", crc)
 
-def build_packet(cmd, payload=b''):
-    header = struct.pack('<BHB', 0xAA, len(payload), cmd)
-    crc = crc16(struct.pack('<HB', len(payload), cmd) + payload)
-    return header + payload + struct.pack('<H', crc)
+    # Byte stuffing
+    stuffed = bytearray([0xAA, 0xAA, 0xAA])
+    count = 0
+    for b in raw:
+        stuffed.append(b)
+        if b == 0xAA:
+            count += 1
+            if count == 2:
+                stuffed.append(0x55)
+                count = 0
+        else:
+            count = 0
+    stuffed.append(0x55)  # EOF
+    return bytes(stuffed)
 
 ser = serial.Serial('COM11', 115200, timeout=0.2)
-ser.write(build_packet(0x30))  # START_STREAM
-# Parse responses: cmd=0x32 is DATA, byte 78 is DIN bitmask, bytes 8-37 are output states
+ser.write(build_min_frame(0x20, struct.pack('<H', 10)))  # START_STREAM at 10Hz
+# Parse responses using MINFrameParser from tests/protocol_helpers.py
 ```
 
 ### Config Sync on Connection
@@ -441,33 +554,6 @@ EXECUTOR_TYPES = {"timer": ..., "logic": ...}  # Missing digital_input!
 - `CfgPowerOutput`: `FORMAT = "<HHHBBHBB"` (12 bytes)
 
 **Symptom**: "config loads corrupted, no Digital Inputs" → check all types are serialized.
-
-### Serial Communication Instability
-
-**KNOWN BUG**: Firmware protocol handling is timing-sensitive and unreliable. Commands may fail randomly.
-
-Key issues:
-1. **STOP_STREAM breaks subsequent commands**: After STOP_STREAM, PING/GET_CONFIG success becomes random
-2. **Commands require retries**: Any command may fail and need 3-5 retries with delays
-3. **Fresh firmware is most stable**: Tests work best immediately after `platformio run -t upload`
-4. **Sequential operations cause instability**: Running multiple tests in succession often fails
-
-```python
-# WORKAROUND - skip STOP_STREAM, use retries instead
-for attempt in range(5):
-    ser.reset_input_buffer()
-    ser.write(build_frame(CMD_GET_CONFIG))
-    time.sleep(0.5)
-    resp = ser.read(1000)
-    if resp:
-        break
-    time.sleep(1.0)  # Wait before retry
-```
-
-**TODO**: Investigate and fix protocol handler reliability in `pmu_protocol.c`. Possible causes:
-- Race condition between RX polling and TX in bare-metal loop
-- Buffer corruption during long responses (chunked GET_CONFIG)
-- State machine issues after STOP_STREAM command
 
 ### Config Reference Validation
 
