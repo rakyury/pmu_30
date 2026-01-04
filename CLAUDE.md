@@ -115,6 +115,49 @@ PMU_ChannelExec_Update() → PMU_Channel_GetValue(50) → ch->value (NOT ADC!)
 NucleoOutput_SetState(1, 1) → output_state[1] = 1, LED ON
 ```
 
+### Virtual Channel Execution - Inline vs Shared Library
+
+**CRITICAL**: Shared library functions `Exec_Logic()`, `Exec_ProcessChannel()` from `shared/channel_executor.c` **cause firmware hangs** when called from bare-metal main loop!
+
+**Root cause**: Callback chain through `ctx->get_value` has context/stack issues in bare-metal environment without RTOS.
+
+**Solution**: Use **inline evaluators** in `pmu_channel_exec.c` that call `PMU_Channel_GetValue()` directly:
+
+```c
+// CORRECT - inline evaluation works
+if (ch->runtime.type == CH_TYPE_LOGIC && ch->runtime.config != NULL) {
+    CfgLogic_t* logic = (CfgLogic_t*)ch->runtime.config;
+    if (logic->input_count > 0 && logic->inputs[0] != 0 && logic->inputs[0] != 0xFFFF) {
+        int32_t input_val = PMU_Channel_GetValue(logic->inputs[0]);
+        if (logic->operation == 0x06) {  /* IS_TRUE */
+            result = (input_val != 0) ? 1 : 0;
+        } else if (logic->operation == 0x07) {  /* IS_FALSE */
+            result = (input_val == 0) ? 1 : 0;
+        }
+    }
+}
+
+// WRONG - hangs firmware!
+Exec_Logic(&exec_ctx, ch);  // Uses callback chain, causes hang
+Exec_ProcessChannel(&exec_ctx, ch);  // Same problem
+```
+
+**Logic operation codes** (from `shared/engine/logic.h`):
+| Operation | Code | Description |
+|-----------|------|-------------|
+| IS_TRUE | 0x06 | Returns 1 if input != 0 |
+| IS_FALSE | 0x07 | Returns 1 if input == 0 (NOT) |
+| AND | 0x00 | All inputs must be true |
+| OR | 0x01 | Any input must be true |
+| GT | 0x10 | a > b |
+| LT | 0x12 | a < b |
+| EQ | 0x14 | a == b |
+
+**Files**:
+- `firmware/src/pmu_channel_exec.c` - Inline evaluators (working)
+- `shared/channel_executor.c` - Shared library (DON'T call from firmware)
+- `shared/engine/logic.h` - Logic operation definitions
+
 ### LED Control (PA5)
 
 The LED on PA5 is shared between:
