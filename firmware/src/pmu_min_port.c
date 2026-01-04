@@ -276,7 +276,15 @@ static bool Config_SaveToFlash(void)
             return false;
         }
         addr += 4;
+
+        /* Refresh watchdog every 10 words to prevent timeout during long writes */
+        if ((i & 0x0F) == 0x0F) {
+            HAL_IWDG_Refresh(&hiwdg);
+        }
     }
+
+    /* Final watchdog refresh after write complete */
+    HAL_IWDG_Refresh(&hiwdg);
 
     HAL_FLASH_Lock();
     return true;
@@ -417,9 +425,19 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
 
 static void handle_save_config(void)
 {
+    /* Refresh IWDG before save (flash operations take time) */
+    HAL_IWDG_Refresh(&hiwdg);
+
     bool success = Config_SaveToFlash();
+
+    /* Refresh IWDG after save */
+    HAL_IWDG_Refresh(&hiwdg);
+
     uint8_t ack[1] = {success ? 1 : 0};
     min_send_frame(&g_min_ctx, MIN_CMD_FLASH_ACK, ack, 1);
+
+    /* Refresh IWDG after sending ACK */
+    HAL_IWDG_Refresh(&hiwdg);
 }
 
 static void handle_clear_config(void)
@@ -468,9 +486,24 @@ static void handle_start_stream(uint8_t const *payload, uint8_t len)
 
 static void handle_stop_stream(void)
 {
+    /* Refresh IWDG before stopping stream */
+    HAL_IWDG_Refresh(&hiwdg);
+
     min_stream_active = false;
+
+    /* Ensure any in-progress TX completes before sending ACK */
+    while (min_tx_in_progress) {
+        /* Spin wait - should be very brief */
+    }
+
     uint8_t ack[1] = {MIN_CMD_STOP_STREAM};
     min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);  /* Unreliable ACK */
+
+    /* Wait for ACK TX to complete */
+    while (!(USART2->SR & USART_SR_TC)) {}
+
+    /* Refresh IWDG after sending ACK */
+    HAL_IWDG_Refresh(&hiwdg);
 }
 
 static void handle_set_output(uint8_t const *payload, uint8_t len)
@@ -781,14 +814,24 @@ struct min_context* PMU_MIN_GetContext(void)
 
 bool PMU_MIN_LoadSavedConfig(void)
 {
+    /* Refresh IWDG before flash read */
+    HAL_IWDG_Refresh(&hiwdg);
+
     /* Load config from flash */
     if (!Config_LoadFromFlash()) {
         return false;
     }
 
+    /* Refresh IWDG after flash read */
+    HAL_IWDG_Refresh(&hiwdg);
+
     /* Apply to channel executor */
     if (min_config_len > 0) {
         int result = PMU_ChannelExec_LoadConfig(min_config_buffer, min_config_len);
+
+        /* Refresh IWDG after config load */
+        HAL_IWDG_Refresh(&hiwdg);
+
         return (result >= 0);
     }
 
