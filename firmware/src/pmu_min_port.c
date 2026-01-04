@@ -679,10 +679,31 @@ static void build_telemetry_packet(uint8_t* buf, uint16_t* len)
     uint16_t ch_count = PMU_ChannelExec_GetChannelCount();
     buf[idx++] = ch_count & 0xFF;
     buf[idx++] = (ch_count >> 8) & 0xFF;
-    buf[idx++] = 0;  /* Reserved */
+    /* DEBUG: Output link count from Channel Executor */
+    extern volatile uint16_t g_dbg_link_count;
+    buf[idx++] = (uint8_t)g_dbg_link_count;
 
-    /* Status (10 bytes) */
-    for (int i = 0; i < 10; i++) buf[idx++] = 0;
+    /* Status (10 bytes) - repurposed for debug */
+    extern volatile uint8_t g_dbg_parsed_type;
+    extern volatile uint16_t g_dbg_parsed_source;
+    extern volatile uint8_t g_dbg_addlink_called;
+    extern volatile int8_t g_dbg_addlink_result;
+    extern volatile uint32_t g_dbg_load_count;
+    extern volatile uint32_t g_dbg_clear_count;
+    extern volatile int32_t g_dbg_source_value;
+    extern volatile uint8_t g_dbg_output_state;
+    extern volatile uint8_t g_dbg_getsrc_in_exec;
+    extern volatile uint8_t g_dbg_getsrc_ch_found;
+    buf[idx++] = g_dbg_parsed_type;      /* [94] Type parsed */
+    buf[idx++] = g_dbg_parsed_source & 0xFF;  /* [95] Source ID low */
+    buf[idx++] = (g_dbg_parsed_source >> 8) & 0xFF;  /* [96] Source ID high */
+    buf[idx++] = g_dbg_addlink_called;   /* [97] AddOutputLink called? */
+    buf[idx++] = (uint8_t)g_dbg_addlink_result;  /* [98] AddOutputLink result */
+    buf[idx++] = g_dbg_load_count & 0xFF;   /* [99] LoadConfig count */
+    buf[idx++] = g_dbg_clear_count & 0xFF;  /* [100] Clear count */
+    buf[idx++] = (uint8_t)(g_dbg_source_value & 0xFF);  /* [101] Source value */
+    buf[idx++] = g_dbg_output_state | (g_dbg_getsrc_in_exec << 4) | (g_dbg_getsrc_ch_found << 5);  /* [102] flags */
+    buf[idx++] = 0;  /* [103] Reserved */
 
     /* Virtual channels */
     buf[idx++] = ch_count & 0xFF;

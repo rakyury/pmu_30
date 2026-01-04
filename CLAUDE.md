@@ -127,6 +127,36 @@ The LED on PA5 is shared between:
 
 For chunked config upload, send only ONE final ACK when all chunks received, not intermediate ACKs per chunk (for single-chunk uploads this caused double-ACK issue).
 
+### Two Separate Telemetry Builders
+
+**CRITICAL**: Firmware has TWO completely separate telemetry code paths:
+
+1. **`pmu_protocol.c:PMU_Protocol_SendTelemetry()`** - Main protocol telemetry (CAN bus, full PMU-30)
+2. **`pmu_min_port.c:build_telemetry_packet()`** - MIN serial protocol telemetry (Nucleo, USB)
+
+When adding debug variables or modifying telemetry format, **BOTH files must be updated**! The MIN path is what test scripts and configurator use via USB serial.
+
+```c
+// pmu_min_port.c - MIN telemetry path
+static void build_telemetry_packet(uint8_t* buf, uint16_t* len)
+{
+    // ... completely separate implementation from pmu_protocol.c
+}
+
+// pmu_protocol.c - Main protocol path
+HAL_StatusTypeDef PMU_Protocol_SendTelemetry(void)
+{
+    // ... different implementation
+}
+```
+
+**Debug variables for Channel Executor tracing** (in `pmu_channel_exec.c`):
+- `g_dbg_link_count` - Output link count after config load
+- `g_dbg_parsed_type`, `g_dbg_parsed_source` - Config parsing trace
+- `g_dbg_addlink_called`, `g_dbg_addlink_result` - AddOutputLink result
+- `g_dbg_source_value`, `g_dbg_output_state` - Runtime execution trace
+- `g_dbg_getsrc_ch_found` - Channel registry lookup result
+
 ### Virtual Channels in Telemetry
 
 **IMPORTANT**: Virtual channels (Logic, Timer, Filter, etc.) are stored in **Channel Executor** (`exec_state.channels[]`), NOT in Channel Registry (`PMU_Channel`).

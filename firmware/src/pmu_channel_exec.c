@@ -76,6 +76,23 @@ typedef struct {
 /** Executor state */
 static PMU_ExecState_t exec_state;
 
+/* Debug variables for output link tracing */
+volatile uint16_t g_dbg_link_count = 0;       /**< Output link count after load */
+volatile uint16_t g_dbg_link_source_id = 0;   /**< First link's source_id */
+volatile uint8_t g_dbg_link_hw_index = 0;     /**< First link's hw_index */
+volatile int32_t g_dbg_source_value = -999;   /**< Last read source value */
+volatile uint8_t g_dbg_output_state = 0;      /**< Last calculated output state */
+volatile uint32_t g_dbg_link_exec_count = 0;  /**< How many times link was processed */
+volatile uint32_t g_dbg_load_count = 0;       /**< How many times LoadConfig called */
+volatile uint32_t g_dbg_clear_count = 0;      /**< How many times Clear called */
+/* Parsing debug */
+volatile uint8_t g_dbg_parsed_type = 0;       /**< Type parsed from config */
+volatile uint16_t g_dbg_parsed_source = 0;    /**< Source ID parsed from config */
+volatile uint8_t g_dbg_addlink_called = 0;    /**< Was AddOutputLink called? */
+volatile int8_t g_dbg_addlink_result = -1;    /**< Result of AddOutputLink (-1=not called) */
+volatile uint8_t g_dbg_getsrc_in_exec = 0;    /**< Was source found in executor? */
+volatile uint8_t g_dbg_getsrc_ch_found = 0;   /**< Was channel found in registry? */
+
 /** Config storage (static allocation for embedded)
  * IMPORTANT: Must be 4-byte aligned for ARM struct access.
  * Config structs contain int32_t which require 4-byte alignment. */
@@ -222,6 +239,9 @@ HAL_StatusTypeDef PMU_ChannelExec_RemoveChannel(uint16_t channel_id)
  */
 void PMU_ChannelExec_Clear(void)
 {
+    /* Debug: track how many times Clear is called */
+    g_dbg_clear_count++;
+
 #ifdef NUCLEO_F446RE
     /* Refresh watchdog */
     HAL_IWDG_Refresh(&hiwdg);
@@ -327,9 +347,18 @@ void PMU_ChannelExec_Update(void)
     HAL_IWDG_Refresh(&hiwdg);
 #endif
 
+    /* Debug: record link count */
+    g_dbg_link_count = exec_state.output_link_count;
+
     /* Process output links: read source channel -> set hardware output */
     for (uint16_t i = 0; i < exec_state.output_link_count; i++) {
         PMU_OutputLink_t* link = &exec_state.output_links[i];
+
+        /* Debug: record first link info */
+        if (i == 0) {
+            g_dbg_link_source_id = link->source_id;
+            g_dbg_link_hw_index = link->hw_index;
+        }
 
         if (!link->enabled) {
             continue;
@@ -338,8 +367,19 @@ void PMU_ChannelExec_Update(void)
         /* Read source channel value (check executor channels first, then firmware) */
         int32_t source_value = GetSourceValue(link->source_id);
 
+        /* Debug: record source value and increment exec count */
+        if (i == 0) {
+            g_dbg_source_value = source_value;
+            g_dbg_link_exec_count++;
+        }
+
         /* Convert to output state (non-zero = ON) */
         uint8_t state = (source_value != 0) ? 1 : 0;
+
+        /* Debug: record calculated state */
+        if (i == 0) {
+            g_dbg_output_state = state;
+        }
 
         /* Set hardware output via PROFET API (updates stub_channels for telemetry) */
         PMU_PROFET_SetState(link->hw_index, state);
@@ -398,6 +438,9 @@ HAL_StatusTypeDef PMU_ChannelExec_ResetChannel(uint16_t channel_id)
  */
 int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
 {
+    /* Debug: track how many times LoadConfig is called */
+    g_dbg_load_count++;
+
     if (size < 2) {
         return -1;
     }
@@ -462,12 +505,21 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
             break;
         }
 
+        /* Debug: record parsed values from first channel */
+        if (i == 0) {
+            g_dbg_parsed_type = type;
+            g_dbg_parsed_source = source_id;
+        }
+
         /* Handle based on channel type */
         if (type == CH_TYPE_POWER_OUTPUT) {
             /* Power output: create link from source_id to hw_index */
             /* source_id must be valid: not CH_REF_NONE (0xFFFF) and not 0 */
             if (source_id != 0xFFFF && source_id != 0) {
-                if (PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index) == HAL_OK) {
+                g_dbg_addlink_called = 1;
+                HAL_StatusTypeDef res = PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index);
+                g_dbg_addlink_result = (res == HAL_OK) ? 1 : 0;
+                if (res == HAL_OK) {
                     loaded++;
                 }
             }
@@ -476,14 +528,38 @@ int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size)
             if (PMU_ChannelExec_AddChannel(channel_id, type, &data[offset]) == HAL_OK) {
                 loaded++;
             }
+        } else if (type == CH_TYPE_DIGITAL_INPUT) {
+            /* Digital Input: register in firmware channel registry
+             * hw_index maps to g_digital_inputs[] which is updated by DigitalInputs_Read() */
+            PMU_Channel_t din_channel;
+            memset(&din_channel, 0, sizeof(din_channel));
+            din_channel.channel_id = channel_id;
+            din_channel.hw_class = PMU_CHANNEL_CLASS_INPUT_SWITCH;
+            din_channel.direction = PMU_CHANNEL_DIR_INPUT;
+            din_channel.format = PMU_CHANNEL_FORMAT_BOOLEAN;
+            din_channel.physical_index = hw_index;
+            din_channel.flags = PMU_CHANNEL_FLAG_ENABLED;
+            din_channel.min_value = 0;
+            din_channel.max_value = 1;
+            if (PMU_Channel_Register(&din_channel) == HAL_OK) {
+                loaded++;
+            }
         } else if (type == CH_TYPE_CAN_INPUT || type == CH_TYPE_CAN_OUTPUT) {
             /* CAN channels: count as loaded (CAN processing is stubbed on Nucleo)
              * TODO: Implement PMU_CAN_AddSignalMap() integration for real CAN hardware */
             loaded++;
         }
-        /* Skip unsupported types (digital inputs, analog inputs, etc.) */
+        /* Skip unsupported types (analog inputs, etc.) */
 
         offset += config_size;
+    }
+
+    /* Debug: capture link count immediately after loading */
+    g_dbg_link_count = exec_state.output_link_count;
+    if (exec_state.output_link_count > 0) {
+        /* Record first link's details */
+        g_dbg_link_source_id = exec_state.output_links[0].source_id;
+        g_dbg_link_hw_index = exec_state.output_links[0].hw_index;
     }
 
     return loaded;
@@ -595,11 +671,19 @@ static int32_t GetSourceValue(uint16_t channel_id)
     /* First check if this is an executor channel (virtual) */
     PMU_ExecChannel_t* ch = FindChannel(channel_id);
     if (ch) {
+        g_dbg_getsrc_in_exec = 1;
         return ch->runtime.value;
     }
+    g_dbg_getsrc_in_exec = 0;
 
     /* Not an executor channel - read from firmware channel registry */
-    return PMU_Channel_GetValue(channel_id);
+    int32_t val = PMU_Channel_GetValue(channel_id);
+
+    /* Debug: check if GetInfo would return NULL */
+    const PMU_Channel_t* info = PMU_Channel_GetInfo(channel_id);
+    g_dbg_getsrc_ch_found = (info != NULL) ? 1 : 0;
+
+    return val;
 }
 
 /************************ (C) COPYRIGHT R2 m-sport *****END OF FILE****/
