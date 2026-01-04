@@ -486,7 +486,7 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
 
     # Small delay to allow USB VCP to buffer the response
     # Without this, partial data may arrive and cause frame parsing issues
-    time.sleep(0.02)  # 20ms
+    time.sleep(0.08)  # 80ms
 
     parser = MINFrameParser()
     start = time.time()
@@ -494,7 +494,7 @@ def transact(ser: serial.Serial, cmd: int, payload: bytes = b'',
 
     # Use short read timeout for responsive polling
     old_timeout = ser.timeout
-    ser.timeout = 0.05  # 50ms read timeout
+    ser.timeout = 0.15  # 150ms read timeout
     try:
         while time.time() - start < timeout:
             chunk = ser.read(512)
@@ -674,13 +674,13 @@ def ping(ser: serial.Serial, timeout: float = 1.0) -> bool:
     ser.flush()
 
     # Small delay to allow USB VCP to buffer the response
-    time.sleep(0.02)  # 20ms
+    time.sleep(0.08)  # 80ms
 
     # Wait for PONG with short read timeouts to allow quick loop iteration
     parser = MINFrameParser()
     start = time.time()
     old_timeout = ser.timeout
-    ser.timeout = 0.05  # 50ms read timeout for responsive polling
+    ser.timeout = 0.15  # 150ms read timeout for responsive polling
     try:
         while time.time() - start < timeout:
             chunk = ser.read(256)

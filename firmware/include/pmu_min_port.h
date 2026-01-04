@@ -36,6 +36,8 @@ extern "C" {
 #define MIN_CMD_OUTPUT_ACK        0x29
 #define MIN_CMD_GET_CAPABILITIES  0x30
 #define MIN_CMD_CAPABILITIES      0x31
+#define MIN_CMD_CAN_INJECT        0x40  /* Inject CAN message for testing */
+#define MIN_CMD_CAN_INJECT_ACK    0x41
 #define MIN_CMD_ACK               0x3E
 #define MIN_CMD_NACK              0x3F
 

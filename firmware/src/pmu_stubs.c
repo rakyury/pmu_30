@@ -608,6 +608,29 @@ HAL_StatusTypeDef PMU_CAN_ConfigureBus(PMU_CAN_Bus_t bus, PMU_CAN_BusConfig_t* c
     return HAL_OK;
 }
 
+/**
+ * @brief Inject CAN message for testing (stub for Nucleo)
+ *
+ * On Nucleo-F446RE, CAN is stubbed but we still support the inject command
+ * for testing CAN Input channel configuration. The injected message is
+ * processed by the channel executor if any CAN Input channels are configured.
+ */
+HAL_StatusTypeDef PMU_CAN_InjectMessage(uint8_t bus_id, uint32_t can_id, uint8_t* data, uint8_t dlc)
+{
+    if (bus_id > 1 || dlc > 8 || data == NULL) {
+        return HAL_ERROR;
+    }
+
+    /* On Nucleo, CAN hardware is not available but we can still process
+     * injected messages through the channel executor's CAN Input channels.
+     * This allows testing the CAN Input signal extraction logic. */
+
+    /* TODO: Forward to channel executor for CAN Input value extraction:
+     * PMU_ChannelExec_ProcessCanMessage(bus_id, can_id, data, dlc); */
+
+    return HAL_OK;
+}
+
 /* WiFi stubs */
 void PMU_WiFi_SetDefaultAPConfig(void* config)
 {

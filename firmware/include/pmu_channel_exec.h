@@ -38,7 +38,7 @@ extern "C" {
 /* Exported constants --------------------------------------------------------*/
 
 /** Maximum virtual channels that can be processed */
-#define PMU_EXEC_MAX_CHANNELS       128
+#define PMU_EXEC_MAX_CHANNELS       16  /* Reduced from 128 for debugging */
 
 /* Channel types (mirrors ChannelType_t from shared library) */
 #define PMU_EXEC_TYPE_POWER_OUTPUT  0x10  /* Power output with source linking */

@@ -237,7 +237,21 @@ class CfgFrequencyInput:
 
 @dataclass
 class CfgCanInput:
-    """CAN input configuration (18 bytes)"""
+    """CAN input configuration (18 bytes).
+
+    Matches C struct CfgCanInput_t in shared/channel_config.h:
+    - can_id: uint32 (4B)
+    - bus: uint8 (1B)
+    - start_bit: uint8 (1B)
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
+    - is_signed: uint8 (1B)
+    - is_extended: uint8 (1B)
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
+    - timeout_ms: uint16 (2B)
+    """
     can_id: int = 0
     bus: int = 0
     start_bit: int = 0
@@ -250,7 +264,7 @@ class CfgCanInput:
     offset: int = 0
     timeout_ms: int = 1000
 
-    FORMAT = "<IBBBBB x hhhH"
+    FORMAT = "<IBBBBBB hhhH"
     SIZE = 18
 
     def pack(self) -> bytes:
@@ -263,6 +277,52 @@ class CfgCanInput:
 
     @classmethod
     def unpack(cls, data: bytes) -> "CfgCanInput":
+        values = struct.unpack(cls.FORMAT, data[:cls.SIZE])
+        return cls(*values)
+
+
+@dataclass
+class CfgCanOutput:
+    """CAN output configuration (18 bytes).
+
+    Matches C struct CfgCanOutput_t in shared/channel_config.h:
+    - can_id: uint32 (4B)
+    - bus: uint8 (1B)
+    - dlc: uint8 (1B)
+    - start_bit: uint8 (1B)
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
+    - is_extended: uint8 (1B)
+    - period_ms: uint16 (2B) - 0=on-change
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
+    """
+    can_id: int = 0
+    bus: int = 0
+    dlc: int = 8
+    start_bit: int = 0
+    bit_length: int = 8
+    byte_order: int = 0
+    is_extended: int = 0
+    period_ms: int = 100
+    scale_num: int = 1
+    scale_den: int = 1
+    offset: int = 0
+
+    FORMAT = "<IBBBBBB Hhhh"
+    SIZE = 18
+
+    def pack(self) -> bytes:
+        return struct.pack(
+            self.FORMAT,
+            self.can_id, self.bus, self.dlc, self.start_bit, self.bit_length,
+            self.byte_order, self.is_extended, self.period_ms,
+            self.scale_num, self.scale_den, self.offset
+        )
+
+    @classmethod
+    def unpack(cls, data: bytes) -> "CfgCanOutput":
         values = struct.unpack(cls.FORMAT, data[:cls.SIZE])
         return cls(*values)
 

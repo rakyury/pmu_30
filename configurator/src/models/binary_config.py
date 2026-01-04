@@ -1157,30 +1157,41 @@ def _serialize_frequency_input(config: Dict) -> bytes:
 def _serialize_can_input(config: Dict) -> bytes:
     """Serialize CAN input to CfgCanInput_t (18 bytes).
 
-    FORMAT = "<IBBBBB x hhhH" matches channel_config.py CfgCanInput
+    Matches C struct CfgCanInput_t in shared/channel_config.h:
+    - can_id: uint32 (4B)
+    - bus: uint8 (1B)
+    - start_bit: uint8 (1B)
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
+    - is_signed: uint8 (1B)
+    - is_extended: uint8 (1B)
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
+    - timeout_ms: uint16 (2B)
     """
     import struct
 
     can_id = int(config.get('can_id', 0))
-    is_extended = 1 if config.get('is_extended', False) else 0
     bus = int(config.get('bus', 0))
     start_bit = int(config.get('start_bit', 0))
     bit_length = int(config.get('bit_length', 8))
+    byte_order = int(config.get('byte_order', 0))
     is_signed = 1 if config.get('is_signed', False) else 0
+    is_extended = 1 if config.get('is_extended', False) else 0
     scale_num = int(config.get('scale_num', 1))
     scale_den = int(config.get('scale_den', 1))
     offset = int(config.get('offset', 0))
     timeout_ms = int(config.get('timeout_ms', 1000))
 
-    # Format: <IBBBBB x hhhH (with x as 1 byte padding)
-    return struct.pack('<IBBBBBxhhhH',
+    return struct.pack('<IBBBBBB hhhH',
         can_id,             # can_id: 4B
-        is_extended,        # is_extended: 1B
         bus,                # bus: 1B
         start_bit,          # start_bit: 1B
         bit_length,         # bit_length: 1B
+        byte_order,         # byte_order: 1B
         is_signed,          # is_signed: 1B
-        # 1 byte padding (x)
+        is_extended,        # is_extended: 1B
         scale_num,          # scale_num: 2B (signed)
         scale_den,          # scale_den: 2B (signed)
         offset,             # offset: 2B (signed)
@@ -1249,23 +1260,47 @@ def _serialize_hbridge(config: Dict) -> bytes:
 
 
 def _serialize_can_output(config: Dict) -> bytes:
-    """Serialize CAN output to CfgCanOutput_t (16 bytes)."""
+    """Serialize CAN output to CfgCanOutput_t (18 bytes).
+
+    Matches C struct CfgCanOutput_t in shared/channel_config.h:
+    - can_id: uint32 (4B)
+    - bus: uint8 (1B)
+    - dlc: uint8 (1B)
+    - start_bit: uint8 (1B)
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
+    - is_extended: uint8 (1B)
+    - period_ms: uint16 (2B) - 0=on-change
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
+    """
     import struct
 
     can_id = int(config.get('can_id', 0))
     bus = int(config.get('bus', 0))
-    is_extended = 1 if config.get('is_extended', False) else 0
     dlc = int(config.get('dlc', 8))
+    start_bit = int(config.get('start_bit', 0))
+    bit_length = int(config.get('bit_length', 8))
+    byte_order = int(config.get('byte_order', 0))
+    is_extended = 1 if config.get('is_extended', False) else 0
     period_ms = int(config.get('period_ms', 100))
+    scale_num = int(config.get('scale_num', 1))
+    scale_den = int(config.get('scale_den', 1))
+    offset = int(config.get('offset', 0))
 
-    return struct.pack('<IBBBBHBBBBBB',
+    return struct.pack('<IBBBBBB Hhhh',
         can_id,             # can_id: 4B
         bus,                # bus: 1B
-        is_extended,        # is_extended: 1B
         dlc,                # dlc: 1B
-        0,                  # reserved: 1B
+        start_bit,          # start_bit: 1B
+        bit_length,         # bit_length: 1B
+        byte_order,         # byte_order: 1B
+        is_extended,        # is_extended: 1B
         period_ms,          # period_ms: 2B
-        0, 0, 0, 0, 0, 0    # reserved: 6B
+        scale_num,          # scale_num: 2B (signed)
+        scale_den,          # scale_den: 2B (signed)
+        offset              # offset: 2B (signed)
     )
 
 

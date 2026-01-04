@@ -26,9 +26,9 @@ from protocol_helpers import (
     start_stream, stop_stream, parse_telemetry
 )
 
-# Channel types
-CH_TYPE_CAN_INPUT = 0x14
-CH_TYPE_CAN_OUTPUT = 0x15
+# Channel types (must match channel_types.h)
+CH_TYPE_CAN_INPUT = 0x04   # CAN bus receive signal
+CH_TYPE_CAN_OUTPUT = 0x13  # CAN bus transmit message
 CH_TYPE_NUMBER = 0x27
 CH_TYPE_LOGIC = 0x21
 CH_REF_NONE = 0xFFFF
@@ -48,46 +48,53 @@ def build_header(channel_id, channel_type, hw_device=0, hw_index=0,
     ) + name_bytes
 
 
-def build_can_input_config(can_id, bus=CAN_BUS_1, start_bit=0, length=8,
-                           is_signed=False, scale=1.0, offset=0.0):
-    """Build CfgCanInput_t.
+def build_can_input_config(can_id, bus=CAN_BUS_1, start_bit=0, bit_length=8,
+                           byte_order=0, is_signed=False, is_extended=False,
+                           scale_num=1, scale_den=1, offset=0, timeout_ms=1000):
+    """Build CfgCanInput_t (18 bytes).
 
-    Format:
-    - message_id: uint32 (4B)
+    Format (matches channel_config.h):
+    - can_id: uint32 (4B)
     - bus: uint8 (1B)
     - start_bit: uint8 (1B)
-    - length: uint8 (1B)
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
     - is_signed: uint8 (1B)
-    - scale: float (4B)
-    - offset: float (4B)
+    - is_extended: uint8 (1B)
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
     - timeout_ms: uint16 (2B)
-    - reserved: uint16 (2B)
-    Total: 20 bytes
+    Total: 18 bytes
     """
-    return struct.pack('<IBBBB ff HH',
-        can_id, bus, start_bit, length, 1 if is_signed else 0,
-        scale, offset, 1000, 0)
+    return struct.pack('<IBBBBBB hhh H',
+        can_id, bus, start_bit, bit_length, byte_order,
+        1 if is_signed else 0, 1 if is_extended else 0,
+        scale_num, scale_den, offset, timeout_ms)
 
 
-def build_can_output_config(can_id, bus=CAN_BUS_1, start_bit=0, length=8,
-                            is_signed=False, scale=1.0, offset=0.0):
-    """Build CfgCanOutput_t.
+def build_can_output_config(can_id, bus=CAN_BUS_1, dlc=8, start_bit=0, bit_length=8,
+                            byte_order=0, is_extended=False, period_ms=100,
+                            scale_num=1, scale_den=1, offset=0):
+    """Build CfgCanOutput_t (18 bytes).
 
-    Format:
-    - message_id: uint32 (4B)
+    Format (matches channel_config.h):
+    - can_id: uint32 (4B)
     - bus: uint8 (1B)
+    - dlc: uint8 (1B)
     - start_bit: uint8 (1B)
-    - length: uint8 (1B)
-    - is_signed: uint8 (1B)
-    - scale: float (4B)
-    - offset: float (4B)
-    - period_ms: uint16 (2B)
-    - reserved: uint16 (2B)
-    Total: 20 bytes
+    - bit_length: uint8 (1B)
+    - byte_order: uint8 (1B) - 0=little-endian, 1=big-endian
+    - is_extended: uint8 (1B)
+    - period_ms: uint16 (2B) - 0=on-change
+    - scale_num: int16 (2B)
+    - scale_den: int16 (2B)
+    - offset: int16 (2B)
+    Total: 18 bytes
     """
-    return struct.pack('<IBBBB ff HH',
-        can_id, bus, start_bit, length, 1 if is_signed else 0,
-        scale, offset, 100, 0)
+    return struct.pack('<IBBBBBB H hhh',
+        can_id, bus, dlc, start_bit, bit_length, byte_order,
+        1 if is_extended else 0, period_ms, scale_num, scale_den, offset)
 
 
 def build_number_config(value=0):
@@ -125,7 +132,7 @@ def run_tests(port):
         time.sleep(0.3)
         drain_serial(ser, 100)
 
-        can_in_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=0, length=16)
+        can_in_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=0, bit_length=16)
         can_in_hdr = build_header(100, CH_TYPE_CAN_INPUT, name="rpm", config_size=len(can_in_cfg))
 
         config1 = struct.pack('<H', 1) + can_in_hdr + can_in_cfg
@@ -173,7 +180,7 @@ def run_tests(port):
         num_cfg = build_number_config(value=1234)
         num_hdr = build_header(50, CH_TYPE_NUMBER, name="value", config_size=len(num_cfg))
 
-        can_out_cfg = build_can_output_config(0x200, CAN_BUS_1, start_bit=0, length=16)
+        can_out_cfg = build_can_output_config(0x200, CAN_BUS_1, start_bit=0, bit_length=16)
         can_out_hdr = build_header(101, CH_TYPE_CAN_OUTPUT, source_id=50,
                                    name="out", config_size=len(can_out_cfg))
 
@@ -218,16 +225,16 @@ def run_tests(port):
         drain_serial(ser, 100)
 
         # 2 CAN inputs, 1 Number, 1 CAN output
-        can_in1_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=0, length=8)
+        can_in1_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=0, bit_length=8)
         can_in1_hdr = build_header(100, CH_TYPE_CAN_INPUT, name="temp", config_size=len(can_in1_cfg))
 
-        can_in2_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=8, length=8)
+        can_in2_cfg = build_can_input_config(0x100, CAN_BUS_1, start_bit=8, bit_length=8)
         can_in2_hdr = build_header(101, CH_TYPE_CAN_INPUT, name="pres", config_size=len(can_in2_cfg))
 
         num_cfg = build_number_config(value=50)
         num_hdr = build_header(50, CH_TYPE_NUMBER, name="tgt", config_size=len(num_cfg))
 
-        can_out_cfg = build_can_output_config(0x300, CAN_BUS_1, start_bit=0, length=8)
+        can_out_cfg = build_can_output_config(0x300, CAN_BUS_1, start_bit=0, bit_length=8)
         can_out_hdr = build_header(102, CH_TYPE_CAN_OUTPUT, source_id=50,
                                    name="cmd", config_size=len(can_out_cfg))
 

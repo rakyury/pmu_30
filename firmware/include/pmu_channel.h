@@ -136,7 +136,7 @@ typedef struct {
 #define PMU_CHANNEL_ID_SYSTEM_END       1023
 
 #ifndef PMU_CHANNEL_MAX_CHANNELS
-#define PMU_CHANNEL_MAX_CHANNELS        1024    /**< Maximum channels */
+#define PMU_CHANNEL_MAX_CHANNELS        256     /**< Maximum channels (reduced for RAM) */
 #endif
 
 /* Channel flags */
@@ -145,34 +145,50 @@ typedef struct {
 #define PMU_CHANNEL_FLAG_FAULT          0x04    /**< Fault detected */
 #define PMU_CHANNEL_FLAG_OVERRIDE       0x08    /**< Manual override active */
 
-/* System channel IDs (ECUMaster compatible: pmuX.*) */
-#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000    /**< Battery voltage (pmuX.battery) */
-#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001    /**< Total current (pmuX.totalCurrent) */
-#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002    /**< MCU temperature */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003    /**< Board temperature Left (pmuX.boardTemperatureL) */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004    /**< Board temperature Right (pmuX.boardTemperatureR) */
-#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005    /**< Board temperature Max (pmuX.boardTemperatureMax) */
-#define PMU_CHANNEL_SYSTEM_UPTIME           1006    /**< System uptime (seconds) */
-#define PMU_CHANNEL_SYSTEM_STATUS           1007    /**< System status (pmuX.status) */
-#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008    /**< User error (pmuX.userError) */
-#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009    /**< 5V output voltage */
-#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010    /**< 3.3V output voltage */
-#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011    /**< Shutdown in progress flag */
-
-/* Constant channels (always return fixed value) */
-#define PMU_CHANNEL_CONST_ZERO              1012    /**< Constant 0 (zero) */
-#define PMU_CHANNEL_CONST_ONE               1013    /**< Constant 1 (one) */
-
-/* Per-output channel bases (ECUMaster compatible: pmuX.oY.*) */
-/* Use: PMU_CHANNEL_OUTPUT_STATUS_BASE + output_index (0-29) */
-#define PMU_CHANNEL_OUTPUT_STATUS_BASE      1100    /**< Output status base (oY.status) */
-#define PMU_CHANNEL_OUTPUT_CURRENT_BASE     1130    /**< Output current base (oY.current) */
-#define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     1160    /**< Output voltage base (oY.voltage) */
-#define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      1190    /**< Output active base (oY.active) */
-#define PMU_CHANNEL_OUTPUT_DUTY_BASE        1250    /**< Output duty cycle base (oY.dutyCycle) 0-1000 */
-
-/* Analog input channel base (ECUMaster compatible: pmuX.aY.*) */
-#define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     1220    /**< Analog input voltage base (aY.voltage) */
+/* System channel IDs - compact for RAM-constrained builds */
+#if defined(PMU_CHANNEL_MAX_CHANNELS) && PMU_CHANNEL_MAX_CHANNELS <= 128
+#define PMU_CHANNEL_SYSTEM_BATTERY_V        100
+#define PMU_CHANNEL_SYSTEM_TOTAL_I          101
+#define PMU_CHANNEL_SYSTEM_MCU_TEMP         102
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     103
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     104
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   105
+#define PMU_CHANNEL_SYSTEM_UPTIME           106
+#define PMU_CHANNEL_SYSTEM_STATUS           107
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       108
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        109
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       110
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   111
+#define PMU_CHANNEL_CONST_ZERO              126
+#define PMU_CHANNEL_CONST_ONE               127
+#define PMU_CHANNEL_OUTPUT_STATUS_BASE      0xFFFF
+#define PMU_CHANNEL_OUTPUT_CURRENT_BASE     0xFFFF
+#define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     0xFFFF
+#define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      0xFFFF
+#define PMU_CHANNEL_OUTPUT_DUTY_BASE        0xFFFF
+#define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     0xFFFF
+#else
+#define PMU_CHANNEL_SYSTEM_BATTERY_V        1000
+#define PMU_CHANNEL_SYSTEM_TOTAL_I          1001
+#define PMU_CHANNEL_SYSTEM_MCU_TEMP         1002
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_L     1003
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_R     1004
+#define PMU_CHANNEL_SYSTEM_BOARD_TEMP_MAX   1005
+#define PMU_CHANNEL_SYSTEM_UPTIME           1006
+#define PMU_CHANNEL_SYSTEM_STATUS           1007
+#define PMU_CHANNEL_SYSTEM_USER_ERROR       1008
+#define PMU_CHANNEL_SYSTEM_5V_OUTPUT        1009
+#define PMU_CHANNEL_SYSTEM_3V3_OUTPUT       1010
+#define PMU_CHANNEL_SYSTEM_IS_TURNING_OFF   1011
+#define PMU_CHANNEL_CONST_ZERO              1012
+#define PMU_CHANNEL_CONST_ONE               1013
+#define PMU_CHANNEL_OUTPUT_STATUS_BASE      1100
+#define PMU_CHANNEL_OUTPUT_CURRENT_BASE     1130
+#define PMU_CHANNEL_OUTPUT_VOLTAGE_BASE     1160
+#define PMU_CHANNEL_OUTPUT_ACTIVE_BASE      1190
+#define PMU_CHANNEL_OUTPUT_DUTY_BASE        1250
+#define PMU_CHANNEL_ANALOG_VOLTAGE_BASE     1220
+#endif
 
 /* Exported functions --------------------------------------------------------*/
 

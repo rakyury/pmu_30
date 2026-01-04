@@ -58,6 +58,14 @@ static uint8_t min_tx_buffer[MIN_TX_BUFFER_SIZE];
 static uint16_t min_tx_len = 0;
 static volatile bool min_tx_in_progress = false;
 
+/* Debug counters for TX blocking diagnostics */
+static volatile uint32_t tx_start_blocked_count = 0;
+static volatile uint32_t tx_start_ok_count = 0;
+static volatile uint32_t load_binary_called_count = 0;
+static volatile uint32_t app_handler_called_count = 0;
+static volatile uint8_t last_rx_cmd = 0;
+static volatile uint32_t raw_rx_bytes_count = 0;
+
 /* RX buffer for bytes received during TX - prevents byte loss
  * At 115200 baud with 200-byte TX packets (~17ms), we could receive
  * up to ~200 bytes during a single TX. 256 bytes gives margin. */
@@ -66,6 +74,14 @@ static uint8_t min_rx_buffer[MIN_RX_BUFFER_SIZE];
 static volatile uint16_t min_rx_head = 0;  /* Write position */
 static volatile uint16_t min_rx_tail = 0;  /* Read position */
 static volatile bool min_rx_processing = false;  /* Prevent recursive processing */
+
+/* Guard against recursive command handler calls.
+ * When min_tx_finished() processes buffered RX bytes, it can trigger
+ * min_application_handler() for a new command WHILE we're still inside
+ * a command handler that called min_send_frame(). This causes stack
+ * corruption and crashes. The fix is to defer RX processing until
+ * the command handler returns. */
+static volatile bool min_in_command_handler = false;
 
 /* Config buffer - copy of loaded config for GET_CONFIG */
 #define MIN_CONFIG_BUFFER_SIZE 2048
@@ -85,11 +101,14 @@ static uint32_t min_stream_counter = 0;
 void min_tx_start(uint8_t port)
 {
     (void)port;
-    /* Don't start new TX if one is in progress (prevents nested calls from
-     * command handlers triggered during TX polling) */
+    /* If TX is in progress, just count it (shouldn't happen in normal flow) */
     if (min_tx_in_progress) {
-        return;
+        tx_start_blocked_count++;
+        /* Force clear the flag and continue - better to corrupt one frame
+         * than to hang or drop frames entirely */
+        min_tx_in_progress = false;
     }
+    tx_start_ok_count++;
     min_tx_len = 0;
     min_tx_in_progress = true;
 }
@@ -140,9 +159,12 @@ void min_tx_finished(uint8_t port)
     min_tx_in_progress = false;
 
     /* Process any buffered RX bytes now that TX is complete.
-     * Guard against recursion: if a command triggers another TX,
-     * that TX's completion will try to process RX again. */
-    if (!min_rx_processing) {
+     * Guards:
+     * - min_rx_processing: prevents recursive processing
+     * - min_in_command_handler: if we're inside a command handler that
+     *   triggered this TX, defer RX processing to PMU_MIN_Update()
+     *   to avoid stack overflow from nested command handlers */
+    if (!min_rx_processing && !min_in_command_handler) {
         min_rx_processing = true;
         while (min_rx_tail != min_rx_head) {
             uint8_t byte = min_rx_buffer[min_rx_tail];
@@ -338,6 +360,8 @@ static void handle_get_config(void)
 
 static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
 {
+    load_binary_called_count++;
+
     if (len < 4) {
         uint8_t nack[2] = {MIN_CMD_LOAD_BINARY, 0x02};
         min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);  /* Unreliable NACK */
@@ -356,8 +380,15 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
         min_config_len = config_len;
     }
 
+    /* Refresh watchdog before config loading - clear/parse may take time */
+    HAL_IWDG_Refresh(&hiwdg);
+
     /* Load via channel executor */
     int result = PMU_ChannelExec_LoadConfig(config_data, config_len);
+
+    /* Refresh watchdog after config loading */
+    HAL_IWDG_Refresh(&hiwdg);
+
     /* result is the number of loaded channels (including output links) */
     uint16_t channels_loaded = (result >= 0) ? (uint16_t)result : 0;
 
@@ -367,8 +398,21 @@ static void handle_load_binary_config(uint8_t const *payload, uint8_t len)
     ack[2] = channels_loaded & 0xFF;
     ack[3] = (channels_loaded >> 8) & 0xFF;
 
+    /* Refresh watchdog before sending ACK */
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Ensure TX is ready before sending ACK */
+    while (min_tx_in_progress) {
+        /* Wait for any in-progress TX */
+    }
+
     /* Unreliable ACK - if lost, client retries and we reload config */
     min_send_frame(&g_min_ctx, MIN_CMD_BINARY_ACK, ack, 4);
+
+    /* Ensure ACK is fully transmitted before returning */
+    while (!(USART2->SR & USART_SR_TC)) {
+        /* Wait for TX complete */
+    }
 }
 
 static void handle_save_config(void)
@@ -443,6 +487,45 @@ static void handle_set_output(uint8_t const *payload, uint8_t len)
     min_send_frame(&g_min_ctx, MIN_CMD_OUTPUT_ACK, ack, 2);  /* Unreliable ACK */
 }
 
+static void handle_can_inject(uint8_t const *payload, uint8_t len)
+{
+    /* CAN Inject payload format:
+     * [0]      bus_id (0 or 1)
+     * [1-4]    can_id (32-bit little-endian)
+     * [5]      dlc (0-8)
+     * [6+]     data bytes (0-8)
+     */
+    if (len < 6) {
+        uint8_t nack[2] = {MIN_CMD_CAN_INJECT, 0x02};  /* Invalid length */
+        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);
+        return;
+    }
+
+    uint8_t bus_id = payload[0];
+    uint32_t can_id = payload[1] | (payload[2] << 8) | (payload[3] << 16) | (payload[4] << 24);
+    uint8_t dlc = payload[5];
+
+    if (dlc > 8 || len < 6 + dlc) {
+        uint8_t nack[2] = {MIN_CMD_CAN_INJECT, 0x03};  /* Invalid DLC */
+        min_send_frame(&g_min_ctx, MIN_CMD_NACK, nack, 2);
+        return;
+    }
+
+    /* Call the CAN inject function (stubbed on Nucleo, real on PMU-30) */
+    extern HAL_StatusTypeDef PMU_CAN_InjectMessage(uint8_t bus_id, uint32_t can_id, uint8_t* data, uint8_t dlc);
+
+    uint8_t data[8];
+    for (uint8_t i = 0; i < dlc; i++) {
+        data[i] = payload[6 + i];
+    }
+
+    HAL_StatusTypeDef result = PMU_CAN_InjectMessage(bus_id, can_id, data, dlc);
+
+    /* Send ACK with result */
+    uint8_t ack[1] = {result == HAL_OK ? 1 : 0};
+    min_send_frame(&g_min_ctx, MIN_CMD_CAN_INJECT_ACK, ack, 1);
+}
+
 static void handle_get_capabilities(void)
 {
     /* Device capabilities response:
@@ -479,6 +562,18 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
                              uint8_t len_payload, uint8_t port)
 {
     (void)port;
+    app_handler_called_count++;
+    last_rx_cmd = min_id;
+
+    /* Guard: if already in a command handler, defer by leaving bytes in buffer.
+     * This prevents stack overflow from recursive min_poll() calls when
+     * min_tx_finished() processes buffered RX bytes. */
+    if (min_in_command_handler) {
+        /* Already processing a command - this shouldn't happen in normal flow.
+         * Just return; the bytes are lost but we avoid a crash. */
+        return;
+    }
+    min_in_command_handler = true;
 
     switch (min_id) {
         case MIN_CMD_PING:
@@ -511,6 +606,9 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
         case MIN_CMD_GET_CAPABILITIES:
             handle_get_capabilities();
             break;
+        case MIN_CMD_CAN_INJECT:
+            handle_can_inject(min_payload, len_payload);
+            break;
         default:
             {
                 uint8_t nack[2] = {min_id, 0x01};
@@ -518,6 +616,8 @@ void min_application_handler(uint8_t min_id, uint8_t const *min_payload,
             }
             break;
     }
+
+    min_in_command_handler = false;
 }
 
 /* ============================================================================
@@ -567,7 +667,15 @@ static void build_telemetry_packet(uint8_t* buf, uint16_t* len)
     buf[idx++] = (uptime >> 8) & 0xFF;
     buf[idx++] = (uptime >> 16) & 0xFF;
     buf[idx++] = (uptime >> 24) & 0xFF;
-    for (int i = 0; i < 8; i++) buf[idx++] = 0;  /* RAM/Flash */
+    /* Debug counters in RAM/Flash fields (8 bytes total) */
+    buf[idx++] = load_binary_called_count & 0xFF;
+    buf[idx++] = last_rx_cmd;
+    buf[idx++] = (raw_rx_bytes_count >> 8) & 0xFF;
+    buf[idx++] = raw_rx_bytes_count & 0xFF;
+    buf[idx++] = g_min_ctx.rx_frame_state;  /* MIN parser state */
+    buf[idx++] = g_min_ctx.rx_header_bytes_seen;
+    buf[idx++] = g_min_ctx.rx_frame_payload_bytes;
+    buf[idx++] = g_min_ctx.rx_frame_length;
     uint16_t ch_count = PMU_ChannelExec_GetChannelCount();
     buf[idx++] = ch_count & 0xFF;
     buf[idx++] = (ch_count >> 8) & 0xFF;
@@ -610,11 +718,25 @@ void PMU_MIN_Init(void)
 
 void PMU_MIN_ProcessByte(uint8_t byte)
 {
+    raw_rx_bytes_count++;
     min_poll(&g_min_ctx, &byte, 1);
 }
 
 void PMU_MIN_Update(void)
 {
+    /* Process any deferred RX bytes from min_tx_finished().
+     * These bytes were buffered during TX but couldn't be processed
+     * because we were inside a command handler. */
+    if (!min_rx_processing && !min_in_command_handler) {
+        while (min_rx_tail != min_rx_head) {
+            min_rx_processing = true;
+            uint8_t byte = min_rx_buffer[min_rx_tail];
+            min_rx_tail = (min_rx_tail + 1) % MIN_RX_BUFFER_SIZE;
+            min_poll(&g_min_ctx, &byte, 1);
+            min_rx_processing = false;
+        }
+    }
+
     /* Handle retransmits */
     min_poll(&g_min_ctx, NULL, 0);
 
@@ -643,6 +765,13 @@ bool PMU_MIN_IsStreamActive(void)
 bool PMU_MIN_IsTxInProgress(void)
 {
     return min_tx_in_progress;
+}
+
+void PMU_MIN_GetDebugCounters(uint32_t* blocked, uint32_t* ok, uint32_t* load_binary)
+{
+    if (blocked) *blocked = tx_start_blocked_count;
+    if (ok) *ok = tx_start_ok_count;
+    if (load_binary) *load_binary = load_binary_called_count;
 }
 
 struct min_context* PMU_MIN_GetContext(void)

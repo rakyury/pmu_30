@@ -62,6 +62,10 @@ class MessageType(IntEnum):
     GET_CAPABILITIES = 0x30   # Request device capabilities
     CAPABILITIES = 0x31       # Device capabilities response
 
+    # CAN testing (for loopback tests)
+    CAN_INJECT = 0x40         # Inject CAN message for testing
+    CAN_INJECT_ACK = 0x41     # CAN inject acknowledgment
+
     # Logging and diagnostics (future)
     LOG_MESSAGE = 0x32        # Log message from device (future)
     RESTART_DEVICE = 0x33     # Restart device command (future)
