@@ -158,6 +158,61 @@ Exec_ProcessChannel(&exec_ctx, ch);  // Same problem
 - `shared/channel_executor.c` - Shared library (DON'T call from firmware)
 - `shared/engine/logic.h` - Logic operation definitions
 
+### IWDG Watchdog and Long Operations
+
+**CRITICAL**: STM32 IWDG watchdog is configured with ~2 second timeout. Any operation taking longer than 2 seconds without `HAL_IWDG_Refresh()` will cause MCU reset!
+
+**Flash operations require IWDG refresh**:
+```c
+// Config_SaveToFlash() - add refresh every 16 words during write
+for (uint32_t i = 0; i < words; i++) {
+    HAL_FLASH_Program(...);
+    if ((i & 0x0F) == 0x0F) {
+        HAL_IWDG_Refresh(&hiwdg);  // Every 16 words
+    }
+}
+HAL_IWDG_Refresh(&hiwdg);  // After write complete
+
+// handle_save_config() - refresh before/after flash operation
+HAL_IWDG_Refresh(&hiwdg);
+Config_SaveToFlash();
+HAL_IWDG_Refresh(&hiwdg);
+
+// handle_clear_config() - same pattern (128KB sector erase = 1-2 seconds!)
+HAL_IWDG_Refresh(&hiwdg);
+HAL_FLASHEx_Erase(...);
+HAL_IWDG_Refresh(&hiwdg);
+```
+
+**Symptom**: "firmware hangs after flash save" → add IWDG refresh during long operations.
+
+### STOP_STREAM TX Completion
+
+**CRITICAL**: `handle_stop_stream()` must wait for TX completion before returning, otherwise subsequent commands may fail due to TX/RX race condition.
+
+```c
+static void handle_stop_stream(void)
+{
+    HAL_IWDG_Refresh(&hiwdg);
+    min_stream_active = false;
+
+    // Wait for any in-progress telemetry TX to complete
+    while (min_tx_in_progress) {}
+
+    uint8_t ack[1] = {MIN_CMD_STOP_STREAM};
+    min_send_frame(&g_min_ctx, MIN_CMD_ACK, ack, 1);
+
+    // Wait for ACK TX to complete
+    while (!(USART2->SR & USART_SR_TC)) {}
+
+    HAL_IWDG_Refresh(&hiwdg);
+}
+```
+
+**Symptom**: "firmware unresponsive after STOP_STREAM" → ensure TX completion wait.
+
+**Key file**: `firmware/src/pmu_min_port.c` lines 487-507
+
 ### LED Control (PA5)
 
 The LED on PA5 is shared between:
