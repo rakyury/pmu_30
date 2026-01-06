@@ -213,6 +213,39 @@ static void handle_stop_stream(void)
 
 **Key file**: `firmware/src/pmu_min_port.c` lines 487-507
 
+### ST-LINK VCP Timing and Startup Debugging
+
+**CRITICAL**: The ST-LINK Virtual COM Port (VCP) needs ~500ms-1s to stabilize after connection. Early UART output sent before host opens port will be **lost**.
+
+**Startup markers**: The firmware sends progress markers A-P during initialization:
+- A: main() reached
+- B: HAL_Init done
+- C: SystemClock_Config done
+- D-H: Peripheral init (GPIO, USART, ADC, TIM, IWDG)
+- I-L: PMU core modules (Config, CAN, ADC, Protection, Channel, PROFET)
+- M-N: PMU logic modules (Logic, ChannelExec, LED, Logging)
+- O-P: SerialTransfer init and config load
+
+**Symptom**: "firmware appears unresponsive, no UART output" → markers were sent before VCP stabilized. Add delay before reading or check for telemetry stream.
+
+**Telemetry stream interference**: If firmware has saved config with telemetry enabled, it will auto-start streaming DATA packets (0x22). PING commands may get lost in stream.
+
+**Solution**: Always stop telemetry stream before sending commands:
+```python
+pmu = PMUSerialTransfer('COM11')
+pmu.connect()
+pmu.stop_stream()  # Stop any auto-started telemetry
+result = pmu.ping()  # Now PING will work
+```
+
+**Debugging firmware startup**:
+1. If no output at all → check if `minimal_test` environment works (proves hardware OK)
+2. If `minimal_test` works but `nucleo_f446re` doesn't → issue is in PMU module init
+3. Use incremental approach: disable modules one by one to find culprit
+4. Add test loops between init steps to isolate hanging module
+
+**Key file**: `firmware/src/main_nucleo_f446.c` - startup markers at lines 175-258
+
 ### LED Control (PA5)
 
 The LED on PA5 is shared between:

@@ -30,6 +30,8 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_hal.h"
+
+/* Re-enable FreeRTOS stubs - test if this is the culprit */
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -38,7 +40,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* PMU modules */
+/* PMU modules - TEST: Enable includes only, not function calls */
 #include "pmu_config.h"
 #include "pmu_can.h"
 #include "pmu_adc.h"
@@ -46,29 +48,15 @@
 #include "pmu_logic.h"
 #include "pmu_logging.h"
 #include "pmu_protocol.h"
-/* pmu_config_json.h removed - binary config only */
 #include "pmu_channel.h"
-// #include "pmu_logic_functions.h"  // DEPRECATED: replaced by channel_executor
 #include "pmu_can_stream.h"
 #include "pmu_channel_exec.h"
 #include "pmu_led.h"
-#include "pmu_min_port.h"  /* MIN Protocol - reliable framing with CRC32 */
-
-#ifndef PMU_DISABLE_LUA
-#include "pmu_lua.h"
-#endif
+#include "pmu_serial_transfer_port.h"
+// No LUA for now
 
 /* Private define ------------------------------------------------------------*/
-#define TASK_CONTROL_PRIORITY       (configMAX_PRIORITIES - 1)
-#define TASK_PROTECTION_PRIORITY    (configMAX_PRIORITIES - 2)
-#define TASK_CAN_PRIORITY           (configMAX_PRIORITIES - 3)
-#define TASK_DEBUG_PRIORITY         (tskIDLE_PRIORITY + 2)
-
-/* Reduced stack sizes for F446RE (128KB RAM) */
-#define TASK_CONTROL_STACK_SIZE     (128)
-#define TASK_PROTECTION_STACK_SIZE  (96)
-#define TASK_CAN_STACK_SIZE         (128)
-#define TASK_DEBUG_STACK_SIZE       (128)
+/* (FreeRTOS defines disabled for minimal test) */
 
 /* Pin definitions */
 #define USER_LED_PIN        GPIO_PIN_5
@@ -76,12 +64,9 @@
 #define USER_BTN_PIN        GPIO_PIN_13
 #define USER_BTN_PORT       GPIOC
 
-/* Private variables ---------------------------------------------------------*/
-static TaskHandle_t xControlTaskHandle = NULL;
-static TaskHandle_t xProtectionTaskHandle = NULL;
-static TaskHandle_t xCANTaskHandle = NULL;
-static TaskHandle_t xDebugTaskHandle = NULL;
+/* Minimal set of globals needed for minimal test */
 
+/* Private variables ---------------------------------------------------------*/
 /* Peripheral handles */
 UART_HandleTypeDef huart2;
 CAN_HandleTypeDef hcan1;
@@ -100,103 +85,128 @@ static volatile uint32_t g_logic_exec_count = 0;
 /* Software tick counter for bare-metal mode (SysTick disabled) */
 static volatile uint32_t g_soft_tick_ms = 0;
 
-/**
- * @brief Override weak HAL_GetTick to use software counter
- * SysTick is disabled on Nucleo bare-metal, so we provide our own tick source.
- * This is incremented every ~1ms in the main loop.
- */
+/* Digital inputs storage */
+uint8_t g_digital_inputs[8] = {0};
+
+/* PWM output state */
+static uint16_t output_duty[6] = {0};
+static uint8_t output_state[6] = {0};
+
+/* HAL_GetTick override */
 uint32_t HAL_GetTick(void)
 {
+    static uint32_t call_count = 0;
+    if (g_soft_tick_ms == 0) {
+        call_count++;
+        if ((call_count & 0x1FF) == 0) {
+            return call_count >> 9;
+        }
+    }
     return g_soft_tick_ms;
 }
 
-/* Getter for telemetry debug */
-uint32_t Debug_GetLogicExecCount(void) {
-    return g_logic_exec_count;
-}
-
-/* Private function prototypes -----------------------------------------------*/
+/* Private function prototypes */
 static void SystemClock_Config(void);
 static void GPIO_Init(void);
 static void USART2_Init(void);
-static void CAN1_Init(void);
 static void ADC1_Init(void);
 static void TIM_PWM_Init(void);
 static void IWDG_Init(void);
-
-static void vControlTask(void *pvParameters);
-static void vProtectionTask(void *pvParameters);
-static void vCANTask(void *pvParameters);
-static void vDebugTask(void *pvParameters);
-
-static void Debug_Print(const char* msg);
-static void Debug_PrintStatus(void);
-static void Debug_PrintChannelStates(void);
-static void LED_Toggle(void);
-static void LED_Set(uint8_t state);
 static void DigitalInputs_Read(void);
-uint8_t DigitalInput_Get(uint8_t channel);
+static void Debug_PrintChannelStates(void);
+static void Debug_PrintStatus(void);
 
-/* Digital inputs storage (non-static for MIN protocol telemetry access) */
-uint8_t g_digital_inputs[8] = {0};
-
-/* PWM output state (used by LED indicator and NucleoOutput functions) */
-static uint16_t output_duty[6] = {0};  /* 0-1000 = 0-100% */
-static uint8_t output_state[6] = {0};  /* 0=OFF, 1=ON */
+/* PMU_PROFET_Init is defined in pmu_stubs.c */
+extern void PMU_PROFET_Init(void);
 
 /* Main function -------------------------------------------------------------*/
 
 int main(void)
 {
-    /* Disable SysTick and interrupts */
+    /*======== ULTRA-MINIMAL WITH HAL TEST ========*/
+    /* Disable all interrupts */
     __disable_irq();
     SysTick->CTRL = 0;
+    SysTick->VAL = 0;
 
-    /* Bare-metal LED setup */
+    /* Enable GPIOA clock */
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    for (volatile int i = 0; i < 1000; i++);
-    GPIOA->MODER &= ~(3 << (5 * 2));
-    GPIOA->MODER |= (1 << (5 * 2));
-    GPIOA->ODR &= ~(1 << 5);  /* LED off at start */
+    for (volatile int i = 0; i < 10000; i++);
 
-    /* HAL_Init */
+    /* PA5 = Output (LED) */
+    GPIOA->MODER &= ~(3UL << (5 * 2));
+    GPIOA->MODER |= (1UL << (5 * 2));
+
+    /* LED ON - immediate visual feedback */
+    GPIOA->BSRR = (1 << 5);
+
+    /* Enable USART2 clock */
+    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
+    for (volatile int i = 0; i < 10000; i++);
+
+    /* PA2 = AF7 (USART2 TX) */
+    GPIOA->MODER &= ~(3UL << (2 * 2));
+    GPIOA->MODER |= (2UL << (2 * 2));
+    GPIOA->AFR[0] &= ~(0xFUL << (2 * 4));
+    GPIOA->AFR[0] |= (7UL << (2 * 4));
+
+    /* USART2: 115200 baud @ 16MHz HSI */
+    USART2->CR1 = 0;
+    USART2->BRR = 139;
+    USART2->CR1 = USART_CR1_UE | USART_CR1_TE;
+    for (volatile int i = 0; i < 1000; i++);
+
+    /* Send 'A' to confirm main() reached */
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'A';
+
+    /* LED OFF after UART setup */
+    GPIOA->BSRR = (1 << (5 + 16));
+
+    /* Test: Call HAL_Init */
     HAL_Init();
     SysTick->CTRL = 0;
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'B';
 
     /* SystemClock_Config */
     SystemClock_Config();
     SysTick->CTRL = 0;
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'C';
 
     /* Peripheral initialization */
     GPIO_Init();
-    USART2_Init();
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'D';
 
-    /* Early debug - verify UART is working */
-    {
-        const char* debug_msg = "DBG:UART-OK\r\n";
-        while (*debug_msg) {
-            while (!(USART2->SR & USART_SR_TXE));
-            USART2->DR = *debug_msg++;
-        }
-        while (!(USART2->SR & USART_SR_TC));
-        GPIOA->ODR |= (1 << 5);  /* LED ON = UART init passed */
-    }
+    USART2_Init();
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'E';
 
     ADC1_Init();
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'F';
+
     TIM_PWM_Init();
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'G';
 
-    /* IWDG (Independent Watchdog) - 2 second timeout, auto-reset on hang */
+    /* IWDG (Independent Watchdog) - 2 second timeout */
     IWDG_Init();
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'H';
 
-    /* PMU modules initialization */
+    /* PMU Module initialization with progress markers */
     PMU_Config_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'I';
+
     PMU_CAN_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'J';
+
     PMU_ADC_Init();
     PMU_Protection_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'K';
 
-    /* Channel system */
     PMU_Channel_Init();
-    PMU_PROFET_Init(); /* Output stubs */
+    PMU_PROFET_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'L';
 
     /* Register digital input channels (channel_id 50-57) */
     for (uint8_t i = 0; i < 8; i++) {
@@ -210,44 +220,134 @@ int main(void)
         din_channel.flags = PMU_CHANNEL_FLAG_ENABLED;
         PMU_Channel_Register(&din_channel);
     }
-
-    /* Logic engine (virtual channel storage only) */
-    PMU_Logic_Init();
-
-    /* Channel Executor (shared library integration - replaces PMU_LogicFunctions) */
-    PMU_ChannelExec_Init();
-
-    /* Status LED (visual feedback) */
-    PMU_LED_Init();
-
-    /* Logging */
-    PMU_Logging_Init();
-    /* PMU_JSON_Init removed - binary config only */
-
-    /* MIN Protocol - reliable framing with CRC32, auto-retransmit */
-    PMU_MIN_Init();
-
-    /* Refresh IWDG before loading config (many init functions above) */
     HAL_IWDG_Refresh(&hiwdg);
 
-    /* Load saved config from flash (if any) - after MIN init */
-    if (PMU_MIN_LoadSavedConfig()) {
+    PMU_Logic_Init();
+    PMU_ChannelExec_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'M';
+
+    PMU_LED_Init();
+    PMU_Logging_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'N';
+
+    PMU_ST_Init();
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'O';
+
+    if (PMU_ST_LoadSavedConfig()) {
+        /* Config loaded successfully */
+    }
+    HAL_IWDG_Refresh(&hiwdg);
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'P';
+
+    /* Enable interrupts */
+    __enable_irq();
+    SysTick->CTRL = 0;
+
+    /* VCP stabilization delay with IWDG refresh */
+    for (volatile uint32_t i = 0; i < 2000000; i++) {
+        if ((i & 0x3FFFF) == 0) HAL_IWDG_Refresh(&hiwdg);
+    }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Send READY message */
+    {
+        const char* msg = "\r\nREADY\r\n";
+        while (*msg) {
+            while (!(USART2->SR & USART_SR_TXE));
+            USART2->DR = *msg++;
+        }
+        while (!(USART2->SR & USART_SR_TC));
+    }
+
+    /* Signal successful startup */
+    PMU_LED_SignalStartupOK();
+
+    /* Main loop */
+    while (1) {
+        /* Poll UART RX */
+        if (USART2->SR & USART_SR_RXNE) {
+            uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
+            PMU_ST_ProcessByte(rx_byte);
+        }
+
+        static uint32_t loop_count = 0;
+        static uint32_t input_count = 0;
+        loop_count++;
+
+        /* 1kHz tasks */
+        if (++input_count >= 200) {
+            input_count = 0;
+            g_soft_tick_ms++;
+            DigitalInputs_Read();
+            PMU_ADC_Update();
+            PMU_ChannelExec_Update();
+
+            if (output_state[1]) {
+                GPIOA->ODR |= (1 << 5);
+            } else {
+                GPIOA->ODR &= ~(1 << 5);
+                PMU_LED_Update();
+            }
+            g_logic_exec_count++;
+        }
+
+        /* Protocol update and IWDG refresh */
+        if ((loop_count % 200) == 0) {
+            PMU_ST_Update();
+            HAL_IWDG_Refresh(&hiwdg);
+        }
+
+    }
+}
+
+/* Static function implementations follow below */
+
+/* Dead code below - task implementations for later restoration */
+#if 0
+    /* unused */
+    while (!(USART2->SR & USART_SR_TXE));
+    USART2->DR = 'M';
+
+    /* Load saved config from flash (if any) - after ST init */
+    if (PMU_ST_LoadSavedConfig()) {
         /* Config loaded successfully - channels are ready */
     }
+    HAL_IWDG_Refresh(&hiwdg);
+
+    /* Send 'N' */
+    while (!(USART2->SR & USART_SR_TXE));
+    USART2->DR = 'N';
 
     /* Enable interrupts but keep SysTick disabled */
     __enable_irq();
     SysTick->CTRL = 0;
 
+    /* Send 'O' (interrupts enabled) */
+    while (!(USART2->SR & USART_SR_TXE));
+    USART2->DR = 'O';
+
     /* Delay for ST-Link VCP to stabilize (~500ms)
      * The USB CDC-ACM interface needs time to enumerate before data can be received.
      * Without this delay, early UART transmissions may be lost.
+     * Refresh IWDG during delay to prevent reset.
      */
-    for (volatile uint32_t i = 0; i < 2000000; i++);
+    for (volatile uint32_t i = 0; i < 2000000; i++) {
+        if ((i & 0x3FFFF) == 0) {  /* Every ~250K iterations (~60ms) */
+            HAL_IWDG_Refresh(&hiwdg);
+        }
+    }
+    HAL_IWDG_Refresh(&hiwdg);
 
-    /* Send "PMU30-MIN-READY" to verify UART TX works and indicate MIN mode */
+    /* Send 'P' (after VCP delay) */
+    while (!(USART2->SR & USART_SR_TXE));
+    USART2->DR = 'P';
+
+    /* Send newline and "READY" message */
     {
-        const char* msg = "PMU30-MIN-READY\r\n";
+        const char* msg = "\r\nREADY\r\n";
         while (*msg) {
             while (!(USART2->SR & USART_SR_TXE));
             USART2->DR = *msg++;
@@ -270,7 +370,7 @@ int main(void)
         if (USART2->SR & USART_SR_RXNE) {
             uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
             /* Pass to MIN protocol handler */
-            PMU_MIN_ProcessByte(rx_byte);
+            PMU_ST_ProcessByte(rx_byte);
         }
 
         /* Counter-based timing since SysTick is disabled
@@ -306,14 +406,18 @@ int main(void)
         /* MIN protocol update at ~1kHz (every 200 loops = ~1ms)
          * Handles retransmits, ACK timeouts, and telemetry streaming */
         if ((loop_count % 200) == 0) {
-            PMU_MIN_Update();
+            PMU_ST_Update();
 
             /* Refresh IWDG watchdog (must be called within 2 seconds)
              * If main loop hangs, MCU will automatically reset */
             HAL_IWDG_Refresh(&hiwdg);
         }
     }
-}
+} /* end of old main() */
+#endif /* disabled PMU init code */
+
+/* All functions below are disabled for debugging - they use FreeRTOS and PMU modules */
+#if 0
 
 /* Task implementations ------------------------------------------------------*/
 
@@ -406,6 +510,7 @@ static void vDebugTask(void *pvParameters)
         Debug_PrintStatus();
     }
 }
+#endif /* disabled FreeRTOS tasks */
 
 /* Debug output functions ----------------------------------------------------*/
 
@@ -939,7 +1044,8 @@ void HardFault_Handler(void)
     }
 }
 
-/* UART interrupt handlers ---------------------------------------------------*/
+/* UART interrupt handlers - disabled for bare-metal polling mode */
+#if 0
 
 /**
  * @brief USART2 IRQ handler
@@ -993,5 +1099,7 @@ void Protocol_StartUartReception(void)
         }
     }
 }
+
+#endif /* disabled functions for debugging */
 
 #endif /* NUCLEO_F446RE */
