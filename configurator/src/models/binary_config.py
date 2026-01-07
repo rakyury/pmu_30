@@ -682,6 +682,7 @@ class BinaryConfigManager:
         elif ch_type_str == "power_output":
             hw_device = 0x05  # PROFET
             hw_index = pins[0] if pins else 0
+            logger.info(f"[POWER_OUTPUT DEBUG] ch_id={channel_id}, source_ref={source_ref}, source_id={source_id}, pins={pins}, hw_index={hw_index}")
         elif ch_type_str == "pwm_output":
             hw_device = 0x06  # PWM
             hw_index = pins[0] if pins else 0
@@ -918,6 +919,7 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
         elif ch_type_str == "power_output":
             hw_device = 0x05  # PROFET
             hw_index = pins[0] if pins else 0
+            logger.info(f"[POWER_OUTPUT DEBUG] ch_id={channel_id}, source_ref={source_ref}, source_id={source_id}, pins={pins}, hw_index={hw_index}")
         elif ch_type_str == "pwm_output":
             hw_device = 0x06  # PWM
             hw_index = pins[0] if pins else 0
@@ -1323,7 +1325,7 @@ def _serialize_timer(config: Dict) -> bytes:
     import struct
 
     # Timer mode mapping
-    MODE_MAP = {"one_shot": 0, "retriggerable": 1, "delay": 2, "pulse": 3, "blink": 4}
+    MODE_MAP = {"count_up": 0, "count_down": 1, "one_shot": 4, "retriggerable": 5, "delay": 0, "pulse": 2, "blink": 3, "monostable": 6}
 
     hours = config.get('limit_hours', 0)
     minutes = config.get('limit_minutes', 0)
@@ -1331,7 +1333,7 @@ def _serialize_timer(config: Dict) -> bytes:
     delay_ms = int((hours * 3600 + minutes * 60 + seconds) * 1000)
 
     trigger_id = _get_channel_ref(config.get('start_channel'))
-    mode = MODE_MAP.get(config.get('timer_mode', 'one_shot'), 0)
+    mode = MODE_MAP.get(config.get('timer_mode', 'count_down'), 2)
 
     return struct.pack('<BBHIHHB3s', mode, 0, trigger_id, delay_ms, 0, 0, 0, bytes(3))
 

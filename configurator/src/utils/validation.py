@@ -74,6 +74,20 @@ def _transform_timer_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Transform timer config from UI to shared validation format."""
     result = dict(config)
 
+    # Convert string mode to integer for validation
+    # UI uses "count_up"/"count_down" strings, validation expects integers 0-6
+    mode_str = config.get('mode', 'count_up')
+    mode_map = {
+        'count_up': 0,      # TIMER_MODE_ONE_SHOT
+        'count_down': 1,    # TIMER_MODE_RETRIGGERABLE
+        'one_shot': 0,
+        'retriggerable': 1,
+        'delay': 2,
+        'pulse': 3,
+        'blink': 4,
+    }
+    result['mode'] = mode_map.get(mode_str, 0) if isinstance(mode_str, str) else mode_str
+
     # Convert hours/minutes/seconds to delay_ms
     hours = config.get('limit_hours', 0)
     minutes = config.get('limit_minutes', 0)

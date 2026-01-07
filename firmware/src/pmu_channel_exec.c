@@ -330,8 +330,63 @@ void PMU_ChannelExec_Update(void)
                     result = (input_val == 0) ? 1 : 0;
                 }
             }
+        } else if (ch->runtime.type == CH_TYPE_TIMER && ch->runtime.config != NULL) {
+            /* Inline Timer evaluation for PULSE mode */
+            CfgTimer_t* timer_cfg = (CfgTimer_t*)ch->runtime.config;
+            Timer_State_t* timer_st = &ch->runtime.state.timer;
+
+            /* Get trigger input value */
+            int32_t trigger = 0;
+            if (timer_cfg->trigger_id != 0 && timer_cfg->trigger_id != 0xFFFF) {
+                trigger = GetSourceValue(timer_cfg->trigger_id);
+            }
+
+            uint32_t now_ms = HAL_GetTick();
+
+            /* Edge detection (common for all modes) */
+            uint8_t trigger_now = (trigger != 0) ? 1 : 0;
+            uint8_t rising_edge = (trigger_now && !timer_st->last_trigger);
+            timer_st->last_trigger = trigger_now;
+
+            /* Start timer on rising edge (only if idle) */
+            if (rising_edge && timer_st->state == TIMER_STATE_IDLE) {
+                timer_st->state = TIMER_STATE_RUNNING;
+                timer_st->start_time_ms = now_ms;
+                timer_st->elapsed_ms = 0;
+            }
+
+            /* Update elapsed time when running */
+            if (timer_st->state == TIMER_STATE_RUNNING) {
+                timer_st->elapsed_ms = now_ms - timer_st->start_time_ms;
+
+                /* Check if timer expired */
+                if (timer_st->elapsed_ms >= timer_cfg->delay_ms) {
+                    timer_st->state = TIMER_STATE_IDLE;
+                    timer_st->elapsed_ms = timer_cfg->delay_ms; /* Cap at max */
+                }
+            }
+
+            /* Output depends on mode:
+             * Mode 0 (COUNT_UP): output = elapsed_ms
+             * Mode 1 (COUNT_DOWN): output = remaining_ms
+             * Mode 2 (PULSE): output = 1 while running, 0 when idle
+             */
+            if (timer_cfg->mode == 0) {
+                /* COUNT_UP: output is elapsed time */
+                result = (int32_t)timer_st->elapsed_ms;
+            } else if (timer_cfg->mode == 1) {
+                /* COUNT_DOWN: output is remaining time */
+                if (timer_st->state == TIMER_STATE_RUNNING) {
+                    result = (int32_t)(timer_cfg->delay_ms - timer_st->elapsed_ms);
+                } else {
+                    result = 0;
+                }
+            } else {
+                /* PULSE and others: output is 1 while running */
+                result = (timer_st->state == TIMER_STATE_RUNNING) ? 1 : 0;
+            }
         }
-        /* Add other types as needed: MATH, TIMER, FILTER, etc. */
+        /* Add other types as needed: MATH, FILTER, etc. */
 
         /* Store result */
         ch->runtime.value = result;
@@ -541,6 +596,81 @@ bool PMU_ChannelExec_GetChannelInfo(uint16_t index, uint16_t* channel_id, int32_
         *value = ch->runtime.value;
     }
     return true;
+}
+
+/**
+ * @brief Sub-channel ID offsets for Timer properties
+ *
+ * Sub-channel ID = parent_id | SUB_xxx
+ * Example: Timer 201 elapsed = 201 | 0x8000 = 32969
+ */
+#define SUB_ELAPSED   0x8000  /**< Timer elapsed time (ms) */
+#define SUB_REMAINING 0x8001  /**< Timer remaining time (ms) */
+#define SUB_STATE     0x8002  /**< Timer state (0=idle,1=running,2=expired) */
+
+/**
+ * @brief Get Timer sub-channel data for telemetry
+ *
+ * @param index Channel index
+ * @param sub_index Sub-property (0=elapsed, 1=remaining, 2=state)
+ * @param sub_channel_id Output: sub-channel ID
+ * @param sub_value Output: sub-channel value
+ * @return true if valid
+ */
+bool PMU_ChannelExec_GetTimerSubChannel(uint16_t index, uint8_t sub_index,
+                                         uint16_t* sub_channel_id, int32_t* sub_value)
+{
+    if (index >= exec_state.channel_count) {
+        return false;
+    }
+
+    PMU_ExecChannel_t* ch = &exec_state.channels[index];
+
+    if (ch->runtime.type != CH_TYPE_TIMER || ch->runtime.config == NULL) {
+        return false;
+    }
+
+    CfgTimer_t* cfg = (CfgTimer_t*)ch->runtime.config;
+    Timer_State_t* st = &ch->runtime.state.timer;
+
+    switch (sub_index) {
+        case 0: /* elapsed */
+            if (sub_channel_id) *sub_channel_id = ch->channel_id | SUB_ELAPSED;
+            if (sub_value) *sub_value = (int32_t)st->elapsed_ms;
+            return true;
+
+        case 1: /* remaining */
+            if (sub_channel_id) *sub_channel_id = ch->channel_id | SUB_REMAINING;
+            if (sub_value) {
+                uint32_t remaining = 0;
+                if (st->elapsed_ms < cfg->delay_ms) {
+                    remaining = cfg->delay_ms - st->elapsed_ms;
+                }
+                *sub_value = (int32_t)remaining;
+            }
+            return true;
+
+        case 2: /* state */
+            if (sub_channel_id) *sub_channel_id = ch->channel_id | SUB_STATE;
+            if (sub_value) *sub_value = (int32_t)st->state;
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+/**
+ * @brief Get number of sub-channels for a channel
+ */
+uint8_t PMU_ChannelExec_GetSubChannelCount(uint16_t index)
+{
+    if (index >= exec_state.channel_count) {
+        return 0;
+    }
+    PMU_ExecChannel_t* ch = &exec_state.channels[index];
+    /* Timer has 3 sub-channels: elapsed, remaining, state */
+    return (ch->runtime.type == CH_TYPE_TIMER) ? 3 : 0;
 }
 
 /* Private functions ---------------------------------------------------------*/

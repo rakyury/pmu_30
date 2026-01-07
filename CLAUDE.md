@@ -863,3 +863,139 @@ pmu.upload_config(binary_data)  # Waits for BINARY_ACK
 - `pmu_config_json.c` - JSON config parsing
 - `pmu_logic_functions.c` - Old logic engine
 - cJSON dependency
+
+### Timer Mode Mapping
+
+**CRITICAL**: Configurator UI modes must map to firmware's `TimerMode_t` enum values correctly.
+
+**Firmware Timer modes** (from `shared/engine/timer.h`):
+| Mode | Value | Description |
+|------|-------|-------------|
+| DELAY_ON | 0x00 | Delay before output goes ON |
+| DELAY_OFF | 0x01 | Delay before output goes OFF |
+| PULSE | 0x02 | Output ON immediately, OFF after delay (countdown) |
+| BLINK | 0x03 | Toggle at interval |
+| ONESHOT | 0x04 | Single pulse, requires manual reset |
+| RETRIGGERABLE | 0x05 | Restarts on each trigger |
+| MONOSTABLE | 0x06 | Like oneshot but auto-resets |
+
+**Configurator MODE_MAP** (in `binary_config.py:_serialize_timer()`):
+```python
+MODE_MAP = {
+    "count_up": 0,      # DELAY_ON: wait duration, then ON
+    "count_down": 2,    # PULSE: ON immediately, OFF after duration
+    "one_shot": 4,      # ONESHOT
+    "retriggerable": 5, # RETRIGGERABLE
+    "pulse": 2,         # PULSE (alias)
+    "blink": 3,         # BLINK
+}
+```
+
+**Symptom**: "Timer doesn't activate on button press" → check mode mapping. If UI sends "count_down" but MODE_MAP doesn't have it, mode defaults to wrong value.
+
+### Channel Type Values
+
+**CRITICAL**: Binary config channel types must use correct hex values from `shared/python/channel_validation.py`.
+
+| Channel Type | Value | Notes |
+|--------------|-------|-------|
+| DIGITAL_INPUT | 0x01 | GPIO inputs |
+| ANALOG_INPUT | 0x02 | ADC inputs |
+| FREQUENCY_INPUT | 0x03 | Frequency counter |
+| CAN_INPUT | 0x04 | CAN RX signals |
+| POWER_OUTPUT | 0x10 | PROFET outputs |
+| PWM_OUTPUT | 0x11 | PWM outputs |
+| TIMER | 0x20 | Timer channels |
+| LOGIC | 0x21 | Logic operations |
+| MATH | 0x22 | Math operations |
+| TABLE_2D | 0x23 | 2D lookup tables |
+| FILTER | 0x25 | Signal filters |
+| PID | 0x26 | PID controllers |
+| NUMBER | 0x27 | Constants |
+| SWITCH | 0x28 | Multi-way switch |
+| COUNTER | 0x2A | Event counters |
+| HYSTERESIS | 0x2B | Hysteresis blocks |
+| FLIPFLOP | 0x2C | SR/D flip-flops |
+
+**Firmware LoadConfig filter** (in `pmu_channel_exec.c:PMU_ChannelExec_LoadConfig()`):
+```c
+// Only virtual channels in range [TIMER, FLIPFLOP] are added to executor
+if (type >= CH_TYPE_TIMER && type <= CH_TYPE_FLIPFLOP) {
+    PMU_ChannelExec_AddChannel(channel_id, type, &data[offset]);
+}
+
+// Power outputs create output links (source_id → hw_index)
+if (type == CH_TYPE_POWER_OUTPUT && source_id != 0xFFFF) {
+    PMU_ChannelExec_AddOutputLink(channel_id, source_id, hw_index);
+}
+```
+
+**Symptom**: "channels=0 after upload" → check channel type values. Wrong type (e.g., 10 instead of 0x20 for Timer) causes channel to be skipped.
+
+### Timer Sub-Channels
+
+**Architecture**: Timer channels have 3 sub-channels accessible via telemetry for monitoring and as source references:
+
+| Sub-Channel | ID Offset | Value | Description |
+|-------------|-----------|-------|-------------|
+| \ | 0x8000 | ms | Time elapsed since trigger |
+| \ | 0x8001 | ms | Time remaining until expiration |
+| \ | 0x8002 | enum | 0=IDLE, 1=RUNNING, 2=DONE |
+
+**Sub-channel ID calculation**: - Timer ID 200 → \ = 200 | 0x8000 = 32968
+- Timer ID 200 → \ = 200 | 0x8001 = 32969
+- Timer ID 200 → \ = 200 | 0x8002 = 32970
+
+**Firmware implementation** (\):
+**Telemetry format** (\):
+- \ at offset 104 includes sub-channels
+- For 1 Timer: virt_count=4 (main + 3 sub-channels)
+- Each entry: 
+**Configurator display** (\):
+- Timer sub-channels auto-created with channel_type: \, \, - Display names: \, \, 
+**Key files**:
+- \ - sub-channel functions, inline Timer evaluator
+- \ - telemetry builder with sub-channels
+- \ - UI display and formatting
+
+### Channel Config Serialization Pitfalls
+
+**Logic channel serialization** uses these field names (in priority order):
+1. `input_channels` - list of channel IDs or names
+2. `channel` / `channel_2` - single input channel names
+3. `set_channel` / `reset_channel` / `toggle_channel` - for specific operations
+
+**WRONG**: `inputs: ['Button']` - this field is IGNORED!
+**CORRECT**: `channel: 'Button'` or `input_channels: ['Button']`
+
+**Timer mode mapping** (`binary_config.py:_serialize_timer()`):
+| UI Mode | Firmware Mode | Behavior |
+|---------|---------------|----------|
+| count_up | 0 | output = elapsed_ms |
+| count_down | 1 | output = remaining_ms (only when RUNNING, 0 when IDLE) |
+| pulse | 2 | output = 1 while RUNNING, 0 when IDLE |
+
+**Symptom**: "Timer shows delay_ms when IDLE" → firmware needs `if (state == RUNNING)` check, not just elapsed < delay.
+
+**Config field name consistency** - must match across:
+- Dialog (`timer_dialog.py`): uses `mode`, `limit_hours`, `start_channel`
+- Device Controller (`device_controller.py`): returns `timer_mode`, `limit_hours`, `start_channel`
+- Serialization (`binary_config.py`): expects `timer_mode`, `limit_hours`, `start_channel`
+
+**Dialog may expect different names!** Check `_populate_from_existing()` and `get_config()` methods.
+
+### Debugging Config Upload
+
+**Always verify config by reading back**:
+```python
+# After upload, read config and check parsed values
+pmu.send(Command.GET_CONFIG, b'')
+data = pmu.receive().payload[4:]  # Skip 4-byte chunk header
+count = struct.unpack('<H', data[0:2])[0]
+# Parse each channel header + config...
+```
+
+**Common issues**:
+- `input_count=0` in Logic → wrong field name used (inputs vs channel)
+- `trigger_id=0xFFFF` in Timer → start_channel not resolved to ID
+- `source_id=0` in PowerOutput → source_channel reference not found

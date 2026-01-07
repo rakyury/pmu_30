@@ -7,7 +7,7 @@ import logging
 import threading
 import struct
 
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog
+from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
 from PyQt6.QtCore import QTimer, Qt
 
 from models.channel import ChannelType
@@ -194,6 +194,9 @@ class MainWindowDeviceMixin:
             self._progress.close()
             self._progress = None
 
+        # Set flag to prevent re-syncing while loading
+        self._loading_from_device = True
+
         try:
             # Ensure all channels have valid channel_id before populating UI
             config = ConfigMigration.ensure_channel_ids(config)
@@ -242,6 +245,9 @@ class MainWindowDeviceMixin:
         except Exception as e:
             logger.error(f"Error loading config: {e}")
             self.status_message.setText(f"Error loading config: {e}")
+        finally:
+            # Clear the flag after loading completes (success or error)
+            self._loading_from_device = False
 
     def _convert_channel_ids_to_names(self, config: dict) -> dict:
         """Convert numeric channel IDs to channel names for dialog compatibility.
@@ -464,7 +470,7 @@ class MainWindowDeviceMixin:
             QMessageBox.critical(self, "Write Failed", f"Failed to write configuration:\n{str(e)}")
 
     def _send_config_to_device_silent(self):
-        """Send binary configuration to device silently (no dialogs).
+        """Send binary configuration to device after channel changes.
 
         Sends binary config for Channel Executor virtual channels.
         Called automatically when channel configuration changes.
@@ -474,6 +480,23 @@ class MainWindowDeviceMixin:
         """
         if not self.device_controller.is_connected():
             return
+
+        # Skip sync if we're currently loading config from device
+        # (prevents re-uploading the same config we just read)
+        if getattr(self, '_loading_from_device', False):
+            logger.debug("Skipping config sync - loading from device in progress")
+            return
+
+        # Show progress dialog during sync
+        progress = QProgressDialog("Syncing configuration...", None, 0, 0, self)
+        progress.setWindowTitle("Please Wait")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)  # Force dialog to show immediately
+        progress.show()
+        progress.repaint()  # Force repaint
+        QApplication.processEvents()
+        QApplication.processEvents()  # Double process to ensure rendering
 
         try:
             channels = self.project_tree.get_all_channels()
@@ -505,17 +528,35 @@ class MainWindowDeviceMixin:
                 self.device_controller.subscribe_telemetry(rate_hz=10)
                 logger.info("Telemetry subscription started (no virtual channels)")
 
+            progress.close()
+
         except Exception as e:
+            progress.close()
             logger.error(f"Failed to send config silently: {e}")
             self.status_message.setText("Config sync failed")
 
     def _apply_output_to_device(self, output_config: dict):
-        """Apply output channel state to device immediately (on/off only)."""
+        """Apply output channel state to device immediately (on/off only).
+
+        NOTE: This function is for MANUAL outputs only.
+        If the output has a source_channel configured, the source channel
+        controls the output state via firmware output links - do NOT send
+        SET_OUTPUT commands which would interfere.
+        """
         if not self.device_controller.is_connected():
             return
 
+        # If output is controlled by source_channel, don't send manual commands
+        source_channel = output_config.get("source_channel")
+        if source_channel is not None and source_channel != "" and source_channel != 0xFFFF:
+            logger.debug(f"Output has source_channel={source_channel}, skipping manual SET_OUTPUT")
+            return
+
         pins = output_config.get("pins", [])
-        enabled = output_config.get("enabled", False)
+
+        # Only apply if explicitly enabled (don't default to OFF)
+        # For manual outputs with no source_channel
+        enabled = output_config.get("manual_state", False)
 
         for pin in pins:
             self.device_controller.set_output(pin, enabled)
