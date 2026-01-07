@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
+import serial
 import serial.tools.list_ports
 
 # Add shared library to path for channel_config import
@@ -23,8 +24,9 @@ _shared_path = Path(__file__).parent.parent.parent.parent / "shared" / "python"
 if str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from communication.protocol import MessageType
+from communication.protocol import MessageType, build_min_frame, MINFrameParser
 from communication.telemetry import parse_telemetry
+from binascii import crc32
 from dataclasses import dataclass
 
 # New modular components
@@ -484,6 +486,8 @@ class DeviceController(QObject):
         """
         Read configuration from device.
 
+        Uses PMUSerialTransfer directly to avoid poll thread interference.
+
         Args:
             timeout: Timeout in seconds
 
@@ -494,100 +498,106 @@ class DeviceController(QObject):
             logger.warning("Cannot read config: not connected")
             return None
 
+        if not isinstance(self._transport, MINSerialTransport):
+            logger.error("Cannot read config - not USB Serial connection")
+            return None
+
         logger.info("Reading configuration from device...")
 
-        # Stop serial polling timer during operation
+        # Get port info before disconnecting
+        port_name = self._transport.port.split(" - ")[0] if " - " in self._transport.port else self._transport.port
+        baudrate = self._transport.baudrate
+
+        # Stop serial polling timer
         polling_was_active = self._serial_poll_timer.isActive()
         if polling_was_active:
             self._serial_poll_timer.stop()
-            logger.debug("Stopped T-MIN polling for config read")
+            logger.debug("Stopped polling timer for config read")
 
-        # Stop any running telemetry stream first
-        self._queue_frame(MessageType.UNSUBSCRIBE_TELEMETRY)
-        logger.debug("Sent STOP_STREAM, waiting for device ready...")
+        # Disconnect transport to stop background poll thread
+        logger.debug(f"Disconnecting transport for fresh serial access on {port_name}")
+        self._transport.disconnect()
+        time.sleep(0.5)  # Windows needs time to release COM port
 
-        # Use PING/PONG health check instead of fixed sleep
-        if not self._wait_for_device_ready(max_wait=5.0, poll_interval=0.3):
-            logger.warning("Device not responding to PING after STOP_STREAM, proceeding anyway")
-
-        # Drain any pending frames from T-MIN queue
-        if isinstance(self._transport, MINSerialTransport):
-            for _ in range(10):
-                frames = self._transport.poll()
-                if not frames:
-                    break
-                logger.debug(f"Drained {len(frames)} frames from T-MIN queue")
-                time.sleep(0.05)
-
-        # Reset config assembler
-        self._config_assembler.reset()
-        self._config_event.clear()
-
-        # Send GET_CONFIG command with T-MIN reliable delivery
-        logger.debug("Sending GET_CONFIG...")
-        if not self._queue_frame(MessageType.GET_CONFIG):
-            logger.error("Failed to queue GET_CONFIG")
-            self._restore_polling(polling_was_active)
-            return None
-        logger.debug("GET_CONFIG queued, waiting for response...")
-
-        # Small delay to let device prepare response
-        time.sleep(0.1)
-
-        # Wait for CONFIG_DATA by polling T-MIN
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if isinstance(self._transport, MINSerialTransport):
-                frames = self._transport.poll()
-                for frame in frames:
-                    logger.debug(f"RX frame: id=0x{frame.min_id:02X}, len={len(frame.payload)}")
-                    self._handle_message(frame.min_id, frame.payload)
-
-            # Check if config complete
-            if self._config_event.is_set():
-                break
-
-            time.sleep(0.05)
-
-        # Check if we exited due to timeout
-        if not self._config_event.is_set():
-            logger.error(f"Timeout waiting for config ({timeout}s) - no CONFIG_DATA received")
-            self._restore_polling(polling_was_active)
-            return None
-
-        # Get assembled config data
-        config_data = self._config_assembler.get_data()
-        if config_data is None:
-            logger.error("Failed to assemble config chunks - incomplete data")
-            self._restore_polling(polling_was_active)
-            return None
-
-        # Parse binary config (raw channel data without file header)
+        config = None
         try:
-            from models.binary_config import BinaryConfigManager
-            binary_manager = BinaryConfigManager()
-            success, error = binary_manager.load_from_raw_bytes(config_data)
+            # Use PMUSerialTransfer directly (same as test scripts)
+            from serial_transfer_protocol import PMUSerialTransfer
 
-            if not success:
-                logger.error(f"Failed to parse binary config: {error}")
-                self._restore_polling(polling_was_active)
-                return None
+            logger.debug(f"Opening SerialTransfer connection: {port_name} @ {baudrate}")
+            pmu = PMUSerialTransfer(port_name, baudrate, timeout=timeout)
 
-            # Convert binary channels to UI config format
-            config = {"channels": []}
-            for ch in binary_manager.channels:
-                ch_dict = _channel_to_dict(ch)
-                if ch_dict:
-                    config["channels"].append(ch_dict)
+            if not pmu.connect():
+                logger.error("Failed to open SerialTransfer connection")
+                raise ConnectionError("Cannot connect to device")
 
-            logger.info(f"Configuration received: {len(config_data)} bytes, {len(config['channels'])} channels")
-            self._restore_polling(polling_was_active)
-            return config
+            try:
+                # STEP 1: Resync firmware parser
+                logger.debug("Resync: sending garbage bytes to reset firmware parser...")
+                pmu._port.write(b'\x81\x81\x81\x81')
+                pmu._port.flush()
+                time.sleep(0.1)
+                pmu._port.reset_input_buffer()
+                pmu._port.reset_output_buffer()
+
+                # STEP 2: Stop telemetry stream (method already drains buffer)
+                logger.debug("Stopping telemetry stream...")
+                pmu.stop_stream()  # Drains up to 20 packets internally
+
+                # STEP 3: Verify device is responsive
+                if pmu.ping(timeout=1.0):
+                    logger.debug("PING OK - device responsive")
+                else:
+                    logger.warning("No PONG response - device may be slow")
+
+                # STEP 4: Read config
+                logger.debug("Sending GET_CONFIG...")
+                config_data = pmu.read_config()
+
+                if config_data is None:
+                    logger.error("Failed to read config - no response")
+                else:
+                    logger.debug(f"Received config: {len(config_data)} bytes")
+
+                    # Parse binary config
+                    from models.binary_config import BinaryConfigManager
+                    binary_manager = BinaryConfigManager()
+                    success, error = binary_manager.load_from_raw_bytes(config_data)
+
+                    if not success:
+                        logger.error(f"Failed to parse binary config: {error}")
+                    else:
+                        # Convert binary channels to UI config format
+                        config = {"channels": []}
+                        for ch in binary_manager.channels:
+                            ch_dict = _channel_to_dict(ch)
+                            if ch_dict:
+                                config["channels"].append(ch_dict)
+
+                        logger.info(f"Configuration received: {len(config_data)} bytes, {len(config['channels'])} channels")
+
+            finally:
+                pmu.disconnect()
+                logger.debug("SerialTransfer connection closed")
 
         except Exception as e:
-            logger.error(f"Error processing binary config: {e}")
-            self._restore_polling(polling_was_active)
-            return None
+            logger.error(f"Config read error: {e}")
+
+        # Reconnect transport
+        time.sleep(0.1)
+        logger.debug("Reconnecting transport...")
+        if self._transport.connect():
+            logger.debug("Transport reconnected")
+        else:
+            logger.error("Failed to reconnect transport!")
+            self._is_connected = False
+
+        # Restart polling timer if it was active
+        if polling_was_active:
+            self._serial_poll_timer.start()
+            logger.debug("Restarted polling timer")
+
+        return config
 
     def _restore_polling(self, was_active: bool):
         """Restore serial polling timer if it was active before."""
@@ -842,6 +852,61 @@ class DeviceController(QObject):
             self._handle_connection_lost()
             return False
 
+    def _drain_serial(self, ser, duration_ms: int = 100):
+        """Drain serial buffer for fixed duration (like tests do).
+
+        Time-based drain is more reliable than read-until-empty because
+        USB serial buffers may have asynchronous arrivals.
+        """
+        deadline = time.time() + (duration_ms / 1000.0)
+        old_timeout = ser.timeout
+        ser.timeout = 0.01
+        while time.time() < deadline:
+            ser.read(1024)
+        ser.timeout = old_timeout
+        ser.reset_input_buffer()
+
+    def _direct_transact(self, ser, cmd: int, payload: bytes = b'',
+                         timeout: float = 3.0, expected_cmd: int = None):
+        """Send command via direct serial and wait for response (like tests do).
+
+        Returns list of (cmd, payload, seq) tuples.
+        """
+        # Time-based drain before sending
+        self._drain_serial(ser, 50)
+
+        # Build and send simple MIN frame
+        frame = build_min_frame(cmd, payload)
+        ser.write(frame)
+        ser.flush()
+
+        # Small delay for USB VCP buffer
+        time.sleep(0.08)
+
+        # Read responses
+        parser = MINFrameParser()
+        start = time.time()
+        results = []
+
+        old_timeout = ser.timeout
+        ser.timeout = 0.15
+        try:
+            while time.time() - start < timeout:
+                chunk = ser.read(512)
+                if chunk:
+                    frames = parser.feed(chunk)
+                    for cmd_rx, payload_rx, seq_rx, _ in frames:
+                        # Skip telemetry DATA when looking for specific command
+                        if cmd_rx == MessageType.TELEMETRY_DATA and expected_cmd and expected_cmd != MessageType.TELEMETRY_DATA:
+                            continue
+                        results.append((cmd_rx, payload_rx, seq_rx))
+                        if expected_cmd is not None and cmd_rx == expected_cmd:
+                            return results
+        finally:
+            ser.timeout = old_timeout
+
+        return results
+
     def subscribe_telemetry(self, rate_hz: int = 10):
         """Subscribe to telemetry streaming.
 
@@ -927,6 +992,9 @@ class DeviceController(QObject):
     def upload_binary_config(self, binary_data: bytes, timeout: float = 5.0) -> bool:
         """Upload binary configuration to device and wait for ACK.
 
+        Uses PMUSerialTransfer (COBS + CRC8) protocol - same as firmware.
+        The existing transport is disconnected during upload to avoid conflicts.
+
         Args:
             binary_data: Binary config data (serialized channels)
             timeout: Timeout in seconds to wait for ACK
@@ -938,66 +1006,103 @@ class DeviceController(QObject):
             logger.warning("Cannot upload config: not connected")
             return False
 
-        # Stop serial polling timer during upload
+        if not isinstance(self._transport, MINSerialTransport):
+            logger.error("Cannot upload config - not USB Serial connection")
+            return False
+
+        # Get port info before disconnecting
+        port_name = self._transport.port.split(" - ")[0] if " - " in self._transport.port else self._transport.port
+        baudrate = self._transport.baudrate
+
+        # CRITICAL: Stop QTimer
         polling_was_active = self._serial_poll_timer.isActive()
         if polling_was_active:
             self._serial_poll_timer.stop()
-            logger.debug("Stopped T-MIN polling for config upload")
+            logger.debug("Stopped polling timer for config upload")
 
-        # Reset ACK state
-        self._binary_config_ack_event.clear()
-        self._binary_config_ack_success = False
-        self._binary_config_ack_error = 0
-        self._binary_config_channels_loaded = 0
+        # CRITICAL: Fully disconnect transport to release serial port
+        logger.debug(f"Disconnecting transport for fresh serial access on {port_name}")
+        self._transport.disconnect()
+        time.sleep(0.5)  # Allow port to be released (Windows needs more time)
 
-        # Send in chunks with T-MIN reliable delivery
-        chunk_size = 200  # Smaller chunks for T-MIN (max payload 255)
-        chunks = [binary_data[i:i + chunk_size] for i in range(0, len(binary_data), chunk_size)]
-        total_chunks = len(chunks)
-
-        logger.info(f"Uploading binary config: {len(binary_data)} bytes in {total_chunks} chunks")
-
-        for idx, chunk in enumerate(chunks):
-            # Build chunk header: [chunk_idx: 2] [total_chunks: 2] [data: N]
-            header = struct.pack('<HH', idx, total_chunks)
-            payload = header + chunk
-
-            if not self._queue_frame(MessageType.LOAD_BINARY_CONFIG, payload):
-                logger.error(f"Failed to queue chunk {idx + 1}/{total_chunks}")
-                if polling_was_active:
-                    self._serial_poll_timer.start()
-                return False
-
-            # Small delay between chunks
-            time.sleep(0.05)
-
-        logger.info("All chunks queued, waiting for BINARY_CONFIG_ACK...")
-
+        success = False
         try:
-            # Wait for ACK by polling T-MIN
-            start_time = time.time()
-            while time.time() - start_time < timeout:
-                if isinstance(self._transport, MINSerialTransport):
-                    frames = self._transport.poll()
-                    for frame in frames:
-                        self._handle_message(frame.min_id, frame.payload)
+            # Use PMUSerialTransfer for proper protocol handling
+            from serial_transfer_protocol import PMUSerialTransfer
 
-                if self._binary_config_ack_event.is_set():
-                    break
+            logger.debug(f"Opening SerialTransfer connection: {port_name} @ {baudrate}")
+            pmu = PMUSerialTransfer(port_name, baudrate, timeout=timeout)
 
-                time.sleep(0.05)
+            if not pmu.connect():
+                logger.error("Failed to open SerialTransfer connection")
+                raise ConnectionError("Cannot connect to device")
 
-            if self._binary_config_ack_success:
-                logger.info(f"Binary config uploaded successfully: {self._binary_config_channels_loaded} channels loaded")
-                return True
-            else:
-                logger.error(f"Config upload failed: error code {self._binary_config_ack_error}")
-                return False
-        finally:
-            # Always restart polling timer if it was active
-            if polling_was_active:
-                self._serial_poll_timer.start()
-                logger.debug("Restarted serial polling after config upload")
+            try:
+                # STEP 1: Resync firmware parser - send garbage to trigger stale timeout
+                # Firmware parser has 50ms stale packet timeout, after which it resets
+                logger.debug("Resync: sending garbage bytes to reset firmware parser...")
+                pmu._port.write(b'\x81\x81\x81\x81')  # STOP_BYTE sequence (invalid)
+                pmu._port.flush()
+                time.sleep(0.1)  # Wait for stale packet timeout (50ms)
+                pmu._port.reset_input_buffer()
+                pmu._port.reset_output_buffer()
+
+                # STEP 2: Stop telemetry stream (method already drains buffer)
+                logger.debug("Stopping telemetry stream...")
+                pmu.stop_stream()  # Drains up to 20 packets internally
+
+                # STEP 3: Verify device is responsive
+                if pmu.ping(timeout=1.0):
+                    logger.debug("PING OK - device responsive")
+                else:
+                    logger.warning("No PONG response - device may be slow")
+
+                # STEP 4: Clear existing config first (workaround for firmware bug)
+                # Firmware doesn't properly handle re-uploading when config exists
+                # Uses proper ACK-based waiting (no magic sleeps!)
+                logger.debug("Clearing existing config before upload...")
+                clear_ok = pmu.clear_config()  # Waits for CLEAR_CONFIG_ACK (timeout=3s)
+                if clear_ok:
+                    logger.debug("Config cleared successfully (CLEAR_CONFIG_ACK received)")
+                else:
+                    logger.warning("Clear config: no ACK received (continuing anyway)")
+
+                # STEP 5: Upload config
+                logger.info(f"Uploading binary config: {len(binary_data)} bytes")
+                pmu._port.reset_input_buffer()  # Clear any stale data before upload
+                upload_success, channels = pmu.upload_config(binary_data)
+
+                if upload_success:
+                    logger.info(f"Binary config uploaded: {channels} channels loaded")
+                    self._binary_config_channels_loaded = channels
+                    success = True
+                else:
+                    logger.error("Config upload failed: no ACK received")
+
+            finally:
+                pmu.disconnect()
+                logger.debug("SerialTransfer connection closed")
+
+        except Exception as e:
+            logger.error(f"Config upload error: {e}")
+
+        # ================================================================
+        # Reconnect transport
+        # ================================================================
+        time.sleep(0.1)  # Allow port to be released
+        logger.debug("Reconnecting transport...")
+        if self._transport.connect():
+            logger.debug("Transport reconnected")
+        else:
+            logger.error("Failed to reconnect transport!")
+            self._is_connected = False
+
+        # Restart QTimer if it was active
+        if polling_was_active:
+            self._serial_poll_timer.start()
+            logger.debug("Restarted polling timer")
+
+        return success
 
     def save_to_flash(self, timeout: float = 5.0) -> bool:
         """Save current configuration to flash."""
@@ -1115,6 +1220,8 @@ def _channel_to_dict(channel) -> Optional[Dict[str, Any]]:
     if channel.hw_device != HwDevice.NONE:
         result["hw_device"] = channel.hw_device
         result["hw_index"] = channel.hw_index
+        # Also save as pins[] for serialization compatibility
+        result["pins"] = [channel.hw_index]
 
     # Parse type-specific config
     if channel.config:
@@ -1129,9 +1236,10 @@ def _parse_channel_config(result: Dict, ch_type: str, config) -> None:
 
     # Hardware input channels
     if ch_type == "digital_input":
-        result["debounce_ms"] = getattr(config, 'debounce_ms', 0)
-        result["active_high"] = bool(getattr(config, 'active_high', 1))
-        result["use_pullup"] = bool(getattr(config, 'use_pullup', 1))
+        # Preserve raw values for correct roundtrip (don't convert to bool)
+        result["debounce_ms"] = int(getattr(config, 'debounce_ms', 0))
+        result["active_high"] = int(getattr(config, 'active_high', 1))
+        result["use_pullup"] = int(getattr(config, 'use_pullup', 1))
 
     elif ch_type == "analog_input":
         result["raw_min"] = getattr(config, 'raw_min', 0)
@@ -1155,9 +1263,15 @@ def _parse_channel_config(result: Dict, ch_type: str, config) -> None:
 
     # Hardware output channels
     elif ch_type == "power_output":
-        result["current_limit_ma"] = getattr(config, 'current_limit_ma', 5000)
-        result["inrush_time_ms"] = getattr(config, 'inrush_time_ms', 100)
-        result["inrush_limit_ma"] = getattr(config, 'inrush_limit_ma', 5000)
+        # Extract ALL fields for correct roundtrip (match CfgPowerOutput_t)
+        result["current_limit_ma"] = int(getattr(config, 'current_limit_ma', 0))
+        result["inrush_limit_ma"] = int(getattr(config, 'inrush_limit_ma', 0))
+        result["inrush_time_ms"] = int(getattr(config, 'inrush_time_ms', 0))
+        result["retry_count"] = int(getattr(config, 'retry_count', 0))
+        result["retry_delay_s"] = int(getattr(config, 'retry_delay_s', 0))
+        result["pwm_frequency"] = int(getattr(config, 'pwm_frequency', 0))
+        result["soft_start_ms"] = int(getattr(config, 'soft_start_ms', 0))
+        result["flags"] = int(getattr(config, 'flags', 0))
 
     elif ch_type == "pwm_output":
         result["frequency_hz"] = getattr(config, 'frequency_hz', 1000)

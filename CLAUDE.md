@@ -747,6 +747,117 @@ python tests/test_config_roundtrip.py COM11 tests/configs/logic_and_full.pmu30
 
 Test verifies: upload → readback → flash save → readback. All channels must persist 1:1.
 
+## Current Debugging Status (2026-01-06)
+
+### Button → Logic → LED Chain: WORKING ✓
+
+The channel executor chain is **verified working**:
+- **Digital Input** (PC13, channel 50) detects button press
+- **Logic channel** (IS_TRUE, channel 200) evaluates button state
+- **Power Output** (PA5 LED, channel 100) follows logic output
+
+Test command to verify:
+```bash
+timeout 30 python -c "
+import sys, time, struct
+sys.path.insert(0, 'c:/Projects/pmu_30/shared/python')
+from serial_transfer_protocol import PMUSerialTransfer, Command
+pmu = PMUSerialTransfer('COM11', 115200)
+pmu.connect()
+pmu.send(Command.STOP_STREAM, b'')
+time.sleep(0.2)
+pmu.send(Command.START_STREAM, struct.pack('<H', 10))
+print('Press BLUE B1 button...')
+start = time.time()
+while time.time() - start < 25:
+    pkt = pmu.receive(timeout=0.2)
+    if pkt and pkt.cmd == 0x22 and len(pkt.payload) >= 106:
+        din = (pkt.payload[78] >> 0) & 1
+        led = pkt.payload[9]
+        if din: print(f'PRESSED! LED={\"ON\" if led else \"off\"}')
+pmu.disconnect()
+"
+```
+
+### Config Serialization Roundtrip: FIXED ✓
+
+**Problem**: Config read from device → parsed to UI → re-serialized produced different bytes, causing upload failures.
+
+**Root causes found and fixed**:
+
+1. **`_parse_channel_config()` bool() conversion** (`device_controller.py:1216-1220`):
+   - Bug: `bool(getattr(config, 'use_pullup', 1))` converted `10` to `True` (1)
+   - Fix: Use `int()` instead of `bool()` to preserve raw values
+
+2. **`_serialize_digital_input()` debounce fallback** (`binary_config.py:1094-1103`):
+   - Bug: `config.get('debounce_time', 50) or config.get('debounce_ms', 50)` always defaulted to 50
+   - Fix: Check key existence explicitly before using defaults
+
+3. **`_parse_channel_config()` power_output missing fields** (`device_controller.py:1243-1252`):
+   - Bug: Only extracted 3 fields, missing `retry_count`, `retry_delay_s`, `pwm_frequency`, etc.
+   - Fix: Extract ALL CfgPowerOutput_t fields for roundtrip compatibility
+
+4. **`_serialize_power_output()` non-zero defaults** (`binary_config.py:1216-1234`):
+   - Bug: Used defaults like `retry_count=3` which changed zero values
+   - Fix: Use `0` as default for all fields
+
+**Verification**: Config roundtrip now produces identical bytes (106 → 106, MATCH).
+
+### Configurator Config Sync: FIXED ✓
+
+**Problem**: Configurator showed "Config sync failed - no ACK from device" while test scripts worked.
+
+**Root causes and fixes**:
+
+1. **Firmware bug: LOAD_BINARY fails when config exists**
+   - Symptom: Upload times out if device already has config
+   - Workaround: Always call `CLEAR_CONFIG` before upload
+   - Proper fix: Firmware should handle re-upload (TODO)
+
+2. **Parser resync after disconnect/reconnect**
+   - Symptom: After configurator reconnects, commands fail
+   - Cause: Firmware parser in bad state from partial packet
+   - Fix: Send garbage bytes `\x81\x81\x81\x81` to trigger stale packet timeout (50ms)
+
+3. **Magic sleeps replaced with ACK-based waiting**
+   - Bad: `time.sleep(2.5)` hoping flash erase is done
+   - Good: `pmu.clear_config()` waits for `CLEAR_CONFIG_ACK` (timeout=3s)
+   - Rule: **Always wait for ACK, never use magic sleep for protocol operations**
+
+**Code pattern for reliable config upload** (`device_controller.py:upload_binary_config()`):
+```python
+# 1. Resync parser (trigger stale packet timeout)
+pmu._port.write(b'\x81\x81\x81\x81')
+time.sleep(0.1)  # 50ms stale timeout + margin
+
+# 2. Stop telemetry (method drains buffer)
+pmu.stop_stream()
+
+# 3. Verify connectivity
+pmu.ping(timeout=1.0)
+
+# 4. Clear config with ACK wait (NOT magic sleep!)
+pmu.clear_config()  # Waits for CLEAR_CONFIG_ACK
+
+# 5. Upload
+pmu.upload_config(binary_data)  # Waits for BINARY_ACK
+```
+
+**Key files**:
+- `device_controller.py:upload_binary_config()` - config upload with resync
+- `device_controller.py:read_configuration()` - config read with resync
+- `serial_transfer_protocol.py:clear_config()` - ACK-based clear
+
+### Nucleo Telemetry Voltage: TODO
+
+**Issue**: Output Monitor shows ~60V in V/Vltg columns - garbage data.
+
+**Cause**: Nucleo-F446RE has no voltage sensing ADC. Firmware sends uninitialized `voltage_mv` field.
+
+**Fix needed**:
+- Firmware: Send 0 or valid mock value for `voltage_mv` on Nucleo
+- Or: UI should show "-" when voltage is clearly invalid (>50V)
+
 ## Deprecated (removed)
 
 - `pmu_config_json.c` - JSON config parsing

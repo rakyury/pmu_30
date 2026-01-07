@@ -898,9 +898,9 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
 
         # Get common fields
         flags = 0x01 if ch.get("enabled", True) else 0x00
-        source_id = ch.get("source_channel", 0xFFFF)
-        if source_id is None or source_id == "" or not isinstance(source_id, int):
-            source_id = 0xFFFF  # CH_REF_NONE
+        source_ref = ch.get("source_channel", 0xFFFF)
+        # Resolve channel name to ID using lookup table
+        source_id = _get_channel_ref(source_ref) if source_ref else 0xFFFF
         default_value = 0
 
         # Get hardware info
@@ -954,6 +954,7 @@ def serialize_ui_channels_for_executor(channels: List[Dict]) -> bytes:
         result += data
 
     logger.info(f"Serialized {channel_count} channels to binary format ({len(result)} bytes)")
+    logger.info(f"  Binary hex: {result.hex()}")
     return result
 
 
@@ -1091,9 +1092,16 @@ def _serialize_digital_input(config: Dict) -> bytes:
     """
     import struct
 
-    active_high = 1 if config.get('active_high', True) else 0
-    use_pullup = 1 if config.get('use_pullup', True) else 0
-    debounce_ms = int(config.get('debounce_time', 50) or config.get('debounce_ms', 50))
+    # Preserve raw integer values for correct roundtrip
+    active_high = int(config.get('active_high', 1))
+    use_pullup = int(config.get('use_pullup', 1))
+    # Use debounce_ms if present, else debounce_time if present, else 0
+    if 'debounce_ms' in config:
+        debounce_ms = int(config['debounce_ms'])
+    elif 'debounce_time' in config:
+        debounce_ms = int(config['debounce_time'])
+    else:
+        debounce_ms = 0
 
     return struct.pack('<BBH',
         active_high,        # active_high: 1B
@@ -1206,10 +1214,12 @@ def _serialize_power_output(config: Dict) -> bytes:
     """
     import struct
 
-    current_limit = int(config.get('current_limit_ma', 10000))
-    inrush_limit = int(config.get('inrush_limit_ma', current_limit))
-    inrush_time = int(config.get('inrush_time_ms', 200))
-    retry_count = int(config.get('retry_count', 3))
+    # Use 0 as defaults to preserve original values during roundtrip
+    current_limit = int(config.get('current_limit_ma', 0))
+    inrush_limit = int(config.get('inrush_limit_ma', 0))
+    inrush_time = int(config.get('inrush_time_ms', 0))
+    retry_count = int(config.get('retry_count', 0))
+    retry_delay_s = int(config.get('retry_delay_s', 0))
     pwm_frequency = int(config.get('pwm_frequency', 0))
     soft_start_ms = int(config.get('soft_start_ms', 0))
     flags = int(config.get('flags', 0))
@@ -1219,7 +1229,7 @@ def _serialize_power_output(config: Dict) -> bytes:
         inrush_limit,       # inrush_limit_ma: 2B
         inrush_time,        # inrush_time_ms: 2B
         retry_count,        # retry_count: 1B
-        0,                  # reserved: 1B
+        retry_delay_s,      # retry_delay_s: 1B
         pwm_frequency,      # pwm_frequency: 2B
         soft_start_ms,      # soft_start_ms: 1B
         flags               # flags: 1B
@@ -1351,7 +1361,13 @@ def _serialize_logic(config: Dict) -> bytes:
         "toggle": 0x35, "pulse": 0x36, "flash": 0x37
     }
 
-    operation = OP_MAP.get(config.get('operation', 'is_true'), 0x06)
+    # Convert to lowercase to match OP_MAP keys (parser may return uppercase)
+    op_str = config.get('operation', 'is_true')
+    logger.info(f"[LOGIC DEBUG] Raw operation from config: '{op_str}' (type={type(op_str).__name__})")
+    if isinstance(op_str, str):
+        op_str = op_str.lower()
+    operation = OP_MAP.get(op_str, 0x06)
+    logger.info(f"[LOGIC DEBUG] After lowercase: '{op_str}' -> operation code: 0x{operation:02X}")
 
     # Handle both formats: input_channels list OR channel/channel_2 fields
     input_channels = config.get('input_channels', [])
