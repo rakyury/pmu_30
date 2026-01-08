@@ -69,6 +69,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* Peripheral handles */
 UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart1;  /* ESP32 WiFi bridge - Arduino D8(TX)/D2(RX) = PA9/PA10 */
 CAN_HandleTypeDef hcan1;
 ADC_HandleTypeDef hadc1;
 TIM_HandleTypeDef htim1;
@@ -109,6 +110,7 @@ uint32_t HAL_GetTick(void)
 static void SystemClock_Config(void);
 static void GPIO_Init(void);
 static void USART2_Init(void);
+static void USART1_Init(void);  /* ESP32 WiFi bridge - Arduino D8/D2 */
 static void ADC1_Init(void);
 static void TIM_PWM_Init(void);
 static void IWDG_Init(void);
@@ -178,6 +180,9 @@ int main(void)
 
     USART2_Init();
     while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'E';
+
+    USART1_Init();  /* ESP32 WiFi bridge - Arduino D8/D2 */
+    while (!(USART2->SR & USART_SR_TXE)); USART2->DR = '3';
 
     ADC1_Init();
     while (!(USART2->SR & USART_SR_TXE)); USART2->DR = 'F';
@@ -298,6 +303,14 @@ int main(void)
         if ((loop_count % 200) == 0) {
             PMU_ST_Update();
             HAL_IWDG_Refresh(&hiwdg);
+        }
+
+        /* DEBUG: Send test byte on USART1 TX every ~1 second */
+        static uint32_t usart1_test_counter = 0;
+        if (++usart1_test_counter >= 200000) {
+            usart1_test_counter = 0;
+            while (!(USART1->SR & USART_SR_TXE)) {}
+            USART1->DR = 0x55;  /* Send 'U' pattern */
         }
 
     }
@@ -705,13 +718,14 @@ static void GPIO_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    /* DIN1-DIN2: PC10, PC12 */
-    GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_12;
+    /* DIN1: PB1 (relocated from PC6 - now used for UART3 TX to ESP32) */
+    /* DIN2: PC12 */
+    GPIO_InitStruct.Pin = GPIO_PIN_12;
     GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    /* DIN3-DIN7: PB2, PB12, PB13, PB14, PB15 */
-    GPIO_InitStruct.Pin = GPIO_PIN_2 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+    /* DIN1, DIN3-DIN7: PB1, PB2, PB12, PB13, PB14, PB15 */
+    GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
     GPIO_InitStruct.Pull = GPIO_PULLDOWN;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
@@ -728,7 +742,7 @@ static void DigitalInputs_Read(void)
 {
     /* Read all digital inputs */
     g_digital_inputs[0] = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_13);  /* Button active-low */
-    g_digital_inputs[1] = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10);
+    g_digital_inputs[1] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_1);    /* DIN1: PB1 (PC6 used for UART3 TX) */
     g_digital_inputs[2] = HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12);
     g_digital_inputs[3] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_2);
     g_digital_inputs[4] = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_15);
@@ -785,6 +799,50 @@ static void USART2_Init(void)
     /* USART2 interrupt disabled - using bare-metal polling instead */
     // HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
     // HAL_NVIC_EnableIRQ(USART2_IRQn);
+}
+
+/**
+ * @brief USART1 Initialization for ESP32 WiFi bridge
+ * @note  PA9=TX (D8), PA10=RX (D2) - Arduino connector
+ *        Same SerialTransfer protocol as USB, enables WiFi connectivity
+ */
+static void USART1_Init(void)
+{
+    /* Enable clocks */
+    __HAL_RCC_USART1_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+
+    /* USART1 GPIO: PA9=TX (D8), PA10=RX (D2) - Arduino connector
+     * Direct register access to ensure correct AF7 configuration */
+
+    /* PA9: MODER = 10 (AF mode) */
+    GPIOA->MODER &= ~(3UL << (9 * 2));
+    GPIOA->MODER |= (2UL << (9 * 2));
+    /* PA9: OSPEEDR = 11 (very high speed) */
+    GPIOA->OSPEEDR |= (3UL << (9 * 2));
+    /* PA9: PUPDR = 01 (pull-up) */
+    GPIOA->PUPDR &= ~(3UL << (9 * 2));
+    GPIOA->PUPDR |= (1UL << (9 * 2));
+    /* PA9: AFR[1] bit 4-7 = 0111 (AF7 = USART1) */
+    GPIOA->AFR[1] &= ~(0xFUL << ((9 - 8) * 4));
+    GPIOA->AFR[1] |= (7UL << ((9 - 8) * 4));
+
+    /* PA10: MODER = 10 (AF mode) */
+    GPIOA->MODER &= ~(3UL << (10 * 2));
+    GPIOA->MODER |= (2UL << (10 * 2));
+    /* PA10: OSPEEDR = 11 (very high speed) */
+    GPIOA->OSPEEDR |= (3UL << (10 * 2));
+    /* PA10: PUPDR = 01 (pull-up) */
+    GPIOA->PUPDR &= ~(3UL << (10 * 2));
+    GPIOA->PUPDR |= (1UL << (10 * 2));
+    /* PA10: AFR[1] bit 8-11 = 0111 (AF7 = USART1) */
+    GPIOA->AFR[1] &= ~(0xFUL << ((10 - 8) * 4));
+    GPIOA->AFR[1] |= (7UL << ((10 - 8) * 4));
+
+    /* USART1: 115200 baud @ 16MHz HSI */
+    USART1->CR1 = 0;
+    USART1->BRR = 139;  /* 16MHz / 115200 = 138.89 */
+    USART1->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
 }
 
 static void CAN1_Init(void)
@@ -916,8 +974,9 @@ static void TIM_PWM_Init(void)
     __HAL_RCC_TIM2_CLK_ENABLE();
     __HAL_RCC_TIM3_CLK_ENABLE();
 
-    /* TIM1: PA8 (CH1), PA9 (CH2) - outputs 0, 1 */
-    GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+    /* TIM1: PA8 (CH1) - output 0
+     * NOTE: PA9 (CH2) removed - used for USART1 TX (ESP32 WiFi bridge) */
+    GPIO_InitStruct.Pin = GPIO_PIN_8;  /* Only PA8, not PA9! */
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;

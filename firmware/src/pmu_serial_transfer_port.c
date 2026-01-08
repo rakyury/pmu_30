@@ -20,6 +20,7 @@
 
 /* External references */
 extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart1;  /* ESP32 WiFi bridge - Arduino D8(TX)/D2(RX) */
 extern uint32_t HAL_GetTick(void);
 extern IWDG_HandleTypeDef hiwdg;
 
@@ -67,6 +68,8 @@ static uint32_t stream_counter = 0;
 /* Debug counters */
 static volatile uint32_t rx_packet_count = 0;
 static volatile uint8_t last_cmd = 0;
+static volatile uint32_t usart1_tx_bytes = 0;  /* Debug: count bytes sent to ESP32 */
+static volatile uint32_t usart2_tx_bytes = 0;  /* Debug: count bytes sent to USB */
 
 /* ============================================================================
  * External Functions
@@ -76,6 +79,9 @@ extern int PMU_ChannelExec_LoadConfig(const uint8_t* data, uint16_t size);
 extern void PMU_ChannelExec_Clear(void);
 extern uint16_t PMU_ChannelExec_GetChannelCount(void);
 extern bool PMU_ChannelExec_GetChannelInfo(uint16_t index, uint16_t* channel_id, int32_t* value);
+extern bool PMU_ChannelExec_GetTimerSubChannel(uint16_t index, uint8_t sub_index,
+                                                uint16_t* sub_channel_id, int32_t* sub_value);
+extern uint8_t PMU_ChannelExec_GetSubChannelCount(uint16_t index);
 extern void PMU_PROFET_SetState(uint8_t channel, bool state);
 extern uint8_t PMU_PROFET_GetState(uint8_t channel);
 extern uint16_t PMU_ADC_GetValue(uint8_t channel);
@@ -85,9 +91,10 @@ extern uint8_t g_digital_inputs[8];
  * Low-level TX/RX
  * ============================================================================ */
 
-/* Helper to poll RX byte into ring buffer */
+/* Helper to poll RX bytes from USART2 and USART1 into ring buffer */
 static inline void poll_rx_byte(void)
 {
+    /* Poll USART2 (USB / ST-Link VCP) */
     if (USART2->SR & USART_SR_RXNE) {
         uint8_t rx_byte = (uint8_t)(USART2->DR & 0xFF);
         uint16_t next = (st_rx_head + 1) % ST_RX_RING_SIZE;
@@ -96,9 +103,21 @@ static inline void poll_rx_byte(void)
             st_rx_head = next;
         }
     }
-    /* Clear overrun if it occurred */
     if (USART2->SR & USART_SR_ORE) {
         (void)USART2->DR; /* Clear ORE by reading DR */
+    }
+
+    /* Poll USART1 (ESP32 WiFi bridge) */
+    if (USART1->SR & USART_SR_RXNE) {
+        uint8_t rx_byte = (uint8_t)(USART1->DR & 0xFF);
+        uint16_t next = (st_rx_head + 1) % ST_RX_RING_SIZE;
+        if (next != st_rx_tail) {
+            st_rx_ring[st_rx_head] = rx_byte;
+            st_rx_head = next;
+        }
+    }
+    if (USART1->SR & USART_SR_ORE) {
+        (void)USART1->DR; /* Clear ORE by reading DR */
     }
 }
 
@@ -112,16 +131,26 @@ static void uart_send_packet(uint8_t cmd, const uint8_t* payload, uint8_t len)
     uint16_t frame_len = ST_BuildPacket(&g_st_ctx, len, cmd, st_tx_buffer, ST_TX_BUFFER_SIZE);
     if (frame_len == 0) return;
 
-    /* Send bytes - poll RX during TX to prevent overrun */
+    /* Send bytes to BOTH USART2 (USB) and USART1 (ESP32 WiFi bridge)
+     * This enables transparent WiFi bridging - configurator can connect via either */
     for (uint16_t i = 0; i < frame_len; i++) {
+        /* Wait for USART2 ready */
         while (!(USART2->SR & USART_SR_TXE)) {
             poll_rx_byte();
         }
         USART2->DR = st_tx_buffer[i];
+        usart2_tx_bytes++;
+
+        /* Wait for USART1 ready */
+        while (!(USART1->SR & USART_SR_TXE)) {
+            poll_rx_byte();
+        }
+        USART1->DR = st_tx_buffer[i];
+        usart1_tx_bytes++;
     }
 
-    /* Wait for complete - also poll RX */
-    while (!(USART2->SR & USART_SR_TC)) {
+    /* Wait for both TX complete - also poll RX */
+    while (!(USART2->SR & USART_SR_TC) || !(USART1->SR & USART_SR_TC)) {
         poll_rx_byte();
     }
 }
@@ -254,6 +283,9 @@ static void handle_get_config(void)
 
 static void handle_load_binary(const uint8_t* payload, uint8_t len)
 {
+    /* DEBUG: Toggle LED to show command received */
+    GPIOA->ODR ^= (1 << 5);  /* Toggle PA5 */
+
     if (len < 4) {
         uint8_t nack[2] = {ST_CMD_LOAD_BINARY, 0x02};
         uart_send_packet(ST_CMD_NACK, nack, 2);
@@ -447,19 +479,50 @@ static void build_telemetry(uint8_t* buf, uint16_t* len)
     /* Debug fields */
     buf[idx++] = rx_packet_count & 0xFF;
     buf[idx++] = last_cmd;
-    for (int i = 0; i < 6; i++) buf[idx++] = 0;
+    /* Debug: TX byte counts (lower 16 bits each) */
+    buf[idx++] = (usart2_tx_bytes >> 0) & 0xFF;
+    buf[idx++] = (usart2_tx_bytes >> 8) & 0xFF;
+    buf[idx++] = (usart1_tx_bytes >> 0) & 0xFF;
+    buf[idx++] = (usart1_tx_bytes >> 8) & 0xFF;
+    buf[idx++] = 0;
+    buf[idx++] = 0;
     uint16_t ch_count = PMU_ChannelExec_GetChannelCount();
     buf[idx++] = ch_count & 0xFF;
     buf[idx++] = (ch_count >> 8) & 0xFF;
     buf[idx++] = 0;
 
-    /* Status (10) */
-    for (int i = 0; i < 10; i++) buf[idx++] = 0;
+    /* Status (10) - Debug USART/GPIO info */
+    /* Byte 0: USART1->CR1 UE bit (1=enabled, 0=disabled) */
+    buf[idx++] = (USART1->CR1 & USART_CR1_UE) ? 1 : 0;
+    /* Byte 1: USART1->SR status register low byte (TXE=0x80, TC=0x40, RXNE=0x20) */
+    buf[idx++] = USART1->SR & 0xFF;
+    /* Byte 2: USART1->CR1 TE bit (TX enable) */
+    buf[idx++] = (USART1->CR1 & USART_CR1_TE) ? 1 : 0;
+    /* Byte 3: USART1->CR1 RE bit (RX enable) */
+    buf[idx++] = (USART1->CR1 & USART_CR1_RE) ? 1 : 0;
+    /* Byte 4: PA9 pin state (USART1 TX) - should be HIGH when idle */
+    buf[idx++] = (GPIOA->IDR & GPIO_IDR_ID9) ? 1 : 0;
+    /* Byte 5: PA10 pin state (USART1 RX) */
+    buf[idx++] = (GPIOA->IDR & GPIO_IDR_ID10) ? 1 : 0;
+    /* Byte 6: GPIOA MODER for PA9 (should be 0x2 = AF mode) */
+    buf[idx++] = (GPIOA->MODER >> 18) & 0x3;
+    /* Byte 7: GPIOA AFR[1] for PA9 (should be 0x7 = AF7 USART1) */
+    buf[idx++] = (GPIOA->AFR[1] >> 4) & 0xF;
+    /* Byte 8-9: zeros */
+    buf[idx++] = 0;
+    buf[idx++] = 0;
 
-    /* Virtual channels */
-    buf[idx++] = ch_count & 0xFF;
-    buf[idx++] = (ch_count >> 8) & 0xFF;
+    /* Virtual channels + sub-channels */
+    /* Count total: main channels + sub-channels (Timer has 3 sub-channels each) */
+    uint16_t total_count = ch_count;
+    for (uint16_t i = 0; i < ch_count; i++) {
+        total_count += PMU_ChannelExec_GetSubChannelCount(i);
+    }
 
+    buf[idx++] = total_count & 0xFF;
+    buf[idx++] = (total_count >> 8) & 0xFF;
+
+    /* Main channel values */
     for (uint16_t i = 0; i < ch_count && idx + 6 <= 200; i++) {
         uint16_t ch_id;
         int32_t value;
@@ -470,6 +533,23 @@ static void build_telemetry(uint8_t* buf, uint16_t* len)
             buf[idx++] = (value >> 8) & 0xFF;
             buf[idx++] = (value >> 16) & 0xFF;
             buf[idx++] = (value >> 24) & 0xFF;
+        }
+    }
+
+    /* Sub-channels (Timer: elapsed, remaining, state) */
+    for (uint16_t i = 0; i < ch_count && idx + 6 <= 200; i++) {
+        uint8_t sub_count = PMU_ChannelExec_GetSubChannelCount(i);
+        for (uint8_t s = 0; s < sub_count && idx + 6 <= 200; s++) {
+            uint16_t sub_id;
+            int32_t sub_value;
+            if (PMU_ChannelExec_GetTimerSubChannel(i, s, &sub_id, &sub_value)) {
+                buf[idx++] = sub_id & 0xFF;
+                buf[idx++] = (sub_id >> 8) & 0xFF;
+                buf[idx++] = sub_value & 0xFF;
+                buf[idx++] = (sub_value >> 8) & 0xFF;
+                buf[idx++] = (sub_value >> 16) & 0xFF;
+                buf[idx++] = (sub_value >> 24) & 0xFF;
+            }
         }
     }
 

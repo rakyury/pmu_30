@@ -858,6 +858,64 @@ pmu.upload_config(binary_data)  # Waits for BINARY_ACK
 - Firmware: Send 0 or valid mock value for `voltage_mv` on Nucleo
 - Or: UI should show "-" when voltage is clearly invalid (>50V)
 
+### ESP32 WiFi Bridge
+
+**Architecture**: ESP32 acts as transparent SerialTransfer bridge over WiFi.
+
+```
+┌─────────────────┐  USART1  ┌─────────────────┐  WiFi/TCP  ┌─────────────────┐
+│  Nucleo-F446RE  │  PA9/10  │   ESP32 KS0413  │ Port 8266  │  Configurator   │
+│     (PMU-30)    │◄────────►│  GPIO 25/26     │◄──────────►│  (or browser)   │
+└─────────────────┘          └─────────────────┘            └─────────────────┘
+```
+
+**Hardware wiring**:
+| Nucleo | Function | ESP32 | Function |
+|--------|----------|-------|----------|
+| D8 (PA9) | USART1_TX | GPIO25 | RX |
+| D2 (PA10) | USART1_RX | GPIO26 | TX |
+| GND | Ground | GND | Ground |
+
+**CRITICAL - GPIO Alternate Function Conflict (PA9)**:
+
+PA9 is shared between USART1 (AF7) and TIM1_CH2 (AF1). If TIM_PWM_Init() is called AFTER USART1_Init(), it will overwrite PA9 from AF7 to AF1!
+
+**Symptom**: ESP32 receives only a few bytes then stops, PA9 state=0 (should be 1 when UART idle).
+
+**Diagnosis via telemetry debug fields** (added at offset 94-103):
+```c
+// pmu_serial_transfer_port.c - telemetry debug fields
+buf[idx++] = (GPIOA->IDR & GPIO_IDR_ID9) ? 1 : 0;  // PA9 state
+buf[idx++] = (GPIOA->MODER >> 18) & 0x3;           // PA9 MODER (should be 2)
+buf[idx++] = (GPIOA->AFR[1] >> 4) & 0xF;           // PA9 AFR (should be 7)
+```
+
+**If AFR shows 1 instead of 7** → TIM1 overwriting USART1 config!
+
+**Fix** (`main_nucleo_f446.c` TIM_PWM_Init):
+```c
+// WRONG - conflicts with USART1 TX on PA9
+GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
+
+// CORRECT - PA9 reserved for USART1
+GPIO_InitStruct.Pin = GPIO_PIN_8;  // Only PA8 for TIM1_CH1
+```
+
+**ESP32 GPIO selection notes**:
+- GPIO4/5 - boot strapping, may cause issues
+- GPIO16/17 - PSRAM on some boards
+- GPIO25/26 - DAC pins, always free, recommended for UART
+
+**ESP32 project**: `firmware/esp32_bridge/`
+- `platformio.ini` - build config for esp32dev
+- `src/main.cpp` - WiFi AP/STA + TCP server on port 8266
+- Web dashboard on port 80 with auto-refresh
+
+**Build & Upload ESP32**:
+```bash
+cd c:/Projects/pmu_30/firmware/esp32_bridge && python -m platformio run -e esp32dev -t upload
+```
+
 ## Deprecated (removed)
 
 - `pmu_config_json.c` - JSON config parsing
